@@ -30,15 +30,14 @@ LOGLEVEL = os.getenv("LOGLEVEL", "INFO")
 # ============================================================================
 
 # Current project root (reducing-technical-debt-praxis-experiment)
-PROJECT_ROOT = Path(__file__).parent
+PROJECT_ROOT = Path(__file__).parent.parent  # utils -> project root
 
 # Data and source code directories
-DATA_DIR = PROJECT_ROOT
+DATA_DIR = PROJECT_ROOT / "data"
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 
-# CSV file location (in the dissertation code collection directory)
-DISSERTATION_CODE_DIR = Path(__file__).parent.parent / "Reducing Technical Debt in Legacy Codebases through AI-Enabled Prompt Refinement" / "code"
-CSV_INPUT_FILE = DISSERTATION_CODE_DIR / "data_collection" / "data" / "unified_experimental_dataset_shell.csv"
+# CSV file location (in the local data directory)
+CSV_INPUT_FILE = PROJECT_ROOT / "data" / "unified_experimental_dataset_shell.csv"
 
 # Source code directory (in current project)
 SOURCE_CODE_DIR = PROJECT_ROOT / "sample_source_code"

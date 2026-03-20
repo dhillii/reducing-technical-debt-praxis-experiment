@@ -15,7 +15,7 @@ import ast
 from pathlib import Path
 from typing import List, Tuple, Dict, Any
 import pandas as pd
-from .config import (
+from utils.config import (
     REQUIRED_ENV_VARS,
     REQUIRED_FILES,
     CSV_INPUT_FILE,
@@ -23,7 +23,7 @@ from .config import (
     EXPERIMENT_STATE_FILE,
     SONARCLOUD_PROJECT_KEY,
 )
-from .logger_config import get_logger
+from utils.logger_config import get_logger
 
 logger = get_logger("validation")
 
@@ -296,7 +296,7 @@ def get_validation_report() -> str:
 
 
 if __name__ == "__main__":
-    from logger_config import setup_logging
+    from utils.logger_config import setup_logging
     setup_logging()
 
     print(get_validation_report())

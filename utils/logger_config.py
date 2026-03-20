@@ -11,7 +11,7 @@ import logging
 import logging.handlers
 from pathlib import Path
 from typing import Optional
-from .config import (
+from utils.config import (
     LOGLEVEL,
     MAIN_LOG_FILE,
     ERROR_LOG_FILE,
