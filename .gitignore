@@ -1,0 +1,83 @@
+# Environment & Credentials
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.sublime-project
+*.sublime-workspace
+
+# Project-Specific: Cloned Repositories (large, can be re-cloned)
+repos_cache/
+
+# Project-Specific: Logs
+*.log
+experiment.log
+experiment_errors.log
+experiment_debug.log
+
+# Project-Specific: Runtime Files
+experiment_state.json
+experiment_state_backup_*.json
+
+# Project-Specific: Temporary Files
+*.tmp
+*.temp
+*.bak
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Node (if any)
+node_modules/
+package-lock.json
+
+# Lock files (optional - uncomment if you want to track them)
+# Pipfile.lock
