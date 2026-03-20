@@ -26,22 +26,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Project GitHub URLs (official repositories)
+# Project GitHub URLs (from dhillii organization forks)
 PROJECT_REPOS = {
-    "Ghost": "https://github.com/TryGhost/Ghost.git",
-    "create-react-app": "https://github.com/facebook/create-react-app.git",
-    "eslint": "https://github.com/eslint/eslint.git",
-    "express": "https://github.com/expressjs/express.git",
-    "hapi": "https://github.com/hapijs/hapi.git",
-    "keystone": "https://github.com/keystonejs/keystone.git",
-    "laverna": "https://github.com/Laverna/laverna.git",
-    "mail": "https://github.com/zetacomponents/Mail.git",
-    "mocha": "https://github.com/mochajs/mocha.git",
-    "mongoose": "https://github.com/Automattic/mongoose.git",
-    "pm2": "https://github.com/Unitech/pm2.git",
-    "sequelize": "https://github.com/sequelize/sequelize.git",
-    "strapi": "https://github.com/strapi/strapi.git",
-    "webpack": "https://github.com/webpack/webpack.git",
+    "Ghost": "https://github.com/dhillii/Ghost.git",
+    "create-react-app": "https://github.com/dhillii/create-react-app.git",
+    "eslint": "https://github.com/dhillii/eslint.git",
+    "express": "https://github.com/dhillii/express.git",
+    "hapi": "https://github.com/dhillii/hapi.git",
+    "keystone": "https://github.com/dhillii/keystone.git",
+    "laverna": "https://github.com/dhillii/laverna.git",
+    "mail": "https://github.com/dhillii/Mail.git",
+    "mocha": "https://github.com/dhillii/mocha.git",
+    "mongoose": "https://github.com/dhillii/mongoose.git",
+    "pm2": "https://github.com/dhillii/pm2.git",
+    "sequelize": "https://github.com/dhillii/sequelize.git",
+    "strapi": "https://github.com/dhillii/strapi.git",
+    "webpack": "https://github.com/dhillii/webpack.git",
 }
 
 
