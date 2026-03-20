@@ -1,0 +1,280 @@
+"""
+Configuration module for the dissertation experiment orchestration system.
+
+This module defines all constants, timeouts, defaults, and environment variable
+mappings used throughout the orchestration system.
+"""
+
+import os
+from pathlib import Path
+from typing import Dict, Any
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# ============================================================================
+# ENVIRONMENT VARIABLES
+# ============================================================================
+
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+SONAR_TOKEN = os.getenv("SONAR_TOKEN", "")
+SONAR_ORG = os.getenv("SONAR_ORG", "dhillii")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "your-org/dissertation-experiments")
+EXPERIMENT_REPO_PATH = os.getenv("EXPERIMENT_REPO_PATH", "./dissertation-experiments")
+LOGLEVEL = os.getenv("LOGLEVEL", "INFO")
+
+# ============================================================================
+# PATHS
+# ============================================================================
+
+PROJECT_ROOT = Path(__file__).parent.parent
+DATA_DIR = PROJECT_ROOT / "data_collection"
+SCRIPTS_DIR = PROJECT_ROOT / "scripts"
+EXPERIMENT_STATE_FILE = PROJECT_ROOT / "experiment_state.json"
+CSV_INPUT_FILE = DATA_DIR / "unified_experimental_dataset_shell.csv"
+SOURCE_CODE_DIR = DATA_DIR / "sample_source_code"
+
+# ============================================================================
+# SONARCLOUD CONFIGURATION
+# ============================================================================
+
+SONARCLOUD_BASE_URL = "https://sonarcloud.io/api"
+SONARCLOUD_PROJECT_KEY = "dissertation-experiments"
+SONARCLOUD_COMPONENT_TEMPLATE = "dissertation-experiments:conditions/{condition}/file_{file_id:04d}/run_{run_number}"
+
+# ============================================================================
+# EXECUTION PARAMETERS
+# ============================================================================
+
+# Total expected runs
+TOTAL_EXPECTED_RUNS = 1314
+
+# Stages in order of execution
+EXECUTION_STAGES = [
+    "CODE_GENERATION",
+    "CODE_VALIDATION",
+    "GIT_COMMIT",
+    "GIT_PUSH",
+    "SONAR_QUEUE_CHECK",
+    "SONAR_METRIC_EXTRACTION",
+    "CSV_UPDATE",
+]
+
+# Possible run statuses
+RUN_STATUSES = [
+    "PENDING",
+    "IN_PROGRESS",
+    "COMPLETED",
+    "FAILED",
+    "SKIPPED",
+]
+
+# ============================================================================
+# TIMING & RETRY CONFIGURATION
+# ============================================================================
+
+# Claude API settings
+CLAUDE_API_TIMEOUT = 120  # seconds
+CLAUDE_MODEL = "claude-sonnet-4-6"
+CLAUDE_TEMPERATURE = 0.0
+
+# SonarCloud polling settings
+SONARCLOUD_POLL_INTERVAL = 5  # seconds between polls
+SONARCLOUD_POLL_TIMEOUT = 300  # max seconds to wait for analysis
+SONARCLOUD_INITIAL_WAIT = 2  # seconds before first poll
+
+# Retry settings
+MAX_AUTOMATIC_RETRIES = 3
+RETRY_BACKOFF_BASE = 1  # seconds, exponential backoff: 1s, 2s, 4s, 8s...
+RETRY_BACKOFF_MAX = 60  # seconds, max backoff between retries
+MAX_MANUAL_RETRIES_PER_RECORD = 5
+
+# Git operation timeouts
+GIT_COMMIT_TIMEOUT = 30  # seconds
+GIT_PUSH_TIMEOUT = 60  # seconds
+
+# ============================================================================
+# ERROR CLASSIFICATION
+# ============================================================================
+
+RETRIABLE_ERROR_TYPES = {
+    "SonarCloudTimeoutError",
+    "SonarCloudAnalysisError",
+    "NetworkTransientError",
+    "GitPushTimeout",
+    "ClaudeAPIRateLimit",
+    "ClaudeAPITransientError",
+}
+
+NON_RETRIABLE_ERROR_TYPES = {
+    "InvalidCodeSyntax",
+    "MissingSourceFile",
+    "MalformedCSVRow",
+    "ClaudeAPIAuthError",
+    "GitAuthError",
+}
+
+# ============================================================================
+# LOGGING CONFIGURATION
+# ============================================================================
+
+LOG_LEVEL_MAPPING = {
+    "DEBUG": 10,
+    "INFO": 20,
+    "WARNING": 30,
+    "ERROR": 40,
+    "CRITICAL": 50,
+}
+
+LOG_FORMAT = "[%(asctime)s] [%(levelname)-8s] %(message)s"
+LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+# Log file paths
+MAIN_LOG_FILE = PROJECT_ROOT / "experiment.log"
+ERROR_LOG_FILE = PROJECT_ROOT / "experiment_errors.log"
+DEBUG_LOG_FILE = PROJECT_ROOT / "experiment_debug.log"
+
+# Log rotation settings
+LOG_MAX_BYTES = 100 * 1024 * 1024  # 100 MB
+LOG_BACKUP_COUNT = 10
+LOG_ENCODING = "utf-8"
+
+# ============================================================================
+# CSV & DATA SETTINGS
+# ============================================================================
+
+CSV_APPEND_MODE = True  # Only append, never overwrite
+BACKUP_CSV_ON_START = True
+
+# CSV columns to update after run completion
+CSV_RESULT_COLUMNS = [
+    "refactoring_applied",
+    "post_cyclomatic_complexity",
+    "post_cognitive_complexity",
+    "post_ncloc",
+    "cc_delta",
+    "git_commit_hash",
+    "sonar_component_key",
+    "sonar_analysis_date",
+]
+
+# ============================================================================
+# GIT CONFIGURATION
+# ============================================================================
+
+GIT_AUTHOR_NAME = "Dissertation Experiment Bot"
+GIT_AUTHOR_EMAIL = "experiment@dissertation.local"
+
+COMMIT_MESSAGE_TEMPLATE = """{file_id_padded} | {project_name} | {condition} | Run {run_number}
+
+Commit metadata (YAML-style header):
+---
+record_id: {record_id}
+file_id: {file_id}
+project_name: {project_name}
+file_name: {file_name}
+condition: {condition}
+run_number: {run_number}
+llm_model: {llm_model}
+llm_temperature: {llm_temperature}
+prompt_tokens: {prompt_tokens}
+completion_tokens: {completion_tokens}
+total_tokens: {total_tokens}
+timestamp: {timestamp}
+---
+
+Refactored code for {file_name} addressing SonarCloud issues.
+Pre-refactoring CC: {pre_cc}
+Expected post-refactoring CC: {expected_post_cc}
+
+Code path: conditions/{condition}/file_{file_id_padded}/run_{run_number}.js
+"""
+
+# ============================================================================
+# MONITORING & DASHBOARD SETTINGS
+# ============================================================================
+
+DASHBOARD_REFRESH_INTERVAL = 1  # seconds
+RECENT_COMPLETIONS_LIMIT = 10
+RECENT_ERRORS_LIMIT = 5
+
+# ============================================================================
+# VALIDATION SETTINGS
+# ============================================================================
+
+REQUIRED_ENV_VARS = [
+    "ANTHROPIC_API_KEY",
+    "SONAR_TOKEN",
+    "GITHUB_TOKEN",
+    "GITHUB_REPO",
+    "EXPERIMENT_REPO_PATH",
+]
+
+REQUIRED_FILES = [
+    CSV_INPUT_FILE,
+    SOURCE_CODE_DIR,
+]
+
+# ============================================================================
+# BUILD CONFIGURATION OBJECT
+# ============================================================================
+
+CONFIG: Dict[str, Any] = {
+    # API Keys
+    "anthropic_api_key": ANTHROPIC_API_KEY,
+    "sonar_token": SONAR_TOKEN,
+    "sonar_org": SONAR_ORG,
+    "github_token": GITHUB_TOKEN,
+    "github_repo": GITHUB_REPO,
+    "experiment_repo_path": EXPERIMENT_REPO_PATH,
+    # Paths
+    "project_root": PROJECT_ROOT,
+    "data_dir": DATA_DIR,
+    "scripts_dir": SCRIPTS_DIR,
+    "experiment_state_file": EXPERIMENT_STATE_FILE,
+    "csv_input_file": CSV_INPUT_FILE,
+    "source_code_dir": SOURCE_CODE_DIR,
+    "main_log_file": MAIN_LOG_FILE,
+    "error_log_file": ERROR_LOG_FILE,
+    "debug_log_file": DEBUG_LOG_FILE,
+    # Execution
+    "total_expected_runs": TOTAL_EXPECTED_RUNS,
+    "execution_stages": EXECUTION_STAGES,
+    "run_statuses": RUN_STATUSES,
+    # SonarCloud
+    "sonarcloud_base_url": SONARCLOUD_BASE_URL,
+    "sonarcloud_project_key": SONARCLOUD_PROJECT_KEY,
+    "sonarcloud_component_template": SONARCLOUD_COMPONENT_TEMPLATE,
+    # Timing
+    "claude_api_timeout": CLAUDE_API_TIMEOUT,
+    "claude_model": CLAUDE_MODEL,
+    "claude_temperature": CLAUDE_TEMPERATURE,
+    "sonarcloud_poll_interval": SONARCLOUD_POLL_INTERVAL,
+    "sonarcloud_poll_timeout": SONARCLOUD_POLL_TIMEOUT,
+    "sonarcloud_initial_wait": SONARCLOUD_INITIAL_WAIT,
+    "max_automatic_retries": MAX_AUTOMATIC_RETRIES,
+    "retry_backoff_base": RETRY_BACKOFF_BASE,
+    "retry_backoff_max": RETRY_BACKOFF_MAX,
+    "max_manual_retries_per_record": MAX_MANUAL_RETRIES_PER_RECORD,
+    "git_commit_timeout": GIT_COMMIT_TIMEOUT,
+    "git_push_timeout": GIT_PUSH_TIMEOUT,
+    # Logging
+    "loglevel": LOGLEVEL,
+    "log_format": LOG_FORMAT,
+    "log_date_format": LOG_DATE_FORMAT,
+    "log_max_bytes": LOG_MAX_BYTES,
+    "log_backup_count": LOG_BACKUP_COUNT,
+    # Error handling
+    "retriable_error_types": RETRIABLE_ERROR_TYPES,
+    "non_retriable_error_types": NON_RETRIABLE_ERROR_TYPES,
+}
+
+if __name__ == "__main__":
+    # Test configuration loading
+    print("Configuration loaded successfully")
+    print(f"Project root: {PROJECT_ROOT}")
+    print(f"CSV file: {CSV_INPUT_FILE}")
+    print(f"State file: {EXPERIMENT_STATE_FILE}")
+    print(f"Total expected runs: {TOTAL_EXPECTED_RUNS}")
