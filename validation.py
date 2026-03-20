@@ -57,7 +57,7 @@ def validate_csv_file() -> Tuple[bool, List[str]]:
     Validate CSV file exists and has required structure.
 
     Expected columns:
-    - record_id, file_id, project_name, file_name, condition, run_number
+    - record_id, project_name, file_name, prompt_condition, run_number
     - Any additional metadata columns
 
     Returns:
@@ -73,8 +73,8 @@ def validate_csv_file() -> Tuple[bool, List[str]]:
         df = pd.read_csv(CSV_INPUT_FILE, dtype={"record_id": str})
         logger.debug(f"Loaded CSV with {len(df)} rows and {len(df.columns)} columns")
 
-        # Check required columns
-        required_cols = ["record_id", "file_id", "project_name", "file_name", "condition", "run_number"]
+        # Check required columns (using actual column names from unified_experimental_dataset_shell.csv)
+        required_cols = ["record_id", "project_name", "file_name", "prompt_condition", "run_number"]
         missing_cols = [col for col in required_cols if col not in df.columns]
 
         if missing_cols:

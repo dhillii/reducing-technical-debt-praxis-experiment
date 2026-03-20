@@ -29,12 +29,22 @@ LOGLEVEL = os.getenv("LOGLEVEL", "INFO")
 # PATHS
 # ============================================================================
 
-PROJECT_ROOT = Path(__file__).parent.parent
-DATA_DIR = PROJECT_ROOT / "data_collection"
+# Current project root (reducing-technical-debt-praxis-experiment)
+PROJECT_ROOT = Path(__file__).parent
+
+# Data and source code directories
+DATA_DIR = PROJECT_ROOT
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
+
+# CSV file location (in the dissertation code collection directory)
+DISSERTATION_CODE_DIR = Path(__file__).parent.parent / "Reducing Technical Debt in Legacy Codebases through AI-Enabled Prompt Refinement" / "code"
+CSV_INPUT_FILE = DISSERTATION_CODE_DIR / "data_collection" / "data" / "unified_experimental_dataset_shell.csv"
+
+# Source code directory (in current project)
+SOURCE_CODE_DIR = PROJECT_ROOT / "sample_source_code"
+
+# Experiment state and logs (in current project)
 EXPERIMENT_STATE_FILE = PROJECT_ROOT / "experiment_state.json"
-CSV_INPUT_FILE = DATA_DIR / "unified_experimental_dataset_shell.csv"
-SOURCE_CODE_DIR = DATA_DIR / "sample_source_code"
 
 # ============================================================================
 # SONARCLOUD CONFIGURATION
@@ -135,6 +145,9 @@ LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 MAIN_LOG_FILE = PROJECT_ROOT / "experiment.log"
 ERROR_LOG_FILE = PROJECT_ROOT / "experiment_errors.log"
 DEBUG_LOG_FILE = PROJECT_ROOT / "experiment_debug.log"
+
+# Extraction manifest
+EXTRACTION_MANIFEST_FILE = PROJECT_ROOT / "extraction_manifest.csv"
 
 # Log rotation settings
 LOG_MAX_BYTES = 100 * 1024 * 1024  # 100 MB
