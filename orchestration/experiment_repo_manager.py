@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime
 from git import Repo, GitCommandError
-from config import (
+from utils.config import (
     EXPERIMENT_REPO_PATH,
     GIT_AUTHOR_NAME,
     GIT_AUTHOR_EMAIL,
@@ -18,7 +18,7 @@ from config import (
     GIT_COMMIT_TIMEOUT,
     GIT_PUSH_TIMEOUT,
 )
-from logger_config import get_logger
+from utils.logger_config import get_logger
 
 logger = get_logger("experiment_repo_manager")
 

@@ -19,9 +19,9 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.progress import Progress, BarColumn, PercentCompleteColumn
-from state_manager import StateManager
-from logger_config import setup_logging, get_logger
-from config import MAIN_LOG_FILE, ERROR_LOG_FILE, DEBUG_LOG_FILE
+from orchestration.state_manager import StateManager
+from utils.logger_config import setup_logging, get_logger
+from utils.config import MAIN_LOG_FILE, ERROR_LOG_FILE, DEBUG_LOG_FILE
 
 logger = get_logger("monitor_cli")
 console = Console()

@@ -17,10 +17,10 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime
 
-from state_manager import StateManager, ExperimentRun
+from orchestration.state_manager import StateManager, ExperimentRun
 from claude_caller import ClaudeCaller
 from sonarcloud_poller import SonarCloudPoller
-from config import EXPERIMENT_STATE_FILE
+from utils.config import EXPERIMENT_STATE_FILE
 
 
 class TestStateManager(unittest.TestCase):

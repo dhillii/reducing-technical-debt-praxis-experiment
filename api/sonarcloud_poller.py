@@ -9,7 +9,7 @@ import time
 import requests
 from typing import Optional, Dict, Any
 from datetime import datetime
-from config import (
+from utils.config import (
     SONAR_TOKEN,
     SONAR_ORG,
     SONARCLOUD_BASE_URL,
@@ -20,7 +20,7 @@ from config import (
     RETRY_BACKOFF_BASE,
     RETRY_BACKOFF_MAX,
 )
-from logger_config import get_logger
+from utils.logger_config import get_logger
 
 logger = get_logger("sonarcloud_poller")
 

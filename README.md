@@ -1,50 +1,105 @@
 # Dissertation Experiment Orchestration System
 
-A production-grade framework for executing, monitoring, and analyzing 1,314 LLM-based code refactoring experiments across 146 source files, 3 prompt conditions, and 3 runs per condition.
+[![Status](https://img.shields.io/badge/status-ready-green.svg)](README.md)
+[![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
+[![Architecture](https://img.shields.io/badge/architecture-layered-blue.svg)](#-architecture)
 
-## System Architecture
+Automated system for executing large-scale LLM-based code refactoring experiments on 146 open-source JavaScript/TypeScript files using Claude AI and SonarCloud analysis.
+
+## 🎯 Overview
+
+This system orchestrates **1,314 refactoring experiments** across:
+- **146 source files** from 14 open-source projects
+- **3 prompt conditions** (baseline, NFR-enriched, adaptive NFR)
+- **3 runs per condition** (systematic variation)
+- **Complete audit trail** via git commits and metrics
+
+| Metric | Value |
+|--------|-------|
+| Total Runs | 1,314 |
+| Files | 146 |
+| Conditions | 3 |
+| Execution Time | 66-80 hours |
+| Cost | $50-70 |
+| Git Commits | 1,314 |
+
+## 🏗️ Architecture
+
+**4-Layer Modular Design:**
 
 ```
-┌─────────────────────────────────────────────────┐
-│   Experiment Orchestration System                │
-├─────────────────────────────────────────────────┤
-│                                                 │
-│  Priority 1 (Core)                             │
-│  ├─ orchestrate_experiments.py (1000 lines)   │
-│  ├─ state_manager.py (400 lines)              │
-│  ├─ experiment_repo_manager.py (300 lines)    │
-│  └─ monitor_cli.py (500 lines)                │
-│                                                 │
-│  Priority 2 (Support)                          │
-│  ├─ claude_caller.py (200 lines)              │
-│  ├─ sonarcloud_poller.py (300 lines)          │
-│  └─ logger_config.py (200 lines)              │
-│                                                 │
-│  Priority 3 (Utilities)                        │
-│  ├─ validation.py (200 lines)                 │
-│  ├─ config.py (150 lines)                     │
-│  ├─ test_orchestration.py (400 lines)         │
-│  └─ daemon_manager.py (250 lines)             │
-│                                                 │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────┐
+│  Monitoring & CLI Layer          │
+│  (Dashboard, Daemon Control)     │
+└────────────┬─────────────────────┘
+             │
+┌────────────▼─────────────────────┐
+│  Orchestration Layer             │
+│  (Main Loop, State, Git Ops)     │
+└────────┬──────────────┬──────────┘
+         │              │
+┌────────▼──┐  ┌────────▼──────┐
+│ API Layer │  │ External APIs │
+└───────────┘  └────────────────┘
+
+┌──────────────────────────────────┐
+│  Utilities & Configuration       │
+│  (Config, Logging, Validation)   │
+└──────────────────────────────────┘
 ```
 
-## Quick Start
+## 📁 Directory Structure
+
+```
+orchestration/           # Execution engine
+├── orchestrate_experiments.py
+├── state_manager.py
+└── experiment_repo_manager.py
+
+api/                     # API integrations
+├── claude_caller.py
+└── sonarcloud_poller.py
+
+monitoring/              # CLI & monitoring
+├── monitor_cli.py
+└── daemon_manager.py
+
+utils/                   # Configuration & utilities
+├── config.py
+├── logger_config.py
+├── validation.py
+├── clone_source_files.py
+└── find_missing_files.py
+
+tests/                   # Test suite
+└── test_orchestration.py
+```
+
+## 🚀 Quick Start
 
 ### 1. Setup Environment
 
 ```bash
-# Install dependencies
-pip install -r scripts/requirements.txt
+# Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
 
-# Configure environment variables
-# Create .env file with:
-ANTHROPIC_API_KEY=sk-...
-SONAR_TOKEN=sqa...
-SONAR_ORG=your_org
+# Install dependencies
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# Configure environment
+nano .env
+```
+
+**Required in `.env`:**
+```bash
+ANTHROPIC_API_KEY=sk-ant-...
+SONAR_TOKEN=sqa_...
+SONAR_ORG=dhillii
 GITHUB_TOKEN=ghp_...
-GITHUB_REPO=your-org/dissertation-experiments
-EXPERIMENT_REPO_PATH=./dissertation-experiments
+GITHUB_REPO=dhillii/reducing-technical-debt-praxis-experiment
+EXPERIMENT_REPO_PATH=../dissertation-experiments
 LOGLEVEL=INFO
 ```
 

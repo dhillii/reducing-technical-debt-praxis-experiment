@@ -15,8 +15,8 @@ from typing import Optional, Tuple
 import click
 from rich.console import Console
 
-from config import EXPERIMENT_REPO_PATH, PROJECT_ROOT
-from logger_config import get_logger
+from utils.config import EXPERIMENT_REPO_PATH, PROJECT_ROOT
+from utils.logger_config import get_logger
 
 logger = get_logger("daemon_manager")
 console = Console()

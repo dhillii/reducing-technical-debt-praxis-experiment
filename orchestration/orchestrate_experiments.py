@@ -21,18 +21,18 @@ import pandas as pd
 import click
 
 # Local imports
-from config import (
+from utils.config import (
     CSV_INPUT_FILE,
     SOURCE_CODE_DIR,
     EXECUTION_STAGES,
     SONARCLOUD_COMPONENT_TEMPLATE,
 )
-from logger_config import setup_logging, get_logger
-from state_manager import StateManager, ExperimentRun
-from experiment_repo_manager import ExperimentRepoManager
-from claude_caller import ClaudeCaller
-from sonarcloud_poller import SonarCloudPoller
-from validation import run_all_validations, get_validation_report
+from utils.logger_config import setup_logging, get_logger
+from orchestration.state_manager import StateManager, ExperimentRun
+from orchestration.experiment_repo_manager import ExperimentRepoManager
+from api.claude_caller import ClaudeCaller
+from api.sonarcloud_poller import SonarCloudPoller
+from utils.validation import run_all_validations, get_validation_report
 
 logger = get_logger("orchestrator")
 
