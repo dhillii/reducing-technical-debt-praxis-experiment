@@ -21,8 +21,8 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 SONAR_TOKEN = os.getenv("SONAR_TOKEN", "")
 SONAR_ORG = os.getenv("SONAR_ORG", "dhillii")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
-GITHUB_REPO = os.getenv("GITHUB_REPO", "your-org/dissertation-experiments")
-EXPERIMENT_REPO_PATH = os.getenv("EXPERIMENT_REPO_PATH", "./dissertation-experiments")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "dhillii/reducing-technical-debt-praxis-experiment")
+EXPERIMENT_REPO_PATH = os.getenv("EXPERIMENT_REPO_PATH", "./reducing-technical-debt-praxis-experiment")
 LOGLEVEL = os.getenv("LOGLEVEL", "INFO")
 
 # ============================================================================
@@ -50,8 +50,8 @@ EXPERIMENT_STATE_FILE = PROJECT_ROOT / "experiment_state.json"
 # ============================================================================
 
 SONARCLOUD_BASE_URL = "https://sonarcloud.io/api"
-SONARCLOUD_PROJECT_KEY = "dissertation-experiments"
-SONARCLOUD_COMPONENT_TEMPLATE = "dissertation-experiments:conditions/{condition}/file_{file_id:04d}/run_{run_number}"
+SONARCLOUD_PROJECT_KEY = "reducing-technical-debt-praxis-experiment"
+SONARCLOUD_COMPONENT_TEMPLATE = "reducing-technical-debt-praxis-experiment:conditions/{condition}/file_{file_id:04d}/run_{run_number}"
 
 # ============================================================================
 # EXECUTION PARAMETERS

@@ -322,8 +322,10 @@ class ExperimentOrchestrator:
         self.state_manager.update_run_status(record_id, "IN_PROGRESS", "SONAR_QUEUE_CHECK")
 
         # Generate component key
-        component_key = self.sonar_poller._SonarCloudPoller__sonar_component_key(
-            run.condition, run.file_id, run.run_number
+        component_key = SONARCLOUD_COMPONENT_TEMPLATE.format(
+            condition=run.condition,
+            file_id=run.file_id,
+            run_number=run.run_number,
         )
         run.sonar_component_key = component_key
 
