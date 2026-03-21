@@ -95,7 +95,7 @@ class SonarCloudPoller:
                     logger.info(f"SonarCloud analysis completed for {component_key}")
                     return {
                         "status": "SUCCESS",
-                        "analysis_date": status["task"]["ceActivityDate"],
+                        "analysis_date": status["task"].get("executedAt", ""),
                         "metrics": self._extract_metrics(component_key),
                     }
 
