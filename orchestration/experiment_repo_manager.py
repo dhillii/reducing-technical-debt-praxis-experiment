@@ -12,6 +12,7 @@ from datetime import datetime
 from git import Repo, GitCommandError, Actor
 from utils.config import (
     EXPERIMENT_REPO_PATH,
+    EXPERIMENT_REPO_REMOTE_URL,
     GIT_AUTHOR_NAME,
     GIT_AUTHOR_EMAIL,
     SONARCLOUD_COMPONENT_TEMPLATE,
@@ -55,6 +56,14 @@ class ExperimentRepoManager:
         self.repo_path.mkdir(parents=True, exist_ok=True)
         self.repo = Repo.init(self.repo_path)
         logger.info(f"Initialized new repository: {self.repo_path}")
+
+        # Add remote origin if configured and not already present
+        if EXPERIMENT_REPO_REMOTE_URL:
+            try:
+                self.repo.create_remote("origin", EXPERIMENT_REPO_REMOTE_URL)
+                logger.info(f"Added remote origin: {EXPERIMENT_REPO_REMOTE_URL}")
+            except GitCommandError as e:
+                logger.warning(f"Failed to add remote origin: {e}")
 
     def configure_author(
         self,

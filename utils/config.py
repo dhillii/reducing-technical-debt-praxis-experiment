@@ -22,7 +22,8 @@ SONAR_TOKEN = os.getenv("SONAR_TOKEN", "")
 SONAR_ORG = os.getenv("SONAR_ORG", "dhillii")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "dhillii/reducing-technical-debt-praxis-experiment")
-EXPERIMENT_REPO_PATH = os.getenv("EXPERIMENT_REPO_PATH", "./reducing-technical-debt-praxis-experiment")
+EXPERIMENT_REPO_PATH = os.getenv("EXPERIMENT_REPO_PATH", ".")
+EXPERIMENT_REPO_REMOTE_URL = os.getenv("EXPERIMENT_REPO_REMOTE_URL", "git@github.com:dhillii/reducing-technical-debt-praxis-experiment.git")
 LOGLEVEL = os.getenv("LOGLEVEL", "INFO")
 
 # ============================================================================
@@ -51,7 +52,7 @@ EXPERIMENT_STATE_FILE = PROJECT_ROOT / "experiment_state.json"
 
 SONARCLOUD_BASE_URL = "https://sonarcloud.io/api"
 SONARCLOUD_PROJECT_KEY = "reducing-technical-debt-praxis-experiment"
-SONARCLOUD_COMPONENT_TEMPLATE = "reducing-technical-debt-praxis-experiment:conditions/{condition}/file_{file_id:04d}/run_{run_number}"
+SONARCLOUD_COMPONENT_TEMPLATE = "reducing-technical-debt-praxis-experiment:conditions/{condition}/file_{file_id:04d}/run_{run_number}.js"
 
 # ============================================================================
 # EXECUTION PARAMETERS
@@ -242,6 +243,7 @@ CONFIG: Dict[str, Any] = {
     "github_token": GITHUB_TOKEN,
     "github_repo": GITHUB_REPO,
     "experiment_repo_path": EXPERIMENT_REPO_PATH,
+    "experiment_repo_remote_url": EXPERIMENT_REPO_REMOTE_URL,
     # Paths
     "project_root": PROJECT_ROOT,
     "data_dir": DATA_DIR,
