@@ -13,6 +13,7 @@ from utils.config import (
     SONAR_TOKEN,
     SONAR_ORG,
     SONARCLOUD_BASE_URL,
+    SONARCLOUD_PROJECT_KEY,
     SONARCLOUD_POLL_INTERVAL,
     SONARCLOUD_POLL_TIMEOUT,
     SONARCLOUD_INITIAL_WAIT,
@@ -142,18 +143,23 @@ class SonarCloudPoller:
 
     def _get_analysis_status(self, component_key: str) -> Dict[str, Any]:
         """
-        Get analysis status for a component.
+        Get analysis status for the project.
+
+        SonarCloud runs analysis at the project level, not per-file.
+        We poll using the project key and check that the most recent
+        analysis task completed after our commit was pushed.
 
         Args:
-            component_key: SonarCloud component key
+            component_key: SonarCloud file-level component key (project key extracted automatically)
 
         Returns:
             Analysis status dict
         """
-        # API endpoint: /ce/activity?component=<key>
+        # ce/activity requires the project-level key, not a file-level component key
+        project_key = component_key.split(":")[0] if ":" in component_key else component_key
         url = f"{self.base_url}/ce/activity"
         params = {
-            "component": component_key,
+            "component": project_key,
             "ps": 1,  # Page size: 1 (get most recent)
         }
 
