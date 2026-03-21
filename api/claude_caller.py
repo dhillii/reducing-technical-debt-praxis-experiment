@@ -39,6 +39,7 @@ class ClaudeCaller:
         self.model = CLAUDE_MODEL
         self.temperature = CLAUDE_TEMPERATURE
         self.timeout = CLAUDE_API_TIMEOUT
+        self.stream = False  # Enable streaming output
 
     def call(
         self,
@@ -78,6 +79,14 @@ class ClaudeCaller:
                 logger.debug(f"Model: {self.model}, Temperature: {temp}, Max tokens: {max_tokens}")
 
                 messages = [{"role": "user", "content": prompt}]
+
+                if self.stream:
+                    return self._call_streaming(
+                        messages=messages,
+                        system_prompt=system_prompt,
+                        max_tokens=max_tokens,
+                        temperature=temp,
+                    )
 
                 response = self.client.messages.create(
                     model=self.model,
@@ -142,6 +151,95 @@ class ClaudeCaller:
         # Should not reach here, but just in case
         logger.error("Claude API call failed after all retries")
         raise last_error or APIError("Unknown API error")
+
+    def _call_streaming(
+        self,
+        messages: list,
+        system_prompt: Optional[str],
+        max_tokens: int,
+        temperature: float,
+    ) -> Dict[str, Any]:
+        """
+        Call Claude API with streaming to show real-time progress.
+
+        Args:
+            messages: Message list
+            system_prompt: System prompt
+            max_tokens: Max tokens
+            temperature: Temperature
+
+        Returns:
+            Same dict format as non-streaming call
+        """
+        import sys as _sys
+
+        content_chunks = []
+        input_tokens = 0
+        output_tokens = 0
+        model = self.model
+        stop_reason = None
+        token_count = 0
+
+        print(f"\n{'='*60}", file=_sys.stderr)
+        print(f"  Claude API Streaming  |  Model: {self.model}", file=_sys.stderr)
+        print(f"{'='*60}", file=_sys.stderr)
+
+        with self.client.messages.stream(
+            model=self.model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            system=system_prompt,
+            messages=messages,
+            timeout=self.timeout,
+        ) as stream:
+            for event in stream:
+                # Handle different event types
+                if hasattr(event, 'type'):
+                    if event.type == 'message_start':
+                        if hasattr(event, 'message') and hasattr(event.message, 'usage'):
+                            input_tokens = event.message.usage.input_tokens
+                            model = event.message.model
+                            print(f"  Input tokens: {input_tokens}", file=_sys.stderr)
+                            print(f"  Generating...", file=_sys.stderr, end="", flush=True)
+
+                    elif event.type == 'content_block_delta':
+                        if hasattr(event, 'delta') and hasattr(event.delta, 'text'):
+                            text = event.delta.text
+                            content_chunks.append(text)
+                            token_count += 1
+                            # Show progress every 100 tokens
+                            if token_count % 100 == 0:
+                                print(f"\r  Generating... {token_count} tokens", file=_sys.stderr, end="", flush=True)
+
+                    elif event.type == 'message_delta':
+                        if hasattr(event, 'usage') and hasattr(event.usage, 'output_tokens'):
+                            output_tokens = event.usage.output_tokens
+                        if hasattr(event, 'delta') and hasattr(event.delta, 'stop_reason'):
+                            stop_reason = event.delta.stop_reason
+
+                    elif event.type == 'message_stop':
+                        pass  # Final event
+
+        content = "".join(content_chunks)
+
+        print(f"\r  Output tokens: {output_tokens}              ", file=_sys.stderr)
+        print(f"  Stop reason: {stop_reason}", file=_sys.stderr)
+        print(f"{'='*60}\n", file=_sys.stderr)
+
+        result = {
+            "content": content,
+            "prompt_tokens": input_tokens,
+            "completion_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+            "model": model,
+            "stop_reason": stop_reason,
+        }
+
+        logger.info(
+            f"Claude API call succeeded (streamed): {result['prompt_tokens']} input, "
+            f"{result['completion_tokens']} output tokens"
+        )
+        return result
 
     def _calculate_backoff(self, attempt: int) -> float:
         """

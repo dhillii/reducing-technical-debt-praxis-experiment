@@ -703,8 +703,9 @@ def cli():
 @click.option("--max-runs", type=int, default=None, help="Limit number of runs")
 @click.option("--max-projects", type=int, default=None, help="Limit number of unique projects to process")
 @click.option("--concurrency", "-c", type=int, default=1, help="Number of concurrent workers (default: 1 = sequential)")
+@click.option("--stream", "-s", is_flag=True, help="Stream Claude API responses in real-time")
 @click.option("--validate", is_flag=True, help="Run validation before starting")
-def run(max_runs: Optional[int], max_projects: Optional[int], concurrency: int, validate: bool) -> None:
+def run(max_runs: Optional[int], max_projects: Optional[int], concurrency: int, stream: bool, validate: bool) -> None:
     """Run the experiment orchestration."""
     setup_logging()
 
@@ -717,6 +718,8 @@ def run(max_runs: Optional[int], max_projects: Optional[int], concurrency: int, 
 
     try:
         orchestrator = ExperimentOrchestrator()
+        if stream:
+            orchestrator.claude_caller.stream = True
         orchestrator.run_all_experiments(
             max_runs=max_runs,
             max_projects=max_projects,
