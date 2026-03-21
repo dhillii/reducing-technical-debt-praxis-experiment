@@ -51,8 +51,8 @@ EXPERIMENT_STATE_FILE = PROJECT_ROOT / "experiment_state.json"
 # ============================================================================
 
 SONARCLOUD_BASE_URL = "https://sonarcloud.io/api"
-SONARCLOUD_PROJECT_KEY = "reducing-technical-debt-praxis-experiment"
-SONARCLOUD_COMPONENT_TEMPLATE = "reducing-technical-debt-praxis-experiment:conditions/{condition}/file_{file_id:04d}/run_{run_number}.js"
+SONARCLOUD_PROJECT_KEY = "dhillii_reducing-technical-debt-praxis-experiment"
+SONARCLOUD_COMPONENT_TEMPLATE = "dhillii_reducing-technical-debt-praxis-experiment:conditions/{condition}/file_{file_id:04d}/run_{run_number}.js"
 
 # ============================================================================
 # EXECUTION PARAMETERS
