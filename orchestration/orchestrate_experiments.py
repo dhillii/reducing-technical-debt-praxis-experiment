@@ -14,9 +14,11 @@ import sys
 import time
 import json
 import csv
+import threading
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import click
 
@@ -48,6 +50,8 @@ class ExperimentOrchestrator:
         self.claude_caller = ClaudeCaller()
         self.sonar_poller = SonarCloudPoller()
         self.csv_df = None
+        self._git_lock = threading.Lock()  # Serialize git operations
+        self._csv_lock = threading.Lock()  # Serialize CSV writes
         self._load_csv()
 
     def _load_csv(self) -> None:
@@ -246,47 +250,48 @@ class ExperimentOrchestrator:
         """
         self.state_manager.update_run_status(run.record_id, "IN_PROGRESS", "GIT_COMMIT")
 
-        # Ensure repo is initialized
-        self.repo_manager.ensure_repo_exists()
-        self.repo_manager.configure_author()
+        with self._git_lock:
+            # Ensure repo is initialized
+            self.repo_manager.ensure_repo_exists()
+            self.repo_manager.configure_author()
 
-        # Write code file
-        csv_row = self.csv_df[self.csv_df["record_id"] == run.record_id].iloc[0]
+            # Write code file
+            csv_row = self.csv_df[self.csv_df["record_id"] == run.record_id].iloc[0]
 
-        # Find the file matching the file_name from CSV
-        file_name = csv_row["file_name"]
-        matching_files = list(SOURCE_CODE_DIR.glob(f"*{file_name}"))
-        if not matching_files:
-            raise FileNotFoundError(f"Source file not found for: {file_name}")
-        source_file = matching_files[0]
-        code = source_file.read_text(encoding="utf-8")
+            # Find the file matching the file_name from CSV
+            file_name = csv_row["file_name"]
+            matching_files = list(SOURCE_CODE_DIR.glob(f"*{file_name}"))
+            if not matching_files:
+                raise FileNotFoundError(f"Source file not found for: {file_name}")
+            source_file = matching_files[0]
+            code = source_file.read_text(encoding="utf-8")
 
-        self.repo_manager.write_code_file(
-            condition=run.condition,
-            file_id=run.file_id,
-            run_number=run.run_number,
-            code=code,
-        )
+            self.repo_manager.write_code_file(
+                condition=run.condition,
+                file_id=run.file_id,
+                run_number=run.run_number,
+                code=code,
+            )
 
-        # Get pre-refactoring CC from CSV if available
-        pre_cc = csv_row.get("pre_cyclomatic_complexity")
+            # Get pre-refactoring CC from CSV if available
+            pre_cc = csv_row.get("pre_cyclomatic_complexity")
 
-        # Create commit
-        commit_hash = self.repo_manager.create_commit(
-            record_id=int(run.record_id),
-            file_id=run.file_id,
-            project_name=run.project_name,
-            file_name=run.file_name,
-            condition=run.condition,
-            run_number=run.run_number,
-            llm_model=tokens["model"],
-            llm_temperature=tokens["temperature"],
-            prompt_tokens=tokens["prompt_tokens"],
-            completion_tokens=tokens["completion_tokens"],
-            total_tokens=tokens["total_tokens"],
-            timestamp=datetime.utcnow().isoformat() + "Z",
-            pre_cc=int(pre_cc) if pd.notna(pre_cc) else None,
-        )
+            # Create commit
+            commit_hash = self.repo_manager.create_commit(
+                record_id=int(run.record_id),
+                file_id=run.file_id,
+                project_name=run.project_name,
+                file_name=run.file_name,
+                condition=run.condition,
+                run_number=run.run_number,
+                llm_model=tokens["model"],
+                llm_temperature=tokens["temperature"],
+                prompt_tokens=tokens["prompt_tokens"],
+                completion_tokens=tokens["completion_tokens"],
+                total_tokens=tokens["total_tokens"],
+                timestamp=datetime.utcnow().isoformat() + "Z",
+                pre_cc=int(pre_cc) if pd.notna(pre_cc) else None,
+            )
 
         # Update state
         self.state_manager.update_run_status(run.record_id, "IN_PROGRESS", "GIT_COMMIT")
@@ -304,12 +309,25 @@ class ExperimentOrchestrator:
         """
         self.state_manager.update_run_status(record_id, "IN_PROGRESS", "GIT_PUSH")
 
-        try:
-            self.repo_manager.push_to_remote()
-            logger.info(f"Git push succeeded for {record_id}")
-        except Exception as e:
-            logger.warning(f"Git push failed for {record_id}: {str(e)}")
-            # Continue anyway; SonarCloud may still analyze
+        with self._git_lock:
+            try:
+                self.repo_manager.push_to_remote()
+                logger.info(f"Git push succeeded for {record_id}")
+            except Exception as e:
+                logger.warning(f"Git push failed for {record_id}: {str(e)}")
+                # Continue anyway; SonarCloud may still analyze
+
+    def _stage_batch_git_push(self) -> None:
+        """
+        Push all pending commits to remote in a single push.
+        Used in concurrent mode to batch pushes instead of one per run.
+        """
+        with self._git_lock:
+            try:
+                self.repo_manager.push_to_remote()
+                logger.info("Batch git push succeeded")
+            except Exception as e:
+                logger.warning(f"Batch git push failed: {str(e)}")
 
     def _stage_sonar_queue_check(self, record_id: str, run: ExperimentRun) -> None:
         """
@@ -422,7 +440,8 @@ class ExperimentOrchestrator:
         self.csv_df.loc[csv_idx, "sonar_component_key"] = run.sonar_component_key
 
         # Save CSV
-        self.csv_df.to_csv(CSV_INPUT_FILE, index=False)
+        with self._csv_lock:
+            self.csv_df.to_csv(CSV_INPUT_FILE, index=False)
         logger.info(f"CSV updated for {record_id}")
 
     def _build_prompt(self, run: ExperimentRun, csv_row: Any, original_code: str) -> str:
@@ -457,15 +476,111 @@ class ExperimentOrchestrator:
         }
         return system_prompts.get(condition, system_prompts["baseline"])
 
-    def run_all_experiments(self, max_runs: Optional[int] = None, max_projects: Optional[int] = None) -> None:
+    def _execute_single_run(self, record_id: str, batch_push: bool = False) -> Optional[str]:
+        """
+        Execute a single experiment run. Thread-safe for concurrent execution.
+
+        Args:
+            record_id: Run record ID
+            batch_push: If True, skip individual push (caller will batch push)
+
+        Returns:
+            Project name if successful, None if failed
+        """
+        run = self.state_manager.get_run(record_id)
+        if not run:
+            logger.error(f"Run {record_id} not found")
+            return None
+
+        logger.info(
+            f"Starting run {record_id}: File {run.file_id} | "
+            f"{run.condition} | Run {run.run_number}"
+        )
+
+        try:
+            self.state_manager.update_run_status(record_id, "IN_PROGRESS", "CODE_GENERATION")
+
+            # Stage 1: Code Generation (I/O-bound, safe to parallelize)
+            generated_code, tokens = self._stage_code_generation(run)
+
+            # Stage 2: Code Validation (CPU-light)
+            self._stage_code_validation(record_id, generated_code)
+
+            # Stage 3: Git Commit (serialized via _git_lock)
+            commit_hash = self._stage_git_commit(run, tokens)
+
+            # Stage 4: Git Push (skip if batching)
+            if not batch_push:
+                self._stage_git_push(record_id)
+
+            # Stage 5: SonarCloud Queue Check
+            self._stage_sonar_queue_check(record_id, run)
+
+            # Stage 6: SonarCloud Metric Extraction (I/O-bound, safe to parallelize)
+            metrics = self._stage_sonar_metric_extraction(record_id, run)
+
+            # Stage 7: CSV Update (serialized via _csv_lock)
+            self._stage_csv_update(record_id, run, metrics)
+
+            # Mark as completed
+            self.state_manager.update_run_status(record_id, "COMPLETED")
+
+            logger.info(
+                f"Run {record_id} completed in "
+                f"{self.state_manager.get_run(record_id).duration_seconds:.1f}s"
+            )
+            return run.project_name
+
+        except Exception as e:
+            logger.error(f"Run {record_id} failed: {str(e)}")
+            self.state_manager.update_run_status(record_id, "FAILED")
+            return None
+
+    def _get_next_pending_batch(self, batch_size: int, max_runs: Optional[int] = None,
+                                 current_count: int = 0) -> List[str]:
+        """
+        Get the next batch of pending run IDs.
+
+        Args:
+            batch_size: Max number of runs to fetch
+            max_runs: Overall run limit
+            current_count: Runs already processed
+
+        Returns:
+            List of record IDs
+        """
+        remaining = batch_size
+        if max_runs:
+            remaining = min(batch_size, max_runs - current_count)
+        if remaining <= 0:
+            return []
+
+        batch = []
+        pending = self.state_manager.get_all_runs_by_status("PENDING")
+        for record_id in pending:
+            if len(batch) >= remaining:
+                break
+            batch.append(record_id)
+        return batch
+
+    def run_all_experiments(
+        self,
+        max_runs: Optional[int] = None,
+        max_projects: Optional[int] = None,
+        concurrency: int = 1,
+    ) -> None:
         """
         Run all pending experiments.
 
         Args:
             max_runs: Optional limit on number of runs to execute
             max_projects: Optional limit on number of unique projects to process
+            concurrency: Number of concurrent workers (1 = sequential)
         """
-        logger.info("Starting experiment orchestration...")
+        logger.info(
+            f"Starting experiment orchestration "
+            f"(concurrency={concurrency})..."
+        )
 
         # Initialize state from CSV if needed
         self.initialize_state_from_csv()
@@ -473,38 +588,104 @@ class ExperimentOrchestrator:
         run_count = 0
         failed_count = 0
         completed_projects = set()
+        batch_push = concurrency > 1  # Batch pushes in concurrent mode
 
-        while True:
-            stats = self.state_manager.get_statistics()
-            logger.info(
-                f"Progress: {stats['completed']}/{stats['total_runs']} "
-                f"completed, {stats['failed']} failed"
-            )
+        if concurrency <= 1:
+            # Sequential mode (original behavior)
+            while True:
+                stats = self.state_manager.get_statistics()
+                logger.info(
+                    f"Progress: {stats['completed']}/{stats['total_runs']} "
+                    f"completed, {stats['failed']} failed"
+                )
 
-            if max_runs and run_count >= max_runs:
-                logger.info(f"Reached max runs limit: {max_runs}")
-                break
+                if max_runs and run_count >= max_runs:
+                    logger.info(f"Reached max runs limit: {max_runs}")
+                    break
 
-            # Check project limit
-            if max_projects and len(completed_projects) >= max_projects:
-                logger.info(f"Reached max projects limit: {max_projects} projects processed")
-                break
+                if max_projects and len(completed_projects) >= max_projects:
+                    logger.info(f"Reached max projects limit: {max_projects} projects processed")
+                    break
 
-            # Check for pause
-            if stats["status"] == "PAUSED":
-                logger.info("Experiment paused")
-                time.sleep(5)
-                continue
+                if stats.get("status") == "PAUSED":
+                    logger.info("Experiment paused")
+                    time.sleep(5)
+                    continue
 
-            # Execute next run
-            project_name = self.run_next_experiment()
-            if project_name:
-                run_count += 1
-                completed_projects.add(project_name)
-                logger.info(f"Completed projects so far: {len(completed_projects)}: {completed_projects}")
-            else:
-                # No more pending runs
-                break
+                project_name = self.run_next_experiment()
+                if project_name:
+                    run_count += 1
+                    completed_projects.add(project_name)
+                    logger.info(f"Completed projects so far: {len(completed_projects)}: {completed_projects}")
+                else:
+                    break
+        else:
+            # Concurrent mode
+            logger.info(f"Running with {concurrency} concurrent workers")
+
+            while True:
+                stats = self.state_manager.get_statistics()
+                logger.info(
+                    f"Progress: {stats['completed']}/{stats['total_runs']} "
+                    f"completed, {stats['failed']} failed"
+                )
+
+                if max_runs and run_count >= max_runs:
+                    logger.info(f"Reached max runs limit: {max_runs}")
+                    break
+
+                if max_projects and len(completed_projects) >= max_projects:
+                    logger.info(f"Reached max projects limit: {max_projects} projects processed")
+                    break
+
+                if stats.get("status") == "PAUSED":
+                    logger.info("Experiment paused")
+                    time.sleep(5)
+                    continue
+
+                # Get a batch of pending runs
+                batch = self._get_next_pending_batch(
+                    batch_size=concurrency,
+                    max_runs=max_runs,
+                    current_count=run_count,
+                )
+
+                if not batch:
+                    logger.info("No more pending runs")
+                    break
+
+                # Mark all batch runs as in-progress to prevent re-selection
+                for record_id in batch:
+                    self.state_manager.update_run_status(record_id, "IN_PROGRESS", "CODE_GENERATION")
+
+                # Execute batch concurrently
+                with ThreadPoolExecutor(max_workers=concurrency) as executor:
+                    future_to_id = {
+                        executor.submit(self._execute_single_run, record_id, batch_push): record_id
+                        for record_id in batch
+                    }
+
+                    for future in as_completed(future_to_id):
+                        record_id = future_to_id[future]
+                        try:
+                            project_name = future.result()
+                            if project_name:
+                                run_count += 1
+                                completed_projects.add(project_name)
+                            else:
+                                failed_count += 1
+                        except Exception as e:
+                            logger.error(f"Run {record_id} raised exception: {str(e)}")
+                            failed_count += 1
+
+                # Batch push after each batch completes
+                if batch_push:
+                    self._stage_batch_git_push()
+
+                logger.info(
+                    f"Batch complete: {len(batch)} runs processed, "
+                    f"{len(completed_projects)} projects so far"
+                )
 
         logger.info(
             f"Orchestration complete: {run_count} executed, "
@@ -521,8 +702,9 @@ def cli():
 @cli.command()
 @click.option("--max-runs", type=int, default=None, help="Limit number of runs")
 @click.option("--max-projects", type=int, default=None, help="Limit number of unique projects to process")
+@click.option("--concurrency", "-c", type=int, default=1, help="Number of concurrent workers (default: 1 = sequential)")
 @click.option("--validate", is_flag=True, help="Run validation before starting")
-def run(max_runs: Optional[int], max_projects: Optional[int], validate: bool) -> None:
+def run(max_runs: Optional[int], max_projects: Optional[int], concurrency: int, validate: bool) -> None:
     """Run the experiment orchestration."""
     setup_logging()
 
@@ -535,7 +717,11 @@ def run(max_runs: Optional[int], max_projects: Optional[int], validate: bool) ->
 
     try:
         orchestrator = ExperimentOrchestrator()
-        orchestrator.run_all_experiments(max_runs=max_runs, max_projects=max_projects)
+        orchestrator.run_all_experiments(
+            max_runs=max_runs,
+            max_projects=max_projects,
+            concurrency=concurrency,
+        )
     except Exception as e:
         logger.error(f"Orchestration failed: {e}")
         sys.exit(1)
