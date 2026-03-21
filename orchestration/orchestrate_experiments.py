@@ -60,10 +60,11 @@ class ExperimentOrchestrator:
 
     def initialize_state_from_csv(self) -> None:
         """Initialize state file from CSV if not already done."""
-        stats = self.state_manager.get_statistics()
+        # Check if runs have already been added (not just if total_runs is set)
+        existing_runs = self.state_manager._state.get("runs", {})
 
-        if stats["total_runs"] > 0:
-            logger.info("State already initialized")
+        if len(existing_runs) > 0:
+            logger.info(f"State already initialized with {len(existing_runs)} runs")
             return
 
         logger.info("Initializing state from CSV...")
@@ -71,33 +72,33 @@ class ExperimentOrchestrator:
         for idx, row in self.csv_df.iterrows():
             run = ExperimentRun(
                 record_id=str(row["record_id"]),
-                file_id=int(row["file_id"]),
+                file_id=int(row["project_id"]),  # Use project_id as file_id
                 project_name=str(row["project_name"]),
                 file_name=str(row["file_name"]),
-                condition=str(row["condition"]),
+                condition=str(row["prompt_condition"]),  # CSV uses prompt_condition
                 run_number=int(row["run_number"]),
             )
             self.state_manager.add_run(run)
 
         logger.info(f"State initialized with {len(self.csv_df)} runs")
 
-    def run_next_experiment(self) -> bool:
+    def run_next_experiment(self) -> Optional[str]:
         """
         Execute the next pending experiment.
 
         Returns:
-            True if an experiment was executed, False if none pending
+            Project name if an experiment was executed, None if none pending
         """
         # Get next pending run
         record_id = self.state_manager.get_next_pending_run()
         if not record_id:
             logger.info("No more pending runs")
-            return False
+            return None
 
         run = self.state_manager.get_run(record_id)
         if not run:
             logger.error(f"Run {record_id} not found")
-            return False
+            return None
 
         logger.info(
             f"Starting run {record_id}: File {run.file_id} | "
@@ -135,12 +136,12 @@ class ExperimentOrchestrator:
                 f"Run {record_id} completed in "
                 f"{self.state_manager.get_run(record_id).duration_seconds:.1f}s"
             )
-            return True
+            return run.project_name
 
         except Exception as e:
             logger.error(f"Run {record_id} failed: {str(e)}")
             self.state_manager.update_run_status(record_id, "FAILED")
-            return False
+            return None
 
     def _stage_code_generation(self, run: ExperimentRun) -> tuple:
         """
@@ -156,10 +157,15 @@ class ExperimentOrchestrator:
 
         # Load original source code
         csv_row = self.csv_df[self.csv_df["record_id"] == run.record_id].iloc[0]
-        source_file = SOURCE_CODE_DIR / csv_row["file_name"]
 
-        if not source_file.exists():
-            raise FileNotFoundError(f"Source file not found: {source_file}")
+        # Files are named file_XXXX_originalname.ext, search for matching file
+        file_name = csv_row["file_name"]
+        matching_files = list(SOURCE_CODE_DIR.glob(f"*{file_name}"))
+
+        if not matching_files:
+            raise FileNotFoundError(f"Source file not found for: {file_name} in {SOURCE_CODE_DIR}")
+
+        source_file = matching_files[0]  # Use first match
 
         original_code = source_file.read_text(encoding="utf-8")
 
@@ -238,7 +244,14 @@ class ExperimentOrchestrator:
 
         # Write code file
         csv_row = self.csv_df[self.csv_df["record_id"] == run.record_id].iloc[0]
-        code = (SOURCE_CODE_DIR / csv_row["file_name"]).read_text(encoding="utf-8")
+
+        # Find the file matching the file_name from CSV
+        file_name = csv_row["file_name"]
+        matching_files = list(SOURCE_CODE_DIR.glob(f"*{file_name}"))
+        if not matching_files:
+            raise FileNotFoundError(f"Source file not found for: {file_name}")
+        source_file = matching_files[0]
+        code = source_file.read_text(encoding="utf-8")
 
         self.repo_manager.write_code_file(
             condition=run.condition,
@@ -434,12 +447,13 @@ class ExperimentOrchestrator:
         }
         return system_prompts.get(condition, system_prompts["baseline"])
 
-    def run_all_experiments(self, max_runs: Optional[int] = None) -> None:
+    def run_all_experiments(self, max_runs: Optional[int] = None, max_projects: Optional[int] = None) -> None:
         """
         Run all pending experiments.
 
         Args:
             max_runs: Optional limit on number of runs to execute
+            max_projects: Optional limit on number of unique projects to process
         """
         logger.info("Starting experiment orchestration...")
 
@@ -448,6 +462,7 @@ class ExperimentOrchestrator:
 
         run_count = 0
         failed_count = 0
+        completed_projects = set()
 
         while True:
             stats = self.state_manager.get_statistics()
@@ -460,6 +475,11 @@ class ExperimentOrchestrator:
                 logger.info(f"Reached max runs limit: {max_runs}")
                 break
 
+            # Check project limit
+            if max_projects and len(completed_projects) >= max_projects:
+                logger.info(f"Reached max projects limit: {max_projects} projects processed")
+                break
+
             # Check for pause
             if stats["status"] == "PAUSED":
                 logger.info("Experiment paused")
@@ -467,15 +487,18 @@ class ExperimentOrchestrator:
                 continue
 
             # Execute next run
-            if self.run_next_experiment():
+            project_name = self.run_next_experiment()
+            if project_name:
                 run_count += 1
+                completed_projects.add(project_name)
+                logger.info(f"Completed projects so far: {len(completed_projects)}: {completed_projects}")
             else:
                 # No more pending runs
                 break
 
         logger.info(
             f"Orchestration complete: {run_count} executed, "
-            f"{failed_count} failed"
+            f"{failed_count} failed, {len(completed_projects)} projects processed"
         )
 
 
@@ -487,8 +510,9 @@ def cli():
 
 @cli.command()
 @click.option("--max-runs", type=int, default=None, help="Limit number of runs")
+@click.option("--max-projects", type=int, default=None, help="Limit number of unique projects to process")
 @click.option("--validate", is_flag=True, help="Run validation before starting")
-def run(max_runs: Optional[int], validate: bool) -> None:
+def run(max_runs: Optional[int], max_projects: Optional[int], validate: bool) -> None:
     """Run the experiment orchestration."""
     setup_logging()
 
@@ -501,7 +525,7 @@ def run(max_runs: Optional[int], validate: bool) -> None:
 
     try:
         orchestrator = ExperimentOrchestrator()
-        orchestrator.run_all_experiments(max_runs=max_runs)
+        orchestrator.run_all_experiments(max_runs=max_runs, max_projects=max_projects)
     except Exception as e:
         logger.error(f"Orchestration failed: {e}")
         sys.exit(1)
