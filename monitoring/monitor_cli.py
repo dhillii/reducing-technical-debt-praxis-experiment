@@ -52,7 +52,7 @@ class MonitorCLI:
 
         # Title
         console.print(
-            "[bold cyan]DISSERTATION EXPERIMENT ORCHESTRATION MONITOR[/bold cyan]",
+            "[bold cyan]PRAXIS EXPERIMENT ORCHESTRATION MONITOR[/bold cyan]",
             justify="center",
         )
 

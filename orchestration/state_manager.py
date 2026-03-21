@@ -1,5 +1,5 @@
 """
-State management module for the dissertation experiment orchestration system.
+State management module for the praxis experiment orchestration system.
 
 Handles persistent JSON state with thread-safe writes, state transitions,
 and checkpoint recovery. Tracks 1,314 experiment runs with detailed metadata.

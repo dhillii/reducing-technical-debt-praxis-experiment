@@ -85,9 +85,10 @@ RUN_STATUSES = [
 # ============================================================================
 
 # Claude API settings
-CLAUDE_API_TIMEOUT = 120  # seconds
+CLAUDE_API_TIMEOUT = 300  # seconds
 CLAUDE_MODEL = "claude-sonnet-4-6"
 CLAUDE_TEMPERATURE = 0.0
+CLAUDE_MAX_OUTPUT_TOKENS = 50000  # Must be large enough for refactored source files
 
 # SonarCloud polling settings
 SONARCLOUD_POLL_INTERVAL = 5  # seconds between polls
@@ -176,8 +177,8 @@ CSV_RESULT_COLUMNS = [
 # GIT CONFIGURATION
 # ============================================================================
 
-GIT_AUTHOR_NAME = "Dissertation Experiment Bot"
-GIT_AUTHOR_EMAIL = "experiment@dissertation.local"
+GIT_AUTHOR_NAME = "Praxis Experiment Bot"
+GIT_AUTHOR_EMAIL = "experiment@praxis.local"
 
 COMMIT_MESSAGE_TEMPLATE = """{file_id_padded} | {project_name} | {condition} | Run {run_number}
 

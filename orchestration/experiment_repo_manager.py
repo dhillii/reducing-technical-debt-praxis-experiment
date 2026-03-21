@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime
-from git import Repo, GitCommandError
+from git import Repo, GitCommandError, Actor
 from utils.config import (
     EXPERIMENT_REPO_PATH,
     GIT_AUTHOR_NAME,
@@ -121,7 +121,7 @@ class ExperimentRepoManager:
         """
         Generate SonarCloud component key for a run.
 
-        Format: dissertation-experiments:conditions/{condition}/file_{file_id:04d}/run_{run_number}
+        Format: praxis-experiments:conditions/{condition}/file_{file_id:04d}/run_{run_number}
 
         Args:
             condition: Refactoring condition
@@ -212,13 +212,14 @@ class ExperimentRepoManager:
 
         try:
             # Stage all changes
-            self.repo.index.add(A=True)
+            self.repo.git.add(A=True)
 
             # Create commit
+            author = Actor(GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL)
             commit = self.repo.index.commit(
                 commit_message,
-                author_name=GIT_AUTHOR_NAME,
-                author_email=GIT_AUTHOR_EMAIL,
+                author=author,
+                committer=author,
             )
 
             logger.info(f"Created commit {commit.hexsha[:8]} for record {record_id}")

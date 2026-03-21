@@ -1,5 +1,5 @@
 """
-Dissertation Experiment Orchestration System
+Praxis Experiment Orchestration System
 
 A production-grade framework for executing, monitoring, and analyzing
 1,314 LLM-based code refactoring experiments across multiple conditions.
@@ -23,4 +23,4 @@ Usage:
 """
 
 __version__ = "1.0.0"
-__author__ = "Dissertation Experiment Team"
+__author__ = "David Hill, Jr. (david.hill@xeviosoft.com)"

@@ -36,11 +36,17 @@ python run_validation.py --full
 ### Phase 2: Execution
 
 ```bash
-# 1. Initialize experiment state
-python -m orchestration.orchestrate_experiments --init
-
-# 2. Start background daemon
+# 1. Start background daemon
 python -m monitoring.daemon_manager start
+
+# 2. Run all experiments
+python -m orchestration.orchestrate_experiments run
+
+# Run only the first project (useful for testing/validation)
+python -m orchestration.orchestrate_experiments run --max-projects 1
+
+# Limit to a specific number of runs
+python -m orchestration.orchestrate_experiments run --max-runs 9
 
 # 3. Monitor progress (in another terminal)
 python -m monitoring.monitor_cli status --summary
@@ -123,7 +129,7 @@ python -m monitoring.daemon_manager logs --tail 50
 
 # Start fresh (WARNING: clears state)
 rm experiment_state.json
-python -m orchestration.orchestrate_experiments --init
+python -m orchestration.orchestrate_experiments run
 ```
 
 ## Troubleshooting

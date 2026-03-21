@@ -1,5 +1,5 @@
 """
-Main experiment orchestration engine for the dissertation research.
+Main experiment orchestration engine for the praxis research.
 
 Orchestrates 1,314 LLM-based code refactoring experiments across:
 - 146 source files
@@ -26,6 +26,7 @@ from utils.config import (
     SOURCE_CODE_DIR,
     EXECUTION_STAGES,
     SONARCLOUD_COMPONENT_TEMPLATE,
+    CLAUDE_MAX_OUTPUT_TOKENS,
 )
 from utils.logger_config import setup_logging, get_logger
 from orchestration.state_manager import StateManager, ExperimentRun
@@ -38,7 +39,7 @@ logger = get_logger("orchestrator")
 
 
 class ExperimentOrchestrator:
-    """Main orchestration engine for dissertation experiments."""
+    """Main orchestration engine for praxis experiments."""
 
     def __init__(self):
         """Initialize the orchestrator."""
@@ -178,8 +179,15 @@ class ExperimentOrchestrator:
         response = self.claude_caller.call(
             prompt=prompt,
             system_prompt=self._get_system_prompt(run.condition),
-            max_tokens=4096,
+            max_tokens=CLAUDE_MAX_OUTPUT_TOKENS,
         )
+
+        # Detect truncated responses before attempting code extraction
+        if response["stop_reason"] == "max_tokens":
+            raise ValueError(
+                f"Claude response truncated (hit {CLAUDE_MAX_OUTPUT_TOKENS} token limit). "
+                f"Output tokens: {response['completion_tokens']}"
+            )
 
         generated_code = self.claude_caller.extract_code_from_response(
             response["content"], file_extension=".js"

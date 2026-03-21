@@ -99,7 +99,7 @@ SONAR_TOKEN=sqa_...
 SONAR_ORG=dhillii
 GITHUB_TOKEN=ghp_...
 GITHUB_REPO=dhillii/reducing-technical-debt-praxis-experiment
-EXPERIMENT_REPO_PATH=../dissertation-experiments
+EXPERIMENT_REPO_PATH=./
 LOGLEVEL=INFO
 ```
 
