@@ -88,6 +88,9 @@ class SonarCloudPoller:
         start_time = time.time()
         poll_count = 0
         max_polls = timeout // SONARCLOUD_POLL_INTERVAL
+        success_retry_count = 0
+        max_success_retries = 3  # Try a few more times after first SUCCESS
+        last_metrics = None
 
         while time.time() - start_time < timeout:
             poll_count += 1
@@ -105,15 +108,32 @@ class SonarCloudPoller:
                 if status["task"]["status"] == "SUCCESS":
                     logger.info(f"SonarCloud analysis completed for {component_key}")
                     metrics = self._extract_metrics(component_key)
+                    last_metrics = metrics
 
                     missing_metrics = [
                         key for key in REQUIRED_METRIC_KEYS
                         if metrics.get(key) is None
                     ]
                     if missing_metrics:
-                        raise SonarCloudComponentNotReady(
-                            f"Metrics not ready yet for {component_key}; missing: {', '.join(sorted(missing_metrics))}"
-                        )
+                        if success_retry_count < max_success_retries:
+                            success_retry_count += 1
+                            logger.debug(
+                                f"Metrics incomplete for {component_key} (retry {success_retry_count}/{max_success_retries}); "
+                                f"missing: {', '.join(sorted(missing_metrics))}"
+                            )
+                            raise SonarCloudComponentNotReady(
+                                f"Metrics not ready yet for {component_key}; missing: {', '.join(sorted(missing_metrics))}"
+                            )
+                        else:
+                            logger.warning(
+                                f"SonarCloud CE task SUCCESS but metrics still incomplete after {success_retry_count} retries; "
+                                f"missing: {', '.join(sorted(missing_metrics))}. Returning partial metrics."
+                            )
+                            return {
+                                "status": "SUCCESS",
+                                "analysis_date": status["task"].get("executedAt", ""),
+                                "metrics": metrics,
+                            }
 
                     return {
                         "status": "SUCCESS",
