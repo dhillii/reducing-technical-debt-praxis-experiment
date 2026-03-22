@@ -220,6 +220,12 @@ class ExperimentRepoManager:
                          f"Code path: conditions/{condition}/file_{file_id_padded}/run_{run_number}.js\n"
 
         try:
+            # Remove stale lock file if present (left by a previously crashed git process).
+            lock_file = Path(self.repo.git_dir) / "index.lock"
+            if lock_file.exists():
+                lock_file.unlink()
+                logger.warning(f"Removed stale git index.lock for record {record_id}")
+
             # Stage all changes
             self.repo.git.add(A=True)
 

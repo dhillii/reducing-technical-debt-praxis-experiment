@@ -782,11 +782,21 @@ class ExperimentOrchestrator:
             batch.append(record_id)
         return batch
 
+    def reset_failed_runs(self) -> int:
+        """Reset all FAILED runs back to PENDING so they are retried."""
+        failed = self.state_manager.get_all_runs_by_status("FAILED")
+        for record_id in failed:
+            self.state_manager.update_run_status(record_id, "PENDING")
+        if failed:
+            logger.info(f"Reset {len(failed)} failed run(s) to PENDING for retry")
+        return len(failed)
+
     def run_all_experiments(
         self,
         max_runs: Optional[int] = None,
         max_projects: Optional[int] = None,
         concurrency: int = 1,
+        retry_failed: bool = False,
     ) -> None:
         """
         Run all pending experiments.
@@ -803,6 +813,10 @@ class ExperimentOrchestrator:
 
         # Initialize state from CSV if needed
         self.initialize_state_from_csv()
+
+        if retry_failed:
+            self.reset_failed_runs()
+
         allowed_projects = self._resolve_allowed_projects(max_projects)
         if allowed_projects:
             logger.info(
@@ -923,7 +937,8 @@ def cli():
 @click.option("--concurrency", "-c", type=int, default=1, help="Number of concurrent workers (default: 1 = sequential)")
 @click.option("--stream", "-s", is_flag=True, help="Stream Claude API responses in real-time")
 @click.option("--validate", is_flag=True, help="Run validation before starting")
-def run(max_runs: Optional[int], max_projects: Optional[int], concurrency: int, stream: bool, validate: bool) -> None:
+@click.option("--retry-failed", is_flag=True, help="Reset failed runs to PENDING before starting")
+def run(max_runs: Optional[int], max_projects: Optional[int], concurrency: int, stream: bool, validate: bool, retry_failed: bool) -> None:
     """Run the experiment orchestration."""
     setup_logging()
 
@@ -942,6 +957,7 @@ def run(max_runs: Optional[int], max_projects: Optional[int], concurrency: int, 
             max_runs=max_runs,
             max_projects=max_projects,
             concurrency=concurrency,
+            retry_failed=retry_failed,
         )
     except Exception as e:
         logger.error(f"Orchestration failed: {e}")
