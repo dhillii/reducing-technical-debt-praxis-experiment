@@ -15,8 +15,9 @@ import time
 import json
 import csv
 import threading
+import re
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
@@ -26,6 +27,7 @@ import click
 from utils.config import (
     CSV_INPUT_FILE,
     SOURCE_CODE_DIR,
+    EXTRACTION_MANIFEST_FILE,
     EXECUTION_STAGES,
     SONARCLOUD_COMPONENT_TEMPLATE,
     CLAUDE_MAX_OUTPUT_TOKENS,
@@ -56,6 +58,7 @@ class ExperimentOrchestrator:
         self.claude_caller = ClaudeCaller()
         self.sonar_poller = SonarCloudPoller()
         self.csv_df = None
+        self._manifest_by_project_path: Dict[Tuple[str, str], int] = {}
         self._git_lock = threading.Lock()  # Serialize git operations
         self._csv_lock = threading.Lock()  # Serialize CSV writes
         self._load_csv()
@@ -71,10 +74,80 @@ class ExperimentOrchestrator:
                 if col in self.csv_df.columns:
                     self.csv_df[col] = self.csv_df[col].astype("string")
 
+            self._load_manifest_index()
+
             logger.info(f"Loaded CSV: {len(self.csv_df)} records")
         except Exception as e:
             logger.error(f"Failed to load CSV: {e}")
             raise
+
+    def _load_manifest_index(self) -> None:
+        """Load deterministic mapping from (project, original_path) -> file_id."""
+        if not EXTRACTION_MANIFEST_FILE.exists():
+            raise FileNotFoundError(f"Extraction manifest not found: {EXTRACTION_MANIFEST_FILE}")
+
+        manifest_df = pd.read_csv(EXTRACTION_MANIFEST_FILE)
+        mapping: Dict[Tuple[str, str], int] = {}
+
+        for _, row in manifest_df.iterrows():
+            output_name = str(row.get("output_filename", ""))
+            match = re.match(r"^file_(\d{4})_", output_name)
+            if not match:
+                continue
+
+            project = str(row.get("project", "")).strip()
+            original_path = self._normalize_path(str(row.get("original_path", "")))
+            if not project or not original_path:
+                continue
+
+            mapping[(project, original_path)] = int(match.group(1))
+
+        self._manifest_by_project_path = mapping
+        logger.info(f"Loaded extraction manifest index: {len(mapping)} entries")
+
+    @staticmethod
+    def _normalize_path(path_value: str) -> str:
+        """Normalize path separators for robust matching."""
+        return path_value.strip().replace("\\", "/")
+
+    def _resolve_file_id_from_row(self, csv_row: Any) -> int:
+        """Resolve canonical file_id using project and source path from CSV row."""
+        project = str(csv_row.get("project_name", "")).strip()
+        file_path = self._normalize_path(str(csv_row.get("file_path", "")))
+
+        file_id = self._manifest_by_project_path.get((project, file_path))
+        if file_id is not None:
+            return file_id
+
+        # Some datasets include project path in file_key; use it as backup if available.
+        file_key = str(csv_row.get("file_key", ""))
+        if ":" in file_key:
+            key_path = self._normalize_path(file_key.split(":", 1)[1])
+            file_id = self._manifest_by_project_path.get((project, key_path))
+            if file_id is not None:
+                return file_id
+
+        raise ValueError(
+            f"Could not resolve file_id for project={project!r}, file_path={file_path!r}"
+        )
+
+    def _find_source_file_for_row(self, csv_row: Any) -> Tuple[int, Path]:
+        """Resolve (file_id, source_file_path) deterministically from a CSV row."""
+        file_id = self._resolve_file_id_from_row(csv_row)
+        file_name = str(csv_row.get("file_name", "")).strip()
+
+        candidates = sorted(SOURCE_CODE_DIR.glob(f"file_{file_id:04d}_*"))
+        if not candidates:
+            raise FileNotFoundError(
+                f"No source file found for file_id={file_id:04d} under {SOURCE_CODE_DIR}"
+            )
+
+        if file_name:
+            exact_name_candidates = [p for p in candidates if p.name == f"file_{file_id:04d}_{file_name}"]
+            if len(exact_name_candidates) == 1:
+                return file_id, exact_name_candidates[0]
+
+        return file_id, candidates[0]
 
     def _ensure_text_columns(self) -> None:
         """Ensure result columns used for string values accept string assignments."""
@@ -90,17 +163,20 @@ class ExperimentOrchestrator:
         existing_runs = self.state_manager._state.get("runs", {})
 
         if len(existing_runs) > 0:
+            self._repair_existing_file_ids()
             logger.info(f"State already initialized with {len(existing_runs)} runs")
             return
 
         logger.info("Initializing state from CSV...")
 
         for idx, row in self.csv_df.iterrows():
+            file_name = str(row["file_name"])
+            file_id, _ = self._find_source_file_for_row(row)
             run = ExperimentRun(
                 record_id=str(row["record_id"]),
-                file_id=int(row["project_id"]),  # Use project_id as file_id
+                file_id=file_id,
                 project_name=str(row["project_name"]),
-                file_name=str(row["file_name"]),
+                file_name=file_name,
                 condition=str(row["prompt_condition"]),  # CSV uses prompt_condition
                 run_number=int(row["run_number"]),
             )
@@ -125,6 +201,17 @@ class ExperimentOrchestrator:
         if not run:
             logger.error(f"Run {record_id} not found")
             return None
+
+        # Keep older state files compatible by correcting project_id-derived file IDs.
+        csv_row = self.csv_df[self.csv_df["record_id"] == run.record_id].iloc[0]
+        corrected_file_id, _ = self._find_source_file_for_row(csv_row)
+        if run.file_id != corrected_file_id:
+            logger.info(
+                f"Correcting file_id for run {run.record_id}: "
+                f"{run.file_id} -> {corrected_file_id}"
+            )
+            run.file_id = corrected_file_id
+            self.state_manager.add_run(run)
 
         logger.info(
             f"Starting run {record_id}: File {run.file_id} | "
@@ -184,14 +271,11 @@ class ExperimentOrchestrator:
         # Load original source code
         csv_row = self.csv_df[self.csv_df["record_id"] == run.record_id].iloc[0]
 
-        # Files are named file_XXXX_originalname.ext, search for matching file
-        file_name = csv_row["file_name"]
-        matching_files = list(SOURCE_CODE_DIR.glob(f"*{file_name}"))
-
-        if not matching_files:
-            raise FileNotFoundError(f"Source file not found for: {file_name} in {SOURCE_CODE_DIR}")
-
-        source_file = matching_files[0]  # Use first match
+        # Resolve source file deterministically from project/path metadata.
+        resolved_file_id, source_file = self._find_source_file_for_row(csv_row)
+        if run.file_id != resolved_file_id:
+            run.file_id = resolved_file_id
+            self.state_manager.add_run(run)
 
         original_code = source_file.read_text(encoding="utf-8")
 
@@ -279,12 +363,10 @@ class ExperimentOrchestrator:
             # Write code file
             csv_row = self.csv_df[self.csv_df["record_id"] == run.record_id].iloc[0]
 
-            # Find the file matching the file_name from CSV
-            file_name = csv_row["file_name"]
-            matching_files = list(SOURCE_CODE_DIR.glob(f"*{file_name}"))
-            if not matching_files:
-                raise FileNotFoundError(f"Source file not found for: {file_name}")
-            source_file = matching_files[0]
+            resolved_file_id, source_file = self._find_source_file_for_row(csv_row)
+            if run.file_id != resolved_file_id:
+                run.file_id = resolved_file_id
+                self.state_manager.add_run(run)
             code = source_file.read_text(encoding="utf-8")
 
             self.repo_manager.write_code_file(
@@ -337,6 +419,27 @@ class ExperimentOrchestrator:
             except Exception as e:
                 logger.warning(f"Git push failed for {record_id}: {str(e)}")
                 # Continue anyway; SonarCloud may still analyze
+
+    def _repair_existing_file_ids(self) -> None:
+        """Repair runs initialized with project_id-as-file_id in existing state files."""
+        repaired = 0
+        for record_id in list(self.state_manager._state.get("runs", {}).keys()):
+            run = self.state_manager.get_run(record_id)
+            if not run:
+                continue
+
+            csv_row = self.csv_df[self.csv_df["record_id"] == run.record_id]
+            if csv_row.empty:
+                continue
+
+            expected_file_id, _ = self._find_source_file_for_row(csv_row.iloc[0])
+            if run.file_id != expected_file_id:
+                run.file_id = expected_file_id
+                self.state_manager.add_run(run)
+                repaired += 1
+
+        if repaired:
+            logger.info(f"Repaired file_id for {repaired} existing runs")
 
     def _stage_batch_git_push(self) -> None:
         """
