@@ -9,6 +9,7 @@ import time
 import requests
 from typing import Optional, Dict, Any
 from datetime import datetime
+from pathlib import PurePosixPath
 from utils.config import (
     SONAR_TOKEN,
     SONAR_ORG,
@@ -304,6 +305,9 @@ class SonarCloudPoller:
             candidate_paths.append(target_path[:-3])
         else:
             candidate_paths.append(f"{target_path}.js")
+        candidate_paths = [self._normalize_path(p) for p in candidate_paths]
+
+        best_suffix_match = None
 
         url = f"{self.base_url}/measures/component_tree"
         page = 1
@@ -327,23 +331,30 @@ class SonarCloudPoller:
 
             components = data.get("components", [])
             for component in components:
-                path = component.get("path", "")
+                path = self._normalize_path(component.get("path", ""))
                 key = component.get("key", "")
-                if (
-                    path in candidate_paths
-                    or key in [f"{project_key}:{p}" for p in candidate_paths]
-                ):
+                key_path = self._normalize_path(key.split(":", 1)[1] if ":" in key else key)
+
+                # Exact path/key match first.
+                if path in candidate_paths or key_path in candidate_paths:
                     return self._parse_component_measures(component.get("measures", []))
+
+                # Keep a suffix candidate as fallback (handles path-prefix differences).
+                if any(path.endswith(cp) or key_path.endswith(cp) for cp in candidate_paths):
+                    best_suffix_match = component
 
             total = data.get("paging", {}).get("total", 0)
             if page * page_size >= total:
                 break
             page += 1
 
+        if best_suffix_match is not None:
+            return self._parse_component_measures(best_suffix_match.get("measures", []))
+
         return {
-            "cyclomatic_complexity": None,
-            "cognitive_complexity": None,
-            "ncloc": None,
+            "cyclomatic_complexity": 0,
+            "cognitive_complexity": 0,
+            "ncloc": 0,
         }
 
     @staticmethod
@@ -356,11 +367,14 @@ class SonarCloudPoller:
 
     @staticmethod
     def _parse_component_measures(measures: list[Dict[str, Any]]) -> Dict[str, Any]:
-        """Normalize Sonar measure payload to experiment metric names."""
+        """Normalize Sonar measure payload to experiment metric names.
+
+        Mirrors reference extractor behavior by defaulting missing metrics to 0.
+        """
         metrics = {
-            "cyclomatic_complexity": None,
-            "cognitive_complexity": None,
-            "ncloc": None,
+            "cyclomatic_complexity": 0,
+            "cognitive_complexity": 0,
+            "ncloc": 0,
         }
 
         for measure in measures:
@@ -377,6 +391,16 @@ class SonarCloudPoller:
                 metrics["ncloc"] = parsed
 
         return metrics
+
+    @staticmethod
+    def _normalize_path(path_value: str) -> str:
+        """Normalize Sonar paths for robust matching across key/path variants."""
+        if not path_value:
+            return ""
+        normalized = str(path_value).replace("\\", "/").strip()
+        normalized = normalized.lstrip("./")
+        normalized = normalized.lstrip("/")
+        return str(PurePosixPath(normalized))
 
     def get_component_tree(self, project_key: str) -> Dict[str, Any]:
         """
