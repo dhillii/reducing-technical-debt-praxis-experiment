@@ -1,0 +1,1 @@
+## Sub-components (extracted to `offer-page-components.js`)
