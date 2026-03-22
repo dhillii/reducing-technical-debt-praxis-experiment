@@ -17,7 +17,7 @@ import csv
 import threading
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import click
@@ -43,6 +43,12 @@ logger = get_logger("orchestrator")
 class ExperimentOrchestrator:
     """Main orchestration engine for praxis experiments."""
 
+    _TEXT_RESULT_COLUMNS = [
+        "refactoring_applied",
+        "git_commit_hash",
+        "sonar_component_key",
+    ]
+
     def __init__(self):
         """Initialize the orchestrator."""
         self.state_manager = StateManager()
@@ -58,10 +64,25 @@ class ExperimentOrchestrator:
         """Load the CSV data."""
         try:
             self.csv_df = pd.read_csv(CSV_INPUT_FILE, dtype={"record_id": str})
+
+            # Columns that are initially empty can be inferred as float64, which
+            # later rejects string writes (e.g., setting refactoring_applied="Y").
+            for col in self._TEXT_RESULT_COLUMNS:
+                if col in self.csv_df.columns:
+                    self.csv_df[col] = self.csv_df[col].astype("string")
+
             logger.info(f"Loaded CSV: {len(self.csv_df)} records")
         except Exception as e:
             logger.error(f"Failed to load CSV: {e}")
             raise
+
+    def _ensure_text_columns(self) -> None:
+        """Ensure result columns used for string values accept string assignments."""
+        for col in self._TEXT_RESULT_COLUMNS:
+            if col not in self.csv_df.columns:
+                self.csv_df[col] = pd.Series(pd.NA, index=self.csv_df.index, dtype="string")
+            elif self.csv_df[col].dtype != "string":
+                self.csv_df[col] = self.csv_df[col].astype("string")
 
     def initialize_state_from_csv(self) -> None:
         """Initialize state file from CSV if not already done."""
@@ -289,7 +310,7 @@ class ExperimentOrchestrator:
                 prompt_tokens=tokens["prompt_tokens"],
                 completion_tokens=tokens["completion_tokens"],
                 total_tokens=tokens["total_tokens"],
-                timestamp=datetime.utcnow().isoformat() + "Z",
+                timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 pre_cc=int(pre_cc) if pd.notna(pre_cc) else None,
             )
 
@@ -414,6 +435,9 @@ class ExperimentOrchestrator:
 
         # Find row in CSV
         csv_idx = self.csv_df[self.csv_df["record_id"] == record_id].index[0]
+
+        # Guard against pandas inferring empty string columns as float64.
+        self._ensure_text_columns()
 
         # Update post-metrics
         self.csv_df.loc[csv_idx, "refactoring_applied"] = "Y"
