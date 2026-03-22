@@ -229,14 +229,28 @@ class SonarCloudPoller:
         Returns:
             Dict with metrics (cyclomatic_complexity, cognitive_complexity, ncloc)
         """
-        # API endpoint: /measures/component?component=<key>&metricKeys=...
-        url = f"{self.base_url}/measures/component"
+        # Preferred strategy (from initial baseline extractor):
+        # 1) Query /measures/component_tree and match file by path/key.
+        # 2) Fallback to /measures/component only if tree result is partial.
+        metrics = self._extract_metrics_from_component_tree(component_key)
 
-        metric_keys = [
-            "complexity",  # Cyclomatic complexity
-            "cognitive_complexity",  # Cognitive complexity
-            "ncloc",  # Non-comment lines of code
+        missing_metrics = [
+            key for key in REQUIRED_METRIC_KEYS
+            if metrics.get(key) is None
         ]
+        if missing_metrics:
+            component_metrics = self._extract_metrics_from_component_endpoint(component_key)
+            for key in REQUIRED_METRIC_KEYS:
+                if metrics.get(key) is None and component_metrics.get(key) is not None:
+                    metrics[key] = component_metrics[key]
+
+        logger.debug(f"Extracted metrics: {metrics}")
+        return metrics
+
+    def _extract_metrics_from_component_endpoint(self, component_key: str) -> Dict[str, Any]:
+        """Fallback extractor using /measures/component for a specific component key."""
+        url = f"{self.base_url}/measures/component"
+        metric_keys = ["complexity", "cognitive_complexity", "ncloc"]
 
         params = {
             "component": component_key,
@@ -246,7 +260,6 @@ class SonarCloudPoller:
         response = self.session.get(url, params=params, timeout=30)
 
         if response.status_code == 404:
-            # Some SonarCloud projects index file components without extension.
             if component_key.endswith(".js"):
                 alt_component_key = component_key[:-3]
                 alt_params = {
@@ -256,7 +269,6 @@ class SonarCloudPoller:
                 alt_response = self.session.get(url, params=alt_params, timeout=30)
                 if alt_response.status_code == 200:
                     response = alt_response
-                    component_key = alt_component_key
                 elif alt_response.status_code == 404:
                     raise SonarCloudComponentNotReady(
                         f"Component not indexed yet for keys: {component_key} or {alt_component_key}"
@@ -269,27 +281,101 @@ class SonarCloudPoller:
                 )
 
         response.raise_for_status()
-
         data = response.json()
+        return self._parse_component_measures(data.get("component", {}).get("measures", []))
+
+    def _extract_metrics_from_component_tree(self, component_key: str) -> Dict[str, Any]:
+        """
+        Fallback extractor using /measures/component_tree for file-level metrics.
+
+        This mirrors the approach used for initial dataset generation and is
+        more resilient when /measures/component returns partial data.
+        """
+        project_key, target_path = self._split_component_key(component_key)
+        if not project_key or not target_path:
+            return {
+                "cyclomatic_complexity": None,
+                "cognitive_complexity": None,
+                "ncloc": None,
+            }
+
+        candidate_paths = [target_path]
+        if target_path.endswith(".js"):
+            candidate_paths.append(target_path[:-3])
+        else:
+            candidate_paths.append(f"{target_path}.js")
+
+        url = f"{self.base_url}/measures/component_tree"
+        page = 1
+        page_size = 500
+        metric_keys = "complexity,cognitive_complexity,ncloc"
+
+        while True:
+            params = {
+                "component": project_key,
+                "metricKeys": metric_keys,
+                "qualifiers": "FIL",
+                "ps": page_size,
+                "p": page,
+            }
+            if self.org:
+                params["organization"] = self.org
+
+            response = self.session.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+
+            components = data.get("components", [])
+            for component in components:
+                path = component.get("path", "")
+                key = component.get("key", "")
+                if (
+                    path in candidate_paths
+                    or key in [f"{project_key}:{p}" for p in candidate_paths]
+                ):
+                    return self._parse_component_measures(component.get("measures", []))
+
+            total = data.get("paging", {}).get("total", 0)
+            if page * page_size >= total:
+                break
+            page += 1
+
+        return {
+            "cyclomatic_complexity": None,
+            "cognitive_complexity": None,
+            "ncloc": None,
+        }
+
+    @staticmethod
+    def _split_component_key(component_key: str) -> tuple[str, str]:
+        """Split 'project:path/to/file' component key into (project, path)."""
+        if ":" not in component_key:
+            return component_key, ""
+        project_key, path = component_key.split(":", 1)
+        return project_key, path
+
+    @staticmethod
+    def _parse_component_measures(measures: list[Dict[str, Any]]) -> Dict[str, Any]:
+        """Normalize Sonar measure payload to experiment metric names."""
         metrics = {
             "cyclomatic_complexity": None,
             "cognitive_complexity": None,
             "ncloc": None,
         }
 
-        # Extract metric values
-        for measure in data.get("component", {}).get("measures", []):
-            key = measure["metric"]
+        for measure in measures:
+            key = measure.get("metric")
             value = measure.get("value")
-
+            if value in (None, ""):
+                continue
+            parsed = int(float(value))
             if key == "complexity":
-                metrics["cyclomatic_complexity"] = int(float(value)) if value not in (None, "") else None
+                metrics["cyclomatic_complexity"] = parsed
             elif key == "cognitive_complexity":
-                metrics["cognitive_complexity"] = int(float(value)) if value not in (None, "") else None
+                metrics["cognitive_complexity"] = parsed
             elif key == "ncloc":
-                metrics["ncloc"] = int(float(value)) if value not in (None, "") else None
+                metrics["ncloc"] = parsed
 
-        logger.debug(f"Extracted metrics: {metrics}")
         return metrics
 
     def get_component_tree(self, project_key: str) -> Dict[str, Any]:
