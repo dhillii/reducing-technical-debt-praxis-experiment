@@ -7,7 +7,7 @@ and checkpoint recovery. Tracks 1,314 experiment runs with detailed metadata.
 
 import json
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict, field
@@ -15,6 +15,11 @@ from utils.config import EXPERIMENT_STATE_FILE, TOTAL_EXPECTED_RUNS, EXECUTION_S
 from utils.logger_config import get_logger
 
 logger = get_logger("state_manager")
+
+
+def _utc_now_iso() -> str:
+    """Return current UTC time in ISO-8601 with trailing Z."""
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 @dataclass
@@ -111,8 +116,8 @@ class StateManager:
         logger.info("Initializing new state file")
         return {
             "experiment_metadata": {
-                "start_time": datetime.utcnow().isoformat() + "Z",
-                "last_updated": datetime.utcnow().isoformat() + "Z",
+                "start_time": _utc_now_iso(),
+                "last_updated": _utc_now_iso(),
                 "status": "RUNNING",
                 "total_runs": TOTAL_EXPECTED_RUNS,
                 "completed": 0,
@@ -187,17 +192,17 @@ class StateManager:
             run["current_stage"] = stage
 
             if status == "IN_PROGRESS" and run.get("started_at") is None:
-                run["started_at"] = datetime.utcnow().isoformat() + "Z"
+                run["started_at"] = _utc_now_iso()
 
             if status == "COMPLETED":
-                run["completed_at"] = datetime.utcnow().isoformat() + "Z"
+                run["completed_at"] = _utc_now_iso()
                 if run.get("started_at"):
                     start = datetime.fromisoformat(run["started_at"].replace("Z", "+00:00"))
-                    end = datetime.utcnow()
+                    end = datetime.now(timezone.utc)
                     run["duration_seconds"] = (end - start).total_seconds()
 
             if status == "FAILED":
-                run["failed_at"] = datetime.utcnow().isoformat() + "Z"
+                run["failed_at"] = _utc_now_iso()
 
             self._update_metadata()
             self._save_state()
@@ -222,7 +227,7 @@ class StateManager:
 
             run = self._state["runs"][record_id]
             error = {
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": _utc_now_iso(),
                 "stage": stage,
                 "error_type": error_type,
                 "message": message,
@@ -389,7 +394,7 @@ class StateManager:
             statuses[status] = statuses.get(status, 0) + 1
 
         metadata = self._state["experiment_metadata"]
-        metadata["last_updated"] = datetime.utcnow().isoformat() + "Z"
+        metadata["last_updated"] = _utc_now_iso()
         metadata["completed"] = statuses.get("COMPLETED", 0)
         metadata["failed"] = statuses.get("FAILED", 0)
         metadata["in_progress"] = statuses.get("IN_PROGRESS", 0)
