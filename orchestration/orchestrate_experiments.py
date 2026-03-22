@@ -266,14 +266,10 @@ class ExperimentOrchestrator:
             # Stage 4: Git Push
             self._stage_git_push(record_id)
 
-            # Stage 5: SonarCloud Queue Check
-            self._stage_sonar_queue_check(record_id, run)
-
-            # Stage 6: SonarCloud Metric Extraction
-            metrics = self._stage_sonar_metric_extraction(record_id, run)
+            # Stages 5 & 6 (SonarCloud) skipped — always returns 0; local metrics used instead.
 
             # Stage 7: CSV Update
-            self._stage_csv_update(record_id, run, metrics)
+            self._stage_csv_update(record_id, run, {})
 
             # Mark as completed
             self.state_manager.update_run_status(record_id, "COMPLETED")
@@ -611,30 +607,7 @@ class ExperimentOrchestrator:
 
         # Update post-metrics
         self.csv_df.loc[csv_idx, "refactoring_applied"] = "Y"
-        self.csv_df.loc[csv_idx, "post_cyclomatic_complexity"] = metrics.get("cyclomatic_complexity")
-        self.csv_df.loc[csv_idx, "post_cognitive_complexity"] = metrics.get("cognitive_complexity")
-        self.csv_df.loc[csv_idx, "post_ncloc"] = metrics.get("ncloc")
-
-        # Calculate delta
-        pre_cc = self.csv_df.loc[csv_idx, "pre_cyclomatic_complexity"]
-        post_cc = metrics.get("cyclomatic_complexity")
-        if pd.notna(pre_cc) and post_cc is not None:
-            delta = post_cc - int(pre_cc)
-            self.csv_df.loc[csv_idx, "cc_delta"] = delta
-            self.state_manager.update_run_with_metrics(
-                record_id,
-                cc=post_cc,
-                cognitive_cc=metrics.get("cognitive_complexity"),
-                ncloc=metrics.get("ncloc"),
-                cc_delta=delta,
-            )
-
-        # Calculate cognitive complexity delta
-        pre_cognitive = self.csv_df.loc[csv_idx, "pre_cognitive_complexity"]
-        post_cognitive = metrics.get("cognitive_complexity")
-        if pd.notna(pre_cognitive) and post_cognitive is not None:
-            cognitive_delta = post_cognitive - int(pre_cognitive)
-            self.csv_df.loc[csv_idx, "cognitive_delta"] = cognitive_delta
+        # SonarCloud post-metrics intentionally skipped (always 0); local metrics are authoritative.
 
         # Compute local before/after metrics using the same local library.
         csv_row = self.csv_df.loc[csv_idx]
@@ -752,14 +725,10 @@ class ExperimentOrchestrator:
             if not batch_push:
                 self._stage_git_push(record_id)
 
-            # Stage 5: SonarCloud Queue Check
-            self._stage_sonar_queue_check(record_id, run)
-
-            # Stage 6: SonarCloud Metric Extraction (I/O-bound, safe to parallelize)
-            metrics = self._stage_sonar_metric_extraction(record_id, run)
+            # Stages 5 & 6 (SonarCloud) skipped — always returns 0; local metrics used instead.
 
             # Stage 7: CSV Update (serialized via _csv_lock)
-            self._stage_csv_update(record_id, run, metrics)
+            self._stage_csv_update(record_id, run, {})
 
             # Mark as completed
             self.state_manager.update_run_status(record_id, "COMPLETED")
