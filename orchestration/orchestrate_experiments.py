@@ -214,15 +214,18 @@ class ExperimentOrchestrator:
 
         logger.info(f"State initialized with {len(self.csv_df)} runs")
 
-    def run_next_experiment(self) -> Optional[str]:
+    def run_next_experiment(self, allowed_projects: Optional[set[str]] = None) -> Optional[str]:
         """
         Execute the next pending experiment.
+
+        Args:
+            allowed_projects: Optional set of project names allowed to run
 
         Returns:
             Project name if an experiment was executed, None if none pending
         """
         # Get next pending run
-        record_id = self.state_manager.get_next_pending_run()
+        record_id = self._get_next_pending_run(allowed_projects=allowed_projects)
         if not record_id:
             logger.info("No more pending runs")
             return None
@@ -285,6 +288,40 @@ class ExperimentOrchestrator:
             logger.error(f"Run {record_id} failed: {str(e)}")
             self.state_manager.update_run_status(record_id, "FAILED")
             return None
+
+    def _get_next_pending_run(self, allowed_projects: Optional[set[str]] = None) -> Optional[str]:
+        """Get next pending run optionally constrained to a set of project names."""
+        pending = self.state_manager.get_all_runs_by_status("PENDING")
+        for record_id in pending:
+            run = self.state_manager.get_run(record_id)
+            if not run:
+                continue
+            if allowed_projects and run.project_name not in allowed_projects:
+                continue
+            return record_id
+        return None
+
+    def _resolve_allowed_projects(self, max_projects: Optional[int]) -> Optional[set[str]]:
+        """
+        Resolve the first N project names based on pending-run order.
+
+        This ensures --max-projects N runs all files/runs for those first N projects,
+        instead of stopping after the first completed run.
+        """
+        if not max_projects:
+            return None
+
+        allowed_projects: set[str] = set()
+        pending = self.state_manager.get_all_runs_by_status("PENDING")
+        for record_id in pending:
+            run = self.state_manager.get_run(record_id)
+            if not run:
+                continue
+            allowed_projects.add(run.project_name)
+            if len(allowed_projects) >= max_projects:
+                break
+
+        return allowed_projects
 
     def _stage_code_generation(self, run: ExperimentRun) -> tuple:
         """
@@ -738,8 +775,13 @@ class ExperimentOrchestrator:
             self.state_manager.update_run_status(record_id, "FAILED")
             return None
 
-    def _get_next_pending_batch(self, batch_size: int, max_runs: Optional[int] = None,
-                                 current_count: int = 0) -> List[str]:
+    def _get_next_pending_batch(
+        self,
+        batch_size: int,
+        max_runs: Optional[int] = None,
+        current_count: int = 0,
+        allowed_projects: Optional[set[str]] = None,
+    ) -> List[str]:
         """
         Get the next batch of pending run IDs.
 
@@ -747,6 +789,7 @@ class ExperimentOrchestrator:
             batch_size: Max number of runs to fetch
             max_runs: Overall run limit
             current_count: Runs already processed
+            allowed_projects: Optional set of project names allowed to run
 
         Returns:
             List of record IDs
@@ -762,6 +805,11 @@ class ExperimentOrchestrator:
         for record_id in pending:
             if len(batch) >= remaining:
                 break
+            run = self.state_manager.get_run(record_id)
+            if not run:
+                continue
+            if allowed_projects and run.project_name not in allowed_projects:
+                continue
             batch.append(record_id)
         return batch
 
@@ -786,6 +834,12 @@ class ExperimentOrchestrator:
 
         # Initialize state from CSV if needed
         self.initialize_state_from_csv()
+        allowed_projects = self._resolve_allowed_projects(max_projects)
+        if allowed_projects:
+            logger.info(
+                f"Project scope from --max-projects={max_projects}: "
+                f"{sorted(allowed_projects)}"
+            )
 
         run_count = 0
         failed_count = 0
@@ -805,16 +859,12 @@ class ExperimentOrchestrator:
                     logger.info(f"Reached max runs limit: {max_runs}")
                     break
 
-                if max_projects and len(completed_projects) >= max_projects:
-                    logger.info(f"Reached max projects limit: {max_projects} projects processed")
-                    break
-
                 if stats.get("status") == "PAUSED":
                     logger.info("Experiment paused")
                     time.sleep(5)
                     continue
 
-                project_name = self.run_next_experiment()
+                project_name = self.run_next_experiment(allowed_projects=allowed_projects)
                 if project_name:
                     run_count += 1
                     completed_projects.add(project_name)
@@ -836,10 +886,6 @@ class ExperimentOrchestrator:
                     logger.info(f"Reached max runs limit: {max_runs}")
                     break
 
-                if max_projects and len(completed_projects) >= max_projects:
-                    logger.info(f"Reached max projects limit: {max_projects} projects processed")
-                    break
-
                 if stats.get("status") == "PAUSED":
                     logger.info("Experiment paused")
                     time.sleep(5)
@@ -850,6 +896,7 @@ class ExperimentOrchestrator:
                     batch_size=concurrency,
                     max_runs=max_runs,
                     current_count=run_count,
+                    allowed_projects=allowed_projects,
                 )
 
                 if not batch:
