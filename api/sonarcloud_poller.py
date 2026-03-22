@@ -25,6 +25,17 @@ from utils.logger_config import get_logger
 
 logger = get_logger("sonarcloud_poller")
 
+REQUIRED_METRIC_KEYS = {
+    "cyclomatic_complexity",
+    "cognitive_complexity",
+    "ncloc",
+}
+
+
+class SonarCloudComponentNotReady(Exception):
+    """Raised when SonarCloud analysis is done but file-level component isn't queryable yet."""
+    pass
+
 
 class SonarCloudPoller:
     """Polls SonarCloud API for project metrics."""
@@ -93,10 +104,21 @@ class SonarCloudPoller:
 
                 if status["task"]["status"] == "SUCCESS":
                     logger.info(f"SonarCloud analysis completed for {component_key}")
+                    metrics = self._extract_metrics(component_key)
+
+                    missing_metrics = [
+                        key for key in REQUIRED_METRIC_KEYS
+                        if metrics.get(key) is None
+                    ]
+                    if missing_metrics:
+                        raise SonarCloudComponentNotReady(
+                            f"Metrics not ready yet for {component_key}; missing: {', '.join(sorted(missing_metrics))}"
+                        )
+
                     return {
                         "status": "SUCCESS",
                         "analysis_date": status["task"].get("executedAt", ""),
-                        "metrics": self._extract_metrics(component_key),
+                        "metrics": metrics,
                     }
 
                 elif status["task"]["status"] == "FAILED":
@@ -108,6 +130,11 @@ class SonarCloudPoller:
 
                 # Still pending/in-progress
                 logger.debug(f"Analysis status: {status['task']['status']}")
+
+            except SonarCloudComponentNotReady as e:
+                # Common transient state: CE task is SUCCESS but file component
+                # index is not yet visible via /measures/component.
+                logger.debug(f"SonarCloud component not ready yet: {str(e)}")
 
             except requests.RequestException as e:
                 logger.warning(f"SonarCloud API error: {str(e)}")
@@ -197,10 +224,38 @@ class SonarCloudPoller:
         }
 
         response = self.session.get(url, params=params, timeout=30)
+
+        if response.status_code == 404:
+            # Some SonarCloud projects index file components without extension.
+            if component_key.endswith(".js"):
+                alt_component_key = component_key[:-3]
+                alt_params = {
+                    "component": alt_component_key,
+                    "metricKeys": ",".join(metric_keys),
+                }
+                alt_response = self.session.get(url, params=alt_params, timeout=30)
+                if alt_response.status_code == 200:
+                    response = alt_response
+                    component_key = alt_component_key
+                elif alt_response.status_code == 404:
+                    raise SonarCloudComponentNotReady(
+                        f"Component not indexed yet for keys: {component_key} or {alt_component_key}"
+                    )
+                else:
+                    alt_response.raise_for_status()
+            else:
+                raise SonarCloudComponentNotReady(
+                    f"Component not indexed yet: {component_key}"
+                )
+
         response.raise_for_status()
 
         data = response.json()
-        metrics = {}
+        metrics = {
+            "cyclomatic_complexity": None,
+            "cognitive_complexity": None,
+            "ncloc": None,
+        }
 
         # Extract metric values
         for measure in data.get("component", {}).get("measures", []):
@@ -208,11 +263,11 @@ class SonarCloudPoller:
             value = measure.get("value")
 
             if key == "complexity":
-                metrics["cyclomatic_complexity"] = int(value) if value else None
+                metrics["cyclomatic_complexity"] = int(float(value)) if value not in (None, "") else None
             elif key == "cognitive_complexity":
-                metrics["cognitive_complexity"] = int(value) if value else None
+                metrics["cognitive_complexity"] = int(float(value)) if value not in (None, "") else None
             elif key == "ncloc":
-                metrics["ncloc"] = int(value) if value else None
+                metrics["ncloc"] = int(float(value)) if value not in (None, "") else None
 
         logger.debug(f"Extracted metrics: {metrics}")
         return metrics

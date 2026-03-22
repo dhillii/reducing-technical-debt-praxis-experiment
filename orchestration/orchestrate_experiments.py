@@ -562,6 +562,13 @@ class ExperimentOrchestrator:
                 cc_delta=delta,
             )
 
+        # Calculate cognitive complexity delta
+        pre_cognitive = self.csv_df.loc[csv_idx, "pre_cognitive_complexity"]
+        post_cognitive = metrics.get("cognitive_complexity")
+        if pd.notna(pre_cognitive) and post_cognitive is not None:
+            cognitive_delta = post_cognitive - int(pre_cognitive)
+            self.csv_df.loc[csv_idx, "cognitive_delta"] = cognitive_delta
+
         # Add metadata
         self.csv_df.loc[csv_idx, "git_commit_hash"] = run.git_commit_hash
         self.csv_df.loc[csv_idx, "sonar_component_key"] = run.sonar_component_key
