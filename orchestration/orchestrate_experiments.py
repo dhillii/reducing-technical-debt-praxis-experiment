@@ -37,7 +37,11 @@ from orchestration.state_manager import StateManager, ExperimentRun
 from orchestration.experiment_repo_manager import ExperimentRepoManager
 from api.claude_caller import ClaudeCaller
 from api.sonarcloud_poller import SonarCloudPoller
-from utils.local_metrics import analyze_code_metrics, delta as local_metric_delta
+from utils.local_metrics import (
+    analyze_code_metrics,
+    delta as local_metric_delta,
+    nfr_alignment_score as local_nfr_alignment_score,
+)
 from utils.validation import run_all_validations, get_validation_report
 
 logger = get_logger("orchestrator")
@@ -65,6 +69,8 @@ class ExperimentOrchestrator:
         "cognitive_delta_local",
         "ncloc_delta_local",
         "maintainability_delta_local",
+        "maintainability_index",
+        "nfr_alignment_score",
     ]
 
     def __init__(self):
@@ -610,6 +616,7 @@ class ExperimentOrchestrator:
         pre_local = analyze_code_metrics(source_code, extension="js")
         post_local = analyze_code_metrics(post_code, extension="js")
         local_deltas = local_metric_delta(pre_local, post_local)
+        nfr_score = local_nfr_alignment_score(pre_local, post_local)
 
         self.csv_df.loc[csv_idx, "pre_local_cyclomatic_complexity"] = pre_local["cyclomatic_complexity"]
         self.csv_df.loc[csv_idx, "pre_local_cognitive_complexity"] = pre_local["cognitive_complexity"]
@@ -625,6 +632,10 @@ class ExperimentOrchestrator:
         self.csv_df.loc[csv_idx, "cognitive_delta_local"] = local_deltas["cognitive_delta_local"]
         self.csv_df.loc[csv_idx, "ncloc_delta_local"] = local_deltas["ncloc_delta_local"]
         self.csv_df.loc[csv_idx, "maintainability_delta_local"] = local_deltas["maintainability_delta_local"]
+
+        # Keep original summary columns populated from local computed metrics.
+        self.csv_df.loc[csv_idx, "maintainability_index"] = post_local["maintainability_index_local"]
+        self.csv_df.loc[csv_idx, "nfr_alignment_score"] = nfr_score
 
         # Add metadata
         self.csv_df.loc[csv_idx, "git_commit_hash"] = run.git_commit_hash

@@ -154,3 +154,31 @@ def delta(pre: Dict[str, int], post: Dict[str, int]) -> Dict[str, int]:
             post["maintainability_index_local"] - pre["maintainability_index_local"]
         ),
     }
+
+
+def nfr_alignment_score(pre: Dict[str, int], post: Dict[str, int]) -> int:
+    """
+    Compute weighted maintainability alignment score in [0, 100].
+
+    Higher scores indicate stronger non-functional maintainability improvement.
+    """
+    def _improvement(pre_value: int, post_value: int) -> float:
+        return (pre_value - post_value) / max(1, pre_value)
+
+    i_cc = _clamp(_improvement(pre["cyclomatic_complexity"], post["cyclomatic_complexity"]), -1.0, 1.0)
+    i_cog = _clamp(_improvement(pre["cognitive_complexity"], post["cognitive_complexity"]), -1.0, 1.0)
+    i_ncloc = _clamp(_improvement(pre["ncloc"], post["ncloc"]), -1.0, 1.0)
+    i_mi = _clamp(
+        (post["maintainability_index_local"] - pre["maintainability_index_local"]) / 100.0,
+        -1.0,
+        1.0,
+    )
+
+    weighted = (0.35 * i_cog) + (0.30 * i_cc) + (0.20 * i_mi) + (0.15 * i_ncloc)
+    normalized = _clamp(weighted, 0.0, 1.0)
+    return int(round(100 * normalized))
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    """Clamp numeric value to [low, high]."""
+    return max(low, min(high, value))
