@@ -1,0 +1,1 @@
+Wait, the `reset()` function needs a cleaner approach since `defineBruteGetter` closes over `instance`. Let me provide the complete, correct refactored version:
