@@ -398,11 +398,9 @@ class ExperimentOrchestrator:
         if not code or len(code.strip()) == 0:
             raise ValueError("Generated code is empty")
 
-        # Basic syntax validation (brace matching, etc.)
-        braces = code.count("{") - code.count("}")
-        if braces != 0:
-            raise ValueError(f"Unbalanced braces in generated code: {braces:+d}")
-
+        # Simple validation: ensure code is non-empty (basic sanity check).
+        # Real syntax errors will be caught during local metrics analysis, which uses
+        # a proper JavaScript parser and is more reliable than brace counting.
         logger.debug(f"Code validated for {record_id}")
 
     def _stage_git_commit(self, run: ExperimentRun, tokens: Dict[str, Any], generated_code: str) -> str:
