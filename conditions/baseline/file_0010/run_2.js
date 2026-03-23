@@ -1,0 +1,1 @@
+## Custom Hooks (separate file: `useGlobalSettings.ts`)
