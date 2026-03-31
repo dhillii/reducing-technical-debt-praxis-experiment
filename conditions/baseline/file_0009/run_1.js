@@ -1,75 +1,64 @@
-```typescript
-import {Button, type Tab, TabView} from '@tryghost/admin-x-design-system';
-import {ButtonGroup, type ButtonProps, showToast} from '@tryghost/admin-x-design-system';
-import {Icon} from '@tryghost/admin-x-design-system';
-import {Modal} from '@tryghost/admin-x-design-system';
-import {SortMenu} from '@tryghost/admin-x-design-system';
+```tsx
+import {
+    Button,
+    ButtonGroup,
+    type ButtonProps,
+    Icon,
+    Modal,
+    showToast,
+    SortMenu,
+    type Tab,
+    TabView,
+    Tooltip
+} from '@tryghost/admin-x-design-system';
 import {type Tier, getPaidActiveTiers, useBrowseTiers} from '@tryghost/admin-x-framework/api/tiers';
-import {Tooltip} from '@tryghost/admin-x-design-system';
-import {currencyToDecimal, getSymbol} from '../../../../utils/currency';
 import {getHomepageUrl} from '@tryghost/admin-x-framework/api/site';
-import {numberWithCommas} from '../../../../utils/helpers';
 import {useBrowseOffers} from '@tryghost/admin-x-framework/api/offers';
 import {useGlobalData} from '../../../providers/global-data-provider';
 import {useModal} from '@ebay/nice-modal-react';
 import {useRouting} from '@tryghost/admin-x-framework/routing';
 import {useSortingState} from '../../../providers/settings-app-provider';
 import {useState} from 'react';
+import {currencyToDecimal, getSymbol} from '../../../../utils/currency';
+import {numberWithCommas} from '../../../../utils/helpers';
 
 export type OfferType = 'percent' | 'fixed' | 'trial';
 
+// ─── Pure Utility Functions ───────────────────────────────────────────────────
+
 export const createRedemptionFilterUrl = (id: string): string => {
-    const baseHref = '/ghost/#/members';
     const filterValue = `offer_redemptions:[${id}]`;
-    return `${baseHref}?filter=${encodeURIComponent(filterValue)}`;
+    return `/ghost/#/members?filter=${encodeURIComponent(filterValue)}`;
 };
 
-export const getOfferCadence = (cadence: string): string => {
-    return cadence === 'month' ? 'monthly' : 'yearly';
-};
+export const getOfferCadence = (cadence: string): string =>
+    cadence === 'month' ? 'monthly' : 'yearly';
 
 export const getOfferDuration = (duration: string): string => {
     const durationMap: Record<string, string> = {
-        'once': 'First payment',
-        'repeating': 'Repeating'
+        once: 'First payment',
+        repeating: 'Repeating',
+        forever: 'Forever'
     };
-    return durationMap[duration] || 'Forever';
+    return durationMap[duration] ?? duration;
 };
 
 const formatToTwoDecimals = (num: number): number => parseFloat(num.toFixed(2));
 
-const getDiscountInfo = (type: OfferType, amount: number): {color: string, offer: string} => {
-    const discountMap: Record<OfferType, {color: string, offer: (amount: number) => string}> = {
-        'percent': {
-            color: 'text-green',
-            offer: (amount) => `${amount}% off`
-        },
-        'fixed': {
-            color: 'text-blue',
-            offer: (amount) => `${numberWithCommas(formatToTwoDecimals(currencyToDecimal(amount)))} off`
-        },
-        'trial': {
-            color: 'text-pink',
-            offer: (amount) => `${amount} days free`
-        }
-    };
+const formatPrice = (currency: string, amount: number): string =>
+    getSymbol(currency) + numberWithCommas(formatToTwoDecimals(currencyToDecimal(amount)));
 
-    const discount = discountMap[type];
-    return {
-        color: discount.color,
-        offer: discount.offer(amount)
-    };
+type DiscountResult = {
+    discountColor: string;
+    discountOffer: string;
+    originalPriceWithCurrency: string;
+    updatedPriceWithCurrency: string;
 };
 
-const calculateUpdatedPrice = (type: OfferType, originalPrice: number, amount: number): number => {
-    switch (type) {
-    case 'percent':
-        return originalPrice - ((originalPrice * amount) / 100);
-    case 'fixed':
-        return originalPrice - amount;
-    case 'trial':
-        return originalPrice;
-    }
+const DISCOUNT_CONFIG: Record<string, {color: string}> = {
+    percent: {color: 'text-green'},
+    fixed: {color: 'text-blue'},
+    trial: {color: 'text-pink'}
 };
 
 export const getOfferDiscount = (
@@ -78,23 +67,40 @@ export const getOfferDiscount = (
     cadence: string,
     currency: string,
     tier: Tier | undefined
-): {discountColor: string, discountOffer: string, originalPriceWithCurrency: string, updatedPriceWithCurrency: string} => {
+): DiscountResult => {
     const originalPrice = cadence === 'month' ? tier?.monthly_price ?? 0 : tier?.yearly_price ?? 0;
-    const {color: discountColor, offer: discountOffer} = getDiscountInfo(type as OfferType, amount);
-    
-    let updatedPrice = calculateUpdatedPrice(type as OfferType, originalPrice, amount);
-    updatedPrice = Math.max(updatedPrice, 0);
+    const discountColor = DISCOUNT_CONFIG[type]?.color ?? '';
 
-    const originalPriceWithCurrency = type === 'trial' ? '' : getSymbol(currency) + numberWithCommas(formatToTwoDecimals(currencyToDecimal(originalPrice)));
-    const updatedPriceWithCurrency = getSymbol(currency) + numberWithCommas(formatToTwoDecimals(currencyToDecimal(updatedPrice)));
+    if (type === 'trial') {
+        return {
+            discountColor,
+            discountOffer: `${amount} days free`,
+            originalPriceWithCurrency: '',
+            updatedPriceWithCurrency: formatPrice(currency, originalPrice)
+        };
+    }
+
+    const discountOffer =
+        type === 'percent'
+            ? `${amount}% off`
+            : `${numberWithCommas(formatToTwoDecimals(currencyToDecimal(amount)))} ${currency} off`;
+
+    const rawUpdatedPrice =
+        type === 'percent'
+            ? originalPrice - (originalPrice * amount) / 100
+            : originalPrice - amount;
+
+    const updatedPrice = Math.max(0, rawUpdatedPrice);
 
     return {
         discountColor,
         discountOffer,
-        originalPriceWithCurrency,
-        updatedPriceWithCurrency
+        originalPriceWithCurrency: formatPrice(currency, originalPrice),
+        updatedPriceWithCurrency: formatPrice(currency, updatedPrice)
     };
 };
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 export const CopyLinkButton: React.FC<{offerCode: string}> = ({offerCode}) => {
     const [isCopied, setIsCopied] = useState(false);
@@ -102,8 +108,7 @@ export const CopyLinkButton: React.FC<{offerCode: string}> = ({offerCode}) => {
 
     const handleCopyClick = (e?: React.MouseEvent<HTMLElement, MouseEvent>) => {
         e?.stopPropagation();
-        const offerLink = `${getHomepageUrl(siteData!)}${offerCode}`;
-        navigator.clipboard.writeText(offerLink);
+        navigator.clipboard.writeText(`${getHomepageUrl(siteData!)}${offerCode}`);
         setIsCopied(true);
         setTimeout(() => setIsCopied(false), 2000);
     };
@@ -127,7 +132,14 @@ export const CopyLinkButton: React.FC<{offerCode: string}> = ({offerCode}) => {
     );
 };
 
-export const EmptyState: React.FC<{title?: string, description: string, buttonAction: () => void, buttonLabel: string}> = ({
+type EmptyStateProps = {
+    title?: string;
+    description: string;
+    buttonAction: () => void;
+    buttonLabel: string;
+};
+
+export const EmptyState: React.FC<EmptyStateProps> = ({
     title = 'No offers found',
     description,
     buttonAction,
@@ -137,70 +149,21 @@ export const EmptyState: React.FC<{title?: string, description: string, buttonAc
         <Icon className='-mt-14' colorClass='text-grey-700 -mt-6' name='tags-block' size='xl' />
         <h1 className='mt-6 text-2xl'>{title}</h1>
         <p className='mt-3 max-w-[420px] text-[1.6rem]'>{description}</p>
-        <Button className="mt-8" color="grey" label={buttonLabel} onClick={buttonAction} />
+        <Button className='mt-8' color='grey' label={buttonLabel} onClick={buttonAction} />
     </div>
 );
 
-const OFFERS_TABS: Tab[] = [
-    {id: 'active', title: 'Active'},
-    {id: 'archived', title: 'Archived'}
-];
+// ─── Offer Table ──────────────────────────────────────────────────────────────
 
-const SORT_OPTIONS = [
-    {id: 'date-added', label: 'Date added'},
-    {id: 'name', label: 'Name'},
-    {id: 'redemptions', label: 'Redemptions'}
-];
-
-interface OfferFilters {
-    activeOffers: typeof allOffers;
-    archivedOffers: typeof allOffers;
-}
-
-const filterOffers = (offers: any[], tiers: Tier[] | undefined): OfferFilters => {
-    const signupOffers = offers.filter(offer => offer.redemption_type === 'signup');
-    
-    const isOfferActive = (offer: any) => {
-        const offerTier = tiers?.find(tier => tier.id === offer?.tier?.id);
-        return offer.status === 'active' && offerTier?.active === true;
-    };
-
-    return {
-        activeOffers: signupOffers.filter(isOfferActive),
-        archivedOffers: signupOffers.filter(offer => !isOfferActive(offer))
-    };
-};
-
-const sortOffers = (offers: any[], sortOption: string, sortDirection: string) => {
-    const multiplier = sortDirection === 'desc' ? -1 : 1;
-
-    return offers.sort((offer1, offer2) => {
-        switch (sortOption) {
-        case 'name':
-            return multiplier * offer1.name.localeCompare(offer2.name);
-        case 'redemptions':
-            return multiplier * (offer1.redemption_count - offer2.redemption_count);
-        default:
-            return multiplier * (
-                (offer1.created_at ? new Date(offer1.created_at).getTime() : 0) -
-                (offer2.created_at ? new Date(offer2.created_at).getTime() : 0)
-            );
-        }
-    });
-};
-
-const getOfferTier = (offer: any, tiers: Tier[] | undefined) => {
-    return tiers?.find(tier => tier.id === offer?.tier?.id);
-};
-
-const isOfferClickable = (isTierArchived: boolean) => !isTierArchived;
-
-const OfferTableRow: React.FC<{
-    offer: any;
-    isTierArchived: boolean;
+type OfferRowProps = {
+    offer: ReturnType<typeof useBrowseOffers>['data']['offers'][number];
     offerTier: Tier;
     onEdit: (id: string) => void;
-}> = ({offer, isTierArchived, offerTier, onEdit}) => {
+};
+
+const OfferRow: React.FC<OfferRowProps> = ({offer, offerTier, onEdit}) => {
+    const isTierArchived = offerTier.active === false;
+    const offerId = offer.id ?? '';
     const {discountOffer, originalPriceWithCurrency, updatedPriceWithCurrency} = getOfferDiscount(
         offer.type,
         offer.amount,
@@ -209,26 +172,21 @@ const OfferTableRow: React.FC<{
         offerTier
     );
 
-    const handleRowClick = () => {
-        if (isOfferClickable(isTierArchived)) {
-            onEdit(offer?.id || '');
-        }
-    };
-
-    const rowOpacity = isTierArchived ? 'opacity-50' : '';
-    const clickableClass = isOfferClickable(isTierArchived) ? 'cursor-pointer' : 'cursor-default select-none';
+    const cellClass = `${isTierArchived ? 'opacity-50' : ''} p-0`;
+    const linkClass = `block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'}`;
+    const handleEdit = !isTierArchived ? () => onEdit(offerId) : () => {};
 
     return (
-        <tr className='group relative scale-100 border-b border-b-grey-200 dark:border-grey-800' data-testid="offer-item">
-            <td className={`${rowOpacity} p-0`}>
-                <a className={`block ${clickableClass} p-5 pl-0`} onClick={handleRowClick}>
-                    <span className='font-semibold'>{offer?.name}</span>
+        <tr className='group relative scale-100 border-b border-b-grey-200 dark:border-grey-800' data-testid='offer-item'>
+            <td className={cellClass}>
+                <a className={`${linkClass} p-5 pl-0`} onClick={handleEdit}>
+                    <span className='font-semibold'>{offer.name}</span>
                     <br />
                     <span className='text-sm text-grey-700'>{offerTier.name} {getOfferCadence(offer.cadence)}</span>
                 </a>
             </td>
-            <td className={`${rowOpacity} whitespace-nowrap p-0 text-sm`}>
-                <a className={`block ${clickableClass} p-5`} onClick={handleRowClick}>
+            <td className={`${isTierArchived ? 'opacity-50' : ''} whitespace-nowrap p-0 text-sm`}>
+                <a className={`${linkClass} p-5`} onClick={handleEdit}>
                     <span className='text-[1.3rem] font-medium uppercase'>{discountOffer}</span>
                     <br />
                     <span className='text-grey-700'>
@@ -236,9 +194,9 @@ const OfferTableRow: React.FC<{
                     </span>
                 </a>
             </td>
-            <td className={`${rowOpacity} whitespace-nowrap p-0 text-sm`}>
-                <a className={`block ${clickableClass} p-5`} onClick={handleRowClick}>
-                    <span className='font-medium'>{updatedPriceWithCurrency}</span>
+            <td className={`${isTierArchived ? 'opacity-50' : ''} whitespace-nowrap p-0 text-sm`}>
+                <a className={`${linkClass} p-5`} onClick={handleEdit}>
+                    <span className='font-medium'>{updatedPriceWithCurrency}</span>{' '}
                     {offer.type !== 'trial' && (
                         <span className='relative text-xs text-grey-700 before:absolute before:-inset-x-0.5 before:top-1/2 before:rotate-[-20deg] before:border-t before:content-[""]'>
                             {originalPriceWithCurrency}
@@ -246,16 +204,16 @@ const OfferTableRow: React.FC<{
                     )}
                 </a>
             </td>
-            <td className={`${rowOpacity} w-[120px] whitespace-nowrap p-0 text-sm`}>
+            <td className={`${isTierArchived ? 'opacity-50' : ''} w-[120px] whitespace-nowrap p-0 text-sm`}>
                 <a
-                    className={`block ${clickableClass} p-5 ${offer.redemption_count === 0 ? '' : 'hover:underline'}`}
-                    href={offer.redemption_count > 0 ? createRedemptionFilterUrl(offer.id || '') : undefined}
-                    onClick={offer.redemption_count === 0 ? handleRowClick : () => {}}
+                    className={`${linkClass} p-5 ${offer.redemption_count === 0 ? '' : 'hover:underline'}`}
+                    href={offer.redemption_count > 0 ? createRedemptionFilterUrl(offerId) : undefined}
+                    onClick={offer.redemption_count === 0 ? handleEdit : () => {}}
                 >
                     {offer.redemption_count}
                 </a>
             </td>
-            <td className={`${rowOpacity} w-[120px] whitespace-nowrap p-5 pr-8 text-right text-sm leading-none`}>
+            <td className={`${isTierArchived ? 'opacity-50' : ''} w-[120px] whitespace-nowrap p-5 pr-8 text-right text-sm leading-none`}>
                 {!isTierArchived && <CopyLinkButton offerCode={offer.code} />}
             </td>
             {isTierArchived && (
@@ -267,46 +225,103 @@ const OfferTableRow: React.FC<{
     );
 };
 
-const OffersTable: React.FC<{
-    offers: any[];
+type OffersTableProps = {
+    offers: ReturnType<typeof useBrowseOffers>['data']['offers'];
     allTiers: Tier[] | undefined;
     selectedTab: string;
-    activeOffers: any[];
-    archivedOffers: any[];
+    activeCount: number;
+    archivedCount: number;
     onEdit: (id: string) => void;
-}> = ({offers, allTiers, selectedTab, activeOffers, archivedOffers, onEdit}) => {
-    const displayOffers = selectedTab === 'active' ? activeOffers : archivedOffers;
-    const hasOffers = displayOffers.length > 0;
+};
 
-    if (!hasOffers) {
-        return null;
-    }
+const OffersTable: React.FC<OffersTableProps> = ({
+    offers,
+    allTiers,
+    selectedTab,
+    activeCount,
+    archivedCount,
+    onEdit
+}) => {
+    const count = selectedTab === 'active' ? activeCount : archivedCount;
+    const hasOffers = count > 0;
 
     return (
         <div className='overflow-x-auto'>
             <table className='m-0 w-full'>
-                <tr className='border-b border-b-grey-300 dark:border-grey-800'>
-                    <th className='px-5 py-2.5 pl-0 text-xs font-normal text-grey-700'>
-                        {displayOffers.length} {displayOffers.length !== 1 ? 'offers' : 'offer'}
-                    </th>
-                    <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Terms</th>
-                    <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Price</th>
-                    <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Redemptions</th>
-                    <th className='min-w-[80px] px-5 py-2.5 pr-0 text-xs font-normal text-grey-700'></th>
-                </tr>
-                {offers
-                    .filter(offer => {
-                        const offerTier = getOfferTier(offer, allTiers);
-                        return (selectedTab === 'active' && offer.status === 'active' && offerTier?.active === true) ||
-                               (selectedTab === 'archived' && (offer.status === 'archived' || offerTier?.active === false));
-                    })
-                    .map(offer => {
-                        const offerTier = getOfferTier(offer, allTiers);
-                        if (!offerTier) return null;
+                {hasOffers && (
+                    <tr className='border-b border-b-grey-300 dark:border-grey-800'>
+                        <th className='px-5 py-2.5 pl-0 text-xs font-normal text-grey-700'>
+                            {count} {count !== 1 ? 'offers' : 'offer'}
+                        </th>
+                        <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Terms</th>
+                        <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Price</th>
+                        <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Redemptions</th>
+                        <th className='min-w-[80px] px-5 py-2.5 pr-0 text-xs font-normal text-grey-700' />
+                    </tr>
+                )}
+                {offers.map((offer) => {
+                    const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
+                    if (!offerTier) {
+                        return null;
+                    }
+                    return <OfferRow key={offer.id} offer={offer} offerTier={offerTier} onEdit={onEdit} />;
+                })}
+            </table>
+        </div>
+    );
+};
 
-                        return (
-                            <OfferTableRow
-                                key={offer.id}
-                                offer={offer}
-                                isTierArchived={offerTier.active === false}
-                                offerT
+// ─── Sorting Helpers ──────────────────────────────────────────────────────────
+
+type SortOption = 'date-added' | 'name' | 'redemptions';
+type SortDirection = 'asc' | 'desc';
+
+type Offer = ReturnType<typeof useBrowseOffers>['data']['offers'][number];
+
+const sortOffers = (offers: Offer[], option: SortOption, direction: SortDirection): Offer[] => {
+    const multiplier = direction === 'desc' ? -1 : 1;
+    return [...offers].sort((a, b) => {
+        switch (option) {
+        case 'name':
+            return multiplier * a.name.localeCompare(b.name);
+        case 'redemptions':
+            return multiplier * (a.redemption_count - b.redemption_count);
+        default:
+            return multiplier * (
+                (a.created_at ? new Date(a.created_at).getTime() : 0) -
+                (b.created_at ? new Date(b.created_at).getTime() : 0)
+            );
+        }
+    });
+};
+
+const isOfferActive = (offer: Offer, allTiers: Tier[] | undefined): boolean => {
+    const tier = allTiers?.find(t => t.id === offer?.tier?.id);
+    return offer.status === 'active' && !!tier && tier.active === true;
+};
+
+const isOfferArchived = (offer: Offer, allTiers: Tier[] | undefined): boolean => {
+    const tier = allTiers?.find(t => t.id === offer?.tier?.id);
+    return offer.status === 'archived' || (!!tier && tier.active === false);
+};
+
+// ─── Main Modal ───────────────────────────────────────────────────────────────
+
+const OFFERS_TABS: Tab[] = [
+    {id: 'active', title: 'Active'},
+    {id: 'archived', title: 'Archived'}
+];
+
+export const OffersIndexModal = () => {
+    const modal = useModal();
+    const {updateRoute} = useRouting();
+    const {data: {offers: allOffers = []} = {}, isFetching: isFetchingOffers} = useBrowseOffers();
+    const {data: {tiers: allTiers} = {}} = useBrowseTiers();
+    const {sortingState, setSortingState} = useSortingState();
+    const [selectedTab, setSelectedTab] = useState('active');
+
+    const signupOffers = allOffers.filter(offer => offer.redemption_type === 'signup');
+    const activeOffers = signupOffers.filter(offer => isOfferActive(offer, allTiers));
+    const archivedOffers = signupOffers.filter(offer => isOfferArchived(offer, allTiers));
+
+    const offersSorting = sortingState?.
