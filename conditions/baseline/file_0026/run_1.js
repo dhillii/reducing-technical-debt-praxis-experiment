@@ -1,4 +1,4 @@
-```typescript
+```tsx
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import countries from 'i18n-iso-countries';
 import enLocale from 'i18n-iso-countries/langs/en.json';
@@ -13,20 +13,12 @@ import {useTopContent} from '@tryghost/admin-x-framework/api/stats';
 
 countries.registerLocale(enLocale);
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 interface StatsFilterProps extends Omit<React.ComponentProps<typeof Filters>, 'fields' | 'onChange'> {
     filters: Filter[];
     onChange?: (filters: Filter[]) => void;
 }
-
-const getCountryName = (code: string): string => {
-    return STATS_LABEL_MAPPINGS[code as keyof typeof STATS_LABEL_MAPPINGS] || countries.getName(code, 'en') || code;
-};
-
-const VisitCountBadge = ({visits}: {visits: number}) => (
-    <span className="order-2 font-mono text-xs text-muted-foreground">
-        {visits.toLocaleString()}
-    </span>
-);
 
 interface FilterFieldDefinition {
     endpoint: string;
@@ -35,18 +27,28 @@ interface FilterFieldDefinition {
     filterItem?: (item: Record<string, unknown>) => boolean;
 }
 
-const createUTMFieldDefinition = (fieldName: string): FilterFieldDefinition => ({
-    endpoint: `api_top_${fieldName}s`,
-    valueKey: fieldName,
-    transformValue: v => ({value: v || '(not set)', label: v || '(not set)'})
-});
+interface FetchOptionsConfig {
+    enabled?: boolean;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const DEVICE_LABELS: Record<string, string> = {
+    'mobile-ios': 'iOS',
+    'mobile-android': 'Android',
+    desktop: 'Desktop',
+    bot: 'Bot',
+    unknown: 'Unknown'
+};
+
+const UTM_TRANSFORM = (v: string) => ({value: v || '(not set)', label: v || '(not set)'});
 
 const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
-    utm_source: createUTMFieldDefinition('utm_source'),
-    utm_medium: createUTMFieldDefinition('utm_medium'),
-    utm_campaign: createUTMFieldDefinition('utm_campaign'),
-    utm_content: createUTMFieldDefinition('utm_content'),
-    utm_term: createUTMFieldDefinition('utm_term'),
+    utm_source: {endpoint: 'api_top_utm_sources', valueKey: 'utm_source', transformValue: UTM_TRANSFORM},
+    utm_medium: {endpoint: 'api_top_utm_mediums', valueKey: 'utm_medium', transformValue: UTM_TRANSFORM},
+    utm_campaign: {endpoint: 'api_top_utm_campaigns', valueKey: 'utm_campaign', transformValue: UTM_TRANSFORM},
+    utm_content: {endpoint: 'api_top_utm_contents', valueKey: 'utm_content', transformValue: UTM_TRANSFORM},
+    utm_term: {endpoint: 'api_top_utm_terms', valueKey: 'utm_term', transformValue: UTM_TRANSFORM},
     source: {
         endpoint: 'api_top_sources',
         valueKey: 'source',
@@ -55,27 +57,33 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     location: {
         endpoint: 'api_top_locations',
         valueKey: 'location',
-        filterItem(item) {
+        filterItem: item => {
             const location = String(item.location || '');
             return location !== '' && !UNKNOWN_LOCATION_VALUES.includes(location);
         },
-        transformValue: v => ({value: v, label: getCountryName(v)})
+        transformValue: v => ({
+            value: v,
+            label: STATS_LABEL_MAPPINGS[v as keyof typeof STATS_LABEL_MAPPINGS] || countries.getName(v, 'en') || v
+        })
     },
     device: {
         endpoint: 'api_top_devices',
         valueKey: 'device',
-        transformValue: v => ({
-            value: v,
-            label: {
-                'mobile-ios': 'iOS',
-                'mobile-android': 'Android',
-                'desktop': 'Desktop',
-                'bot': 'Bot',
-                'unknown': 'Unknown'
-            }[v] || v
-        })
+        transformValue: v => ({value: v, label: DEVICE_LABELS[v] ?? v})
     }
 };
+
+const SUPPORTED_OPERATORS = [{value: 'is', label: 'is'}];
+
+// ─── Shared UI ────────────────────────────────────────────────────────────────
+
+const VisitCountBadge = ({visits}: {visits: number}) => (
+    <span className="order-2 font-mono text-xs text-muted-foreground">
+        {visits.toLocaleString()}
+    </span>
+);
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const buildFilterParams = (
     currentFilters: Filter[],
@@ -84,52 +92,55 @@ const buildFilterParams = (
 ): Record<string, string> => {
     const params = {...baseParams};
 
-    currentFilters.forEach((filter) => {
-        if (filter.field === excludeField || filter.values.length === 0) {
-            return;
+    for (const filter of currentFilters) {
+        if (filter.field === excludeField || filter.values.length === 0 || filter.field === 'audience') {
+            continue;
         }
 
         const value = filter.values[0] as string;
 
         if (filter.field === 'post') {
             params[value.startsWith('/') ? 'pathname' : 'post_uuid'] = value;
-        } else if (filter.field !== 'audience' && (filter.field === 'source' || filter.field === 'device' || filter.field === 'location' || filter.field.startsWith('utm_'))) {
+        } else if (
+            filter.field === 'source' ||
+            filter.field === 'device' ||
+            filter.field === 'location' ||
+            filter.field.startsWith('utm_')
+        ) {
             params[filter.field] = value;
         }
-    });
+    }
 
     return params;
 };
 
-interface UseTinybirdFilterOptionsConfig {
-    enabled?: boolean;
-}
+const getAudienceFromFilters = (filters: Filter[]) => {
+    const audienceFilter = filters.find(f => f.field === 'audience');
+    return getAudienceFromFilterValues(audienceFilter?.values as string[] | undefined);
+};
+
+// ─── Hooks ────────────────────────────────────────────────────────────────────
 
 const useTinybirdFilterOptions = (
     fieldKey: string,
     currentFilters: Filter[] = [],
-    config: UseTinybirdFilterOptionsConfig = {}
+    {enabled = true}: FetchOptionsConfig = {}
 ) => {
-    const {enabled = true} = config;
     const {statsConfig, range} = useGlobalData();
     const {startDate, endDate, timezone} = getRangeDates(range);
     const definition = FILTER_FIELD_DEFINITIONS[fieldKey];
 
-    const audience = useMemo(() => {
-        const audienceFilter = currentFilters.find(f => f.field === 'audience');
-        return getAudienceFromFilterValues(audienceFilter?.values as string[] | undefined);
-    }, [currentFilters]);
+    const audience = useMemo(() => getAudienceFromFilters(currentFilters), [currentFilters]);
 
     const params = useMemo(() => {
         const baseParams: Record<string, string> = {
             site_uuid: statsConfig?.id || '',
             date_from: formatQueryDate(startDate),
             date_to: formatQueryDate(endDate),
-            timezone: timezone,
+            timezone,
             member_status: getAudienceQueryParam(audience),
             limit: '50'
         };
-
         return buildFilterParams(currentFilters, fieldKey, baseParams);
     }, [statsConfig?.id, startDate, endDate, timezone, audience, currentFilters, fieldKey]);
 
@@ -145,85 +156,55 @@ const useTinybirdFilterOptions = (
             return [];
         }
 
-        const items = (data as unknown as Array<Record<string, unknown>>) || [];
-
-        return items
-            .filter(item => (definition.filterItem ? definition.filterItem(item) : true))
+        return ((data as unknown as Array<Record<string, unknown>>) || [])
+            .filter(item => definition.filterItem?.(item) ?? true)
             .map((item) => {
                 const rawValue = String(item[definition.valueKey] ?? '');
                 const visits = Number(item.visits) || 0;
-                const {value, label} = definition.transformValue
-                    ? definition.transformValue(rawValue)
-                    : {value: rawValue, label: rawValue};
-
-                return {
-                    label,
-                    value,
-                    icon: <VisitCountBadge visits={visits} />
-                };
+                const {value, label} = definition.transformValue?.(rawValue) ?? {value: rawValue, label: rawValue};
+                return {label, value, icon: <VisitCountBadge visits={visits} />};
             });
     }, [data, definition]);
 
     return {options, loading};
 };
 
-interface UsePostOptionsConfig {
-    enabled?: boolean;
-}
-
-const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsConfig = {}) => {
-    const {enabled = true} = config;
+const usePostOptions = (currentFilters: Filter[] = [], {enabled = true}: FetchOptionsConfig = {}) => {
     const {range} = useGlobalData();
     const {startDate, endDate, timezone} = getRangeDates(range);
-
-    const audience = useMemo(() => {
-        const audienceFilter = currentFilters.find(f => f.field === 'audience');
-        return getAudienceFromFilterValues(audienceFilter?.values as string[] | undefined);
-    }, [currentFilters]);
+    const audience = useMemo(() => getAudienceFromFilters(currentFilters), [currentFilters]);
 
     const queryParams = useMemo(() => {
         const baseParams: Record<string, string> = {
             date_from: formatQueryDate(startDate),
             date_to: formatQueryDate(endDate),
-            member_status: getAudienceQueryParam(audience)
+            member_status: getAudienceQueryParam(audience),
+            ...(timezone ? {timezone} : {})
         };
-
-        if (timezone) {
-            baseParams.timezone = timezone;
-        }
-
         return buildFilterParams(currentFilters, 'post', baseParams);
     }, [startDate, endDate, timezone, audience, currentFilters]);
 
-    const {data: topContentData, isLoading} = useTopContent({
-        searchParams: queryParams,
-        enabled
-    });
+    const {data: topContentData, isLoading} = useTopContent({searchParams: queryParams, enabled});
 
     const options = useMemo(() => {
-        const stats = topContentData?.stats;
         const seen = new Set<string>();
 
-        return (stats || [])
+        return (topContentData?.stats || [])
             .filter((item) => {
-                const hasValidPostUuid = item.post_uuid && item.post_uuid !== '' && item.post_uuid !== 'undefined';
-                const uniqueKey = hasValidPostUuid ? `uuid:${item.post_uuid}` : `path:${item.pathname}`;
-
-                if (seen.has(uniqueKey)) {
+                const hasValidUuid = item.post_uuid && item.post_uuid !== '' && item.post_uuid !== 'undefined';
+                const key = hasValidUuid ? `uuid:${item.post_uuid}` : `path:${item.pathname}`;
+                if (seen.has(key)) {
                     return false;
                 }
-                seen.add(uniqueKey);
+                seen.add(key);
                 return true;
             })
             .map((item) => {
-                const visits = item.visits || 0;
-                const hasValidPostUuid = item.post_uuid && item.post_uuid !== '' && item.post_uuid !== 'undefined';
-                const filterValue = hasValidPostUuid ? item.post_uuid! : item.pathname;
-
+                const hasValidUuid = item.post_uuid && item.post_uuid !== '' && item.post_uuid !== 'undefined';
                 return {
                     label: item.title || item.pathname || '(Untitled)',
-                    value: filterValue,
-                    icon: <VisitCountBadge visits={visits} />
+                    value: hasValidUuid ? item.post_uuid! : item.pathname,
+                    icon: <VisitCountBadge visits={item.visits || 0} />
                 };
             });
     }, [topContentData]);
@@ -231,147 +212,122 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
     return {options, loading: isLoading};
 };
 
-const useMediaQuery = (query: string): boolean => {
-    const [matches, setMatches] = useState(false);
+const useIsMobile = (breakpoint = 1024) => {
+    const [isMobile, setIsMobile] = useState(false);
 
     useEffect(() => {
-        const mediaQuery = window.matchMedia(query);
-        const handleChange = (e: MediaQueryListEvent | MediaQueryList) => {
-            setMatches(e.matches);
-        };
-
+        const mediaQuery = window.matchMedia(`(max-width: ${breakpoint}px)`);
+        const handleChange = (e: MediaQueryListEvent | MediaQueryList) => setIsMobile(e.matches);
         handleChange(mediaQuery);
         mediaQuery.addEventListener('change', handleChange);
-
         return () => mediaQuery.removeEventListener('change', handleChange);
-    }, [query]);
+    }, [breakpoint]);
 
-    return matches;
+    return isMobile;
 };
 
-interface FilterFieldOption {
-    key: string;
-    label: string;
-    type: 'select' | 'multiselect';
-    icon: React.ReactNode;
-    placeholder?: string;
-    operators: Array<{value: string; label: string}>;
-    defaultOperator: string;
-    hideOperatorSelect: boolean;
-    options: Array<{value: string; label: string; icon?: React.ReactNode}>;
-    isLoading: boolean;
-    searchable?: boolean;
-    selectedOptionsClassName?: string;
-    className?: string;
-    popoverContentClassName?: string;
-    autoCloseOnSelect?: boolean;
-}
+// ─── Field Config Builders ────────────────────────────────────────────────────
 
-const createSelectField = (
+const makeSelectField = (
     key: string,
     label: string,
     icon: React.ReactNode,
-    options: Array<{value: string; label: string; icon?: React.ReactNode}>,
-    isLoading: boolean,
-    supportedOperators: Array<{value: string; label: string}>,
-    config?: Partial<FilterFieldOption>
-): FilterFieldOption => ({
+    options: ReturnType<typeof useTinybirdFilterOptions>['options'],
+    loading: boolean,
+    overrides: Partial<FilterFieldConfig> = {}
+): FilterFieldConfig => ({
     key,
     label,
     type: 'select',
     icon,
-    placeholder: `Select ${label.toLowerCase()}`,
-    operators: supportedOperators,
+    operators: SUPPORTED_OPERATORS,
     defaultOperator: 'is',
     hideOperatorSelect: true,
     options,
-    isLoading,
-    searchable: true,
+    isLoading: loading,
     selectedOptionsClassName: 'hidden',
-    ...config
+    ...overrides
 });
 
-const createUTMField = (
-    fieldName: string,
+const makeWideSelectField = (
+    key: string,
     label: string,
     icon: React.ReactNode,
-    options: Array<{value: string; label: string; icon?: React.ReactNode}>,
-    isLoading: boolean,
-    supportedOperators: Array<{value: string; label: string}>
-): FilterFieldOption => createSelectField(fieldName, label, icon, options, isLoading, supportedOperators, {
-    className: 'w-60',
-    popoverContentClassName: 'w-60'
-});
+    options: ReturnType<typeof useTinybirdFilterOptions>['options'],
+    loading: boolean,
+    placeholder: string
+): FilterFieldConfig =>
+    makeSelectField(key, label, icon, options, loading, {
+        placeholder,
+        className: 'w-60',
+        popoverContentClassName: 'w-60',
+        searchable: true
+    });
 
-const buildFilterFields = (
-    supportedOperators: Array<{value: string; label: string}>,
-    audienceOptions: Array<{value: string; label: string; icon: React.ReactNode}>,
-    postOptions: Array<{value: string; label: string; icon?: React.ReactNode}>,
-    postLoading: boolean,
-    sourceOptions: Array<{value: string; label: string; icon?: React.ReactNode}>,
-    sourceLoading: boolean,
-    deviceOptions: Array<{value: string; label: string; icon?: React.ReactNode}>,
-    deviceLoading: boolean,
-    locationOptions: Array<{value: string; label: string; icon?: React.ReactNode}>,
-    locationLoading: boolean,
-    utmSourceOptions: Array<{value: string; label: string; icon?: React.ReactNode}>,
-    utmSourceLoading: boolean,
-    utmMediumOptions: Array<{value: string; label: string; icon?: React.ReactNode}>,
-    utmMediumLoading: boolean,
-    utmCampaignOptions: Array<{value: string; label: string; icon?: React.ReactNode}>,
-    utmCampaignLoading: boolean,
-    utmContentOptions: Array<{value: string; label: string; icon?: React.ReactNode}>,
-    utmContentLoading: boolean,
-    utmTermOptions: Array<{value: string; label: string; icon?: React.ReactNode}>,
-    utmTermLoading: boolean
-): FilterFieldConfig[] => {
-    const basicFields: FilterFieldOption[] = [
-        {
-            key: 'audience',
-            label: 'Audience',
-            type: 'multiselect',
-            icon: <LucideIcon.Users />,
-            options: audienceOptions,
-            defaultOperator: 'is any of',
-            hideOperatorSelect: true,
-            operators: supportedOperators,
-            isLoading: false,
-            autoCloseOnSelect: true
-        },
-        createSelectField('post', 'Post or page', <LucideIcon.PenLine />, postOptions, postLoading, supportedOperators, {
-            className: 'w-80',
-            popoverContentClassName: 'w-80'
-        }),
-        createSelectField('source', 'Source', <LucideIcon.Globe className="size-4" />, sourceOptions, sourceLoading, supportedOperators),
-        createSelectField('device', 'Device', <LucideIcon.Monitor className="size-4" />, deviceOptions, deviceLoading, supportedOperators),
-        createSelectField('location', 'Location', <LucideIcon.MapPin className="size-4" />, locationOptions, locationLoading, supportedOperators)
-    ];
-
-    const utmFields: FilterFieldOption[] = [
-        createUTMField('utm_source', 'UTM Source', <LucideIcon.MousePointerClick className="size-4" />, utmSourceOptions, utmSourceLoading, supportedOperators),
-        createUTMField('utm_medium', 'UTM Medium', <LucideIcon.SatelliteDish className="size-4" />, utmMediumOptions, utmMediumLoading, supportedOperators),
-        createUTMField('utm_campaign', 'UTM Campaign', <LucideIcon.Flag className="size-4" />, utmCampaignOptions, utmCampaignLoading, supportedOperators),
-        createUTMField('utm_content', 'UTM Content', <LucideIcon.TextCursorInput className="size-4" />, utmContentOptions, utmContentLoading, supportedOperators),
-        createUTMField('utm_term', 'UTM Term', <LucideIcon.Tag className="size-4" />, utmTermOptions, utmTermLoading, supportedOperators)
-    ];
-
-    return [
-        {
-            group: 'Basic',
-            fields: basicFields
-        },
-        {
-            group: 'UTM parameters',
-            fields: utmFields
-        }
-    ];
-};
+// ─── Component ────────────────────────────────────────────────────────────────
 
 function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
     const {appSettings} = useAppContext();
     const [activeFilterField, setActiveFilterField] = useState<string | null>(null);
-    const isMobile = useMediaQuery('(max-width: 1024px)');
+    const isMobile = useIsMobile();
+
+    const shouldFetch = useCallback(
+        (fieldKey: string) => activeFilterField === fieldKey || filters.some(f => f.field === fieldKey),
+        [activeFilterField, filters]
+    );
+
+    const {options: utmSourceOptions, loading: utmSourceLoading} = useTinybirdFilterOptions('utm_source', filters, {enabled: shouldFetch('utm_source')});
+    const {options: utmMediumOptions, loading: utmMediumLoading} = useTinybirdFilterOptions('utm_medium', filters, {enabled: shouldFetch('utm_medium')});
+    const {options: utmCampaignOptions, loading: utmCampaignLoading} = useTinybirdFilterOptions('utm_campaign', filters, {enabled: shouldFetch('utm_campaign')});
+    const {options: utmContentOptions, loading: utmContentLoading} = useTinybirdFilterOptions('utm_content', filters, {enabled: shouldFetch('utm_content')});
+    const {options: utmTermOptions, loading: utmTermLoading} = useTinybirdFilterOptions('utm_term', filters, {enabled: shouldFetch('utm_term')});
+    const {options: sourceOptions, loading: sourceLoading} = useTinybirdFilterOptions('source', filters, {enabled: shouldFetch('source')});
+    const {options: deviceOptions, loading: deviceLoading} = useTinybirdFilterOptions('device', filters, {enabled: shouldFetch('device')});
+    const {options: locationOptions, loading: locationLoading} = useTinybirdFilterOptions('location', filters, {enabled: shouldFetch('location')});
+    const {options: postOptions, loading: postLoading} = usePostOptions(filters, {enabled: shouldFetch('post')});
 
     const audienceOptions = useMemo(() => {
         const options = [
-            {value: 'undefined', label: 'Public visitors', icon: <LucideIcon.Globe className
+            {value: 'undefined', label: 'Public visitors', icon: <LucideIcon.Globe className="text-gray-700" />},
+            {value: 'free', label: 'Free members', icon: <LucideIcon.User className="text-green" />},
+            {value: 'paid', label: 'Paid members', icon: <LucideIcon.UserPlus className="text-orange" />}
+        ];
+        return appSettings?.paidMembersEnabled ? options : options.filter(o => o.value !== 'paid');
+    }, [appSettings?.paidMembersEnabled]);
+
+    const groupedFields: FilterFieldConfig[] = useMemo(() => [
+        {
+            group: 'Basic',
+            fields: [
+                {
+                    key: 'audience',
+                    label: 'Audience',
+                    type: 'multiselect',
+                    icon: <LucideIcon.Users />,
+                    options: audienceOptions,
+                    defaultOperator: 'is any of',
+                    hideOperatorSelect: true,
+                    autoCloseOnSelect: true
+                },
+                makeSelectField('post', 'Post or page', <LucideIcon.PenLine />, postOptions, postLoading, {
+                    searchable: true,
+                    className: 'w-80',
+                    popoverContentClassName: 'w-80'
+                }),
+                makeWideSelectField('source', 'Source', <LucideIcon.Globe className="size-4" />, sourceOptions, sourceLoading, 'Select source'),
+                makeSelectField('device', 'Device', <LucideIcon.Monitor className="size-4" />, deviceOptions, deviceLoading, {
+                    placeholder: 'Select device'
+                }),
+                makeSelectField('location', 'Location', <LucideIcon.MapPin className="size-4" />, locationOptions, locationLoading, {
+                    placeholder: 'Select location',
+                    searchable: true
+                })
+            ]
+        },
+        {
+            group: 'UTM parameters',
+            fields: [
+                makeWideSelectField('utm_source', 'UTM Source', <LucideIcon.MousePointerClick className="size-4" />, utmSourceOptions, utmSourceLoading, 'Select source'),
+                makeWideSelectField('utm_medium', 'UTM Medium', <LucideIcon.SatelliteDish className="size-4" />, utmMediumOptions, utmMediumLoading, 'Select medium'),
+                makeWideSelectField('utm_campaign', 'UTM Campaign', <LucideIcon.Flag className="size-4" />, utmCampaignOptions, utmCampaignLoading, 'Select campaign'),
+                make
