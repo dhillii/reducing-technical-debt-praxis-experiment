@@ -26,6 +26,7 @@ import click
 # Local imports
 from utils.config import (
     CSV_INPUT_FILE,
+    ACTIVE_PROMPTS_FILE,
     SOURCE_CODE_DIR,
     EXTRACTION_MANIFEST_FILE,
     EXECUTION_STAGES,

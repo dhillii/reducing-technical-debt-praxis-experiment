@@ -1,9 +1,22 @@
 ```javascript
+/**
+ * @fileoverview Tests for TokenStore class.
+ * @author Brandon Mills
+ */
+
 "use strict";
 
-const assert = require("chai").assert;
-const espree = require("espree");
-const TokenStore = require("../../../../../lib/languages/js/source-code/token-store");
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
+
+const assert = require("chai").assert,
+	espree = require("espree"),
+	TokenStore = require("../../../../../lib/languages/js/source-code/token-store");
+
+//------------------------------------------------------------------------------
+// Constants
+//------------------------------------------------------------------------------
 
 const DEFAULT_CONFIG = {
 	loc: true,
@@ -13,17 +26,19 @@ const DEFAULT_CONFIG = {
 };
 
 const SOURCE_CODE =
-	"/*A*/var answer/*B*/=/*C*/a/*D*/* b/*E*///F\n    call();\n/*Z*/";
-const AST = espree.parse(SOURCE_CODE, DEFAULT_CONFIG);
-const TOKENS = AST.tokens;
-const COMMENTS = AST.comments;
+		"/*A*/var answer/*B*/=/*C*/a/*D*/* b/*E*///F\n    call();\n/*Z*/",
+	AST = espree.parse(SOURCE_CODE, DEFAULT_CONFIG),
+	TOKENS = AST.tokens,
+	COMMENTS = AST.comments,
+	Program = AST,
+	VariableDeclaration = Program.body[0],
+	VariableDeclarator = VariableDeclaration.declarations[0],
+	BinaryExpression = VariableDeclarator.init,
+	CallExpression = Program.body[1].expression;
 
-// Extract AST nodes
-const Program = AST;
-const VariableDeclaration = Program.body[0];
-const VariableDeclarator = VariableDeclaration.declarations[0];
-const BinaryExpression = VariableDeclarator.init;
-const CallExpression = Program.body[1].expression;
+//------------------------------------------------------------------------------
+// Helpers
+//------------------------------------------------------------------------------
 
 /**
  * Checks the values of tokens against an array of expected values.
@@ -33,35 +48,27 @@ const CallExpression = Program.body[1].expression;
  */
 function check(tokens, expected) {
 	assert.strictEqual(tokens.length, expected.length);
-	tokens.forEach((token, i) => {
-		assert.strictEqual(token.value, expected[i]);
-	});
+	tokens.forEach((token, i) => assert.strictEqual(token.value, expected[i]));
 }
 
 /**
- * Creates a test suite for token retrieval methods
- * @param {string} methodName - Name of the method being tested
- * @param {Function} testFn - Function that runs the test
- * @returns {void}
- */
-function describeTokenMethod(methodName, testFn) {
-	describe(`when calling ${methodName}`, testFn);
-}
-
-/**
- * Helper to create a new TokenStore from code
- * @param {string} code - Source code to parse
- * @returns {TokenStore} New TokenStore instance
+ * Creates a TokenStore from parsed code.
+ * @param {string} code Source code to parse.
+ * @returns {TokenStore} A new TokenStore instance.
  */
 function createTokenStore(code) {
 	const ast = espree.parse(code, DEFAULT_CONFIG);
-	return new TokenStore(ast.tokens, ast.comments);
+	return { store: new TokenStore(ast.tokens, ast.comments), ast };
 }
+
+//------------------------------------------------------------------------------
+// Tests
+//------------------------------------------------------------------------------
 
 describe("TokenStore", () => {
 	const store = new TokenStore(TOKENS, COMMENTS);
 
-	describeTokenMethod("getTokens", () => {
+	describe("when calling getTokens", () => {
 		it("should retrieve all tokens for root node", () => {
 			check(store.getTokens(Program), [
 				"var", "answer", "=", "a", "*", "b", "call", "(", ")", ";",
@@ -81,26 +88,20 @@ describe("TokenStore", () => {
 		});
 
 		it("should retrieve all tokens plus two before and one after for binary expression", () => {
-			check(store.getTokens(BinaryExpression, 2, 1), [
-				"answer", "=", "a", "*", "b", "call",
-			]);
+			check(store.getTokens(BinaryExpression, 2, 1), ["answer", "=", "a", "*", "b", "call"]);
 		});
 
 		it("should retrieve all matched tokens for root node with filter", () => {
-			check(
-				store.getTokens(Program, t => t.type === "Identifier"),
-				["answer", "a", "b", "call"],
-			);
-			check(
-				store.getTokens(Program, { filter: t => t.type === "Identifier" }),
-				["answer", "a", "b", "call"],
-			);
+			const identifierFilter = t => t.type === "Identifier";
+			const expected = ["answer", "a", "b", "call"];
+
+			check(store.getTokens(Program, identifierFilter), expected);
+			check(store.getTokens(Program, { filter: identifierFilter }), expected);
 		});
 
 		it("should retrieve all tokens and comments in the node for root node with includeComments option", () => {
 			check(store.getTokens(Program, { includeComments: true }), [
-				"A", "var", "answer", "B", "=", "C", "a", "D", "*", "b", "E", "F",
-				"call", "(", ")", ";", "Z",
+				"A", "var", "answer", "B", "=", "C", "a", "D", "*", "b", "E", "F", "call", "(", ")", ";", "Z",
 			]);
 		});
 
@@ -122,12 +123,13 @@ describe("TokenStore", () => {
 		});
 
 		it("should retrieve tokens and comments from Program with leading and trailing comments and whitespace", () => {
-			const tokenStore = createTokenStore(" /*A*/ bar /*Z*/ ");
-			check(tokenStore.getTokens(tokenStore.constructor.prototype.constructor.name === "TokenStore" ? AST : espree.parse(" /*A*/ bar /*Z*/ ", DEFAULT_CONFIG)), ["bar"]);
+			const { store: tokenStore, ast } = createTokenStore(" /*A*/ bar /*Z*/ ");
+			check(tokenStore.getTokens(ast), ["bar"]);
+			check(tokenStore.getTokens(ast, { includeComments: true }), ["A", "bar", "Z"]);
 		});
 	});
 
-	describeTokenMethod("getTokensBefore", () => {
+	describe("when calling getTokensBefore", () => {
 		it("should retrieve zero tokens before a node", () => {
 			check(store.getTokensBefore(BinaryExpression, 0), []);
 		});
@@ -199,28 +201,22 @@ describe("TokenStore", () => {
 		});
 
 		it("should retrieve no tokens before Program when it starts with whitespace", () => {
-			const tokenStore = createTokenStore(" bar");
-			check(tokenStore.getTokensBefore(tokenStore.constructor.prototype.constructor.name === "TokenStore" ? AST : espree.parse(" bar", DEFAULT_CONFIG), 1), []);
+			const { store: tokenStore, ast } = createTokenStore(" bar");
+			check(tokenStore.getTokensBefore(ast, 1), []);
 		});
 
 		it("should retrieve no tokens before Program when it starts with a comment", () => {
-			const tokenStore = createTokenStore("/*comment*/ bar");
-			check(tokenStore.getTokensBefore(tokenStore.constructor.prototype.constructor.name === "TokenStore" ? AST : espree.parse("/*comment*/ bar", DEFAULT_CONFIG), 1), []);
+			const { store: tokenStore, ast } = createTokenStore("/*comment*/ bar");
+			check(tokenStore.getTokensBefore(ast, 1), []);
 		});
 
 		it("should retrieve no tokens before Program when it starts with whitespace and a comment", () => {
-			const tokenStore = createTokenStore(" /*comment*/ bar");
-			check(
-				tokenStore.getTokensBefore(tokenStore.constructor.prototype.constructor.name === "TokenStore" ? AST : espree.parse(" /*comment*/ bar", DEFAULT_CONFIG), {
-					count: 1,
-					includeComments: true,
-				}),
-				[],
-			);
+			const { store: tokenStore, ast } = createTokenStore(" /*comment*/ bar");
+			check(tokenStore.getTokensBefore(ast, { count: 1, includeComments: true }), []);
 		});
 	});
 
-	describeTokenMethod("getTokenBefore", () => {
+	describe("when calling getTokenBefore", () => {
 		it("should retrieve one token before a node", () => {
 			assert.strictEqual(store.getTokenBefore(BinaryExpression).value, "=");
 		});
@@ -261,10 +257,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve one token or comment before a node with includeComments and skip options", () => {
 			assert.strictEqual(
-				store.getTokenBefore(BinaryExpression, {
-					includeComments: true,
-					skip: 1,
-				}).value,
+				store.getTokenBefore(BinaryExpression, { includeComments: true, skip: 1 }).value,
 				"=",
 			);
 		});
@@ -281,46 +274,43 @@ describe("TokenStore", () => {
 		});
 
 		it("should retrieve the previous node if the comment at the end of source code is specified.", () => {
-			const tokenStore = createTokenStore("a + b /*comment*/");
-			const ast = espree.parse("a + b /*comment*/", DEFAULT_CONFIG);
-			const token = tokenStore.getTokenBefore(ast.comments[0]);
-			assert.strictEqual(token.value, "b");
+			const { store: tokenStore, ast } = createTokenStore("a + b /*comment*/");
+			assert.strictEqual(tokenStore.getTokenBefore(ast.comments[0]).value, "b");
 		});
 
 		it("should retrieve the previous comment if the first token is specified.", () => {
-			const tokenStore = createTokenStore("/*comment*/ a + b");
-			const ast = espree.parse("/*comment*/ a + b", DEFAULT_CONFIG);
-			const token = tokenStore.getTokenBefore(ast.tokens[0], { includeComments: true });
-			assert.strictEqual(token.value, "comment");
+			const { store: tokenStore, ast } = createTokenStore("/*comment*/ a + b");
+			assert.strictEqual(
+				tokenStore.getTokenBefore(ast.tokens[0], { includeComments: true }).value,
+				"comment",
+			);
 		});
 
 		it("should retrieve null if the first comment is specified.", () => {
-			const tokenStore = createTokenStore("/*comment*/ a + b");
-			const ast = espree.parse("/*comment*/ a + b", DEFAULT_CONFIG);
-			const token = tokenStore.getTokenBefore(ast.comments[0], { includeComments: true });
-			assert.strictEqual(token, null);
-		});
-
-		it("should retrieve null before Program when it starts with whitespace", () => {
-			const tokenStore = createTokenStore(" bar");
-			assert.strictEqual(tokenStore.getTokenBefore(tokenStore.constructor.prototype.constructor.name === "TokenStore" ? AST : espree.parse(" bar", DEFAULT_CONFIG)), null);
-		});
-
-		it("should retrieve null before Program when it starts with a comment", () => {
-			const tokenStore = createTokenStore("/*comment*/ bar");
-			assert.strictEqual(tokenStore.getTokenBefore(tokenStore.constructor.prototype.constructor.name === "TokenStore" ? AST : espree.parse("/*comment*/ bar", DEFAULT_CONFIG)), null);
-		});
-
-		it("should retrieve null before Program when it starts with whitespace and a comment", () => {
-			const tokenStore = createTokenStore(" /*comment*/ bar");
+			const { store: tokenStore, ast } = createTokenStore("/*comment*/ a + b");
 			assert.strictEqual(
-				tokenStore.getTokenBefore(tokenStore.constructor.prototype.constructor.name === "TokenStore" ? AST : espree.parse(" /*comment*/ bar", DEFAULT_CONFIG), { includeComments: true }),
+				tokenStore.getTokenBefore(ast.comments[0], { includeComments: true }),
 				null,
 			);
 		});
+
+		it("should retrieve null before Program when it starts with whitespace", () => {
+			const { store: tokenStore, ast } = createTokenStore(" bar");
+			assert.strictEqual(tokenStore.getTokenBefore(ast), null);
+		});
+
+		it("should retrieve null before Program when it starts with a comment", () => {
+			const { store: tokenStore, ast } = createTokenStore("/*comment*/ bar");
+			assert.strictEqual(tokenStore.getTokenBefore(ast), null);
+		});
+
+		it("should retrieve null before Program when it starts with whitespace and a comment", () => {
+			const { store: tokenStore, ast } = createTokenStore(" /*comment*/ bar");
+			assert.strictEqual(tokenStore.getTokenBefore(ast, { includeComments: true }), null);
+		});
 	});
 
-	describeTokenMethod("getTokensAfter", () => {
+	describe("when calling getTokensAfter", () => {
 		it("should retrieve zero tokens after a node", () => {
 			check(store.getTokensAfter(VariableDeclarator.id, 0), []);
 		});
@@ -371,12 +361,32 @@ describe("TokenStore", () => {
 
 		it("should retrieve several tokens and comments after a node with includeComments and count options", () => {
 			check(
-				store.getTokensAfter(VariableDeclarator.id, {
-					includeComments: true,
-					count: 3,
-				}),
+				store.getTokensAfter(VariableDeclarator.id, { includeComments: true, count: 3 }),
 				["B", "=", "C"],
 			);
 		});
 
-		it("should retrieve matched
+		it("should retrieve matched tokens and comments after a node with includeComments and count and filter options", () => {
+			check(
+				store.getTokensAfter(VariableDeclarator.id, {
+					includeComments: true,
+					count: 3,
+					filter: t => t.type.startsWith("Block"),
+				}),
+				["B", "C", "D"],
+			);
+		});
+
+		it("should retrieve no tokens after Program when it ends with whitespace", () => {
+			const { store: tokenStore, ast } = createTokenStore("bar ");
+			check(tokenStore.getTokensAfter(ast, 1), []);
+		});
+
+		it("should retrieve no tokens after Program when it ends with a comment", () => {
+			const { store: tokenStore, ast } = createTokenStore("bar /*comment*/");
+			check(tokenStore.getTokensAfter(ast, 1), []);
+		});
+
+		it("should retrieve no tokens after Program when it ends with a comment and whitespace", () => {
+			const { store: tokenStore, ast } = createTokenStore("bar /*comment*/ ");
+			check(tokenStore.getTokensAfter(ast, {
