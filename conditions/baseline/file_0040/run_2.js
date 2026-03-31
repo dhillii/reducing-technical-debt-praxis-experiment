@@ -18,26 +18,33 @@ const messages = {
 };
 
 const internalContext = {context: {internal: true}};
-const IMAGE_KEYS = ['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'];
-
 let Settings;
 let defaultSettings;
 
-// Lazy-load keypairs with memoization
-const createKeyPairLoader = () => {
-    let cached;
-    return (type) => {
-        if (!cached) {
-            cached = keypair({bits: 1024});
+const URL_TRANSFORM_KEYS = [
+    'cover_image', 'logo', 'icon', 'portal_button_icon',
+    'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'
+];
+
+const VALID_PLAN_INTERVALS = ['year', 'month', 'week', 'day'];
+const STRIPE_SECRET_KEY_REGEX = /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/;
+const STRIPE_PUBLISHABLE_KEY_REGEX = /pk_(?:test|live)_[\da-zA-Z]{1,247}$/;
+
+// Creates a lazy-initialized keypair generator
+function createKeypairGenerator() {
+    let cachedKeypair;
+    return function getKey(type) {
+        if (!cachedKeypair) {
+            cachedKeypair = keypair({bits: 1024});
         }
-        return cached[type];
+        return cachedKeypair[type];
     };
-};
+}
 
-const getMembersKey = createKeyPairLoader();
-const getGhostKey = createKeyPairLoader();
+const getMembersKey = createKeypairGenerator();
+const getGhostKey = createKeypairGenerator();
 
-const createDynamicDefaults = () => ({
+const dynamicDefaults = {
     db_hash: () => crypto.randomUUID(),
     public_hash: () => crypto.randomBytes(15).toString('hex'),
     admin_session_secret: () => crypto.randomBytes(32).toString('hex'),
@@ -50,67 +57,52 @@ const createDynamicDefaults = () => ({
     ghost_private_key: () => getGhostKey('private'),
     site_uuid: () => getOrGenerateSiteUuid(),
     indexnow_api_key: () => crypto.randomBytes(16).toString('hex')
-});
+};
 
-const flattenDefaultSettings = (categorizedSettings) => {
-    const flattened = {};
-    const dynamicDefaults = createDynamicDefaults();
+function parseDefaultSettings() {
+    const defaultSettingsInCategories = require('../data/schema/').defaultSettings;
+    const defaultSettingsFlattened = {};
 
-    _.each(categorizedSettings, (settings, categoryName) => {
-        _.each(settings, (setting, settingName) => {
+    _.each(defaultSettingsInCategories, function (settings, categoryName) {
+        _.each(settings, function (setting, settingName) {
             setting.group = categoryName;
             setting.key = settingName;
-            setting.getDefaultValue = () => {
-                const getDynamic = dynamicDefaults[setting.key];
-                return getDynamic ? getDynamic() : setting.defaultValue;
+            setting.getDefaultValue = function () {
+                const getDynamicDefault = dynamicDefaults[setting.key];
+                return getDynamicDefault ? getDynamicDefault() : setting.defaultValue;
             };
-            flattened[settingName] = setting;
+            defaultSettingsFlattened[settingName] = setting;
         });
     });
 
-    return flattened;
-};
+    return defaultSettingsFlattened;
+}
 
-const parseDefaultSettings = () => {
-    const defaultSettingsInCategories = require('../data/schema/').defaultSettings;
-    return flattenDefaultSettings(defaultSettingsInCategories);
-};
-
-const getDefaultSettings = () => {
+function getDefaultSettings() {
     if (!defaultSettings) {
         defaultSettings = parseDefaultSettings();
     }
     return defaultSettings;
-};
+}
 
-const convertBooleanValue = (value) => {
+function parseBooleanValue(value) {
     if (value === '0' || value === '1') {
         return !!+value;
     }
     if (value === 'false' || value === 'true') {
         return JSON.parse(value);
     }
-    if (_.isBoolean(value)) {
-        return value.toString();
-    }
     return value;
-};
+}
 
-const shouldTransformUrl = (key) => IMAGE_KEYS.includes(key);
-
-const createStripeValidator = (regex, fieldName) => {
-    return async (model) => {
-        const value = model.get('value');
-        if (value === null) {
-            return;
-        }
-        if (!regex.test(value)) {
-            throw new errors.ValidationError({
-                message: `${fieldName} did not match ${regex}`
-            });
-        }
-    };
-};
+function validateStripeKey(value, regex, keyName) {
+    if (value === null) {
+        return;
+    }
+    if (!regex.test(value)) {
+        throw new errors.ValidationError({message: `${keyName} did not match ${regex}`});
+    }
+}
 
 Settings = ghostBookshelf.Model.extend({
     tableName: 'settings',
@@ -153,14 +145,17 @@ Settings = ghostBookshelf.Model.extend({
 
     format() {
         const attrs = ghostBookshelf.Model.prototype.format.apply(this, arguments);
+
         if (attrs.type === 'boolean') {
-            attrs.value = convertBooleanValue(attrs.value);
+            const parsed = parseBooleanValue(attrs.value);
+            attrs.value = _.isBoolean(parsed) ? parsed.toString() : parsed;
         }
+
         return attrs;
     },
 
     formatOnWrite(attrs) {
-        if (attrs.value && shouldTransformUrl(attrs.key)) {
+        if (attrs.value && URL_TRANSFORM_KEYS.includes(attrs.key)) {
             attrs.value = urlUtils.toTransformReady(attrs.value);
         }
         return attrs;
@@ -170,10 +165,10 @@ Settings = ghostBookshelf.Model.extend({
         const attrs = ghostBookshelf.Model.prototype.parse.apply(this, arguments);
 
         if (attrs.type === 'boolean') {
-            attrs.value = convertBooleanValue(attrs.value);
+            attrs.value = parseBooleanValue(attrs.value);
         }
 
-        if (shouldTransformUrl(attrs.key)) {
+        if (URL_TRANSFORM_KEYS.includes(attrs.key)) {
             attrs.value = urlUtils.transformReadyToAbsolute(attrs.value);
         }
 
@@ -184,15 +179,13 @@ Settings = ghostBookshelf.Model.extend({
         if (_.isEmpty(data)) {
             options = data;
         }
-
         if (!_.isObject(data)) {
             data = {key: data};
         }
-
         return Promise.resolve(ghostBookshelf.Model.findOne.call(this, data, options));
     },
 
-    async edit(data, unfilteredOptions) {
+    edit(data, unfilteredOptions) {
         const options = this.filterOptions(unfilteredOptions, 'edit');
         const self = this;
 
@@ -200,13 +193,13 @@ Settings = ghostBookshelf.Model.extend({
             data = [data];
         }
 
-        const promises = data.map(async (item) => {
+        const promises = data.map((item) => {
             if (item.toJSON) {
                 item = item.toJSON();
             }
 
             if (!(_.isString(item.key) && item.key.length > 0)) {
-                throw new errors.ValidationError({message: tpl(messages.valueCannotBeBlank)});
+                return Promise.reject(new errors.ValidationError({message: tpl(messages.valueCannotBeBlank)}));
             }
 
             if (_.isObject(item.value)) {
@@ -215,29 +208,27 @@ Settings = ghostBookshelf.Model.extend({
 
             item = self.filterData(item);
 
-            const setting = await Settings.forge({key: item.key}).fetch(options);
+            return Settings.forge({key: item.key}).fetch(options).then((setting) => {
+                if (!setting) {
+                    return Promise.reject(new errors.NotFoundError({
+                        message: tpl(messages.unableToFindSetting, {key: item.key})
+                    }));
+                }
 
-            if (!setting) {
-                throw new errors.NotFoundError({message: tpl(messages.unableToFindSetting, {key: item.key})});
-            }
+                if (options.importing) {
+                    return setting.save(item, options);
+                }
 
-            if (options.importing) {
-                return setting.save(item, options);
-            }
+                if (Object.prototype.hasOwnProperty.call(item, 'value')) {
+                    setting.set('value', item.value);
+                }
 
-            if (Object.prototype.hasOwnProperty.call(item, 'value')) {
-                setting.set('value', item.value);
-            }
+                if (options.context?.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
+                    setting.set('type', item.type);
+                }
 
-            if (options.context?.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
-                setting.set('type', item.type);
-            }
-
-            if (setting.hasChanged()) {
-                return setting.save(null, options);
-            }
-
-            return setting;
+                return setting.hasChanged() ? setting.save(null, options) : setting;
+            });
         });
 
         return Promise.all(promises);
@@ -245,7 +236,6 @@ Settings = ghostBookshelf.Model.extend({
 
     async populateDefaults(unfilteredOptions) {
         const options = this.filterOptions(unfilteredOptions, 'populateDefaults');
-        const self = this;
 
         if (!options.context) {
             options.context = internalContext.context;
@@ -257,13 +247,12 @@ Settings = ghostBookshelf.Model.extend({
         const allSettings = await this.findAll(options);
         const usedKeys = allSettings.models.map(setting => setting.get('key'));
 
-        const settingsToInsert = [];
-        _.each(getDefaultSettings(), (defaultSetting, defaultSettingKey) => {
-            if (!usedKeys.includes(defaultSettingKey)) {
-                defaultSetting.value = defaultSetting.getDefaultValue();
-                settingsToInsert.push(defaultSetting);
-            }
-        });
+        const settingsToInsert = Object.entries(getDefaultSettings())
+            .filter(([key]) => !usedKeys.includes(key))
+            .map(([, defaultSetting]) => ({
+                ...defaultSetting,
+                value: defaultSetting.getDefaultValue()
+            }));
 
         if (settingsToInsert.length === 0) {
             return allSettings;
@@ -273,17 +262,20 @@ Settings = ghostBookshelf.Model.extend({
         const columns = Object.keys(columnInfo);
         const date = ghostBookshelf.knex.raw('CURRENT_TIMESTAMP');
 
-        const settingsDataToInsert = settingsToInsert.map((setting) => {
-            const settingValues = Object.assign({}, setting, {
-                id: ObjectID().toHexString(),
-                created_at: date,
-                updated_at: date
-            });
-            return _.pick(settingValues, columns);
-        });
+        const settingsDataToInsert = settingsToInsert.map(setting =>
+            _.pick(
+                Object.assign({}, setting, {
+                    id: ObjectID().toHexString(),
+                    created_at: date,
+                    updated_at: date
+                }),
+                columns
+            )
+        );
 
         await ghostBookshelf.knex.batchInsert('settings', settingsDataToInsert);
-        return self.findAll(options);
+
+        return this.findAll(options);
     },
 
     validators: {
@@ -309,7 +301,6 @@ Settings = ghostBookshelf.Model.extend({
 
         async labs(model) {
             const flags = JSON.parse(model.get('value'));
-
             for (const flag in flags) {
                 if (!WRITABLE_KEYS_ALLOWLIST.includes(flag)) {
                     throw new errors.ValidationError({
@@ -324,55 +315,40 @@ Settings = ghostBookshelf.Model.extend({
 
             for (const plan of plans) {
                 if (!options.importing && plan.amount < 100 && plan.name !== 'Complimentary') {
-                    throw new errors.ValidationError({
-                        message: 'Plans cannot have an amount less than 1'
-                    });
+                    throw new errors.ValidationError({message: 'Plans cannot have an amount less than 1'});
                 }
-
                 if (typeof plan.name !== 'string') {
-                    throw new errors.ValidationError({
-                        message: 'Plan must have a name'
-                    });
+                    throw new errors.ValidationError({message: 'Plan must have a name'});
                 }
-
                 if (typeof plan.currency !== 'string') {
-                    throw new errors.ValidationError({
-                        message: 'Plan must have a currency'
-                    });
+                    throw new errors.ValidationError({message: 'Plan must have a currency'});
                 }
-
-                if (!['year', 'month', 'week', 'day'].includes(plan.interval)) {
-                    throw new errors.ValidationError({
-                        message: 'Plan interval must be one of: year, month, week or day'
-                    });
+                if (!VALID_PLAN_INTERVALS.includes(plan.interval)) {
+                    throw new errors.ValidationError({message: 'Plan interval must be one of: year, month, week or day'});
                 }
             }
         },
 
-        stripe_secret_key: createStripeValidator(
-            /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/,
-            'stripe_secret_key'
-        ),
+        async stripe_secret_key(model) {
+            validateStripeKey(model.get('value'), STRIPE_SECRET_KEY_REGEX, 'stripe_secret_key');
+        },
 
-        stripe_publishable_key: createStripeValidator(
-            /pk_(?:test|live)_[\da-zA-Z]{1,247}$/,
-            'stripe_publishable_key'
-        ),
+        async stripe_publishable_key(model) {
+            validateStripeKey(model.get('value'), STRIPE_PUBLISHABLE_KEY_REGEX, 'stripe_publishable_key');
+        },
 
-        stripe_connect_secret_key: createStripeValidator(
-            /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/,
-            'stripe_secret_key'
-        ),
+        async stripe_connect_secret_key(model) {
+            validateStripeKey(model.get('value'), STRIPE_SECRET_KEY_REGEX, 'stripe_secret_key');
+        },
 
-        stripe_connect_publishable_key: createStripeValidator(
-            /pk_(?:test|live)_[\da-zA-Z]{1,247}$/,
-            'stripe_publishable_key'
-        )
+        async stripe_connect_publishable_key(model) {
+            validateStripeKey(model.get('value'), STRIPE_PUBLISHABLE_KEY_REGEX, 'stripe_publishable_key');
+        }
     }
 });
 
 module.exports = {
     Settings: ghostBookshelf.model('Settings', Settings),
-    getOrGenerateSiteUuid: getOrGenerateSiteUuid
+    getOrGenerateSiteUuid
 };
 ```
