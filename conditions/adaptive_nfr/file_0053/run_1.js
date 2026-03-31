@@ -4,147 +4,103 @@
 var grunt = require('../grunt');
 var path = require('path');
 
-// ============================================================================
-// State Management
-// ============================================================================
+var col1len = 0;
 
-var state = {
-  col1len: 0,
-  options: [],
-  tasks: [],
+exports.initCol1 = function(str) {
+  col1len = Math.max(col1len, str.length);
 };
 
-// ============================================================================
-// Column Width Management
-// ============================================================================
+exports.initWidths = function() {
+  var commandWidth = Math.max(col1len + 20, 76);
+  exports.widths = [1, col1len, 2, commandWidth - col1len];
+};
 
-function updateCol1Width(str) {
-  state.col1len = Math.max(state.col1len, str.length);
-}
-
-function calculateWidths() {
-  var commandWidth = Math.max(state.col1len + 20, 76);
-  return [1, state.col1len, 2, commandWidth - state.col1len];
-}
-
-// ============================================================================
-// Table Rendering
-// ============================================================================
-
-function renderTable(arr, widths) {
+exports.table = function(arr) {
   arr.forEach(function(item) {
-    grunt.log.writetableln(widths, [
-      '',
-      grunt.util._.pad(item[0], state.col1len),
-      '',
-      item[1],
-    ]);
+    grunt.log.writetableln(exports.widths, ['', grunt.util._.pad(item[0], col1len), '', item[1]]);
   });
-}
+};
 
-// ============================================================================
-// Options Processing
-// ============================================================================
+exports.queue = [
+  'initOptions',
+  'initTasks',
+  'initWidths',
+  'header',
+  'usage',
+  'options',
+  'optionsFooter',
+  'tasks',
+  'footer',
+];
 
-function initOptions() {
-  state.options = Object.keys(grunt.cli.optlist).map(function(long) {
+exports.display = function() {
+  exports.queue.forEach(function(name) { exports[name](); });
+};
+
+exports.header = function() {
+  grunt.log.writeln('Grunt: The JavaScript Task Runner (v' + grunt.version + ')');
+};
+
+exports.usage = function() {
+  grunt.log.header('Usage');
+  grunt.log.writeln(' ' + path.basename(process.argv[1]) + ' [options] [task [task ...]]');
+};
+
+exports.initOptions = function() {
+  exports._options = Object.keys(grunt.cli.optlist).map(function(long) {
     var o = grunt.cli.optlist[long];
     var col1 = '--' + (o.negate ? 'no-' : '') + long + (o.short ? ', -' + o.short : '');
-    updateCol1Width(col1);
+    exports.initCol1(col1);
     return [col1, o.info];
   });
-}
+};
 
-function displayOptions() {
+exports.options = function() {
   grunt.log.header('Options');
-  renderTable(state.options, calculateWidths());
-}
+  exports.table(exports._options);
+};
 
-function displayOptionsFooter() {
+exports.optionsFooter = function() {
   grunt.log.writeln().writelns(
     'Options marked with * have methods exposed via the grunt API and should ' +
     'instead be specified inside the Gruntfile wherever possible.'
   );
-}
+};
 
-// ============================================================================
-// Tasks Processing
-// ============================================================================
-
-function initTasks() {
+exports.initTasks = function() {
   grunt.task.init([], {help: true});
-
-  state.tasks = Object.keys(grunt.task._tasks).map(function(name) {
-    var task = grunt.task._tasks[name];
-    updateCol1Width(name);
-    return task;
+  exports._tasks = Object.keys(grunt.task._tasks).map(function(name) {
+    exports.initCol1(name);
+    return grunt.task._tasks[name];
   });
+};
+
+var TASKS_DESCRIPTION = 'Tasks run in the order specified. Arguments may be passed to tasks that ' +
+  'accept them by using colons, like "lint:files". Tasks marked with * are ' +
+  '"multi tasks" and will iterate over all sub-targets if no argument is ' +
+  'specified.';
+
+var TASKS_FOOTER = 'The list of available tasks may change based on tasks directories or ' +
+  'grunt plugins specified in the Gruntfile or via command-line options.';
+
+function formatTask(task) {
+  return [task.name, task.info + (task.multi ? ' *' : '')];
 }
 
-function formatTaskRow(task) {
-  var info = task.info;
-  if (task.multi) {
-    info += ' *';
-  }
-  return [task.name, info];
-}
-
-function displayTasks() {
+exports.tasks = function() {
   grunt.log.header('Available tasks');
 
-  if (state.tasks.length === 0) {
+  if (exports._tasks.length === 0) {
     grunt.log.writeln('(no tasks found)');
   } else {
-    renderTable(state.tasks.map(formatTaskRow), calculateWidths());
-    grunt.log.writeln().writelns(
-      'Tasks run in the order specified. Arguments may be passed to tasks that ' +
-      'accept them by using colons, like "lint:files". Tasks marked with * are ' +
-      '"multi tasks" and will iterate over all sub-targets if no argument is ' +
-      'specified.'
-    );
+    exports.table(exports._tasks.map(formatTask));
+    grunt.log.writeln().writelns(TASKS_DESCRIPTION);
   }
 
-  grunt.log.writeln().writelns(
-    'The list of available tasks may change based on tasks directories or ' +
-    'grunt plugins specified in the Gruntfile or via command-line options.'
-  );
-}
+  grunt.log.writeln().writelns(TASKS_FOOTER);
+};
 
-// ============================================================================
-// Display Functions
-// ============================================================================
-
-function displayHeader() {
-  grunt.log.writeln('Grunt: The JavaScript Task Runner (v' + grunt.version + ')');
-}
-
-function displayUsage() {
-  grunt.log.header('Usage');
-  grunt.log.writeln(' ' + path.basename(process.argv[1]) + ' [options] [task [task ...]]');
-}
-
-function displayFooter() {
+exports.footer = function() {
   grunt.log.writeln().writeln('For more information, see http://gruntjs.com/');
-}
-
-// ============================================================================
-// Public API
-// ============================================================================
-
-var displayQueue = [
-  displayHeader,
-  displayUsage,
-  initOptions,
-  displayOptions,
-  displayOptionsFooter,
-  initTasks,
-  displayTasks,
-  displayFooter,
-];
-
-exports.display = function() {
-  displayQueue.forEach(function(fn) {
-    fn();
-  });
 };
 ```
