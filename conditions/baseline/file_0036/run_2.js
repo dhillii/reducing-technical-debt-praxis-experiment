@@ -1,27 +1,27 @@
 ```javascript
-// # Ghost Head Helper
-// Usage: `{{ghost_head}}`
-//
-// Outputs scripts and other assets at the top of a Ghost theme
-
 const {metaData, settingsCache, config, blogIcon, urlUtils, getFrontendKey, settingsHelpers} = require('../services/proxy');
 const {escapeExpression, SafeString} = require('../services/handlebars');
 const {generateCustomFontCss, isValidCustomFont, isValidCustomHeadingFont} = require('@tryghost/custom-fonts');
 const {cardAssets} = require('../services/assets-minification');
+
 const logging = require('@tryghost/logging');
 const _ = require('lodash');
 const debug = require('@tryghost/debug')('ghost_head');
 const templateStyles = require('./tpl/styles');
 const {getFrontendAppConfig, getDataAttributes} = require('../utils/frontend-apps');
 
+/**
+ * @typedef {import('@tryghost/custom-fonts').FontSelection} FontSelection
+ */
+
 const {get: getMetaData, getAssetUrl} = metaData;
 
-// ============================================================================
-// Meta Tag Utilities
-// ============================================================================
+// -------------------------
+// Meta tag helpers
+// -------------------------
 
 function writeMetaTag(property, content, type) {
-    type = type || property.substring(0, 7) === 'twitter' ? 'name' : 'property';
+    type = type || (property.substring(0, 7) === 'twitter' ? 'name' : 'property');
     return `<meta ${type}="${property}" content="${content}">`;
 }
 
@@ -44,40 +44,41 @@ function finaliseStructuredData(meta) {
     return head;
 }
 
-// ============================================================================
-// Frontend App Helpers
-// ============================================================================
+// -------------------------
+// Frontend app helpers
+// -------------------------
 
 function getMembersHelper(data, frontendKey, excludeList) {
-    const isMembersEnabled = settingsCache.get('members_enabled');
-    const isDonationsEnabled = settingsCache.get('donations_enabled');
-    const isRecommendationsEnabled = settingsCache.get('recommendations_enabled');
+    const membersEnabled = settingsCache.get('members_enabled');
+    const donationsEnabled = settingsCache.get('donations_enabled');
+    const recommendationsEnabled = settingsCache.get('recommendations_enabled');
 
-    if (!isMembersEnabled && !isDonationsEnabled && !isRecommendationsEnabled) {
+    if (!membersEnabled && !donationsEnabled && !recommendationsEnabled) {
         return '';
     }
 
-    let membersHelper = '';
+    const parts = [];
 
     if (!excludeList.has('portal')) {
-        membersHelper += buildPortalScript(data, frontendKey);
+        parts.push(buildPortalScript(data, frontendKey));
     }
 
     if (!excludeList.has('cta_styles')) {
-        membersHelper += `<style id="gh-members-styles">${templateStyles}</style>`;
+        parts.push(`<style id="gh-members-styles">${templateStyles}</style>`);
     }
 
     if (settingsCache.get('paid_members_enabled')) {
-        membersHelper += buildStripeScript();
+        const fraudParam = process.env.NODE_ENV === 'testing-browser' ? '?advancedFraudSignals=false' : '';
+        parts.push(`<script async src="https://js.stripe.com/v3/${fraudParam}"></script>`);
     }
 
-    return membersHelper;
+    return parts.join('');
 }
 
 function buildPortalScript(data, frontendKey) {
     const {scriptUrl} = getFrontendAppConfig('portal');
     const colorString = (_.has(data, 'site._preview') && data.site.accent_color) ? data.site.accent_color : '';
-    
+
     const attributes = {
         i18n: true,
         ghost: urlUtils.getSiteUrl(),
@@ -90,17 +91,10 @@ function buildPortalScript(data, frontendKey) {
         attributes['accent-color'] = colorString;
     }
 
-    const dataAttributes = getDataAttributes(attributes);
-    return `<script defer src="${scriptUrl}" ${dataAttributes} crossorigin="anonymous"></script>`;
-}
-
-function buildStripeScript() {
-    const isFraudSignalsEnabled = process.env.NODE_ENV === 'testing-browser' ? '?advancedFraudSignals=false' : '';
-    return `<script async src="https://js.stripe.com/v3/${isFraudSignalsEnabled}"></script>`;
+    return `<script defer src="${scriptUrl}" ${getDataAttributes(attributes)} crossorigin="anonymous"></script>`;
 }
 
 function getSearchHelper(frontendKey) {
-    const adminUrl = urlUtils.getAdminUrl() || urlUtils.getSiteUrl();
     const {scriptUrl, stylesUrl} = getFrontendAppConfig('sodoSearch');
 
     if (!scriptUrl) {
@@ -110,12 +104,11 @@ function getSearchHelper(frontendKey) {
     const attrs = {
         key: frontendKey,
         styles: stylesUrl,
-        'sodo-search': adminUrl,
+        'sodo-search': urlUtils.getAdminUrl() || urlUtils.getSiteUrl(),
         locale: settingsCache.get('locale') || 'en'
     };
 
-    const dataAttrs = getDataAttributes(attrs);
-    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+    return `<script defer src="${scriptUrl}" ${getDataAttributes(attrs)} crossorigin="anonymous"></script>`;
 }
 
 function getAnnouncementBarHelper(data) {
@@ -129,28 +122,26 @@ function getAnnouncementBarHelper(data) {
     const {scriptUrl} = getFrontendAppConfig('announcementBar');
     const siteUrl = urlUtils.getSiteUrl();
     const announcementUrl = new URL('members/api/announcement/', siteUrl);
-    
+
     const attrs = {
         'announcement-bar': siteUrl,
         'api-url': announcementUrl
     };
 
     if (preview) {
-        const previewAttrs = extractPreviewAttributes(preview);
+        const previewAttrs = buildAnnouncementPreviewAttrs(preview);
         if (!previewAttrs) {
-            return '';
+            return;
         }
         Object.assign(attrs, previewAttrs);
     }
 
-    const dataAttrs = getDataAttributes(attrs);
-    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+    return `<script defer src="${scriptUrl}" ${getDataAttributes(attrs)} crossorigin="anonymous"></script>`;
 }
 
-function extractPreviewAttributes(preview) {
+function buildAnnouncementPreviewAttrs(preview) {
     const searchParam = new URLSearchParams(preview);
     const announcement = searchParam.get('announcement');
-    const announcementBackground = searchParam.has('announcement_bg') ? searchParam.get('announcement_bg') : '';
     const announcementVisibility = searchParam.has('announcement_vis');
 
     if (!announcement || !announcementVisibility) {
@@ -159,19 +150,14 @@ function extractPreviewAttributes(preview) {
 
     return {
         announcement: escapeExpression(announcement),
-        'announcement-background': escapeExpression(announcementBackground),
+        'announcement-background': escapeExpression(searchParam.has('announcement_bg') ? searchParam.get('announcement_bg') : ''),
         preview: true
     };
 }
 
-// ============================================================================
-// Discovery & Tracking Helpers
-// ============================================================================
-
 function getWebmentionDiscoveryLink() {
     try {
-        const siteUrl = urlUtils.getSiteUrl();
-        const webmentionUrl = new URL('webmentions/receive/', siteUrl);
+        const webmentionUrl = new URL('webmentions/receive/', urlUtils.getSiteUrl());
         return `<link href="${webmentionUrl.href}" rel="webmention">`;
     } catch (err) {
         logging.warn(err);
@@ -179,120 +165,105 @@ function getWebmentionDiscoveryLink() {
     }
 }
 
+// -------------------------
+// Analytics helper
+// -------------------------
+
 function getTinybirdTrackerScript(dataRoot) {
-    const preview = dataRoot?.context?.includes('preview');
-    if (preview) {
+    if (dataRoot?.context?.includes('preview')) {
         return '';
     }
 
     const src = getAssetUrl('public/ghost-stats.min.js', false);
     const env = config.get('env');
-    const trackerConfig = getTinybirdConfig();
-    const tbParams = buildTinybirdParams(dataRoot);
-
-    return `<script defer src="${src}" data-stringify-payload="false" ${trackerConfig.datasource ? `data-datasource="${trackerConfig.datasource}"` : ''} data-storage="localStorage" data-host="${trackerConfig.endpoint}" ${trackerConfig.token && env !== 'production' ? `data-token="${trackerConfig.token}"` : ''} ${tbParams}></script>`;
-}
-
-function getTinybirdConfig() {
     const statsConfig = config.get('tinybird:tracker');
     const localConfig = config.get('tinybird:tracker:local');
-    const localEnabled = localConfig?.enabled ?? false;
+    const useLocal = localConfig?.enabled ?? false;
 
-    return {
-        endpoint: localEnabled ? localConfig.endpoint : statsConfig.endpoint,
-        token: localEnabled ? localConfig.token : statsConfig.token,
-        datasource: localEnabled ? localConfig.datasource : statsConfig.datasource
-    };
+    const endpoint = useLocal ? localConfig.endpoint : statsConfig.endpoint;
+    const token = useLocal ? localConfig.token : statsConfig.token;
+    const datasource = useLocal ? localConfig.datasource : statsConfig.datasource;
+
+    const tbParams = buildTinybirdParams(dataRoot);
+    const datasourceAttr = datasource ? `data-datasource="${datasource}"` : '';
+    const tokenAttr = (token && env !== 'production') ? `data-token="${token}"` : '';
+
+    return `<script defer src="${src}" data-stringify-payload="false" ${datasourceAttr} data-storage="localStorage" data-host="${endpoint}" ${tokenAttr} ${tbParams}></script>`;
 }
 
 function buildTinybirdParams(dataRoot) {
-    const params = {
+    const context = dataRoot.context;
+    const postType = context?.includes('post') ? 'post' : context?.includes('page') ? 'page' : null;
+
+    return _.map({
         site_uuid: settingsCache.get('site_uuid'),
         post_uuid: dataRoot.post?.uuid,
-        post_type: getPostType(dataRoot.context),
+        post_type: postType,
         member_uuid: dataRoot.member?.uuid,
         member_status: dataRoot.member?.status
-    };
-
-    return _.map(params, (value, key) => `tb_${key}="${value}"`).join(' ');
+    }, (value, key) => `tb_${key}="${value}"`).join(' ');
 }
 
-function getPostType(context) {
-    if (context?.includes('post')) return 'post';
-    if (context?.includes('page')) return 'page';
-    return null;
+// -------------------------
+// Custom font helper
+// -------------------------
+
+function getCustomFontStyles(options) {
+    const isSitePreview = options.data?.site?._preview ?? false;
+
+    const headingFont = isSitePreview
+        ? options.data?.site?.heading_font
+        : settingsCache.get('heading_font');
+
+    const bodyFont = isSitePreview
+        ? options.data?.site?.body_font
+        : settingsCache.get('body_font');
+
+    const hasValidHeading = typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont);
+    const hasValidBody = typeof bodyFont === 'string' && isValidCustomFont(bodyFont);
+
+    if (!hasValidHeading && !hasValidBody) {
+        return null;
+    }
+
+    /** @type FontSelection */
+    const fontSelection = {};
+    if (headingFont) {
+        fontSelection.heading = headingFont;
+    }
+    if (bodyFont) {
+        fontSelection.body = bodyFont;
+    }
+
+    return new SafeString(generateCustomFontCss(fontSelection));
 }
 
-// ============================================================================
-// Asset Helpers
-// ============================================================================
+// -------------------------
+// Head assembly helpers
+// -------------------------
 
-function addCardAssets(head, excludeList) {
-    if (excludeList.has('card_assets')) {
-        return;
-    }
+function buildMetadataSection(meta, context, referrerPolicy, favicon, iconType, excludeList) {
+    const head = [];
 
-    if (cardAssets.hasFile('js')) {
-        head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
-    }
-    if (cardAssets.hasFile('css')) {
-        head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
-    }
-}
+    if (!excludeList.has('metadata')) {
+        if (meta.metaDescription?.length > 0) {
+            head.push(`<meta name="description" content="${escapeExpression(meta.metaDescription)}">`);
+        }
 
-function addCommentCounts(head, excludeList) {
-    if (excludeList.has('comment_counts') || settingsCache.get('comments_enabled') === 'off') {
-        return;
-    }
+        if (settingsCache.get('icon')) {
+            head.push(`<link rel="icon" href="${favicon}" type="image/${iconType}">`);
+        }
 
-    head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
-}
+        head.push(`<link rel="canonical" href="${escapeExpression(meta.canonicalUrl)}">`);
 
-function addMemberAttribution(head) {
-    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
-        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
-    }
-}
-
-function addWebAnalytics(head, dataRoot) {
-    if (settingsHelpers.isWebAnalyticsEnabled()) {
-        head.push(getTinybirdTrackerScript(dataRoot));
-        if (dataRoot._locals) {
-            dataRoot._locals.ghostAnalytics = true;
+        if (_.includes(context, 'preview')) {
+            head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+            head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+        } else {
+            head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
         }
     }
-}
 
-// ============================================================================
-// Metadata Helpers
-// ============================================================================
-
-function addBasicMetadata(head, meta, favicon, iconType, excludeList) {
-    if (excludeList.has('metadata')) {
-        return;
-    }
-
-    if (meta.metaDescription && meta.metaDescription.length > 0) {
-        head.push(`<meta name="description" content="${escapeExpression(meta.metaDescription)}">`);
-    }
-
-    if (settingsCache.get('icon')) {
-        head.push(`<link rel="icon" href="${favicon}" type="image/${iconType}">`);
-    }
-
-    head.push(`<link rel="canonical" href="${escapeExpression(meta.canonicalUrl)}">`);
-}
-
-function addReferrerPolicy(head, context, referrerPolicy) {
-    if (_.includes(context, 'preview')) {
-        head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-        head.push(writeMetaTag('referrer', 'same-origin', 'name'));
-    } else {
-        head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
-    }
-}
-
-function addPaginationLinks(head, meta) {
     if (meta.previousUrl) {
         head.push(`<link rel="prev" href="${escapeExpression(meta.previousUrl)}">`);
     }
@@ -300,80 +271,118 @@ function addPaginationLinks(head, meta) {
     if (meta.nextUrl) {
         head.push(`<link rel="next" href="${escapeExpression(meta.nextUrl)}">`);
     }
+
+    return head;
 }
 
-function addStructuredData(head, meta, context, useStructuredData, excludeList) {
+function buildStructuredDataSection(meta, context, excludeList) {
+    const head = [];
+    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
+
     if (_.includes(context, 'paged') || !useStructuredData) {
-        return;
+        return head;
     }
 
     if (!excludeList.has('social_data')) {
         head.push('');
-        head.push.apply(head, finaliseStructuredData(meta));
+        head.push(...finaliseStructuredData(meta));
         head.push('');
     }
 
     if (!excludeList.has('schema') && meta.schema) {
         head.push(`<script type="application/ld+json">\n${JSON.stringify(meta.schema, null, '    ')}\n    </script>\n`);
     }
+
+    return head;
 }
 
-function addAccentColor(head, accentColor) {
-    if (!accentColor) {
-        return;
+function buildCardAssets(excludeList) {
+    const head = [];
+
+    if (excludeList.has('card_assets')) {
+        return head;
     }
 
-    const escapedColor = escapeExpression(accentColor);
-    const styleTag = `<style>:root {--ghost-accent-color: ${escapedColor};}</style>`;
-    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+    if (cardAssets.hasFile('js')) {
+        head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+    }
 
-    if (existingScriptIndex !== -1) {
-        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    if (cardAssets.hasFile('css')) {
+        head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+    }
+
+    return head;
+}
+
+function buildMemberScripts(excludeList) {
+    const head = [];
+
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+
+    return head;
+}
+
+function appendAccentColorStyle(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${escapeExpression(accentColor)};}</style>`;
+    const lastScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (lastScriptIndex !== -1) {
+        head[lastScriptIndex] += styleTag;
     } else {
         head.push(styleTag);
     }
 }
 
-function addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection) {
-    if (!_.isEmpty(globalCodeinjection)) {
-        head.push(globalCodeinjection);
-    }
-
-    if (!_.isEmpty(postCodeInjection)) {
-        head.push(postCodeInjection);
-    }
-
-    if (!_.isEmpty(tagCodeInjection)) {
-        head.push(tagCodeInjection);
-    }
+function buildCodeInjections(postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    return [globalCodeinjection, postCodeInjection, tagCodeInjection]
+        .filter(code => !_.isEmpty(code));
 }
 
-function addCustomFonts(head, options) {
-    const isSitePreview = options.data?.site?._preview ?? false;
-    const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
-    const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
+// -------------------------
+// Main helper
+// -------------------------
 
-    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
-        (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
-        
-        const fontSelection = {};
-        if (headingFont) {
-            fontSelection.heading = headingFont;
-        }
-        if (bodyFont) {
-            fontSelection.body = bodyFont;
-        }
-
-        const customCSS = generateCustomFontCss(fontSelection);
-        head.push(new SafeString(customCSS));
-    }
-}
-
-// ============================================================================
-// Main Helper
-// ============================================================================
-
-module.exports = async function ghost_head(options) {
+/**
+ * **NOTE**
+ * Express adds `_locals`, see https://github.com/expressjs/express/blob/4.15.4/lib/response.js#L962.
+ * But `options.data.root.context` is available next to `root._locals.context`, because
+ * Express creates a `renderOptions` object, see https://github.com/expressjs/express/blob/4.15.4/lib/application.js#L554
+ * and merges all locals to the root of the object. Very confusing, because the data is available in different layers.
+ *
+ * Express forwards the data like this to the hbs engine:
+ * {
+ *   post: {},             - res.render('view', databaseResponse)
+ *   context: ['post'],    - from res.locals
+ *   safeVersion: '1.x',   - from res.locals
+ *   _locals: {
+ *     context: ['post'],
+ *     safeVersion: '1.x'
+ *   }
+ * }
+ *
+ * hbs forwards the data to any hbs helper like this
+ * {
+ *   data: {
+ *     site: {},
+ *     labs: {},
+ *     config: {},
+ *     root: {
+ *       post: {},
+ *       context: ['post'],
+ *       locals: {...}
+ *     }
+ *  }
+ *
+ * `site`, `labs` and `config` are the templateOptions, search for `hbs.updateTemplateOptions` in the code base.
+ *  Also see how the root object gets created, https://github.com/wycats/handlebars.js/blob/v4.0.6/lib/handlebars/runtime.js#L259
+ */
+module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
     debug('begin');
 
     if (options.data.root.statusCode >= 500) {
@@ -383,12 +392,11 @@ module.exports = async function ghost_head(options) {
     const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
     const head = [];
     const dataRoot = options.data.root;
-    const context = dataRoot._locals.context ? dataRoot._locals.context : null;
+    const context = dataRoot._locals.context ?? null;
     const safeVersion = dataRoot._locals.safeVersion;
-    const postCodeInjection = dataRoot?.post?.codeinjection_head || null;
-    const tagCodeInjection = dataRoot?.tag?.codeinjection_head || null;
+    const postCodeInjection = dataRoot.post?.codeinjection_head ?? null;
+    const tagCodeInjection = dataRoot.tag?.codeinjection_head ?? null;
     const globalCodeinjection = settingsCache.get('codeinjection_head');
-    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
     const referrerPolicy = config.get('referrerPolicy') || 'no-referrer-when-downgrade';
     const favicon = blogIcon.getIconUrl();
     const iconType = blogIcon.getIconType(favicon);
@@ -396,16 +404,9 @@ module.exports = async function ghost_head(options) {
     debug('preparation complete, begin fetch');
 
     try {
-        const meta = await getMetaData(dataRoot, dataRoot);
-        const frontendKey = await getFrontendKey();
+        const [meta, frontendKey] = await Promise.all([
+            getMetaData(dataRoot, dataRoot),
+            getFrontendKey()
+        ]);
 
         debug('end fetch');
-
-        if (context) {
-            addBasicMetadata(head, meta, favicon, iconType, excludeList);
-            addReferrerPolicy(head, context, referrerPolicy);
-            addPaginationLinks(head, meta);
-            addStructuredData(head, meta, context, useStructuredData, excludeList);
-        }
-
-        head.push(`<meta name="generator" content="Ghost ${escapeExpression(
