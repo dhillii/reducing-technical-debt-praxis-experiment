@@ -2,149 +2,147 @@
 'use strict';
 
 const path = require('path');
-const util = require('grunt-legacy-util');
-const { Log } = require('grunt-legacy-log');
 
-// Initialize CoffeeScript support
-function initializeCoffeeScript() {
+// Register CoffeeScript support if available, otherwise provide helpful error messages
+function registerCoffeeScript() {
   try {
     require('coffeescript/register');
   } catch (e) {
     if (!require.extensions) return;
-    
+
     const COFFEE_EXTENSIONS = ['.coffee', '.litcoffee', '.coffee.md'];
-    const errorMessage = 
-      'Grunt attempted to load a .coffee file but CoffeeScript was not installed.\n' +
-      'Please run `npm install --dev coffeescript` to enable loading CoffeeScript.';
-    
+    const coffeeError = () => {
+      throw new Error(
+        'Grunt attempted to load a .coffee file but CoffeeScript was not installed.\n' +
+        'Please run `npm install --dev coffeescript` to enable loading CoffeeScript.'
+      );
+    };
+
     COFFEE_EXTENSIONS.forEach(ext => {
-      require.extensions[ext] = () => { throw new Error(errorMessage); };
+      require.extensions[ext] = coffeeError;
     });
   }
 }
 
-// Module initialization
-const grunt = module.exports = {};
+function loadGruntModules(grunt) {
+  const util = require('grunt-legacy-util');
+  grunt.util = util;
+  grunt.util.task = require('./util/task');
 
-// Require and expose internal grunt libs
-function gRequire(name) {
-  return grunt[name] = require(`./grunt/${name}`);
+  const { Log } = require('grunt-legacy-log');
+  grunt.log = new Log({ grunt });
+
+  const moduleNames = ['template', 'event', 'fail', 'file', 'option', 'config', 'task', 'help', 'cli'];
+  const modules = {};
+
+  moduleNames.forEach(name => {
+    modules[name] = grunt[name] = require(`./grunt/${name}`);
+  });
+
+  grunt.verbose = grunt.log.verbose;
+
+  return modules;
 }
 
-function gExpose(obj, methodName, newMethodName) {
-  grunt[newMethodName || methodName] = obj[methodName].bind(obj);
+function exposeGruntMethods(grunt, modules) {
+  const { task, config, fail } = modules;
+
+  grunt.package = require('../package.json');
+  grunt.version = grunt.package.version;
+
+  const expose = (obj, methodName, alias = methodName) => {
+    grunt[alias] = obj[methodName].bind(obj);
+  };
+
+  ['registerTask', 'registerMultiTask', 'registerInitTask', 'renameTask', 'loadTasks', 'loadNpmTasks']
+    .forEach(method => expose(task, method));
+
+  expose(config, 'init', 'initConfig');
+  expose(fail, 'warn');
+  expose(fail, 'fatal');
 }
 
-// Initialize core modules
-initializeCoffeeScript();
+function displayVersionInfo(grunt, modules) {
+  const { option, log, verbose, fail } = modules;
 
-grunt.util = util;
-grunt.util.task = require('./util/task');
-
-const log = new Log({ grunt });
-grunt.log = log;
-grunt.verbose = log.verbose;
-
-// Load grunt modules
-gRequire('template');
-gRequire('event');
-const fail = gRequire('fail');
-gRequire('file');
-const option = gRequire('option');
-const config = gRequire('config');
-const task = gRequire('task');
-const help = gRequire('help');
-gRequire('cli');
-
-// Expose metadata
-grunt.package = require('../package.json');
-grunt.version = grunt.package.version;
-
-// Expose task methods
-['registerTask', 'registerMultiTask', 'registerInitTask', 'renameTask', 'loadTasks', 'loadNpmTasks']
-  .forEach(method => gExpose(task, method));
-
-// Expose config and fail methods
-gExpose(config, 'init', 'initConfig');
-gExpose(fail, 'warn');
-gExpose(fail, 'fatal');
-
-// Helper functions
-function displayVersion() {
   log.writeln(`grunt v${grunt.version}`);
-  
+
   if (!option('verbose')) return;
-  
-  grunt.verbose.writeln(`Install path: ${path.resolve(__dirname, '..')}`);
-  
+
+  verbose.writeln(`Install path: ${path.resolve(__dirname, '..')}`);
+
   grunt.log.muted = true;
   grunt.task.init([], { help: true });
   grunt.log.muted = false;
-  
-  const tasks = Object.keys(grunt.task._tasks).sort();
-  grunt.verbose.writeln(`Available tasks: ${tasks.join(' ')}`);
-  
-  const options = [];
-  Object.keys(grunt.cli.optlist).forEach(long => {
-    const o = grunt.cli.optlist[long];
-    options.push(`--${o.negate ? 'no-' : ''}${long}`);
-    if (o.short) options.push(`-${o.short}`);
+
+  const availableTasks = Object.keys(grunt.task._tasks).sort();
+  verbose.writeln(`Available tasks: ${availableTasks.join(' ')}`);
+
+  const availableOptions = Object.entries(grunt.cli.optlist).flatMap(([long, o]) => {
+    const opts = [`--${o.negate ? 'no-' : ''}${long}`];
+    if (o.short) opts.push(`-${o.short}`);
+    return opts;
   });
-  grunt.verbose.writeln(`Available options: ${options.join(' ')}`);
+
+  verbose.writeln(`Available options: ${availableOptions.join(' ')}`);
 }
 
-function setupTaskExecution(tasks, options, done) {
+function setupTaskExecution(grunt, modules, tasks, options, done) {
+  const { task, fail, util, verbose } = modules;
+
   const uncaughtHandler = e => fail.fatal(e, fail.code.TASK_FAILURE);
-  
   process.on('uncaughtException', uncaughtHandler);
-  
+
   task.options({
     error: e => fail.warn(e, fail.code.TASK_FAILURE),
     done: () => {
       process.removeListener('uncaughtException', uncaughtHandler);
       fail.report();
-      
-      if (done) {
-        done();
-      } else {
-        util.exit(0);
-      }
+      done ? done() : util.exit(0);
     }
   });
-  
-  tasks.forEach(name => task.run(name));
+
+  const tasksSpecified = tasks && tasks.length > 0;
+  const resolvedTasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
+
+  task.init(resolvedTasks, options);
+
+  verbose.writeln();
+  if (!tasksSpecified) {
+    verbose.writeln('No tasks specified, running default tasks.');
+  }
+  verbose.writeflags(resolvedTasks, 'Running tasks');
+
+  resolvedTasks.forEach(name => task.run(name));
   task.start({ asyncDone: true });
 }
 
-// Main task execution interface
+// Initialize grunt
+registerCoffeeScript();
+
+const grunt = module.exports = {};
+const modules = loadGruntModules(grunt);
+exposeGruntMethods(grunt, modules);
+
+const { option, log, verbose, fail, task, help, util } = modules;
+
 grunt.tasks = function(tasks, options, done) {
   option.init(options);
-  
+
   if (option('version')) {
-    displayVersion();
+    displayVersionInfo(grunt, { option, log, verbose, fail });
     return;
   }
-  
+
   log.initColors();
-  
+
   if (option('help')) {
     help.display();
     return;
   }
-  
-  grunt.verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
-  
-  const tasksSpecified = tasks && tasks.length > 0;
-  tasks = task.parseArgs(tasksSpecified ? tasks : ['default']);
-  
-  task.init(tasks, options);
-  
-  grunt.verbose.writeln();
-  if (!tasksSpecified) {
-    grunt.verbose.writeln('No tasks specified, running default tasks.');
-  }
-  grunt.verbose.writeflags(tasks, 'Running tasks');
-  
-  setupTaskExecution(tasks, options, done);
+
+  verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
+
+  setupTaskExecution(grunt, { task, fail, util, verbose }, tasks, options, done);
 };
 ```
