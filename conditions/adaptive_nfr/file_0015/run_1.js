@@ -4,35 +4,37 @@ import {chooseBestErrorMessage} from './utils/errors';
 import {createPopupNotification, getMemberEmail, getMemberName, getProductCadenceFromPrice, removePortalLinkFromUrl, getRefDomain} from './utils/helpers';
 import {t} from './utils/i18n';
 
-// ============================================================================
-// NOTIFICATION HELPERS
-// ============================================================================
+// ─── Notification Helpers ────────────────────────────────────────────────────
 
-function createErrorNotification(type, message, state, autoHide = false) {
+function createErrorNotification({action, state, message, autoHide = false}) {
     return createPopupNotification({
-        type,
-        autoHide,
-        closeable: true,
-        state,
-        status: 'error',
-        message
+        type: action, autoHide, closeable: true, state, status: 'error', message
     });
 }
 
-function createSuccessNotification(type, message, state, autoHide = true) {
+function createSuccessNotification({action, state, message, autoHide = true}) {
     return createPopupNotification({
-        type,
-        autoHide,
-        closeable: true,
-        state,
-        status: 'success',
-        message
+        type: action, autoHide, closeable: true, state, status: 'success', message
     });
 }
 
-// ============================================================================
-// PAGE NAVIGATION ACTIONS
-// ============================================================================
+function failedAction(action, state, message, autoHide = false) {
+    return {
+        action,
+        popupNotification: createErrorNotification({action, state, message, autoHide})
+    };
+}
+
+function successActionWithMember({action, member, state, message, page = 'accountHome'}) {
+    return {
+        action,
+        page,
+        member,
+        popupNotification: createSuccessNotification({action, state, message})
+    };
+}
+
+// ─── Popup / Navigation ──────────────────────────────────────────────────────
 
 function switchPage({data, state}) {
     return {
@@ -71,10 +73,6 @@ function closePopup({state}) {
     };
 }
 
-// ============================================================================
-// NOTIFICATION ACTIONS
-// ============================================================================
-
 function openNotification({data}) {
     return {showNotification: true, ...data};
 }
@@ -83,34 +81,29 @@ function closeNotification() {
     return {showNotification: false};
 }
 
-async function clearPopupNotification() {
-    return {popupNotification: null};
-}
+// ─── Magic Link Helpers ──────────────────────────────────────────────────────
 
-async function showPopupNotification({data, state}) {
-    const {action = 'showPopupNotification:success', message = ''} = data;
+function buildMagicLinkPageState({lastPage, inboxLinks, otcRef, email, pageData}) {
     return {
-        popupNotification: createSuccessNotification(action, message, state)
+        page: 'magiclink',
+        lastPage,
+        inboxLinks,
+        ...(otcRef ? {otcRef} : {}),
+        pageData: {
+            ...(pageData || {}),
+            email: (email || '').trim()
+        }
     };
 }
 
-// ============================================================================
-// AUTHENTICATION ACTIONS
-// ============================================================================
+// ─── Auth Actions ────────────────────────────────────────────────────────────
 
 async function signout({api, state}) {
     try {
         await api.member.signout();
         return {action: 'signout:success'};
     } catch (e) {
-        return {
-            action: 'signout:failed',
-            popupNotification: createErrorNotification(
-                'signout:failed',
-                t('Failed to log out, please try again'),
-                state
-            )
-        };
+        return failedAction('signout:failed', state, t('Failed to log out, please try again'));
     }
 }
 
@@ -123,52 +116,42 @@ async function signin({data, api, state}) {
             integrityToken,
             includeOTC: true
         });
-        return {
-            page: 'magiclink',
+        return buildMagicLinkPageState({
             lastPage: 'signin',
-            ...(otcRef ? {otcRef} : {}),
             inboxLinks,
-            pageData: {
-                ...(state.pageData || {}),
-                email: (data?.email || '').trim()
-            }
-        };
+            otcRef,
+            email: data?.email,
+            pageData: state.pageData
+        });
     } catch (e) {
-        return {
-            action: 'signin:failed',
-            popupNotification: createErrorNotification(
-                'signin:failed',
-                chooseBestErrorMessage(e, t('Failed to log in, please try again')),
-                state
-            )
-        };
+        return failedAction(
+            'signin:failed',
+            state,
+            chooseBestErrorMessage(e, t('Failed to log in, please try again'))
+        );
     }
 }
 
 function startSigninOTCFromCustomForm({data, state}) {
-    const {email = '', otcRef, inboxLinks} = data;
-    
+    const otcRef = data?.otcRef;
     if (!otcRef) {
         return {};
     }
-
     return {
         showPopup: true,
-        page: 'magiclink',
-        lastPage: 'signin',
-        otcRef,
-        inboxLinks,
-        pageData: {
-            ...(state.pageData || {}),
-            email: email.trim()
-        },
-        popupNotification: null
+        popupNotification: null,
+        ...buildMagicLinkPageState({
+            lastPage: 'signin',
+            inboxLinks: data?.inboxLinks,
+            otcRef,
+            email: data?.email,
+            pageData: state.pageData
+        })
     };
 }
 
 async function verifyOTC({data, api}) {
     const genericErrorMessage = t('Failed to verify code, please try again');
-
     try {
         const integrityToken = await api.member.getIntegrityToken();
         const response = await api.member.verifyOTC({...data, integrityToken});
@@ -188,230 +171,163 @@ async function verifyOTC({data, api}) {
     }
 }
 
-// ============================================================================
-// SIGNUP & CHECKOUT ACTIONS
-// ============================================================================
+// ─── Signup / Checkout ───────────────────────────────────────────────────────
+
+async function resolveCheckoutParams({data, state, api}) {
+    let {plan, tierId, cadence, email, name, newsletters, offerId} = data;
+    if (!tierId || !cadence) {
+        ({tierId, cadence} = getProductCadenceFromPrice({site: state?.site, priceId: plan}));
+    }
+    await api.member.checkoutPlan({plan, tierId, cadence, email, name, newsletters, offerId});
+}
 
 async function signup({data, state, api}) {
     try {
-        let {plan, tierId, cadence, email, name, newsletters, offerId} = data;
+        let {plan, email, name, newsletters} = data;
         name = name?.trim();
 
         if (plan.toLowerCase() === 'free') {
             const integrityToken = await api.member.getIntegrityToken();
             const {inboxLinks} = await api.member.sendMagicLink({
-                emailType: 'signup',
-                integrityToken,
-                ...data,
-                name
+                emailType: 'signup', integrityToken, ...data, name
             });
-            return {
-                page: 'magiclink',
+            return buildMagicLinkPageState({
                 lastPage: 'signup',
                 inboxLinks,
-                pageData: {
-                    ...(state.pageData || {}),
-                    email: (email || '').trim()
-                }
-            };
+                email,
+                pageData: state.pageData
+            });
         }
 
-        const checkoutData = tierId && cadence 
-            ? {tierId, cadence}
-            : getProductCadenceFromPrice({site: state?.site, priceId: plan});
-
-        await api.member.checkoutPlan({
-            plan,
-            ...checkoutData,
-            email,
-            name,
-            newsletters,
-            offerId
-        });
-
+        await resolveCheckoutParams({data: {...data, name}, state, api});
         return {page: 'loading'};
     } catch (e) {
-        return {
-            action: 'signup:failed',
-            popupNotification: createErrorNotification(
-                'signup:failed',
-                chooseBestErrorMessage(e, t('Failed to sign up, please try again')),
-                state
-            )
-        };
+        return failedAction(
+            'signup:failed',
+            state,
+            chooseBestErrorMessage(e, t('Failed to sign up, please try again'))
+        );
     }
 }
 
 async function checkoutPlan({data, state, api}) {
     try {
         let {plan, offerId, tierId, cadence} = data;
-        
         if (!tierId || !cadence) {
             ({tierId, cadence} = getProductCadenceFromPrice({site: state?.site, priceId: plan}));
         }
-
         await api.member.checkoutPlan({
-            plan,
-            tierId,
-            cadence,
-            offerId,
+            plan, tierId, cadence, offerId,
             metadata: {checkoutType: 'upgrade'}
         });
     } catch (e) {
-        return {
-            action: 'checkoutPlan:failed',
-            popupNotification: createErrorNotification(
-                'checkoutPlan:failed',
-                t('Failed to process checkout, please try again'),
-                state
-            )
-        };
+        return failedAction(
+            'checkoutPlan:failed',
+            state,
+            t('Failed to process checkout, please try again')
+        );
     }
 }
 
-// ============================================================================
-// SUBSCRIPTION MANAGEMENT ACTIONS
-// ============================================================================
+// ─── Subscription Management ─────────────────────────────────────────────────
+
+async function withMemberRefresh({api, state, actionName, successMessage, apiCall}) {
+    try {
+        await apiCall();
+        const member = await api.member.sessionData();
+        return successMessage
+            ? successActionWithMember({action: actionName, member, state, message: successMessage})
+            : {action: actionName, page: 'accountHome', member};
+    } catch (e) {
+        return failedAction(`${actionName.split(':')[0]}:failed`, state, e._defaultMessage || '');
+    }
+}
 
 async function updateSubscription({data, state, api}) {
+    const {plan, planId, subscriptionId, cancelAtPeriodEnd} = data;
+    const {tierId, cadence} = getProductCadenceFromPrice({site: state?.site, priceId: planId});
     try {
-        const {plan, planId, subscriptionId, cancelAtPeriodEnd} = data;
-        const {tierId, cadence} = getProductCadenceFromPrice({site: state?.site, priceId: planId});
-
         await api.member.updateSubscription({
-            planName: plan,
-            tierId,
-            cadence,
-            subscriptionId,
-            cancelAtPeriodEnd,
-            planId
+            planName: plan, tierId, cadence, subscriptionId, cancelAtPeriodEnd, planId
         });
-
         const member = await api.member.sessionData();
-        const action = 'updateSubscription:success';
-
-        return {
-            action,
+        return successActionWithMember({
+            action: 'updateSubscription:success',
             member,
-            page: 'accountHome',
-            popupNotification: createSuccessNotification(
-                action,
-                t('Subscription plan updated successfully'),
-                state
-            )
-        };
+            state,
+            message: t('Subscription plan updated successfully')
+        });
     } catch (e) {
-        return {
-            action: 'updateSubscription:failed',
-            popupNotification: createErrorNotification(
-                'updateSubscription:failed',
-                t('Failed to update subscription, please try again'),
-                state
-            )
-        };
+        return failedAction(
+            'updateSubscription:failed',
+            state,
+            t('Failed to update subscription, please try again')
+        );
     }
 }
 
 async function cancelSubscription({data, state, api}) {
+    const {subscriptionId, cancellationReason} = data;
     try {
-        const {subscriptionId, cancellationReason} = data;
-        await api.member.updateSubscription({
-            subscriptionId,
-            smartCancel: true,
-            cancellationReason
-        });
-
+        await api.member.updateSubscription({subscriptionId, smartCancel: true, cancellationReason});
         const member = await api.member.sessionData();
-        return {
-            action: 'cancelSubscription:success',
-            page: 'accountHome',
-            member
-        };
+        return {action: 'cancelSubscription:success', page: 'accountHome', member};
     } catch (e) {
-        return {
-            action: 'cancelSubscription:failed',
-            popupNotification: createErrorNotification(
-                'cancelSubscription:failed',
-                t('Failed to cancel subscription, please try again'),
-                state
-            )
-        };
+        return failedAction(
+            'cancelSubscription:failed',
+            state,
+            t('Failed to cancel subscription, please try again')
+        );
     }
 }
 
 async function continueSubscription({data, state, api}) {
+    const {subscriptionId} = data;
     try {
-        const {subscriptionId} = data;
-        await api.member.updateSubscription({
-            subscriptionId,
-            cancelAtPeriodEnd: false
-        });
-
+        await api.member.updateSubscription({subscriptionId, cancelAtPeriodEnd: false});
         const member = await api.member.sessionData();
-        return {
-            action: 'continueSubscription:success',
-            page: 'accountHome',
-            member
-        };
+        return {action: 'continueSubscription:success', page: 'accountHome', member};
     } catch (e) {
-        return {
-            action: 'continueSubscription:failed',
-            popupNotification: createErrorNotification(
-                'continueSubscription:failed',
-                t('Failed to cancel subscription, please try again'),
-                state
-            )
-        };
+        return failedAction(
+            'continueSubscription:failed',
+            state,
+            t('Failed to cancel subscription, please try again')
+        );
     }
 }
 
 async function applyOffer({data, state, api}) {
+    const {offerId, subscriptionId} = data;
     try {
-        const {offerId, subscriptionId} = data;
         await api.member.applyOffer({offerId, subscriptionId});
-
         const member = await api.member.sessionData();
-        const action = 'applyOffer:success';
-
         return {
-            action,
-            member,
+            action: 'applyOffer:success',
             page: 'accountHome',
+            member,
             offers: [],
-            popupNotification: createSuccessNotification(
-                action,
-                'Offer applied successfully!',
-                state
-            )
+            popupNotification: createSuccessNotification({
+                action: 'applyOffer:success',
+                state,
+                message: 'Offer applied successfully!'
+            })
         };
     } catch (e) {
-        return {
-            action: 'applyOffer:failed',
-            popupNotification: createErrorNotification(
-                'applyOffer:failed',
-                'Failed to apply offer, please try again',
-                state
-            )
-        };
+        return failedAction('applyOffer:failed', state, 'Failed to apply offer, please try again');
     }
 }
 
-// ============================================================================
-// BILLING ACTIONS
-// ============================================================================
+// ─── Billing ─────────────────────────────────────────────────────────────────
 
 async function editBilling({data, state, api}) {
     try {
         await api.member.editBilling(data);
     } catch (e) {
-        return {
-            action: 'editBilling:failed',
-            popupNotification: createErrorNotification(
-                'editBilling:failed',
-                t('Failed to update billing information, please try again'),
-                state
-            )
-        };
+        return failedAction(
+            'editBilling:failed',
+            state,
+            t('Failed to update billing information, please try again')
+        );
     }
 }
 
@@ -419,122 +335,114 @@ async function manageBilling({data, state, api}) {
     try {
         await api.member.manageBilling(data);
     } catch (e) {
-        return {
-            action: 'manageBilling:failed',
-            popupNotification: createErrorNotification(
-                'manageBilling:failed',
-                t('Failed to open billing portal, please try again'),
-                state
-            )
-        };
+        return failedAction(
+            'manageBilling:failed',
+            state,
+            t('Failed to open billing portal, please try again')
+        );
     }
 }
 
-// ============================================================================
-// NEWSLETTER & PREFERENCES ACTIONS
-// ============================================================================
+// ─── Notifications ───────────────────────────────────────────────────────────
 
-async function updateNewsletter({data, state, api}) {
-    try {
-        const {subscribed} = data;
-        const member = await api.member.update({subscribed});
-
-        if (!member) {
-            throw new Error('Failed to update newsletter');
-        }
-
-        const action = 'updateNewsletter:success';
-        return {
-            action,
-            member,
-            popupNotification: createSuccessNotification(
-                action,
-                t('Email newsletter settings updated'),
-                state
-            )
-        };
-    } catch (e) {
-        return {
-            action: 'updateNewsletter:failed',
-            popupNotification: createErrorNotification(
-                'updateNewsletter:failed',
-                t('Failed to update newsletter settings'),
-                state
-            )
-        };
-    }
+async function clearPopupNotification() {
+    return {popupNotification: null};
 }
+
+async function showPopupNotification({data, state}) {
+    const action = data.action || 'showPopupNotification:success';
+    return {
+        popupNotification: createSuccessNotification({
+            action, state, message: data.message || ''
+        })
+    };
+}
+
+// ─── Newsletter / Email ──────────────────────────────────────────────────────
 
 async function updateNewsletterPreference({data, state, api}) {
+    const {newsletters, enableCommentNotifications} = data;
+    if (!newsletters && enableCommentNotifications === undefined) {
+        return {};
+    }
+
+    const updateData = {
+        ...(newsletters ? {newsletters} : {}),
+        ...(enableCommentNotifications !== undefined ? {enableCommentNotifications} : {})
+    };
+
     try {
-        const {newsletters, enableCommentNotifications} = data;
-
-        if (!newsletters && enableCommentNotifications === undefined) {
-            return {};
-        }
-
-        const updateData = {};
-        if (newsletters) {
-            updateData.newsletters = newsletters;
-        }
-        if (enableCommentNotifications !== undefined) {
-            updateData.enableCommentNotifications = enableCommentNotifications;
-        }
-
         const member = await api.member.update(updateData);
-        return {
-            action: 'updateNewsletterPref:success',
-            member
-        };
+        return {action: 'updateNewsletterPref:success', member};
     } catch (e) {
-        return {
-            action: 'updateNewsletterPref:failed',
-            popupNotification: createErrorNotification(
-                'updateNewsletter:failed',
-                t('Failed to update newsletter settings'),
-                state
-            )
-        };
+        return failedAction(
+            'updateNewsletter:failed',
+            state,
+            t('Failed to update newsletter settings'),
+            true
+        );
     }
 }
 
 async function removeEmailFromSuppressionList({state, api}) {
     try {
         await api.member.deleteSuppression();
-        const action = 'removeEmailFromSuppressionList:success';
-
         return {
-            action,
-            popupNotification: createSuccessNotification(
-                action,
-                t('You have been successfully resubscribed'),
-                state
-            )
+            action: 'removeEmailFromSuppressionList:success',
+            popupNotification: createSuccessNotification({
+                action: 'removeEmailFromSuppressionList:success',
+                state,
+                message: t('You have been successfully resubscribed')
+            })
         };
     } catch (e) {
         return {
             action: 'removeEmailFromSuppressionList:failed',
-            popupNotification: createErrorNotification(
-                'removeEmailFromSuppressionList:failed',
-                t('Your email has failed to resubscribe, please try again'),
-                state
-            )
+            popupNotification: createErrorNotification({
+                action: 'removeEmailFromSuppressionList:failed',
+                state,
+                message: t('Your email has failed to resubscribe, please try again'),
+                autoHide: true
+            })
         };
     }
 }
 
-// ============================================================================
-// PROFILE UPDATE ACTIONS
-// ============================================================================
+async function updateNewsletter({data, state, api}) {
+    try {
+        const member = await api.member.update({subscribed: data.subscribed});
+        if (!member) {
+            throw new Error('Failed to update newsletter');
+        }
+        return {
+            action: 'updateNewsletter:success',
+            member,
+            popupNotification: createSuccessNotification({
+                action: 'updateNewsletter:success',
+                state,
+                message: t('Email newsletter settings updated')
+            })
+        };
+    } catch (e) {
+        return {
+            action: 'updateNewsletter:failed',
+            popupNotification: createErrorNotification({
+                action: 'updateNewsletter:failed',
+                state,
+                message: t('Failed to update newsletter settings'),
+                autoHide: true
+            })
+        };
+    }
+}
+
+// ─── Profile Update ──────────────────────────────────────────────────────────
 
 async function updateMemberEmail({data, state, api}) {
     const {email} = data;
-    const originalEmail = getMemberEmail({member: state.member});
-
-    if (email === originalEmail) {
+    if (email === getMemberEmail({member: state.member})) {
         return null;
     }
-
     try {
         await api.member.updateEmailAddress({email});
         return {success: true};
@@ -545,12 +453,9 @@ async function updateMemberEmail({data, state, api}) {
 
 async function updateMemberData({data, state, api}) {
     const name = data?.name?.trim();
-    const originalName = getMemberName({member: state.member});
-
-    if (originalName === name) {
+    if (name === getMemberName({member: state.member})) {
         return null;
     }
-
     try {
         const member = await api.member.update({name});
         if (!member) {
@@ -566,19 +471,7 @@ async function refreshMemberData({state, api}) {
     if (!state.member) {
         return null;
     }
-
     try {
         const member = await api.member.sessionData();
-        if (member) {
-            return {
-                member,
-                success: true,
-                action: 'refreshMemberData:success'
-            };
-        }
-        return null;
-    } catch (err) {
-        return {
-            success: false,
-            error: err,
-            action: 'refreshMemberData:
+        return member
+            ? {member, success: true,
