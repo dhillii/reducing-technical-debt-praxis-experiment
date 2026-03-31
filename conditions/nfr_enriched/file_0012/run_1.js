@@ -1,4 +1,4 @@
-```typescript
+```tsx
 import AdvancedThemeSettings from './theme/advanced-theme-settings';
 import InvalidThemeModal, {type FatalErrors} from './theme/invalid-theme-modal';
 import NiceModal, {type NiceModalHandler, useModal} from '@ebay/nice-modal-react';
@@ -14,11 +14,13 @@ import {useCheckThemeLimitError} from '../../../hooks/use-check-theme-limit-erro
 import {useHandleError} from '@tryghost/admin-x-framework/hooks';
 import {useRouting} from '@tryghost/admin-x-framework/routing';
 
+// ─── Types ───────────────────────────────────────────────────────────────────
+
 interface ThemeToolbarProps {
-    selectedTheme: OfficialTheme|null;
+    selectedTheme: OfficialTheme | null;
     currentTab: string;
     setCurrentTab: (tab: string) => void;
-    setSelectedTheme: (theme: OfficialTheme|null) => void;
+    setSelectedTheme: (theme: OfficialTheme | null) => void;
     modal: NiceModalHandler<Record<string, unknown>>;
     themes: Theme[];
     setPreviewMode: (mode: string) => void;
@@ -26,163 +28,153 @@ interface ThemeToolbarProps {
 }
 
 interface ThemeModalContentProps {
-    onSelectTheme: (theme: OfficialTheme|null) => void;
+    onSelectTheme: (theme: OfficialTheme | null) => void;
     currentTab: string;
     themes: Theme[];
 }
 
-interface UploadConfig {
-    enabled: boolean;
-    error?: string;
-}
+type ChangeThemeModalProps = {
+    source?: string | null;
+    themeRef?: string | null;
+};
 
-interface ThemeInstallationState {
-    isInstalling: boolean;
-    installedFromMarketplace: boolean;
-    isMounted: boolean;
-}
+type UploadConfig = {enabled: boolean; error?: string};
 
-// Constants
-const TABS = [
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const THEME_TABS = [
     {id: 'official', title: 'Official themes'},
     {id: 'installed', title: 'Installed'}
-] as const;
+];
 
-const UPLOAD_ERROR_MESSAGE = 'Your current plan doesn\'t support uploading custom themes.';
-const LIMIT_MODAL_PROMPT = <>Your current plan only supports official themes. You can install them from the <a href="https://ghost.org/marketplace/">Ghost theme marketplace</a>.</>;
+const PRO_ROUTE = {route: '/pro', isExternal: true} as const;
 
-// Utility functions
-const getThemeFileName = (file: File): string => file.name.replace(/\.zip$/, '');
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const findExistingTheme = (themes: Theme[], themeName: string): Theme | undefined => 
-    themes.find(theme => theme.name.toLowerCase() === themeName.toLowerCase());
+const getThemeIssueLabel = (theme: InstalledTheme) =>
+    theme.errors?.length ? 'errors' : 'warnings';
 
-const getThemeIndexByName = (themes: Theme[], themeName: string): number =>
-    themes.findIndex(theme => theme.name.toLowerCase() === themeName.toLowerCase());
+const hasThemeIssues = (theme: InstalledTheme) =>
+    Boolean(theme.errors?.length || theme.warnings?.length);
 
-const showDefaultThemeError = (themeFileName: string): void => {
-    NiceModal.show(ConfirmationModal, {
-        title: 'Upload failed',
-        cancelLabel: 'Cancel',
-        okLabel: '',
-        prompt: (
-            <>
-                <p>The default <strong>{themeFileName}</strong> theme cannot be overwritten.</p>
-                <p>Rename your zip file and try again.</p>
-            </>
-        ),
-        onOk: async (confirmModal) => {
-            confirmModal?.remove();
-        }
-    });
+const buildUploadPrompt = (uploadedTheme: InstalledTheme): {title: string; prompt: React.ReactNode} => {
+    const issueLabel = getThemeIssueLabel(uploadedTheme);
+    const nameNode = <strong>&quot;{uploadedTheme.name}&quot;</strong>;
+
+    if (hasThemeIssues(uploadedTheme)) {
+        const basePrompt = <>The theme {nameNode} was installed but we detected some {issueLabel}.</>;
+        return {
+            title: `Upload successful with ${issueLabel}`,
+            prompt: uploadedTheme.active
+                ? basePrompt
+                : <>{basePrompt} You are still able to activate and use the theme but it is recommended to fix these {issueLabel} before you do so.</>
+        };
+    }
+
+    const basePrompt = <><strong>{uploadedTheme.name}</strong> uploaded</>;
+    return {
+        title: 'Upload successful',
+        prompt: uploadedTheme.active
+            ? basePrompt
+            : <>{basePrompt} Do you want to activate it now?</>
+    };
 };
 
-const showOverwriteConfirmation = (
-    themeFileName: string,
-    onConfirm: (confirmModal: NiceModalHandler<Record<string, unknown>>) => Promise<void>
-): void => {
-    NiceModal.show(ConfirmationModal, {
-        title: 'Overwrite theme',
-        prompt: (
-            <>
-                The theme <strong>{themeFileName}</strong> already exists.
-                Do you want to overwrite it?
-            </>
-        ),
-        okLabel: 'Overwrite',
-        cancelLabel: 'Cancel',
-        okRunningLabel: 'Overwriting...',
-        okColor: 'red',
-        onOk: onConfirm
-    });
+const buildInstallPrompt = (theme: InstalledTheme): {title: string; prompt: React.ReactNode} => {
+    const issueLabel = getThemeIssueLabel(theme);
+    const nameNode = <strong>&quot;{theme.name}&quot;</strong>;
+
+    if (hasThemeIssues(theme)) {
+        const basePrompt = <>The theme {nameNode} was installed successfully but we detected some {issueLabel}.</>;
+        return {
+            title: `Installed with ${issueLabel}`,
+            prompt: theme.active
+                ? basePrompt
+                : <>{basePrompt} You are still able to activate and use the theme but it is recommended to contact the theme developer fix these {issueLabel} before you do so.</>
+        };
+    }
+
+    const basePrompt = <><strong>{theme.name}</strong> has been successfully installed.</>;
+    return {
+        title: 'Success',
+        prompt: theme.active
+            ? basePrompt
+            : <>{basePrompt} Do you want to activate it now?</>
+    };
 };
 
-const showUploadModal = (onUpload: (file: File) => void): void => {
-    NiceModal.show(ConfirmationModal, {
-        title: 'Upload theme',
-        prompt: <UploadModalContent onUpload={onUpload} />,
-        okLabel: '',
-        formSheet: false
-    });
-};
+// ─── Sub-components ──────────────────────────────────────────────────────────
 
-const showLimitModal = (error: string, onUpgrade: () => void): void => {
-    NiceModal.show(LimitModal, {
-        title: 'Upgrade to enable custom themes',
-        prompt: error || LIMIT_MODAL_PROMPT,
-        onOk: onUpgrade
-    });
-};
-
-// Components
 const UploadModalContent: React.FC<{onUpload: (file: File) => void}> = ({onUpload}) => {
     const modal = useModal();
 
-    return <div className="-mb-6">
-        <FileUpload
-            id="theme-upload"
-            onUpload={(file) => {
-                modal.remove();
-                onUpload(file);
-            }}
-        >
-            <div className="cursor-pointer bg-grey-75 p-10 text-center dark:bg-grey-950">
-                Click to select or drag & drop zip file
-            </div>
-        </FileUpload>
-    </div>;
+    return (
+        <div className="-mb-6">
+            <FileUpload
+                id="theme-upload"
+                onUpload={(file) => {
+                    modal.remove();
+                    onUpload(file);
+                }}
+            >
+                <div className="cursor-pointer bg-grey-75 p-10 text-center dark:bg-grey-950">
+                    Click to select or drag &amp; drop zip file
+                </div>
+            </FileUpload>
+        </div>
+    );
 };
 
-const TabViewComponent: React.FC<{selectedTab: string; onTabChange: (id: string) => void}> = ({
-    selectedTab,
-    onTabChange
-}) => (
+const ThemeTabView: React.FC<{currentTab: string; onTabChange: (id: string) => void}> = ({currentTab, onTabChange}) => (
     <TabView
         border={false}
-        selectedTab={selectedTab}
-        tabs={TABS}
+        selectedTab={currentTab}
+        tabs={THEME_TABS}
         onTabChange={onTabChange}
     />
 );
 
-const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
-    currentTab,
-    setCurrentTab,
-    themes,
-    modal
-}) => {
-    const {updateRoute} = useRouting();
-    const {mutateAsync: uploadTheme} = useUploadTheme();
-    const {checkThemeLimitError, isThemeLimited} = useCheckThemeLimitError();
-    const handleError = useHandleError();
+const ThemeModalContent: React.FC<ThemeModalContentProps> = ({currentTab, onSelectTheme, themes}) => {
+    if (currentTab === 'official') {
+        return <OfficialThemes onSelectTheme={onSelectTheme} />;
+    }
+    if (currentTab === 'installed') {
+        return <AdvancedThemeSettings themes={themes} />;
+    }
+    return null;
+};
 
+// ─── Hooks ───────────────────────────────────────────────────────────────────
+
+const useUploadConfig = () => {
+    const {checkThemeLimitError, isThemeLimited} = useCheckThemeLimitError();
     const [uploadConfig, setUploadConfig] = useState<UploadConfig | undefined>();
-    const [isUploading, setUploading] = useState(false);
 
     useEffect(() => {
         const checkUploadLimit = async () => {
             if (isThemeLimited) {
                 const error = await checkThemeLimitError('.');
-                setUploadConfig({enabled: false, error: error || UPLOAD_ERROR_MESSAGE});
+                setUploadConfig({
+                    enabled: false,
+                    error: error || "Your current plan doesn't support uploading custom themes."
+                });
             } else {
                 setUploadConfig({enabled: true});
             }
         };
-
         checkUploadLimit();
     }, [checkThemeLimitError, isThemeLimited]);
 
-    const onClose = () => {
-        updateRoute('/');
-    };
+    return uploadConfig;
+};
 
-    const handleThemeUpload = async ({
-        file,
-        onActivate
-    }: {
-        file: File;
-        onActivate?: () => void
-    }): Promise<void> => {
+const useThemeUpload = (themes: Theme[], setCurrentTab: (tab: string) => void, onClose: () => void) => {
+    const modal = useModal();
+    const {mutateAsync: uploadTheme} = useUploadTheme();
+    const handleError = useHandleError();
+    const [isUploading, setUploading] = useState(false);
+
+    const performUpload = async (file: File, onActivate?: () => void) => {
         let data: ThemesInstallResponseType | undefined;
         let fatalErrors: FatalErrors | null = null;
 
@@ -204,7 +196,7 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
                 title: 'Invalid Theme',
                 prompt: <>This theme is invalid and cannot be activated. Fix the following errors and re-upload the theme</>,
                 fatalErrors,
-                onRetry: () => {
+                onRetry: async () => {
                     modal?.remove();
                     handleUpload();
                 }
@@ -217,62 +209,69 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
         }
 
         const uploadedTheme = data.themes[0];
-        const hasErrors = uploadedTheme?.errors?.length;
-        const hasIssues = hasErrors || uploadedTheme.warnings?.length;
+        const {title, prompt} = buildUploadPrompt(uploadedTheme);
 
-        let title = hasIssues 
-            ? `Upload successful with ${hasErrors ? 'errors' : 'warnings'}`
-            : 'Upload successful';
+        NiceModal.show(ThemeInstalledModal, {title, prompt, installedTheme: uploadedTheme, onActivate});
+    };
 
-        let prompt = <>
-            <strong>{uploadedTheme.name}</strong> uploaded
-        </>;
-
-        if (hasIssues) {
-            prompt = <>
-                The theme <strong>&quot;{uploadedTheme.name}&quot;</strong> was installed but we detected some {hasErrors ? 'errors' : 'warnings'}.
-            </>;
-        }
-
-        if (!uploadedTheme.active) {
-            prompt = <>
-                {prompt}{' '}
-                {hasIssues 
-                    ? `You are still able to activate and use the theme but it is recommended to fix these ${hasErrors ? 'errors' : 'warnings'} before you do so.`
-                    : 'Do you want to activate it now?'
-                }
-            </>;
-        }
-
-        NiceModal.show(ThemeInstalledModal, {
-            title,
-            prompt,
-            installedTheme: uploadedTheme,
-            onActivate: onActivate
-        });
+    const handleUpload = () => {
+        // Intentionally defined after performUpload for onRetry reference
     };
 
     const onThemeUpload = async (file: File) => {
-        const themeFileName = getThemeFileName(file);
+        const themeFileName = file?.name.replace(/\.zip$/, '');
         const existingThemeNames = themes.map(t => t.name);
 
         if (isDefaultOrLegacyTheme({name: themeFileName})) {
-            showDefaultThemeError(themeFileName);
-        } else if (existingThemeNames.includes(themeFileName)) {
-            showOverwriteConfirmation(themeFileName, async (confirmModal) => {
-                setUploading(true);
-                const index = existingThemeNames.indexOf(themeFileName);
-                themes.splice(index, 1);
+            NiceModal.show(ConfirmationModal, {
+                title: 'Upload failed',
+                cancelLabel: 'Cancel',
+                okLabel: '',
+                prompt: (
+                    <>
+                        <p>The default <strong>{themeFileName}</strong> theme cannot be overwritten.</p>
+                        <p>Rename your zip file and try again.</p>
+                    </>
+                ),
+                onOk: async (confirmModal) => confirmModal?.remove()
+            });
+            return;
+        }
 
-                await handleThemeUpload({file, onActivate: onClose});
-                setCurrentTab('installed');
-                confirmModal?.remove();
+        if (existingThemeNames.includes(themeFileName)) {
+            NiceModal.show(ConfirmationModal, {
+                title: 'Overwrite theme',
+                prompt: <>The theme <strong>{themeFileName}</strong> already exists. Do you want to overwrite it?</>,
+                okLabel: 'Overwrite',
+                cancelLabel: 'Cancel',
+                okRunningLabel: 'Overwriting...',
+                okColor: 'red',
+                onOk: async (confirmModal) => {
+                    const index = existingThemeNames.indexOf(themeFileName);
+                    themes.splice(index, 1);
+                    await performUpload(file, onClose);
+                    setCurrentTab('installed');
+                    confirmModal?.remove();
+                }
             });
         } else {
             setCurrentTab('installed');
-            handleThemeUpload({file, onActivate: onClose});
+            performUpload(file, onClose);
         }
     };
+
+    return {isUploading, onThemeUpload, performUpload};
+};
+
+// ─── ThemeToolbar ─────────────────────────────────────────────────────────────
+
+const ThemeToolbar: React.FC<ThemeToolbarProps> = ({currentTab, setCurrentTab, themes}) => {
+    const modal = useModal();
+    const {updateRoute} = useRouting();
+    const uploadConfig = useUploadConfig();
+
+    const onClose = () => updateRoute('/');
+    const {isUploading, onThemeUpload} = useThemeUpload(themes, setCurrentTab, onClose);
 
     const handleUpload = () => {
         if (!uploadConfig) {
@@ -280,149 +279,118 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
         }
 
         if (uploadConfig.enabled) {
-            showUploadModal(onThemeUpload);
+            NiceModal.show(ConfirmationModal, {
+                title: 'Upload theme',
+                prompt: <UploadModalContent onUpload={onThemeUpload} />,
+                okLabel: '',
+                formSheet: false
+            });
         } else {
-            showLimitModal(uploadConfig.error || '', () => updateRoute({route: '/pro', isExternal: true}));
-        }
-    };
-
-    return (<>
-        <PageHeader 
-            containerClassName='bg-white dark:bg-black' 
-            left={
-                <div className='hidden md:!visible md:!block'>
-                    <TabViewComponent selectedTab={currentTab} onTabChange={setCurrentTab} />
-                </div>
-            }
-            right={
-                <div className='flex items-center gap-14'>
-                    <div className='flex items-center gap-3'>
-                        <Button label='Close' onClick={() => {
-                            modal.remove();
-                            onClose();
-                        }} />
-                        <Button color='black' label='Upload theme' loading={isUploading} onClick={handleUpload} />
-                    </div>
-                </div>
-            }
-        />
-        <div className='px-[8vmin] md:hidden'>
-            <TabViewComponent selectedTab={currentTab} onTabChange={setCurrentTab} />
-        </div>
-    </>);
-};
-
-const ThemeModalContent: React.FC<ThemeModalContentProps> = ({
-    currentTab,
-    onSelectTheme,
-    themes
-}) => {
-    switch (currentTab) {
-    case 'official':
-        return <OfficialThemes onSelectTheme={onSelectTheme} />;
-    case 'installed':
-        return <AdvancedThemeSettings themes={themes} />;
-    default:
-        return null;
-    }
-};
-
-// Theme installation logic
-const createInstallationHandler = (
-    selectedTheme: OfficialTheme,
-    installedTheme: Theme | InstalledTheme | undefined,
-    themes: Theme[],
-    installTheme: (ref: string) => Promise<ThemesInstallResponseType>,
-    activateTheme: (name: string) => Promise<void>,
-    checkThemeLimitError: (name: string) => Promise<string | null>,
-    handleError: (error: unknown) => void,
-    updateRoute: (route: string) => void,
-    setInstalling: (value: boolean) => void
-) => {
-    return async () => {
-        const limitError = await checkThemeLimitError(selectedTheme.name);
-        if (limitError) {
             NiceModal.show(LimitModal, {
-                prompt: limitError,
-                onOk: () => updateRoute({route: '/pro', isExternal: true})
-            });
-            return;
-        }
-
-        if (installedTheme && !isDefaultOrLegacyTheme(selectedTheme)) {
-            return new Promise<void>((resolve) => {
-                NiceModal.show(ConfirmationModal, {
-                    title: 'Overwrite theme',
-                    prompt: (
-                        <>
-                            This will overwrite your existing version of {selectedTheme.name}{installedTheme?.active ? ', which is your active theme' : ''}. All custom changes will be lost.
-                        </>
-                    ),
-                    okLabel: 'Overwrite',
-                    okRunningLabel: 'Installing...',
-                    cancelLabel: 'Cancel',
-                    okColor: 'red',
-                    onOk: async (confirmModal) => {
-                        confirmModal?.remove();
-                        await performInstallation();
-                        resolve();
-                    }
-                });
+                title: 'Upgrade to enable custom themes',
+                prompt: uploadConfig.error || (
+                    <>Your current plan only supports official themes. You can install them from the <a href="https://ghost.org/marketplace/">Ghost theme marketplace</a>.</>
+                ),
+                onOk: () => updateRoute(PRO_ROUTE)
             });
         }
-
-        return performInstallation();
     };
 
-    async function performInstallation() {
-        if (isDefaultOrLegacyTheme(selectedTheme)) {
-            NiceModal.show(ThemeInstalledModal, {
-                title: 'Activate theme',
-                prompt: <>By clicking below, <strong>{selectedTheme.name}</strong> will automatically be activated as the theme for your site.</>,
-                installedTheme: installedTheme!,
-                onActivate: () => updateRoute('')
-            });
+    const handleClose = () => {
+        modal.remove();
+        onClose();
+    };
+
+    const left = (
+        <div className='hidden md:!visible md:!block'>
+            <ThemeTabView currentTab={currentTab} onTabChange={setCurrentTab} />
+        </div>
+    );
+
+    const right = (
+        <div className='flex items-center gap-14'>
+            <div className='flex items-center gap-3'>
+                <Button label='Close' onClick={handleClose} />
+                <Button color='black' label='Upload theme' loading={isUploading} onClick={handleUpload} />
+            </div>
+        </div>
+    );
+
+    return (
+        <>
+            <PageHeader containerClassName='bg-white dark:bg-black' left={left} right={right} />
+            <div className='px-[8vmin] md:hidden'>
+                <ThemeTabView currentTab={currentTab} onTabChange={setCurrentTab} />
+            </div>
+        </>
+    );
+};
+
+// ─── Marketplace Installation Hook ───────────────────────────────────────────
+
+const useMarketplaceInstallation = (
+    source: string | null | undefined,
+    themeRef: string | null | undefined,
+    themes: Theme[] | undefined,
+    isMounted: boolean
+) => {
+    const modal = useModal();
+    const {updateRoute} = useRouting();
+    const {mutateAsync: installTheme} = useInstallTheme();
+    const {mutateAsync: activateTheme} = useActivateTheme();
+    const {checkThemeLimitError} = useCheckThemeLimitError();
+    const handleError = useHandleError();
+    const [installedFromMarketplace, setInstalledFromMarketplace] = useState(false);
+
+    useEffect(() => {
+        if (!source || !themeRef || installedFromMarketplace || !isMounted || !themes) {
             return;
         }
 
-        setInstalling(true);
-        let data: ThemesInstallResponseType | undefined;
-        try {
-            data = await installTheme(selectedTheme.ref);
-        } catch (e) {
-            handleError(e);
-        } finally {
-            setInstalling(false);
-        }
+        const handleUrlInstallation = async () => {
+            const themeName = themeRef.split('/')[1];
+            const limitError = await checkThemeLimitError(themeName);
 
-        if (!data) {
-            return;
-        }
+            if (limitError) {
+                modal.remove();
+                return;
+            }
 
-        const newlyInstalledTheme = data.themes[0];
-        const hasErrors = newlyInstalledTheme.errors?.length;
-        const hasIssues = hasErrors || newlyInstalledTheme.warnings?.length;
+            const existingThemeNames = themes.map(t => t.name);
+            const willOverwrite = existingThemeNames.includes(themeName.toLowerCase());
+            const index = existingThemeNames.indexOf(themeName.toLowerCase());
+            const themeToOverwrite = themes[index];
 
-        let title = hasIssues 
-            ? `Installed with ${hasErrors ? 'errors' : 'warnings'}`
-            : 'Success';
+            const prompt = (
+                <>
+                    By clicking below, <strong>{themeName}</strong> will automatically be activated as the theme for your site.
+                    {willOverwrite && (
+                        <>
+                            <br /><br />
+                            This will overwrite your existing version of <strong>{themeName}</strong>
+                            {themeToOverwrite?.active ? ' which is your active theme' : ''}. All custom changes will be lost.
+                        </>
+                    )}
+                </>
+            );
 
-        let prompt = <>
-            <strong>{newlyInstalledTheme.name}</strong> has been successfully installed.
-        </>;
-
-        if (hasIssues) {
-            prompt = <>
-                The theme <strong>&quot;{newlyInstalledTheme.name}&quot;</strong> was installed successfully but we detected some {hasErrors ? 'errors' : 'warnings'}.
-            </>;
-        }
-
-        if (!newlyInstalledTheme.active) {
-            prompt = <>
-                {prompt}{' '}
-                {hasIssues 
-                    ? `You are still able to activate and use the theme but it is recommended to contact the theme developer fix these ${hasErrors ? 'errors' : 'warnings'} before you do so.`
-                    : 'Do you want to activate it now?'
-                }
-            </>;
-        }
+            NiceModal.show(ConfirmationModal, {
+                title: 'Install Theme',
+                prompt,
+                okLabel: 'Install',
+                cancelLabel: 'Cancel',
+                okRunningLabel: 'Installing...',
+                okColor: 'black',
+                onOk: async (confirmModal) => {
+                    setInstalledFromMarketplace(true);
+                    try {
+                        if (willOverwrite) {
+                            themes.splice(index, 1);
+                        }
+                        const data = await installTheme(themeRef);
+                        if (data?.themes[0]) {
+                            await activateTheme(data.themes[0].name);
+                            showToast({
+                                title: 'Theme activated',
+                                type: 'success',
+                                message: (
