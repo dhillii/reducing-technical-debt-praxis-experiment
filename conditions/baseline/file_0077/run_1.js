@@ -1,12 +1,25 @@
 ```javascript
+/**
+ * @fileoverview Tests for ast utils.
+ * @author Gyandeep Singh
+ */
+
 "use strict";
 
-const assert = require("chai").assert;
-const util = require("node:util");
-const espree = require("espree");
-const astUtils = require("../../../../lib/rules/utils/ast-utils");
-const { Linter } = require("../../../../lib/linter");
-const { SourceCode } = require("../../../../lib/languages/js/source-code");
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
+
+const assert = require("chai").assert,
+	util = require("node:util"),
+	espree = require("espree"),
+	astUtils = require("../../../../lib/rules/utils/ast-utils"),
+	{ Linter } = require("../../../../lib/linter"),
+	{ SourceCode } = require("../../../../lib/languages/js/source-code");
+
+//------------------------------------------------------------------------------
+// Helpers
+//------------------------------------------------------------------------------
 
 const ESPREE_CONFIG = {
 	ecmaVersion: 6,
@@ -17,6 +30,49 @@ const ESPREE_CONFIG = {
 };
 
 const linter = new Linter();
+
+/**
+ * Creates a linter plugin with a single checker rule.
+ * @param {Function} createFn The rule's create function
+ * @returns {Object} Plugin config object
+ */
+function makeCheckerPlugin(createFn) {
+	return {
+		plugins: {
+			test: {
+				rules: {
+					checker: { create: createFn },
+				},
+			},
+		},
+		rules: { "test/checker": "error" },
+	};
+}
+
+/**
+ * Parses code and returns the first expression node.
+ * @param {string} code Source code to parse
+ * @param {Object} [options] Espree options
+ * @returns {ASTNode} First expression node
+ */
+function parseExpression(code, options) {
+	return espree.parse(code, options).body[0].expression;
+}
+
+/**
+ * Creates a SourceCode instance from code string.
+ * @param {string} code Source code
+ * @param {Object} [options] Espree options
+ * @returns {{ ast: Object, sourceCode: SourceCode }}
+ */
+function parseWithSourceCode(code, options = ESPREE_CONFIG) {
+	const ast = espree.parse(code, options);
+	return { ast, sourceCode: new SourceCode(code, ast) };
+}
+
+//------------------------------------------------------------------------------
+// Tests
+//------------------------------------------------------------------------------
 
 describe("ast-utils", () => {
 	let callCounts;
@@ -47,211 +103,141 @@ describe("ast-utils", () => {
 		});
 	});
 
-	/**
-	 * Creates a linter rule for testing
-	 * @param {string} code Code to verify
-	 * @param {Object} ruleConfig Rule configuration
-	 * @returns {void}
-	 */
-	function verifyWithRule(code, ruleConfig) {
-		linter.verify(code, {
-			plugins: {
-				test: {
-					rules: {
-						checker: ruleConfig,
-					},
-				},
-			},
-			rules: { "test/checker": "error" },
-		});
-	}
-
-	/**
-	 * Creates a linter rule for testing with filename
-	 * @param {string} code Code to verify
-	 * @param {Object} ruleConfig Rule configuration
-	 * @param {string} filename Filename for verification
-	 * @returns {void}
-	 */
-	function verifyWithRuleAndFilename(code, ruleConfig, filename) {
-		linter.verify(code, {
-			plugins: {
-				test: {
-					rules: {
-						checker: ruleConfig,
-					},
-				},
-			},
-			rules: { "test/checker": "error" },
-		}, filename);
-	}
-
-	/**
-	 * Parses code and returns the AST
-	 * @param {string} code Code to parse
-	 * @param {Object} config Parser config
-	 * @returns {Object} AST
-	 */
-	function parseCode(code, config = {}) {
-		return espree.parse(code, { ...ESPREE_CONFIG, ...config });
-	}
-
-	/**
-	 * Creates a SourceCode instance
-	 * @param {string} code Code string
-	 * @param {Object} ast AST
-	 * @returns {SourceCode} SourceCode instance
-	 */
-	function createSourceCode(code, ast) {
-		return new SourceCode(code, ast);
-	}
-
 	describe("ECMASCRIPT_GLOBALS", () => {
-		const globalTests = [
-			{ name: "es3 globals", global: { Object: false } },
-			{ name: "es5 globals", global: { JSON: false } },
-			{ name: "es2015 globals", global: { Promise: false } },
-			{ name: "es2017 globals", global: { SharedArrayBuffer: false } },
-			{ name: "es2020 globals", global: { BigInt: false } },
-			{ name: "es2021 globals", global: { WeakRef: false } },
+		const globals = [
+			["es3", { Object: false }],
+			["es5", { JSON: false }],
+			["es2015", { Promise: false }],
+			["es2017", { SharedArrayBuffer: false }],
+			["es2020", { BigInt: false }],
+			["es2021", { WeakRef: false }],
 		];
 
-		globalTests.forEach(({ name, global }) => {
-			it(`should contain ${name}`, () => {
-				assert.ownInclude(astUtils.ECMASCRIPT_GLOBALS, global);
+		globals.forEach(([version, expected]) => {
+			it(`should contain ${version} globals`, () => {
+				assert.ownInclude(astUtils.ECMASCRIPT_GLOBALS, expected);
 			});
 		});
 	});
 
 	describe("isTokenOnSameLine", () => {
+		/**
+		 * Verifies isTokenOnSameLine result for a BlockStatement node.
+		 * @param {string} code Source code
+		 * @param {boolean} expected Expected result
+		 */
+		function verifyTokenOnSameLine(code, expected) {
+			linter.verify(
+				code,
+				makeCheckerPlugin(
+					mustCall(context => ({
+						BlockStatement: mustCall(node => {
+							const tokenBefore = context.sourceCode.getTokenBefore(node);
+							assert[expected ? "isTrue" : "isFalse"](
+								astUtils.isTokenOnSameLine(tokenBefore, node),
+							);
+						}),
+					})),
+				),
+			);
+		}
+
 		it("should return false if the tokens are not on the same line", () => {
-			verifyWithRule("if(a)\n{}", {
-				create: mustCall(context => ({
-					BlockStatement: mustCall(node => {
-						assert.isFalse(
-							astUtils.isTokenOnSameLine(
-								context.sourceCode.getTokenBefore(node),
-								node,
-							),
-						);
-					}),
-				})),
-			});
+			verifyTokenOnSameLine("if(a)\n{}", false);
 		});
 
 		it("should return true if the tokens are on the same line", () => {
-			verifyWithRule("if(a){}", {
-				create: mustCall(context => ({
-					BlockStatement: mustCall(node => {
-						assert.isTrue(
-							astUtils.isTokenOnSameLine(
-								context.sourceCode.getTokenBefore(node),
-								node,
-							),
-						);
-					}),
-				})),
-			});
+			verifyTokenOnSameLine("if(a){}", true);
 		});
 	});
 
 	describe("isNullOrUndefined", () => {
-		const testCases = [
-			{ code: "null", expected: true },
-			{ code: "undefined", expected: true },
-			{ code: "1", expected: false },
-			{ code: "'test'", expected: false },
-			{ code: "true", expected: false },
-			{ code: "({})", expected: false },
-			{ code: "/abc/u", expected: false, config: { ecmaVersion: 6 } },
+		const cases = [
+			["null", true],
+			["undefined", true],
+			["1", false],
+			["'test'", false],
+			["true", false],
+			["({})", false],
 		];
 
-		testCases.forEach(({ code, expected, config }) => {
+		cases.forEach(([code, expected]) => {
 			it(`should return ${expected} if the argument is ${code}`, () => {
-				const ast = espree.parse(code, config || {});
-				assert.strictEqual(
-					astUtils.isNullOrUndefined(ast.body[0].expression),
-					expected,
+				assert[expected ? "isTrue" : "isFalse"](
+					astUtils.isNullOrUndefined(parseExpression(code)),
 				);
 			});
+		});
+
+		it("should return false if the argument is a unicode regex", () => {
+			assert.isFalse(
+				astUtils.isNullOrUndefined(
+					parseExpression("/abc/u", { ecmaVersion: 6 }),
+				),
+			);
 		});
 	});
 
 	describe("checkReference", () => {
-		const referenceTests = [
-			{
-				name: "catch",
-				code: "try { } catch (e) { e = 10; }",
-				nodeType: "CatchClause",
-				expectedLength: 1,
-			},
-			{
-				name: "const with assignment",
-				code: "const a = 1; a = 2;",
-				nodeType: "VariableDeclaration",
-				expectedLength: 1,
-			},
-			{
-				name: "const without assignment",
-				code: "const a = 1; c = 2;",
-				nodeType: "VariableDeclaration",
-				expectedLength: 0,
-			},
-			{
-				name: "class with assignment",
-				code: "class A { }\n A = 1;",
-				nodeType: "ClassDeclaration",
-				expectedLength: 1,
-				checkSecond: true,
-			},
-			{
-				name: "class without assignment",
-				code: "class A { } foo(A);",
-				nodeType: "ClassDeclaration",
-				expectedLength: 0,
-			},
-		];
-
-		referenceTests.forEach(({ name, code, nodeType, expectedLength, checkSecond }) => {
-			it(`should return ${expectedLength > 0 ? "true" : "false"} if reference is ${expectedLength > 0 ? "" : "not "}assigned for ${name}`, () => {
-				verifyWithRule(code, {
-					create: mustCall(context => ({
+		/**
+		 * Verifies getModifyingReferences count for a given node type.
+		 * @param {string} code Source code
+		 * @param {string} nodeType AST node type to check
+		 * @param {number[]} expectedLengths Expected lengths per variable
+		 */
+		function verifyModifyingReferences(code, nodeType, expectedLengths) {
+			linter.verify(
+				code,
+				makeCheckerPlugin(
+					mustCall(context => ({
 						[nodeType]: mustCall(node => {
 							const variables = context.sourceCode.getDeclaredVariables(node);
-							assert.lengthOf(
-								astUtils.getModifyingReferences(variables[0].references),
-								expectedLength,
-							);
-							if (checkSecond) {
+							expectedLengths.forEach((len, i) => {
 								assert.lengthOf(
-									astUtils.getModifyingReferences(variables[1].references),
-									0,
+									astUtils.getModifyingReferences(variables[i].references),
+									len,
 								);
-							}
+							});
 						}),
 					})),
-				});
-			});
+				),
+			);
+		}
+
+		it("should return true if reference is assigned for catch", () => {
+			verifyModifyingReferences(
+				"try { } catch (e) { e = 10; }",
+				"CatchClause",
+				[1],
+			);
+		});
+
+		it("should return true if reference is assigned for const", () => {
+			verifyModifyingReferences("const a = 1; a = 2;", "VariableDeclaration", [1]);
+		});
+
+		it("should return false if reference is not assigned for const", () => {
+			verifyModifyingReferences("const a = 1; c = 2;", "VariableDeclaration", [0]);
+		});
+
+		it("should return true if reference is assigned for class", () => {
+			verifyModifyingReferences("class A { }\n A = 1;", "ClassDeclaration", [1, 0]);
+		});
+
+		it("should return false if reference is not assigned for class", () => {
+			verifyModifyingReferences("class A { } foo(A);", "ClassDeclaration", [0]);
 		});
 	});
 
 	describe("isDirectiveComment", () => {
 		/**
-		 * Asserts the node is NOT a directive comment
-		 * @param {ASTNode} node node to assert
-		 * @returns {void}
+		 * Parses code and returns all comments with a SourceCode instance.
+		 * @param {string} code Source code
+		 * @returns {Array} Array of comment nodes
 		 */
-		function assertFalse(node) {
-			assert.isFalse(astUtils.isDirectiveComment(node));
-		}
-
-		/**
-		 * Asserts the node is a directive comment
-		 * @param {ASTNode} node node to assert
-		 * @returns {void}
-		 */
-		function assertTrue(node) {
-			assert.isTrue(astUtils.isDirectiveComment(node));
+		function getComments(code) {
+			const { sourceCode } = parseWithSourceCode(code);
+			return sourceCode.getAllComments();
 		}
 
 		it("should return false if it is not a directive line comment", () => {
@@ -264,11 +250,10 @@ describe("ast-utils", () => {
 				"//globals line comment is not a directive",
 				"//exported line comment is not a directive",
 			].join("\n");
-			const ast = parseCode(code);
-			const sourceCode = createSourceCode(code, ast);
-			const comments = sourceCode.getAllComments();
 
-			comments.forEach(assertFalse);
+			getComments(code).forEach(node => {
+				assert.isFalse(astUtils.isDirectiveComment(node));
+			});
 		});
 
 		it("should return false if it is not a directive block comment", () => {
@@ -278,11 +263,10 @@ describe("ast-utils", () => {
 				"/* trying to confuse eslint-directive-detection */",
 				"/*eSlInT is awesome*/",
 			].join("\n");
-			const ast = parseCode(code);
-			const sourceCode = createSourceCode(code, ast);
-			const comments = sourceCode.getAllComments();
 
-			comments.forEach(assertFalse);
+			getComments(code).forEach(node => {
+				assert.isFalse(astUtils.isDirectiveComment(node));
+			});
 		});
 
 		it("should return true if it is a directive line comment", () => {
@@ -292,11 +276,10 @@ describe("ast-utils", () => {
 				"// eslint-directive-without-argument",
 				"//eslint-directive-without-padding",
 			].join("\n");
-			const ast = parseCode(code);
-			const sourceCode = createSourceCode(code, ast);
-			const comments = sourceCode.getAllComments();
 
-			comments.forEach(assertTrue);
+			getComments(code).forEach(node => {
+				assert.isTrue(astUtils.isDirectiveComment(node));
+			});
 		});
 
 		it("should return true if it is a directive block comment", () => {
@@ -310,19 +293,17 @@ describe("ast-utils", () => {
 				"/*globals foo*/",
 				"/*exported foo*/",
 			].join("\n");
-			const ast = parseCode(code);
-			const sourceCode = createSourceCode(code, ast);
-			const comments = sourceCode.getAllComments();
 
-			comments.forEach(assertTrue);
+			getComments(code).forEach(node => {
+				assert.isTrue(astUtils.isDirectiveComment(node));
+			});
 		});
 	});
 
 	describe("isParenthesised", () => {
 		it("should return false for not parenthesised nodes", () => {
 			const code = "condition ? 1 : 2";
-			const ast = parseCode(code);
-			const sourceCode = createSourceCode(code, ast);
+			const { ast, sourceCode } = parseWithSourceCode(code);
 
 			assert.isFalse(
 				astUtils.isParenthesised(sourceCode, ast.body[0].expression),
@@ -331,8 +312,7 @@ describe("ast-utils", () => {
 
 		it("should return true for parenthesised nodes", () => {
 			const code = "(condition ? 1 : 2)";
-			const ast = parseCode(code);
-			const sourceCode = createSourceCode(code, ast);
+			const { ast, sourceCode } = parseWithSourceCode(code);
 
 			assert.isTrue(
 				astUtils.isParenthesised(sourceCode, ast.body[0].expression),
@@ -341,19 +321,17 @@ describe("ast-utils", () => {
 	});
 
 	describe("isFunction", () => {
-		const functionTests = [
-			{ code: "function a() {}", description: "FunctionDeclaration" },
-			{ code: "(function a() {})", description: "FunctionExpression", selector: "expression" },
-			{ code: "(() => {})", description: "ArrowFunctionExpression", selector: "expression", config: { ecmaVersion: 6 } },
-		];
+		it("should return true for FunctionDeclaration", () => {
+			const ast = espree.parse("function a() {}");
+			assert(astUtils.isFunction(ast.body[0]));
+		});
 
-		functionTests.forEach(({ code, description, selector = "body[0]", config }) => {
-			it(`should return true for ${description}`, () => {
-				const ast = espree.parse(code, config || {});
-				const node = selector === "expression" ? ast.body[0].expression : ast.body[0];
+		it("should return true for FunctionExpression", () => {
+			assert(astUtils.isFunction(parseExpression("(function a() {})")));
+		});
 
-				assert(astUtils.isFunction(node));
-			});
+		it("should return true for ArrowFunctionExpression", () => {
+			assert(astUtils.isFunction(parseExpression("(() => {})", { ecmaVersion: 6 })));
 		});
 
 		it("should return false for Program, VariableDeclaration, BlockStatement", () => {
@@ -366,20 +344,18 @@ describe("ast-utils", () => {
 	});
 
 	describe("isLoop", () => {
-		const loopTests = [
-			{ code: "do {} while (a)", description: "DoWhileStatement" },
-			{ code: "for (var k in obj) {}", description: "ForInStatement" },
-			{ code: "for (var x of list) {}", description: "ForOfStatement", config: { ecmaVersion: 6 } },
-			{ code: "for (var i = 0; i < 10; ++i) {}", description: "ForStatement" },
-			{ code: "while (a) {}", description: "WhileStatement" },
+		const loopCases = [
+			["DoWhileStatement", "do {} while (a)"],
+			["ForInStatement", "for (var k in obj) {}"],
+			["ForOfStatement", "for (var x of list) {}", { ecmaVersion: 6 }],
+			["ForStatement", "for (var i = 0; i < 10; ++i) {}"],
+			["WhileStatement", "while (a) {}"],
 		];
 
-		loopTests.forEach(({ code, description, config }) => {
-			it(`should return true for ${description}`, () => {
-				const ast = espree.parse(code, config || {});
-				const node = ast.body[0];
-
-				assert(astUtils.isLoop(node));
+		loopCases.forEach(([type, code, options]) => {
+			it(`should return true for ${type}`, () => {
+				const ast = espree.parse(code, options);
+				assert(astUtils.isLoop(ast.body[0]));
 			});
 		});
 
@@ -404,25 +380,65 @@ describe("ast-utils", () => {
 		function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
 			const results = [];
 
-			verifyWithRule(code, {
-				create: mustCall(() => ({
-					[nodeType]: mustCall(node => {
-						results.push(astUtils.isInLoop(node));
-					}),
-				})),
-			});
+			linter.verify(
+				code,
+				makeCheckerPlugin(
+					mustCall(() => ({
+						[nodeType]: mustCall(node => {
+							results.push(astUtils.isInLoop(node));
+						}),
+					})),
+				),
+			);
 
 			assert.lengthOf(results, 1);
 			assert.strictEqual(results[0], expectedInLoop);
 		}
 
-		const inLoopTests = [
-			{ code: "while (a) {}", nodeType: "WhileStatement", expected: true, description: "loop itself" },
-			{ code: "while (a) {}", nodeType: "Identifier", expected: true, description: "loop condition" },
-			{ code: "for (var a in b) {}", nodeType: "VariableDeclaration", expected: true, description: "loop assignee" },
-			{ code: "for (var a of b) { console.log('Hello'); }", nodeType: "Literal", expected: true, description: "node within loop body" },
-			{ code: "while (true) {} a(b);", nodeType: "CallExpression", expected: false, description: "node outside loop body" },
-			{ code: "while (true) { funcs.push(() => { var a; }); }", nodeType: "VariableDeclaration", expected: false, description: "loop not in current function" },
+		const cases = [
+			["should return true for a loop itself", "while (a) {}", "WhileStatement", true],
+			["should return true for a loop condition", "while (a) {}", "Identifier", true],
+			["should return true for a loop assignee", "for (var a in b) {}", "VariableDeclaration", true],
+			["should return true for a node within a loop body", "for (var a of b) { console.log('Hello'); }", "Literal", true],
+			["should return false for a node outside a loop body", "while (true) {} a(b);", "CallExpression", false],
+			["should return false when the loop is not in the current function", "while (true) { funcs.push(() => { var a; }); }", "VariableDeclaration", false],
 		];
 
-		inLoopTests.forEach(({ code, nodeType, expected, description }) => {
+		cases.forEach(([description, code, nodeType, expected]) => {
+			it(description, () => {
+				assertNodeTypeInLoop(code, nodeType, expected);
+			});
+		});
+	});
+
+	describe("getStaticStringValue", () => {
+		const expectedResults = {
+			"''": "",
+			"'foo'": "foo",
+			false: "false",
+			true: "true",
+			null: "null",
+			0: "0",
+			"0.": "0",
+			".0": "0",
+			1: "1",
+			"1.": "1",
+			".1": "0.1",
+			12: "12",
+			".12": "0.12",
+			0.12: "0.12",
+			12.34: "12.34",
+			"12e3": "12000",
+			"12e-3": "0.012",
+			"12.34e5": "1234000",
+			"12.34e-5": "0.0001234",
+			"011": "9",
+			"081": "81",
+			"0b11": "3",
+			"0b011": "3",
+			"0o11": "9",
+			"0o011": "9",
+			"0x11": "17",
+			"0x011": "17",
+			"/a/": "/a/",
+			"/a/i": "/a

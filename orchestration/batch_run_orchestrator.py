@@ -20,6 +20,7 @@ from orchestration.state_manager import StateManager
 from orchestration.experiment_repo_manager import ExperimentRepoManager
 from utils.config import (
     CSV_INPUT_FILE,
+    ACTIVE_PROMPTS_FILE,
     SOURCE_CODE_DIR,
     EXTRACTION_MANIFEST_FILE,
     SONARCLOUD_COMPONENT_TEMPLATE,
