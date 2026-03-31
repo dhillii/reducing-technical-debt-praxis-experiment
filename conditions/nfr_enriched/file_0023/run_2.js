@@ -1,189 +1,172 @@
-```javascript
+```jsx
 import AppContext from '../app-context';
 import Frame from './frame';
-import React, {useContext, useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react';
 import {ReactComponent as CircleAnimated} from '../icons/circle-anim.svg';
 import {ReactComponent as ClearIcon} from '../icons/clear.svg';
 import {ReactComponent as SearchIcon} from '../icons/search.svg';
 
+// Constants
 const DEFAULT_MAX_POSTS = 10;
 const STEP_MAX_POSTS = 10;
 const INVALID_URL_REGEX = /\/404\/$/;
-const EXCERPT_CONTEXT_LENGTH = 20;
-const EXCERPT_MIN_START = 50;
-const ARROW_UP = 'ArrowUp';
-const ARROW_DOWN = 'ArrowDown';
-const ESCAPE = 'Escape';
-const ENTER = 'Enter';
 
 // Styles
-const MODAL_CONTAINER_STYLE = {
-    zIndex: '3999999',
-    position: 'fixed',
-    left: '0',
-    top: '0',
-    width: '100%',
-    height: '100%',
-    overflow: 'hidden'
+const modalStyles = {
+    modalContainer: {
+        zIndex: '3999999',
+        position: 'fixed',
+        left: '0',
+        top: '0',
+        width: '100%',
+        height: '100%',
+        overflow: 'hidden'
+    },
+    frame: {
+        margin: 'auto',
+        position: 'relative',
+        padding: '0',
+        outline: '0',
+        width: '100%',
+        opacity: '1',
+        overflow: 'hidden',
+        height: '100%'
+    }
 };
 
-const FRAME_STYLE = {
-    margin: 'auto',
-    position: 'relative',
-    padding: '0',
-    outline: '0',
-    width: '100%',
-    opacity: '1',
-    overflow: 'hidden',
-    height: '100%'
+// Utility: CSS class helpers
+const listItemBaseClass = (id, selectedResult, extra = '') =>
+    `${extra} cursor-pointer -mx-4 sm:-mx-7 px-4 sm:px-7${id === selectedResult ? ' bg-neutral-100' : ''}`;
+
+// Utility: navigate to URL
+const navigateTo = (url) => {
+    if (url) {
+        window.location.href = url;
+    }
 };
 
-// Utility Functions
-const isValidUrl = (url) => url && !INVALID_URL_REGEX.test(url);
+// Utility: filter out invalid URLs
+const filterInvalidUrls = (items) =>
+    items.filter(item => !(item?.url && INVALID_URL_REGEX.test(item?.url)));
 
-const filterValidResults = (results) => results.filter(item => isValidUrl(item?.url));
+// Hooks
+function useKeyUpHandler(handler, deps = []) {
+    const ref = useRef(null);
+    useEffect(() => {
+        const node = ref?.current;
+        const doc = node?.ownerDocument;
+        doc?.addEventListener('keyup', handler);
+        return () => doc?.removeEventListener('keyup', handler);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [handler, ...deps]);
+    return ref;
+}
 
-const escapeRegexSpecialChars = (str) => String(str).replace(/\W/g, '\\&');
+// Highlight utilities
+function buildHighlightRegex(highlight) {
+    const pattern = highlight
+        .split(' ')
+        .map(word => {
+            const escaped = String(word).replace(/\W/g, '\\&');
+            return `^${escaped}|\\s${escaped}`;
+        })
+        .join('|');
+    return new RegExp(pattern, 'ig');
+}
 
-const buildHighlightRegex = (highlight) => {
-    const parts = highlight?.split(' ') || [];
-    const regexParts = parts.map((part, idx) => {
-        const escaped = escapeRegexSpecialChars(part);
-        return idx > 0 ? `|^${escaped}|\\s${escaped}` : `^${escaped}|\\s${escaped}`;
-    });
-    return new RegExp(regexParts.join(''), 'ig');
-};
-
-const getMatchIndexes = ({text, highlight}) => {
-    if (!text || !highlight) return [];
-    
-    const matchRegex = buildHighlightRegex(highlight);
-    const matches = text.matchAll(matchRegex);
-    
-    return Array.from(matches).map(match => ({
+function getMatchIndexes({text, highlight}) {
+    if (!text || !highlight) {
+        return [];
+    }
+    const regex = buildHighlightRegex(highlight);
+    return [...text.matchAll(regex)].map(match => ({
         startIdx: match.index,
-        endIdx: (match.index || 0) + (match[0]?.length || 0)
+        endIdx: match.index + match[0].length
     }));
-};
+}
 
-const getHighlightParts = ({text, highlight}) => {
+function getHighlightParts({text, highlight}) {
     const highlightIndexes = getMatchIndexes({text, highlight});
     const parts = [];
     let lastIdx = 0;
 
-    highlightIndexes.forEach((highlightIdx) => {
-        if (lastIdx === highlightIdx.startIdx) {
-            parts.push({
-                text: text.slice(highlightIdx.startIdx, highlightIdx.endIdx),
-                type: 'highlight'
-            });
-        } else {
-            if (lastIdx < highlightIdx.startIdx) {
-                parts.push({
-                    text: text.slice(lastIdx, highlightIdx.startIdx),
-                    type: 'normal'
-                });
-            }
-            parts.push({
-                text: text.slice(highlightIdx.startIdx, highlightIdx.endIdx),
-                type: 'highlight'
-            });
+    highlightIndexes.forEach(({startIdx, endIdx}) => {
+        if (lastIdx < startIdx) {
+            parts.push({text: text.slice(lastIdx, startIdx), type: 'normal'});
         }
-        lastIdx = highlightIdx.endIdx;
+        parts.push({text: text.slice(startIdx, endIdx), type: 'highlight'});
+        lastIdx = endIdx;
     });
 
-    if (lastIdx < text.length) {
-        parts.push({
-            text: text.slice(lastIdx),
-            type: 'normal'
-        });
+    if (lastIdx < text?.length) {
+        parts.push({text: text.slice(lastIdx), type: 'normal'});
     }
 
     return {parts, highlightIndexes};
-};
+}
 
-const useKeyboardNavigation = (allResults, selectedResult, setSelectedResult, containerRef) => {
-    useEffect(() => {
-        const handleKeyUp = (event) => {
-            const selectedIdx = allResults.findIndex(d => d.id === selectedResult);
-            
-            if (event.key === ARROW_UP && selectedIdx > 0) {
-                setSelectedResult(allResults[selectedIdx - 1].id);
-            } else if (event.key === ARROW_DOWN && selectedIdx < allResults.length - 1) {
-                setSelectedResult(allResults[selectedIdx + 1].id);
-            } else if (event.key === ENTER) {
-                const selectedItem = allResults.find(d => d.id === selectedResult);
-                if (selectedItem?.url) {
-                    window.location.href = selectedItem.url;
-                }
-            }
-        };
+// Small reusable components
+function SectionHeader({label}) {
+    return (
+        <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>
+            {label}
+        </h1>
+    );
+}
 
-        const node = containerRef?.current;
-        node?.ownerDocument?.addEventListener('keyup', handleKeyUp);
-        
-        return () => {
-            node?.ownerDocument?.removeEventListener('keyup', handleKeyUp);
-        };
-    }, [allResults, selectedResult, setSelectedResult, containerRef]);
-};
+function ResultSection({children, className = 'border-t border-neutral-200 py-3 px-4 sm:px-7'}) {
+    return <div className={className}>{children}</div>;
+}
 
-const useEscapeKeyHandler = (dispatch) => {
-    useEffect(() => {
-        const handleKeyUp = (event) => {
-            if (event.key === ESCAPE) {
-                dispatch('update', {showPopup: false});
-            }
-        };
+function HighlightWord({word, isExcerpt}) {
+    const className = isExcerpt ? 'font-bold' : 'font-bold text-neutral-900';
+    return <span className={className}>{word}</span>;
+}
 
-        document.addEventListener('keyup', handleKeyUp);
-        return () => {
-            document.removeEventListener('keyup', handleKeyUp);
-        };
-    }, [dispatch]);
-};
+function HighlightedSection({text = '', highlight = '', isExcerpt}) {
+    let resolvedText = text || '';
+    const resolvedHighlight = highlight || '';
 
-const useInputFocus = (inputRef) => {
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            inputRef?.current?.focus();
-        }, 150);
-        
-        return () => clearTimeout(timer);
-    }, [inputRef]);
-};
+    let {parts, highlightIndexes} = getHighlightParts({text: resolvedText, highlight: resolvedHighlight});
 
-// Components
-const SearchClearIcon = () => {
+    if (isExcerpt && highlightIndexes?.[0]?.startIdx > 50) {
+        resolvedText = '...' + resolvedText.slice(highlightIndexes[0].startIdx - 20);
+        ({parts} = getHighlightParts({text: resolvedText, highlight: resolvedHighlight}));
+    }
+
+    return (
+        <>
+            {parts.map((part, idx) =>
+                part.type === 'highlight'
+                    ? <HighlightWord key={idx} word={part.text} isExcerpt={isExcerpt} />
+                    : <React.Fragment key={idx}>{part.text}</React.Fragment>
+            )}
+        </>
+    );
+}
+
+// Search UI components
+function SearchClearIcon() {
     const {searchValue = '', dispatch} = useContext(AppContext);
-    
+
     if (!searchValue) {
         return <SearchIcon className='text-neutral-900' alt='Search' />;
     }
-    
+
     return (
-        <button 
-            alt='Clear' 
-            className='-mb-[1px]' 
-            onClick={() => dispatch('update', {searchValue: ''})}
-        >
+        <button alt='Clear' className='-mb-[1px]' onClick={() => dispatch('update', {searchValue: ''})}>
             <ClearIcon className='text-neutral-900 hover:text-neutral-500 h-[1.1rem] w-[1.1rem]' />
         </button>
     );
-};
+}
 
-const Loading = () => {
+function Loading() {
     const {indexComplete, searchValue} = useContext(AppContext);
-    
-    if (!indexComplete && searchValue) {
-        return <CircleAnimated className='shrink-0' />;
-    }
-    return null;
-};
+    return (!indexComplete && searchValue) ? <CircleAnimated className='shrink-0' /> : null;
+}
 
-const CancelButton = () => {
+function CancelButton() {
     const {dispatch, t} = useContext(AppContext);
-
     return (
         <button
             className='ms-3 text-sm text-neutral-500 sm:hidden'
@@ -193,18 +176,27 @@ const CancelButton = () => {
             {t('Cancel')}
         </button>
     );
-};
+}
 
-const SearchBox = () => {
+function SearchBox() {
     const {searchValue, dispatch, inputRef, t} = useContext(AppContext);
-    const containerRef = useRef(null);
 
-    useInputFocus(inputRef);
-    useEscapeKeyHandler(dispatch);
+    const handleKeyUp = useCallback((event) => {
+        if (event.key === 'Escape') {
+            dispatch('update', {showPopup: false});
+        }
+    }, [dispatch]);
 
-    const className = searchValue 
-        ? 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-t-lg shadow'
-        : 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-lg';
+    const containerRef = useKeyUpHandler(handleKeyUp);
+
+    useEffect(() => {
+        const timer = setTimeout(() => inputRef?.current?.focus(), 150);
+        return () => clearTimeout(timer);
+    }, [inputRef]);
+
+    const className = `z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white ${
+        searchValue ? 'rounded-t-lg shadow' : 'rounded-lg'
+    }`;
 
     return (
         <div className={className} ref={containerRef}>
@@ -214,9 +206,9 @@ const SearchBox = () => {
             <input
                 ref={inputRef}
                 value={searchValue || ''}
-                onChange={(e) => dispatch('update', {searchValue: e.target.value})}
-                onKeyDown={(e) => {
-                    if (e.key === ARROW_UP || e.key === ARROW_DOWN) {
+                onChange={e => dispatch('update', {searchValue: e.target.value})}
+                onKeyDown={e => {
+                    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
                         e.preventDefault();
                     }
                 }}
@@ -227,89 +219,55 @@ const SearchBox = () => {
             <CancelButton />
         </div>
     );
-};
+}
 
-const HighlightWord = ({word, isExcerpt}) => {
-    const className = isExcerpt ? 'font-bold' : 'font-bold text-neutral-900';
-    return <span className={className}>{word}</span>;
-};
-
-const HighlightedSection = ({text = '', highlight = '', isExcerpt}) => {
-    let processedText = text;
-    let {parts, highlightIndexes} = getHighlightParts({text: processedText, highlight});
-
-    if (isExcerpt && highlightIndexes?.[0]) {
-        const startIdx = highlightIndexes[0].startIdx;
-        if (startIdx > EXCERPT_MIN_START) {
-            processedText = '...' + text.slice(startIdx - EXCERPT_CONTEXT_LENGTH);
-            const result = getHighlightParts({text: processedText, highlight});
-            parts = result.parts;
-        }
-    }
-
-    return (
-        <>
-            {parts.map((part, idx) => (
-                <React.Fragment key={idx}>
-                    {part.type === 'highlight' 
-                        ? <HighlightWord word={part.text} isExcerpt={isExcerpt} />
-                        : part.text
-                    }
-                </React.Fragment>
-            ))}
-        </>
-    );
-};
-
-const TagListItem = ({tag, selectedResult, setSelectedResult}) => {
+// List item components
+function TagListItem({tag, selectedResult, setSelectedResult}) {
     const {name, url, id} = tag;
-    const isSelected = id === selectedResult;
-    const className = `flex items-center py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer ${isSelected ? 'bg-neutral-100' : ''}`;
-
     return (
         <div
-            className={className}
-            onClick={() => url && (window.location.href = url)}
+            className={listItemBaseClass(id, selectedResult, 'flex items-center py-3')}
+            onClick={() => navigateTo(url)}
             onMouseEnter={() => setSelectedResult(id)}
         >
             <p className='me-2 text-sm font-bold text-neutral-400'>#</p>
             <h2 className='text-[1.65rem] font-medium leading-tight text-neutral-900 truncate'>{name}</h2>
         </div>
     );
-};
+}
 
-const TagResults = ({tags, selectedResult, setSelectedResult}) => {
-    const {t} = useContext(AppContext);
-
-    if (!tags?.length) {
-        return null;
+function AuthorAvatar({name, avatar}) {
+    if (avatar?.length) {
+        return <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name} />;
     }
-
     return (
-        <div className='border-t border-gray-200 py-3 px-4 sm:px-7'>
-            <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Tags')}</h1>
-            {tags.map((tag) => (
-                <TagListItem
-                    key={tag.name}
-                    tag={tag}
-                    selectedResult={selectedResult}
-                    setSelectedResult={setSelectedResult}
-                />
-            ))}
+        <div className='rounded-full bg-neutral-200 w-7 h-7 me-2 flex items-center justify-center font-bold'>
+            <span className='text-neutral-400'>{name.charAt(0)}</span>
         </div>
     );
-};
+}
 
-const PostListItem = ({post, selectedResult, setSelectedResult}) => {
-    const {searchValue} = useContext(AppContext);
-    const {title, excerpt, url, id} = post;
-    const isSelected = id === selectedResult;
-    const className = `py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer ${isSelected ? 'bg-neutral-100' : ''}`;
-
+function AuthorListItem({author, selectedResult, setSelectedResult}) {
+    const {name, profile_image: profileImage, url, id} = author;
     return (
         <div
-            className={className}
-            onClick={() => url && (window.location.href = url)}
+            className={listItemBaseClass(id, selectedResult, 'py-[1rem] flex items-center')}
+            onClick={() => navigateTo(url)}
+            onMouseEnter={() => setSelectedResult(id)}
+        >
+            <AuthorAvatar name={name} avatar={profileImage} />
+            <h2 className='text-[1.65rem] font-medium leading-tight text-neutral-900 truncate'>{name}</h2>
+        </div>
+    );
+}
+
+function PostListItem({post, selectedResult, setSelectedResult}) {
+    const {searchValue} = useContext(AppContext);
+    const {title, excerpt, url, id} = post;
+    return (
+        <div
+            className={listItemBaseClass(id, selectedResult, 'py-3')}
+            onClick={() => navigateTo(url)}
             onMouseEnter={() => setSelectedResult(id)}
         >
             <h2 className='text-[1.65rem] font-medium leading-tight text-neutral-800'>
@@ -320,99 +278,125 @@ const PostListItem = ({post, selectedResult, setSelectedResult}) => {
             </p>
         </div>
     );
-};
+}
 
-const ShowMoreButton = ({posts, maxPosts, setMaxPosts}) => {
+// Result section components
+function TagResults({tags, selectedResult, setSelectedResult}) {
     const {t} = useContext(AppContext);
-
-    if (!posts?.length || maxPosts >= posts.length) {
+    if (!tags?.length) {
         return null;
     }
+    return (
+        <ResultSection className='border-t border-gray-200 py-3 px-4 sm:px-7'>
+            <SectionHeader label={t('Tags')} />
+            {tags.map(tag => (
+                <TagListItem key={tag.name} tag={tag} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
+            ))}
+        </ResultSection>
+    );
+}
 
+function AuthorResults({authors, selectedResult, setSelectedResult}) {
+    const {t} = useContext(AppContext);
+    if (!authors?.length) {
+        return null;
+    }
+    return (
+        <ResultSection>
+            <SectionHeader label={t('Authors')} />
+            {authors.map(author => (
+                <AuthorListItem key={author.name} author={author} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
+            ))}
+        </ResultSection>
+    );
+}
+
+function ShowMoreButton({posts, maxPosts, setMaxPosts}) {
+    const {t} = useContext(AppContext);
+    if (!posts?.length || maxPosts >= posts?.length) {
+        return null;
+    }
     return (
         <button
             className='w-full my-3 p-[1rem] border border-neutral-200 hover:border-neutral-300 text-neutral-800 hover:text-black font-semibold rounded transition duration-150 ease hover:ease'
-            onClick={() => setMaxPosts(maxPosts + STEP_MAX_POSTS)}
+            onClick={() => setMaxPosts(prev => prev + STEP_MAX_POSTS)}
         >
             {t('Show more results')}
         </button>
     );
-};
+}
 
-const PostResults = ({posts, selectedResult, setSelectedResult}) => {
+function PostResults({posts, selectedResult, setSelectedResult}) {
     const {t} = useContext(AppContext);
     const [maxPosts, setMaxPosts] = useState(DEFAULT_MAX_POSTS);
-    const [paginatedPosts, setPaginatedPosts] = useState([]);
 
     useEffect(() => {
         setMaxPosts(DEFAULT_MAX_POSTS);
     }, [posts]);
 
-    useEffect(() => {
-        setPaginatedPosts(posts?.slice(0, maxPosts + 1) || []);
-    }, [maxPosts, posts]);
+    const paginatedPosts = useMemo(() => posts?.slice(0, maxPosts + 1), [posts, maxPosts]);
 
     if (!posts?.length) {
         return null;
     }
 
     return (
-        <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
-            <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Posts')}</h1>
+        <ResultSection>
+            <SectionHeader label={t('Posts')} />
             {paginatedPosts.map(post => (
-                <PostListItem
-                    key={post.title}
-                    post={post}
-                    selectedResult={selectedResult}
-                    setSelectedResult={setSelectedResult}
-                />
+                <PostListItem key={post.title} post={post} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
             ))}
             <ShowMoreButton setMaxPosts={setMaxPosts} maxPosts={maxPosts} posts={posts} />
-        </div>
+        </ResultSection>
     );
-};
+}
 
-const AuthorAvatar = ({name, avatar}) => {
-    if (avatar?.length) {
-        return (
-            <img 
-                className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' 
-                src={avatar} 
-                alt={name}
-            />
-        );
-    }
-
-    return (
-        <div className='rounded-full bg-neutral-200 w-7 h-7 me-2 flex items-center justify-center font-bold'>
-            <span className="text-neutral-400">{name.charAt(0)}</span>
-        </div>
-    );
-};
-
-const AuthorListItem = ({author, selectedResult, setSelectedResult}) => {
-    const {name, profile_image: profileImage, url, id} = author;
-    const isSelected = id === selectedResult;
-    const className = `py-[1rem] -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer flex items-center ${isSelected ? 'bg-neutral-100' : ''}`;
-
-    return (
-        <div
-            className={className}
-            onClick={() => url && (window.location.href = url)}
-            onMouseEnter={() => setSelectedResult(id)}
-        >
-            <AuthorAvatar name={name} avatar={profileImage} />
-            <h2 className='text-[1.65rem] font-medium leading-tight text-neutral-900 truncate'>{name}</h2>
-        </div>
-    );
-};
-
-const AuthorResults = ({authors, selectedResult, setSelectedResult}) => {
+function NoResultsBox() {
     const {t} = useContext(AppContext);
+    return (
+        <div className='py-4 px-7'>
+            <p className='text-[1.65rem] text-neutral-400 leading-normal'>{t('No matches found')}</p>
+        </div>
+    );
+}
 
-    if (!authors?.length) {
+function Results({posts, authors, tags}) {
+    const {searchValue} = useContext(AppContext);
+    const allResults = useMemo(() => [...authors, ...tags, ...posts], [authors, tags, posts]);
+    const [selectedResult, setSelectedResult] = useState(allResults?.[0]?.id || null);
+
+    useEffect(() => {
+        setSelectedResult(allResults?.[0]?.id || null);
+    }, [allResults]);
+
+    const handleKeyUp = useCallback((event) => {
+        const currentIdx = allResults.findIndex(r => r.id === selectedResult);
+        if (event.key === 'ArrowUp' && allResults[currentIdx - 1]) {
+            setSelectedResult(allResults[currentIdx - 1].id);
+        } else if (event.key === 'ArrowDown' && allResults[currentIdx + 1]) {
+            setSelectedResult(allResults[currentIdx + 1].id);
+        } else if (event.key === 'Enter') {
+            navigateTo(allResults.find(r => r.id === selectedResult)?.url);
+        }
+    }, [allResults, selectedResult]);
+
+    const containerRef = useKeyUpHandler(handleKeyUp);
+
+    if (!searchValue) {
         return null;
     }
 
     return (
-        <div className='
+        <div className='overflow-y-auto max-h-[calc(100vh-172px)] sm:max-h-[70vh] -mt-[1px]' ref={containerRef}>
+            <AuthorResults authors={authors} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
+            <TagResults tags={tags} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
+            <PostResults posts={posts} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
+        </div>
+    );
+}
+
+function SearchResultBox() {
+    const {searchValue = '', searchIndex, indexComplete} = useContext(AppContext);
+
+    const {filteredPosts, filteredAuthors, filteredTags} = useMemo(() => {
+        if (!indexComplete || !searchValue)
