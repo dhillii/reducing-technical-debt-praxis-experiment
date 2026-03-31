@@ -1,4 +1,4 @@
-```typescript
+```tsx
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import countries from 'i18n-iso-countries';
 import enLocale from 'i18n-iso-countries/langs/en.json';
@@ -13,20 +13,12 @@ import {useTopContent} from '@tryghost/admin-x-framework/api/stats';
 
 countries.registerLocale(enLocale);
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 interface StatsFilterProps extends Omit<React.ComponentProps<typeof Filters>, 'fields' | 'onChange'> {
     filters: Filter[];
     onChange?: (filters: Filter[]) => void;
 }
-
-const getCountryName = (code: string): string => {
-    return STATS_LABEL_MAPPINGS[code as keyof typeof STATS_LABEL_MAPPINGS] || countries.getName(code, 'en') || code;
-};
-
-const VisitCountBadge = ({visits}: {visits: number}) => (
-    <span className="order-2 font-mono text-xs text-muted-foreground">
-        {visits.toLocaleString()}
-    </span>
-);
 
 interface FilterFieldDefinition {
     endpoint: string;
@@ -35,18 +27,32 @@ interface FilterFieldDefinition {
     filterItem?: (item: Record<string, unknown>) => boolean;
 }
 
-const createUTMFieldDefinition = (field: string): FilterFieldDefinition => ({
-    endpoint: `api_top_${field}s`,
-    valueKey: field,
-    transformValue: v => ({value: v || '(not set)', label: v || '(not set)'})
-});
+interface FetchOptionsConfig {
+    enabled?: boolean;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const SUPPORTED_OPERATORS = [{value: 'is', label: 'is'}];
+
+const DEVICE_LABELS: Record<string, string> = {
+    'mobile-ios': 'iOS',
+    'mobile-android': 'Android',
+    desktop: 'Desktop',
+    bot: 'Bot',
+    unknown: 'Unknown'
+};
+
+const UTM_NOT_SET = '(not set)';
+
+const makeUtmTransform = (v: string) => ({value: v || UTM_NOT_SET, label: v || UTM_NOT_SET});
 
 const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
-    utm_source: createUTMFieldDefinition('utm_source'),
-    utm_medium: createUTMFieldDefinition('utm_medium'),
-    utm_campaign: createUTMFieldDefinition('utm_campaign'),
-    utm_content: createUTMFieldDefinition('utm_content'),
-    utm_term: createUTMFieldDefinition('utm_term'),
+    utm_source:   {endpoint: 'api_top_utm_sources',   valueKey: 'utm_source',   transformValue: makeUtmTransform},
+    utm_medium:   {endpoint: 'api_top_utm_mediums',   valueKey: 'utm_medium',   transformValue: makeUtmTransform},
+    utm_campaign: {endpoint: 'api_top_utm_campaigns', valueKey: 'utm_campaign', transformValue: makeUtmTransform},
+    utm_content:  {endpoint: 'api_top_utm_contents',  valueKey: 'utm_content',  transformValue: makeUtmTransform},
+    utm_term:     {endpoint: 'api_top_utm_terms',     valueKey: 'utm_term',     transformValue: makeUtmTransform},
     source: {
         endpoint: 'api_top_sources',
         valueKey: 'source',
@@ -55,7 +61,7 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     location: {
         endpoint: 'api_top_locations',
         valueKey: 'location',
-        filterItem(item) {
+        filterItem: item => {
             const location = String(item.location || '');
             return location !== '' && !UNKNOWN_LOCATION_VALUES.includes(location);
         },
@@ -64,17 +70,22 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     device: {
         endpoint: 'api_top_devices',
         valueKey: 'device',
-        transformValue: v => ({
-            value: v,
-            label: {
-                'mobile-ios': 'iOS',
-                'mobile-android': 'Android',
-                'desktop': 'Desktop',
-                'bot': 'Bot',
-                'unknown': 'Unknown'
-            }[v] || v
-        })
+        transformValue: v => ({value: v, label: DEVICE_LABELS[v] ?? v})
     }
+};
+
+const TINYBIRD_FILTER_FIELDS = Object.keys(FILTER_FIELD_DEFINITIONS);
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const getCountryName = (code: string): string =>
+    STATS_LABEL_MAPPINGS[code as keyof typeof STATS_LABEL_MAPPINGS] ||
+    countries.getName(code, 'en') ||
+    code;
+
+const getAudienceFromFilters = (filters: Filter[]) => {
+    const audienceFilter = filters.find(f => f.field === 'audience');
+    return getAudienceFromFilterValues(audienceFilter?.values as string[] | undefined);
 };
 
 const buildFilterParams = (
@@ -84,54 +95,79 @@ const buildFilterParams = (
 ): Record<string, string> => {
     const params = {...baseParams};
 
-    currentFilters.forEach((filter) => {
-        if (filter.field === excludeField || filter.values.length === 0) {
-            return;
+    for (const filter of currentFilters) {
+        if (filter.field === excludeField || filter.values.length === 0 || filter.field === 'audience') {
+            continue;
         }
 
         const value = filter.values[0] as string;
 
         if (filter.field === 'post') {
             params[value.startsWith('/') ? 'pathname' : 'post_uuid'] = value;
-        } else if (filter.field !== 'audience' && (filter.field === 'source' || filter.field === 'device' || filter.field === 'location' || filter.field.startsWith('utm_'))) {
+        } else if (TINYBIRD_FILTER_FIELDS.includes(filter.field)) {
             params[filter.field] = value;
         }
-    });
+    }
 
     return params;
 };
 
-interface UseTinybirdFilterOptionsConfig {
-    enabled?: boolean;
-}
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+const VisitCountBadge = ({visits}: {visits: number}) => (
+    <span className="order-2 font-mono text-xs text-muted-foreground">
+        {visits.toLocaleString()}
+    </span>
+);
+
+// ─── Hooks ────────────────────────────────────────────────────────────────────
+
+const useIsMobile = (breakpoint = 1024) => {
+    const [isMobile, setIsMobile] = useState(false);
+
+    useEffect(() => {
+        const mediaQuery = window.matchMedia(`(max-width: ${breakpoint}px)`);
+        const handleChange = (e: MediaQueryListEvent | MediaQueryList) => setIsMobile(e.matches);
+
+        handleChange(mediaQuery);
+        mediaQuery.addEventListener('change', handleChange);
+        return () => mediaQuery.removeEventListener('change', handleChange);
+    }, [breakpoint]);
+
+    return isMobile;
+};
+
+const useBaseQueryParams = (filters: Filter[], excludeField: string, extraBase?: Record<string, string>) => {
+    const {statsConfig, range} = useGlobalData();
+    const {startDate, endDate, timezone} = getRangeDates(range);
+    const audience = useMemo(() => getAudienceFromFilters(filters), [filters]);
+
+    return useMemo(() => {
+        const base: Record<string, string> = {
+            date_from: formatQueryDate(startDate),
+            date_to: formatQueryDate(endDate),
+            member_status: getAudienceQueryParam(audience),
+            ...extraBase
+        };
+
+        if (timezone) {
+            base.timezone = timezone;
+        }
+
+        return {params: buildFilterParams(filters, excludeField, base), statsConfig};
+    }, [statsConfig, startDate, endDate, timezone, audience, filters, excludeField]);
+};
 
 const useTinybirdFilterOptions = (
     fieldKey: string,
     currentFilters: Filter[] = [],
-    config: UseTinybirdFilterOptionsConfig = {}
+    {enabled = true}: FetchOptionsConfig = {}
 ) => {
-    const {enabled = true} = config;
-    const {statsConfig, range} = useGlobalData();
-    const {startDate, endDate, timezone} = getRangeDates(range);
     const definition = FILTER_FIELD_DEFINITIONS[fieldKey];
-
-    const audience = useMemo(() => {
-        const audienceFilter = currentFilters.find(f => f.field === 'audience');
-        return getAudienceFromFilterValues(audienceFilter?.values as string[] | undefined);
-    }, [currentFilters]);
-
-    const params = useMemo(() => {
-        const baseParams: Record<string, string> = {
-            site_uuid: statsConfig?.id || '',
-            date_from: formatQueryDate(startDate),
-            date_to: formatQueryDate(endDate),
-            timezone: timezone,
-            member_status: getAudienceQueryParam(audience),
-            limit: '50'
-        };
-
-        return buildFilterParams(currentFilters, fieldKey, baseParams);
-    }, [statsConfig?.id, startDate, endDate, timezone, audience, currentFilters, fieldKey]);
+    const {params, statsConfig} = useBaseQueryParams(currentFilters, fieldKey, {
+        site_uuid: useGlobalData().statsConfig?.id || '',
+        limit: '50'
+    });
 
     const {data, loading} = useTinybirdQuery({
         endpoint: definition?.endpoint || '',
@@ -145,10 +181,8 @@ const useTinybirdFilterOptions = (
             return [];
         }
 
-        const items = (data as unknown as Array<Record<string, unknown>>) || [];
-
-        return items
-            .filter(item => (definition.filterItem ? definition.filterItem(item) : true))
+        return ((data as unknown as Array<Record<string, unknown>>) || [])
+            .filter(item => definition.filterItem ? definition.filterItem(item) : true)
             .map((item) => {
                 const rawValue = String(item[definition.valueKey] ?? '');
                 const visits = Number(item.visits) || 0;
@@ -156,58 +190,28 @@ const useTinybirdFilterOptions = (
                     ? definition.transformValue(rawValue)
                     : {value: rawValue, label: rawValue};
 
-                return {
-                    label,
-                    value,
-                    icon: <VisitCountBadge visits={visits} />
-                };
+                return {label, value, icon: <VisitCountBadge visits={visits} />};
             });
     }, [data, definition]);
 
     return {options, loading};
 };
 
-interface UsePostOptionsConfig {
-    enabled?: boolean;
-}
-
-const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsConfig = {}) => {
-    const {enabled = true} = config;
-    const {range} = useGlobalData();
-    const {startDate, endDate, timezone} = getRangeDates(range);
-
-    const audience = useMemo(() => {
-        const audienceFilter = currentFilters.find(f => f.field === 'audience');
-        return getAudienceFromFilterValues(audienceFilter?.values as string[] | undefined);
-    }, [currentFilters]);
-
-    const queryParams = useMemo(() => {
-        const baseParams: Record<string, string> = {
-            date_from: formatQueryDate(startDate),
-            date_to: formatQueryDate(endDate),
-            member_status: getAudienceQueryParam(audience)
-        };
-
-        if (timezone) {
-            baseParams.timezone = timezone;
-        }
-
-        return buildFilterParams(currentFilters, 'post', baseParams);
-    }, [startDate, endDate, timezone, audience, currentFilters]);
+const usePostOptions = (currentFilters: Filter[] = [], {enabled = true}: FetchOptionsConfig = {}) => {
+    const {params} = useBaseQueryParams(currentFilters, 'post');
 
     const {data: topContentData, isLoading} = useTopContent({
-        searchParams: queryParams,
+        searchParams: params,
         enabled
     });
 
     const options = useMemo(() => {
-        const stats = topContentData?.stats;
         const seen = new Set<string>();
 
-        return (stats || [])
+        return (topContentData?.stats || [])
             .filter((item) => {
-                const hasValidPostUuid = item.post_uuid && item.post_uuid !== '' && item.post_uuid !== 'undefined';
-                const uniqueKey = hasValidPostUuid ? `uuid:${item.post_uuid}` : `path:${item.pathname}`;
+                const hasValidUuid = item.post_uuid && item.post_uuid !== '' && item.post_uuid !== 'undefined';
+                const uniqueKey = hasValidUuid ? `uuid:${item.post_uuid}` : `path:${item.pathname}`;
 
                 if (seen.has(uniqueKey)) {
                     return false;
@@ -216,14 +220,13 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
                 return true;
             })
             .map((item) => {
-                const visits = item.visits || 0;
-                const hasValidPostUuid = item.post_uuid && item.post_uuid !== '' && item.post_uuid !== 'undefined';
-                const filterValue = hasValidPostUuid ? item.post_uuid! : item.pathname;
+                const hasValidUuid = item.post_uuid && item.post_uuid !== '' && item.post_uuid !== 'undefined';
+                const filterValue = hasValidUuid ? item.post_uuid! : item.pathname;
 
                 return {
                     label: item.title || item.pathname || '(Untitled)',
                     value: filterValue,
-                    icon: <VisitCountBadge visits={visits} />
+                    icon: <VisitCountBadge visits={item.visits || 0} />
                 };
             });
     }, [topContentData]);
@@ -231,141 +234,115 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
     return {options, loading: isLoading};
 };
 
-interface FilterFieldOption {
-    key: string;
-    label: string;
-    icon: React.ReactNode;
-}
+// ─── Field config builders ────────────────────────────────────────────────────
 
-interface FilterFieldGroup {
-    group: string;
-    fields: FilterFieldOption[];
-}
-
-const BASIC_FILTER_FIELDS: FilterFieldOption[] = [
-    {key: 'audience', label: 'Audience', icon: <LucideIcon.Users />},
-    {key: 'post', label: 'Post or page', icon: <LucideIcon.PenLine />},
-    {key: 'source', label: 'Source', icon: <LucideIcon.Globe className="size-4" />},
-    {key: 'device', label: 'Device', icon: <LucideIcon.Monitor className="size-4" />},
-    {key: 'location', label: 'Location', icon: <LucideIcon.MapPin className="size-4" />}
-];
-
-const UTM_FILTER_FIELDS: FilterFieldOption[] = [
-    {key: 'utm_source', label: 'UTM Source', icon: <LucideIcon.MousePointerClick className="size-4" />},
-    {key: 'utm_medium', label: 'UTM Medium', icon: <LucideIcon.SatelliteDish className="size-4" />},
-    {key: 'utm_campaign', label: 'UTM Campaign', icon: <LucideIcon.Flag className="size-4" />},
-    {key: 'utm_content', label: 'UTM Content', icon: <LucideIcon.TextCursorInput className="size-4" />},
-    {key: 'utm_term', label: 'UTM Term', icon: <LucideIcon.Tag className="size-4" />}
-];
-
-const FIELD_CONFIG_DEFAULTS = {
-    operators: [{value: 'is', label: 'is'}],
-    defaultOperator: 'is',
-    hideOperatorSelect: true,
-    searchable: true,
-    selectedOptionsClassName: 'hidden'
-} as const;
-
-const FIELD_SIZES = {
-    post: {className: 'w-80', popoverContentClassName: 'w-80'},
-    utm: {className: 'w-60', popoverContentClassName: 'w-60'},
-    source: {className: 'w-60', popoverContentClassName: 'w-60'}
-} as const;
-
-interface FieldOptionsMap {
-    [key: string]: {options: Array<{value: string; label: string; icon: React.ReactNode}>; loading: boolean};
-}
-
-const buildFilterFieldConfig = (
-    fieldKey: string,
+const makeSelectField = (
+    key: string,
     label: string,
     icon: React.ReactNode,
-    fieldOptions: FieldOptionsMap,
-    audienceOptions: Array<{value: string; label: string; icon: React.ReactNode}>
-): FilterFieldConfig => {
-    const baseConfig: FilterFieldConfig = {
-        key: fieldKey,
-        label,
-        icon,
-        type: 'select',
-        ...FIELD_CONFIG_DEFAULTS
-    };
+    options: FilterFieldConfig['options'],
+    isLoading: boolean,
+    overrides: Partial<FilterFieldConfig> = {}
+): FilterFieldConfig => ({
+    key,
+    label,
+    type: 'select',
+    icon,
+    operators: SUPPORTED_OPERATORS,
+    defaultOperator: 'is',
+    hideOperatorSelect: true,
+    selectedOptionsClassName: 'hidden',
+    options,
+    isLoading,
+    ...overrides
+});
 
-    if (fieldKey === 'audience') {
-        return {
-            ...baseConfig,
-            type: 'multiselect',
-            options: audienceOptions,
-            defaultOperator: 'is any of',
-            autoCloseOnSelect: true
-        };
-    }
+const makeSearchableSelectField = (
+    key: string,
+    label: string,
+    icon: React.ReactNode,
+    placeholder: string,
+    options: FilterFieldConfig['options'],
+    isLoading: boolean,
+    overrides: Partial<FilterFieldConfig> = {}
+): FilterFieldConfig =>
+    makeSelectField(key, label, icon, options, isLoading, {
+        placeholder,
+        searchable: true,
+        className: 'w-60',
+        popoverContentClassName: 'w-60',
+        ...overrides
+    });
 
-    const {options, loading} = fieldOptions[fieldKey] || {options: [], loading: false};
-    const sizeConfig = fieldKey === 'post' ? FIELD_SIZES.post : fieldKey.startsWith('utm_') ? FIELD_SIZES.utm : fieldKey === 'source' ? FIELD_SIZES.source : {};
-
-    return {
-        ...baseConfig,
-        ...sizeConfig,
-        options,
-        isLoading: loading,
-        placeholder: `Select ${label.toLowerCase()}`
-    };
-};
-
-const useMediaQuery = (query: string): boolean => {
-    const [matches, setMatches] = useState(false);
-
-    useEffect(() => {
-        const mediaQuery = window.matchMedia(query);
-        const handleChange = (e: MediaQueryListEvent | MediaQueryList) => {
-            setMatches(e.matches);
-        };
-
-        handleChange(mediaQuery);
-        mediaQuery.addEventListener('change', handleChange);
-
-        return () => mediaQuery.removeEventListener('change', handleChange);
-    }, [query]);
-
-    return matches;
-};
+// ─── Main component ───────────────────────────────────────────────────────────
 
 function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
     const {appSettings} = useAppContext();
     const [activeFilterField, setActiveFilterField] = useState<string | null>(null);
-    const isMobile = useMediaQuery('(max-width: 1024px)');
+    const isMobile = useIsMobile();
+
+    const shouldFetchOptions = useCallback(
+        (fieldKey: string) => activeFilterField === fieldKey || filters.some(f => f.field === fieldKey),
+        [activeFilterField, filters]
+    );
+
+    const tinybirdFields = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'source', 'device', 'location'] as const;
+
+    const fieldOptions = Object.fromEntries(
+        tinybirdFields.map(key => [
+            key,
+            // eslint-disable-next-line react-hooks/rules-of-hooks
+            useTinybirdFilterOptions(key, filters, {enabled: shouldFetchOptions(key)})
+        ])
+    ) as Record<typeof tinybirdFields[number], {options: FilterFieldConfig['options']; loading: boolean}>;
+
+    const {options: postOptions, loading: postLoading} = usePostOptions(filters, {enabled: shouldFetchOptions('post')});
 
     const audienceOptions = useMemo(() => {
         const options = [
-            {value: 'undefined', label: 'Public visitors', icon: <LucideIcon.Globe className='text-gray-700'/>},
-            {value: 'free', label: 'Free members', icon: <LucideIcon.User className='text-green'/>},
-            {value: 'paid', label: 'Paid members', icon: <LucideIcon.UserPlus className='text-orange'/>}
+            {value: 'undefined', label: 'Public visitors', icon: <LucideIcon.Globe className='text-gray-700' />},
+            {value: 'free',      label: 'Free members',    icon: <LucideIcon.User className='text-green' />},
+            {value: 'paid',      label: 'Paid members',    icon: <LucideIcon.UserPlus className='text-orange' />}
         ];
-        return appSettings?.paidMembersEnabled ? options : options.filter(opt => opt.value !== 'paid');
+        return appSettings?.paidMembersEnabled ? options : options.filter(o => o.value !== 'paid');
     }, [appSettings?.paidMembersEnabled]);
 
-    const shouldFetchOptions = useCallback((fieldKey: string) => {
-        const isActive = activeFilterField === fieldKey;
-        const hasAppliedFilter = filters.some(f => f.field === fieldKey);
-        return isActive || hasAppliedFilter;
-    }, [activeFilterField, filters]);
+    const groupedFields: FilterFieldConfig[] = useMemo(() => [
+        {
+            group: 'Basic',
+            fields: [
+                {
+                    key: 'audience',
+                    label: 'Audience',
+                    type: 'multiselect',
+                    icon: <LucideIcon.Users />,
+                    options: audienceOptions,
+                    defaultOperator: 'is any of',
+                    hideOperatorSelect: true,
+                    autoCloseOnSelect: true
+                },
+                makeSelectField('post', 'Post or page', <LucideIcon.PenLine />, postOptions, postLoading, {
+                    searchable: true,
+                    className: 'w-80',
+                    popoverContentClassName: 'w-80'
+                }),
+                makeSearchableSelectField('source',   'Source',   <LucideIcon.Globe className="size-4" />,   'Select source',   fieldOptions.source.options,   fieldOptions.source.loading),
+                makeSelectField('device',   'Device',   <LucideIcon.Monitor className="size-4" />, fieldOptions.device.options,   fieldOptions.device.loading,   {placeholder: 'Select device'}),
+                makeSearchableSelectField('location', 'Location', <LucideIcon.MapPin className="size-4" />,  'Select location', fieldOptions.location.options, fieldOptions.location.loading)
+            ]
+        },
+        {
+            group: 'UTM parameters',
+            fields: [
+                makeSearchableSelectField('utm_source',   'UTM Source',   <LucideIcon.MousePointerClick className="size-4" />, 'Select source',   fieldOptions.utm_source.options,   fieldOptions.utm_source.loading),
+                makeSearchableSelectField('utm_medium',   'UTM Medium',   <LucideIcon.SatelliteDish className="size-4" />,     'Select medium',   fieldOptions.utm_medium.options,   fieldOptions.utm_medium.loading),
+                makeSearchableSelectField('utm_campaign', 'UTM Campaign', <LucideIcon.Flag className="size-4" />,              'Select campaign', fieldOptions.utm_campaign.options, fieldOptions.utm_campaign.loading),
+                makeSearchableSelectField('utm_content',  'UTM Content',  <LucideIcon.TextCursorInput className="size-4" />,   'Select content',  fieldOptions.utm_content.options,  fieldOptions.utm_content.loading),
+                makeSearchableSelectField('utm_term',     'UTM Term',     <LucideIcon.Tag className="size-4" />,               'Select term',     fieldOptions.utm_term.options,     fieldOptions.utm_term.loading)
+            ]
+        }
+    ], [audienceOptions, postOptions, postLoading, fieldOptions]);
 
-    const fieldOptionsMap: FieldOptionsMap = useMemo(() => {
-        const map: FieldOptionsMap = {};
-        const allFields = [...BASIC_FILTER_FIELDS, ...UTM_FILTER_FIELDS];
+    const hasFilters = filters.length > 0;
 
-        allFields.forEach(field => {
-            if (field.key === 'audience') return;
-            // This will be populated by the hooks below
-        });
-
-        return map;
-    }, []);
-
-    // Fetch all field options
-    const {options: utmSourceOptions, loading: utmSourceLoading} = useTinybirdFilterOptions('utm_source', filters, {enabled: shouldFetchOptions('utm_source')});
-    const {options: utmMediumOptions, loading: utmMediumLoading} = useTinybirdFilterOptions('utm_medium', filters, {enabled: shouldFetchOptions('utm_medium')});
-    const {options: utmCampaignOptions, loading: utmCampaignLoading} = useTinybirdFilterOptions('utm_campaign', filters, {enabled: shouldFetchOptions('utm_campaign')});
-    const {options: utmContentOptions, loading: utmContentLoading} = useTinybirdFilterOptions('utm_content', filters, {enabled: shouldFetchOptions('utm_content')});
-    const {options: utmTermOptions, loading: utmTermLoading} = useTinybirdFilterOptions('utm_term', filters, {
+    const handleClearFilters
