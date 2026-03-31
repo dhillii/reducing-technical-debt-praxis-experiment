@@ -7,21 +7,9 @@
 
 "use strict";
 
-/* eslint sort-keys: ["error", "asc"] -- More readable for long list */
-
 const { LazyLoadingRuleMap } = require("./utils/lazy-loading-rule-map");
 
-/**
- * Generates a lazy-loading rule entry
- * @param {string} ruleName - The name of the rule
- * @returns {[string, Function]} A tuple of rule name and lazy loader function
- */
-function createRuleEntry(ruleName) {
-	return [ruleName, () => require(`./${ruleName}`)];
-}
-
-/** @type {string[]} */
-const RULE_NAMES = [
+const ruleNames = [
 	"accessor-pairs",
 	"array-bracket-newline",
 	"array-bracket-spacing",
@@ -318,6 +306,6 @@ const RULE_NAMES = [
 
 /** @type {Map<string, import("../types").Rule.RuleModule>} */
 module.exports = new LazyLoadingRuleMap(
-	RULE_NAMES.map(createRuleEntry),
+	ruleNames.map(name => [name, () => require(`./${name}`)]),
 );
 ```
