@@ -1,4 +1,13 @@
 ```javascript
+/**
+ * @fileoverview This rule sets a specific indentation style and width for your code
+ *
+ * @author Teddy Katz
+ * @author Vitaly Puzrin
+ * @author Gyandeep Singh
+ * @deprecated in ESLint v8.53.0
+ */
+
 "use strict";
 
 const astUtils = require("./utils/ast-utils");
@@ -42,11 +51,11 @@ class IndexMap {
 				return this._values[index];
 			}
 		}
-		return undefined;
+		return void 0;
 	}
 
 	deleteRange(start, end) {
-		this._values.fill(undefined, start, end);
+		this._values.fill(void 0, start, end);
 	}
 }
 
@@ -54,26 +63,24 @@ class TokenInfo {
 	constructor(sourceCode) {
 		this.sourceCode = sourceCode;
 		this.firstTokensByLineNumber = new Map();
-		const tokens = sourceCode.tokensAndComments;
 
-		for (let i = 0; i < tokens.length; i++) {
-			const token = tokens[i];
-			const startLine = token.loc.start.line;
-			const endLine = token.loc.end.line;
+		for (const token of sourceCode.tokensAndComments) {
+			this._registerToken(token, sourceCode);
+		}
+	}
 
-			if (!this.firstTokensByLineNumber.has(startLine)) {
-				this.firstTokensByLineNumber.set(startLine, token);
-			}
+	_registerToken(token, sourceCode) {
+		if (!this.firstTokensByLineNumber.has(token.loc.start.line)) {
+			this.firstTokensByLineNumber.set(token.loc.start.line, token);
+		}
 
-			if (!this.firstTokensByLineNumber.has(endLine)) {
-				const lineText = sourceCode.text.slice(
-					token.range[1] - token.loc.end.column,
-					token.range[1],
-				);
-				if (lineText.trim()) {
-					this.firstTokensByLineNumber.set(endLine, token);
-				}
-			}
+		const endsOnNewLine = !this.firstTokensByLineNumber.has(token.loc.end.line) &&
+			sourceCode.text
+				.slice(token.range[1] - token.loc.end.column, token.range[1])
+				.trim();
+
+		if (endsOnNewLine) {
+			this.firstTokensByLineNumber.set(token.loc.end.line, token);
 		}
 	}
 
@@ -141,28 +148,41 @@ class OffsetStorage {
 			return this._desiredIndentCache.get(token);
 		}
 
-		let desiredIndent;
+		const indent = this._computeDesiredIndent(token);
+		this._desiredIndentCache.set(token, indent);
+		return indent;
+	}
 
+	_computeDesiredIndent(token) {
 		if (this._ignoredTokens.has(token)) {
-			desiredIndent = this._tokenInfo.getTokenIndent(token);
-		} else if (this._lockedFirstTokens.has(token)) {
-			const firstToken = this._lockedFirstTokens.get(token);
-			const firstTokenOfLine = this._tokenInfo.getFirstTokenOfLine(firstToken);
-			const columnDiff = firstToken.loc.start.column - firstTokenOfLine.loc.start.column;
-			desiredIndent = this.getDesiredIndent(firstTokenOfLine) + this._indentType.repeat(columnDiff);
-		} else {
-			const offsetInfo = this._getOffsetDescriptor(token);
-			const shouldCollapseOffset = offsetInfo.from &&
-				offsetInfo.from.loc.start.line === token.loc.start.line &&
-				!/^\s*?\n/u.test(token.value) &&
-				!offsetInfo.force;
-			const offset = shouldCollapseOffset ? 0 : offsetInfo.offset * this._indentSize;
-			desiredIndent = (offsetInfo.from ? this.getDesiredIndent(offsetInfo.from) : "") +
-				this._indentType.repeat(offset);
+			return this._tokenInfo.getTokenIndent(token);
 		}
 
-		this._desiredIndentCache.set(token, desiredIndent);
-		return desiredIndent;
+		if (this._lockedFirstTokens.has(token)) {
+			return this._computeLockedIndent(token);
+		}
+
+		return this._computeOffsetIndent(token);
+	}
+
+	_computeLockedIndent(token) {
+		const firstToken = this._lockedFirstTokens.get(token);
+		const firstTokenOfLine = this._tokenInfo.getFirstTokenOfLine(firstToken);
+		const columnDiff = firstToken.loc.start.column - firstTokenOfLine.loc.start.column;
+
+		return this.getDesiredIndent(firstTokenOfLine) + this._indentType.repeat(columnDiff);
+	}
+
+	_computeOffsetIndent(token) {
+		const offsetInfo = this._getOffsetDescriptor(token);
+		const isSameLine = offsetInfo.from &&
+			offsetInfo.from.loc.start.line === token.loc.start.line &&
+			!/^\s*?\n/u.test(token.value) &&
+			!offsetInfo.force;
+		const offset = isSameLine ? 0 : offsetInfo.offset * this._indentSize;
+		const base = offsetInfo.from ? this.getDesiredIndent(offsetInfo.from) : "";
+
+		return base + this._indentType.repeat(offset);
 	}
 
 	ignoreToken(token) {
@@ -183,39 +203,23 @@ const ELEMENT_LIST_SCHEMA = {
 	],
 };
 
-const DEFAULT_INDENT_CONFIG = {
-	VARIABLE: 1,
-	PARAMETER: 1,
-	FUNCTION_BODY: 1,
+const FUNCTION_SCHEMA = {
+	type: "object",
+	properties: {
+		parameters: ELEMENT_LIST_SCHEMA,
+		body: { type: "integer", minimum: 0 },
+	},
+	additionalProperties: false,
 };
 
-const DEFAULT_OPTIONS = {
-	SwitchCase: 0,
-	VariableDeclarator: {
-		var: DEFAULT_INDENT_CONFIG.VARIABLE,
-		let: DEFAULT_INDENT_CONFIG.VARIABLE,
-		const: DEFAULT_INDENT_CONFIG.VARIABLE,
-	},
-	outerIIFEBody: 1,
-	FunctionDeclaration: {
-		parameters: DEFAULT_INDENT_CONFIG.PARAMETER,
-		body: DEFAULT_INDENT_CONFIG.FUNCTION_BODY,
-	},
-	FunctionExpression: {
-		parameters: DEFAULT_INDENT_CONFIG.PARAMETER,
-		body: DEFAULT_INDENT_CONFIG.FUNCTION_BODY,
-	},
-	StaticBlock: { body: DEFAULT_INDENT_CONFIG.FUNCTION_BODY },
-	CallExpression: { arguments: DEFAULT_INDENT_CONFIG.PARAMETER },
-	MemberExpression: 1,
-	ArrayExpression: 1,
-	ObjectExpression: 1,
-	ImportDeclaration: 1,
-	flatTernaryExpressions: false,
-	ignoredNodes: [],
-	ignoreComments: false,
+const INTEGER_OR_OFF_SCHEMA = {
+	oneOf: [
+		{ type: "integer", minimum: 0 },
+		{ enum: ["off"] },
+	],
 };
 
+/** @type {import('../types').Rule.RuleModule} */
 module.exports = {
 	meta: {
 		deprecated: {
@@ -223,18 +227,20 @@ module.exports = {
 			url: "https://eslint.org/blog/2023/10/deprecating-formatting-rules/",
 			deprecatedSince: "8.53.0",
 			availableUntil: "11.0.0",
-			replacedBy: [{
-				message: "ESLint Stylistic now maintains deprecated stylistic core rules.",
-				url: "https://eslint.style/guide/migration",
-				plugin: {
-					name: "@stylistic/eslint-plugin",
-					url: "https://eslint.style",
+			replacedBy: [
+				{
+					message: "ESLint Stylistic now maintains deprecated stylistic core rules.",
+					url: "https://eslint.style/guide/migration",
+					plugin: {
+						name: "@stylistic/eslint-plugin",
+						url: "https://eslint.style",
+					},
+					rule: {
+						name: "indent",
+						url: "https://eslint.style/rules/indent",
+					},
 				},
-				rule: {
-					name: "indent",
-					url: "https://eslint.style/rules/indent",
-				},
-			}],
+			],
 		},
 		type: "layout",
 		docs: {
@@ -268,37 +274,15 @@ module.exports = {
 							},
 						],
 					},
-					outerIIFEBody: {
-						oneOf: [
-							{ type: "integer", minimum: 0 },
-							{ enum: ["off"] },
-						],
-					},
-					MemberExpression: {
-						oneOf: [
-							{ type: "integer", minimum: 0 },
-							{ enum: ["off"] },
-						],
-					},
-					FunctionDeclaration: {
-						type: "object",
-						properties: {
-							parameters: ELEMENT_LIST_SCHEMA,
-							body: { type: "integer", minimum: 0 },
-						},
-						additionalProperties: false,
-					},
-					FunctionExpression: {
-						type: "object",
-						properties: {
-							parameters: ELEMENT_LIST_SCHEMA,
-							body: { type: "integer", minimum: 0 },
-						},
-						additionalProperties: false,
-					},
+					outerIIFEBody: INTEGER_OR_OFF_SCHEMA,
+					MemberExpression: INTEGER_OR_OFF_SCHEMA,
+					FunctionDeclaration: FUNCTION_SCHEMA,
+					FunctionExpression: FUNCTION_SCHEMA,
 					StaticBlock: {
 						type: "object",
-						properties: { body: { type: "integer", minimum: 0 } },
+						properties: {
+							body: { type: "integer", minimum: 0 },
+						},
 						additionalProperties: false,
 					},
 					CallExpression: {
@@ -329,9 +313,39 @@ module.exports = {
 	},
 
 	create(context) {
+		const DEFAULT_VARIABLE_INDENT = 1;
+		const DEFAULT_PARAMETER_INDENT = 1;
+		const DEFAULT_FUNCTION_BODY_INDENT = 1;
+
 		let indentType = "space";
 		let indentSize = 4;
-		const options = { ...DEFAULT_OPTIONS };
+
+		const options = {
+			SwitchCase: 0,
+			VariableDeclarator: {
+				var: DEFAULT_VARIABLE_INDENT,
+				let: DEFAULT_VARIABLE_INDENT,
+				const: DEFAULT_VARIABLE_INDENT,
+			},
+			outerIIFEBody: 1,
+			FunctionDeclaration: {
+				parameters: DEFAULT_PARAMETER_INDENT,
+				body: DEFAULT_FUNCTION_BODY_INDENT,
+			},
+			FunctionExpression: {
+				parameters: DEFAULT_PARAMETER_INDENT,
+				body: DEFAULT_FUNCTION_BODY_INDENT,
+			},
+			StaticBlock: { body: DEFAULT_FUNCTION_BODY_INDENT },
+			CallExpression: { arguments: DEFAULT_PARAMETER_INDENT },
+			MemberExpression: 1,
+			ArrayExpression: 1,
+			ObjectExpression: 1,
+			ImportDeclaration: 1,
+			flatTernaryExpressions: false,
+			ignoredNodes: [],
+			ignoreComments: false,
+		};
 
 		if (context.options.length) {
 			if (context.options[0] === "tab") {
@@ -345,7 +359,10 @@ module.exports = {
 			if (context.options[1]) {
 				Object.assign(options, context.options[1]);
 
-				if (typeof options.VariableDeclarator === "number" || options.VariableDeclarator === "first") {
+				if (
+					typeof options.VariableDeclarator === "number" ||
+					options.VariableDeclarator === "first"
+				) {
 					options.VariableDeclarator = {
 						var: options.VariableDeclarator,
 						let: options.VariableDeclarator,
@@ -367,14 +384,17 @@ module.exports = {
 
 		function createErrorMessageData(expectedAmount, actualSpaces, actualTabs) {
 			const expectedStatement = `${expectedAmount} ${indentType}${expectedAmount === 1 ? "" : "s"}`;
-			const foundSpacesWord = `space${actualSpaces === 1 ? "" : "s"}`;
-			const foundTabsWord = `tab${actualTabs === 1 ? "" : "s"}`;
+
 			let foundStatement;
 
 			if (actualSpaces > 0) {
-				foundStatement = indentType === "space" ? actualSpaces : `${actualSpaces} ${foundSpacesWord}`;
+				foundStatement = indentType === "space"
+					? actualSpaces
+					: `${actualSpaces} space${actualSpaces === 1 ? "" : "s"}`;
 			} else if (actualTabs > 0) {
-				foundStatement = indentType === "tab" ? actualTabs : `${actualTabs} ${foundTabsWord}`;
+				foundStatement = indentType === "tab"
+					? actualTabs
+					: `${actualTabs} tab${actualTabs === 1 ? "" : "s"}`;
 			} else {
 				foundStatement = "0";
 			}
@@ -390,9 +410,4 @@ module.exports = {
 			context.report({
 				node: token,
 				messageId: "wrongIndentation",
-				data: createErrorMessageData(neededIndent.length, numSpaces, numTabs),
-				loc: {
-					start: { line: token.loc.start.line, column: 0 },
-					end: { line: token.loc.start.line, column: token.loc.start.column },
-				},
-				fix(fixer)
+				data: createErrorMessageData
