@@ -22,11 +22,6 @@ const PAID_PARAMS = [
     {name: 'Paid members', value: 'true'}
 ];
 
-const AVAILABLE_ORDERS = [
-    {name: 'Newest', value: null},
-    {name: 'Open rate', value: 'email_open_rate'}
-];
-
 const STRIPE_FILTER_TYPES = [
     'subscriptions.plan_interval',
     'subscriptions.status',
@@ -36,168 +31,12 @@ const STRIPE_FILTER_TYPES = [
     'offer_redemptions'
 ];
 
-const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
-const MULTIPLE_GROUPS_RE = /\).*\(/;
+const FILTER_PARAM_BRACKETS_RE = /^\(.*\)$/;
+const FILTER_PARAM_MULTIPLE_GROUPS_RE = /\).*\(/;
+
 const MAX_FILTER_COLUMNS = 2;
-const FETCH_CACHE_DURATION = 60 * 1000; // 1 minute
 const SEARCH_DEBOUNCE_MS = 250;
-const MEMBERS_PER_PAGE = 50;
-
-class FilterManager {
-    constructor(filters = A([]), softFilters = A([])) {
-        this.filters = filters;
-        this.softFilters = softFilters;
-    }
-
-    get availableFilters() {
-        return this.softFilters.length ? this.softFilters : this.filters;
-    }
-
-    get isFiltered() {
-        return this.filters.length > 0;
-    }
-
-    getFilterColumns() {
-        const columns = this.availableFilters.flatMap((filter) => {
-            return this._extractFilterColumns(filter);
-        });
-
-        return this._deduplicateAndLimitColumns(columns);
-    }
-
-    _extractFilterColumns(filter) {
-        if (filter.properties?.getColumns) {
-            return filter.properties.getColumns(filter).map((c) => ({
-                label: filter.properties.columnLabel,
-                ...c,
-                name: filter.type
-            }));
-        }
-
-        if (filter.properties?.columnLabel) {
-            return [{
-                name: filter.type,
-                label: filter.properties.columnLabel,
-                getValue: filter.properties.getColumnValue
-                    ? (member => filter.properties.getColumnValue(member, filter))
-                    : null
-            }];
-        }
-
-        return [];
-    }
-
-    _deduplicateAndLimitColumns(columns) {
-        const uniqueColumns = columns.filter((c, i) => {
-            return columns.findIndex(c2 => c2.label === c.label) === i;
-        });
-        return uniqueColumns.splice(0, MAX_FILTER_COLUMNS);
-    }
-
-    reset() {
-        this.filters = A([]);
-        this.softFilters = A([]);
-    }
-
-    applySoft(filters, filterStr) {
-        this.softFilters = filters;
-        return filterStr || null;
-    }
-
-    apply(filters, filterStr) {
-        this.softFilters = A([]);
-        this.filters = filters;
-        return filterStr || null;
-    }
-
-    hasSoftFilters() {
-        return this.softFilters.length > 0;
-    }
-
-    containsStripeFilters() {
-        return this.filters.some(f => STRIPE_FILTER_TYPES.includes(f.type));
-    }
-
-    includesTierQuery() {
-        return this.availableFilters.some(f => f.type === 'tier');
-    }
-}
-
-class QueryBuilder {
-    constructor(label, paidParam, searchParam, filterParam) {
-        this.label = label;
-        this.paidParam = paidParam;
-        this.searchParam = searchParam;
-        this.filterParam = filterParam;
-    }
-
-    build(extraFilters = []) {
-        let filters = [...extraFilters];
-        let filterParam = this._normalizeFilterParam(this.filterParam);
-
-        if (this.label) {
-            filters.push(`label:'${this.label}'`);
-        }
-
-        if (this.paidParam !== null) {
-            filters.push(this.paidParam === 'true' ? 'status:-free' : 'status:free');
-        }
-
-        if (filterParam) {
-            filters.push(filterParam);
-        }
-
-        const query = {filter: filters.join('+')};
-
-        if (this.searchParam) {
-            query.search = this.searchParam;
-        }
-
-        return query;
-    }
-
-    _normalizeFilterParam(filterParam) {
-        if (!filterParam) {
-            return null;
-        }
-
-        if (BRACKETS_SURROUNDED_RE.test(filterParam) && !MULTIPLE_GROUPS_RE.test(filterParam)) {
-            return filterParam.slice(1, -1);
-        }
-
-        return filterParam;
-    }
-}
-
-class ExportService {
-    constructor(getApiQueryObject) {
-        this.getApiQueryObject = getApiQueryObject;
-    }
-
-    async export() {
-        const exportUrl = ghostPaths().url.api('members/upload');
-        const downloadParams = new URLSearchParams(this.getApiQueryObject());
-        downloadParams.set('limit', 'all');
-        const url = `${exportUrl}?${downloadParams.toString()}`;
-
-        const blob = await fetch(url, {method: 'GET'}).then(res => res.blob());
-        this._downloadBlob(blob);
-    }
-
-    _downloadBlob(blob) {
-        const blobUrl = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        const datetime = new Date().toJSON().substring(0, 10);
-
-        link.href = blobUrl;
-        link.download = `members.${datetime}.csv`;
-        document.body.appendChild(link);
-        link.click();
-
-        link.remove();
-        URL.revokeObjectURL(blobUrl);
-    }
-}
+const MEMBERS_CACHE_TTL_MS = 60 * 1000;
 
 export default class MembersController extends Controller {
     @service ajax;
@@ -244,11 +83,13 @@ export default class MembersController extends Controller {
     constructor() {
         super(...arguments);
         this._availableLabels = this.store.peekAll('label');
-        this._filterManager = new FilterManager(this.filters, this.softFilters);
-        this._exportService = new ExportService(() => this.getApiQueryObject());
     }
 
-    // Computed properties
+    // Computed properties -----------------------------------------------------
+
+    get fromAnalytics() {
+        return this.postAnalytics ? [this.postAnalytics] : null;
+    }
 
     get listHeader() {
         const {searchParam, selectedLabel, members} = this;
@@ -264,9 +105,7 @@ export default class MembersController extends Controller {
         const count = ghPluralize(members.length, 'member');
 
         if (selectedLabel?.slug) {
-            return members.length > 1
-                ? `${count} match current filter`
-                : `${count} matches current filter`;
+            return `${count} ${members.length > 1 ? 'match' : 'matches'} current filter`;
         }
 
         return count;
@@ -281,7 +120,14 @@ export default class MembersController extends Controller {
     }
 
     get availableOrders() {
-        return this.feature.get('emailAnalytics') ? AVAILABLE_ORDERS : [];
+        if (!this.feature.get('emailAnalytics')) {
+            return [];
+        }
+
+        return [
+            {name: 'Newest', value: null},
+            {name: 'Open rate', value: 'email_open_rate'}
+        ];
     }
 
     get selectedOrder() {
@@ -323,18 +169,124 @@ export default class MembersController extends Controller {
     }
 
     get filterColumns() {
-        return this._filterManager.getFilterColumns();
+        const columns = this.availableFilters.flatMap(filter => this._getColumnsForFilter(filter));
+        const uniqueColumns = columns.filter((col, i) => columns.findIndex(c => c.label === col.label) === i);
+
+        return uniqueColumns.splice(0, MAX_FILTER_COLUMNS);
     }
 
     get isBulkDeletePermitted() {
-        return this.isFiltered && !this._filterManager.containsStripeFilters();
+        if (!this.isFiltered) {
+            return false;
+        }
+
+        return !this.filters.some(f => STRIPE_FILTER_TYPES.includes(f.type));
     }
 
-    get fromAnalytics() {
-        return this.postAnalytics ? [this.postAnalytics] : null;
+    // Private helpers ---------------------------------------------------------
+
+    _getColumnsForFilter(filter) {
+        if (filter.properties?.getColumns) {
+            return filter.properties.getColumns(filter).map(col => ({
+                label: filter.properties.columnLabel,
+                ...col,
+                name: filter.type
+            }));
+        }
+
+        if (filter.properties?.columnLabel) {
+            return [{
+                name: filter.type,
+                label: filter.properties.columnLabel,
+                getValue: filter.properties.getColumnValue
+                    ? member => filter.properties.getColumnValue(member, filter)
+                    : null
+            }];
+        }
+
+        return [];
     }
 
-    // Actions
+    _normalizeFilterParam(filterParam) {
+        if (!filterParam) {
+            return filterParam;
+        }
+
+        const isSingleGroup = FILTER_PARAM_BRACKETS_RE.test(filterParam)
+            && !FILTER_PARAM_MULTIPLE_GROUPS_RE.test(filterParam);
+
+        return isSingleGroup ? filterParam.slice(1, -1) : filterParam;
+    }
+
+    _buildFilterString({label, paidParam, filterParam}) {
+        const filters = [];
+
+        if (label) {
+            filters.push(`label:'${label}'`);
+        }
+
+        if (paidParam !== null) {
+            filters.push(paidParam === 'true' ? 'status:-free' : 'status:free');
+        }
+
+        if (filterParam) {
+            filters.push(filterParam);
+        }
+
+        return filters.join('+');
+    }
+
+    _resetSoftFilters() {
+        this.softFilters = A([]);
+        this.softFilterParam = null;
+    }
+
+    _hasParamsChanged(params) {
+        return !params
+            || params.label !== this._lastLabel
+            || params.paidParam !== this._lastPaidParam
+            || params.searchParam !== this._lastSearchParam
+            || params.orderParam !== this._lastOrderParam
+            || params.filterParam !== this._lastFilterParam;
+    }
+
+    _cacheParams({label, paidParam, searchParam, orderParam, filterParam}) {
+        this._lastLabel = label;
+        this._lastPaidParam = paidParam;
+        this._lastSearchParam = searchParam;
+        this._lastOrderParam = orderParam;
+        this._lastFilterParam = filterParam;
+    }
+
+    _isCacheValid(forceReload) {
+        return !forceReload
+            && this._startDate
+            && !(this._startDate - new Date() > MEMBERS_CACHE_TTL_MS);
+    }
+
+    // Public methods ----------------------------------------------------------
+
+    includeTierQuery() {
+        const activeFilters = this.filters.length ? this.filters : this.softFilters;
+        return activeFilters.some(f => f.type === 'tier');
+    }
+
+    getApiQueryObject({params, extraFilters = []} = {}) {
+        const source = params ?? this;
+        const filterParam = this._normalizeFilterParam(source.filterParam);
+        const filter = this._buildFilterString({
+            label: source.label,
+            paidParam: source.paidParam,
+            filterParam
+        });
+
+        const allFilters = [...extraFilters, filter].filter(Boolean).join('+');
+        const searchQuery = source.searchParam ? {search: source.searchParam} : {};
+
+        return Object.assign({}, {filter: allFilters}, searchQuery);
+    }
+
+    // Actions -----------------------------------------------------------------
 
     @action
     refreshData() {
@@ -342,10 +294,9 @@ export default class MembersController extends Controller {
             this.fetchMembersTask.perform();
             this.fetchLabelsTask.perform();
         } catch (e) {
-            if (didCancel(e)) {
-                return;
+            if (!didCancel(e)) {
+                throw e;
             }
-            throw e;
         }
 
         this.membersStats.invalidate();
@@ -360,14 +311,14 @@ export default class MembersController extends Controller {
 
     @action
     applyFilter(filterStr, filters) {
-        this.softFilters = A([]);
+        this._resetSoftFilters();
         this.filterParam = filterStr || null;
         this.filters = filters;
     }
 
     @action
     applyParsedFilter(filters) {
-        this.softFilters = A([]);
+        this._resetSoftFilters();
         this.filters = filters;
     }
 
@@ -375,23 +326,22 @@ export default class MembersController extends Controller {
     applySoftFilter(filterStr, filters) {
         this.softFilters = filters;
         this.softFilterParam = filterStr || null;
+
         const {label, paidParam, searchParam, orderParam} = this;
         this.fetchMembersTask.perform({label, paidParam, searchParam, orderParam, filterParam: filterStr});
     }
 
     @action
     resetSoftFilter() {
-        if (this.softFilters.length > 0 || this.softFilterParam) {
-            this.softFilters = A([]);
-            this.softFilterParam = null;
+        if (this.softFilters.length > 0 || !!this.softFilterParam) {
+            this._resetSoftFilters();
             this.fetchMembersTask.perform();
         }
     }
 
     @action
     resetFilter() {
-        this.softFilters = A([]);
-        this.softFilterParam = null;
+        this._resetSoftFilters();
         this.filters = A([]);
         this.filterParam = null;
         this.fetchMembersTask.perform();
@@ -403,28 +353,47 @@ export default class MembersController extends Controller {
     }
 
     @action
-    async exportData() {
+    exportData() {
+        const exportUrl = ghostPaths().url.api('members/upload');
+        const downloadParams = new URLSearchParams(this.getApiQueryObject());
+        downloadParams.set('limit', 'all');
+
         this.isExporting = true;
-        try {
-            await this._exportService.export();
-        } catch (error) {
-            // Handle error silently or show notification
-        } finally {
-            this.isExporting = false;
-        }
+
+        fetch(`${exportUrl}?${downloadParams.toString()}`, {method: 'GET'})
+            .then(res => res.blob())
+            .then(blob => this._triggerCsvDownload(blob))
+            .catch(() => {})
+            .finally(() => {
+                this.isExporting = false;
+            });
+    }
+
+    _triggerCsvDownload(blob) {
+        const blobUrl = window.URL.createObjectURL(blob);
+        const datetime = new Date().toJSON().substring(0, 10);
+        const a = document.createElement('a');
+
+        a.href = blobUrl;
+        a.download = `members.${datetime}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(blobUrl);
     }
 
     @action
     changeLabel(label, e) {
-        this._preventDefault(e);
+        e?.preventDefault();
+        e?.stopPropagation();
         this.label = label.slug;
     }
 
     @action
     editLabel(label, e) {
-        this._preventDefault(e);
-        const modalLabel = this.availableLabels.findBy('slug', label);
-        this.modalLabel = modalLabel;
+        e?.preventDefault();
+        e?.stopPropagation();
+        this.modalLabel = this.availableLabels.findBy('slug', label);
         this.showLabelModal = !this.showLabelModal;
     }
 
@@ -435,26 +404,17 @@ export default class MembersController extends Controller {
 
     @action
     bulkAddLabel() {
-        this.modals.open(BulkAddMembersLabelModal, {
-            query: this.getApiQueryObject(),
-            onComplete: () => this.resetAndReloadMembers()
-        });
+        this._openBulkModal(BulkAddMembersLabelModal);
     }
 
     @action
     bulkRemoveLabel() {
-        this.modals.open(BulkRemoveMembersLabelModal, {
-            query: this.getApiQueryObject(),
-            onComplete: () => this.resetAndReloadMembers()
-        });
+        this._openBulkModal(BulkRemoveMembersLabelModal);
     }
 
     @action
     bulkUnsubscribe() {
-        this.modals.open(BulkUnsubscribeMembersModal, {
-            query: this.getApiQueryObject(),
-            onComplete: () => this.resetAndReloadMembers()
-        });
+        this._openBulkModal(BulkUnsubscribeMembersModal);
     }
 
     @action
@@ -467,7 +427,14 @@ export default class MembersController extends Controller {
     bulkDelete() {
         this.modals.open(BulkDeleteMembersModal, {
             query: this.getApiQueryObject(),
-            onComplete: () => this._handleBulkDeleteComplete()
+            onComplete: () => {
+                this.store.unloadAll('member');
+                this.router.transitionTo('members.index', {
+                    queryParams: Object.assign(resetQueryParams('members.index'))
+                });
+                this.membersStats.invalidate();
+                this.membersStats.fetchCounts();
+            }
         });
     }
 
@@ -476,7 +443,16 @@ export default class MembersController extends Controller {
         this.paidParam = paid.value;
     }
 
-    // Tasks
+    // Private action helpers --------------------------------------------------
+
+    _openBulkModal(ModalComponent) {
+        this.modals.open(ModalComponent, {
+            query: this.getApiQueryObject(),
+            onComplete: this.resetAndReloadMembers
+        });
+    }
+
+    // Tasks -------------------------------------------------------------------
 
     @task({restartable: true})
     *searchTask(query) {
@@ -491,16 +467,21 @@ export default class MembersController extends Controller {
 
     @task({restartable: true})
     *fetchMembersTask(params) {
-        const {label, paidParam, searchParam, orderParam, filterParam} = this._extractParams(params);
+        const resolvedParams = params ?? this;
+        const {label, paidParam, searchParam, orderParam, filterParam} = resolvedParams;
+
         const startDate = new Date();
-        const forceReload = this._shouldForceReload(params, label, paidParam, searchParam, orderParam, filterParam);
+        const forceReload = this._hasParamsChanged({label, paidParam, searchParam, orderParam, filterParam});
 
-        this._updateLastParams(label, paidParam, searchParam, orderParam, filterParam);
+        this._cacheParams({label, paidParam, searchParam, orderParam, filterParam});
 
-        if (!forceReload && this._isCacheValid(startDate)) {
+        if (this._isCacheValid(forceReload)) {
             return this.members;
         }
 
         this._startDate = startDate;
 
-        this.members = yield
+        this.members = yield this.ellaSparse.array((range = {}, query = {}) => {
+            const searchQuery = this.getApiQueryObject({
+                params,
+                extraFilters: [`created_at:<='${moment.utc(this._startDate).format('YYYY-MM-DD HH:mm:ss')}'`]
