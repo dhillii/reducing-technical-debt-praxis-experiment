@@ -12,42 +12,53 @@ import {on} from '@ember/object/evented';
 import {inject as service} from '@ember/service';
 
 const BLANK_LEXICAL = '{"root":{"children":[{"children":[],"direction":null,"format":"","indent":0,"type":"paragraph","version":1}],"direction":null,"format":"","indent":0,"type":"root","version":1}}';
-const PREVIEW_KEYWORD = 'p';
-const STATUS_PRIORITY = {scheduled: 0, draft: 1, published: 2};
 
 const {Comparable} = Ember;
 
-// Comparison utilities
-const ComparisonUtils = {
-    compareNullable(val1, val2) {
-        if (!val1 && !val2) return 0;
-        if (!val1) return -1;
-        if (!val2) return 1;
-        return null;
-    },
-
-    compareStatus(status1, status2) {
-        const nullResult = this.compareNullable(status1, status2);
-        if (nullResult !== null) return nullResult;
-
-        const priority1 = STATUS_PRIORITY[status1] ?? 3;
-        const priority2 = STATUS_PRIORITY[status2] ?? 3;
-
-        if (priority1 !== priority2) {
-            return priority1 - priority2;
-        }
-
-        return compare(status1.valueOf(), status2.valueOf());
-    },
-
-    comparePublishedAt(published1, published2) {
-        const nullResult = this.compareNullable(published1, published2);
-        if (nullResult !== null) return nullResult;
-        return compare(published1.valueOf(), published2.valueOf());
-    }
+const STATUS = {
+    SCHEDULED: 'scheduled',
+    DRAFT: 'draft',
+    PUBLISHED: 'published',
+    SENT: 'sent'
 };
 
+function compareNullable(a, b) {
+    if (!a && !b) { return 0; }
+    if (!a) { return -1; }
+    if (!b) { return 1; }
+    return null;
+}
+
+function statusCompare(postA, postB) {
+    const status1 = postA.get('status');
+    const status2 = postB.get('status');
+
+    const nullResult = compareNullable(status1, status2);
+    if (nullResult !== null) { return nullResult; }
+
+    const nonScheduled = [STATUS.DRAFT, STATUS.PUBLISHED];
+    if (status1 === STATUS.SCHEDULED && nonScheduled.includes(status2)) { return -1; }
+    if (status2 === STATUS.SCHEDULED && nonScheduled.includes(status1)) { return 1; }
+
+    return compare(status1.valueOf(), status2.valueOf());
+}
+
+function publishedAtCompare(postA, postB) {
+    const published1 = postA.get('publishedAtUTC');
+    const published2 = postB.get('publishedAtUTC');
+
+    const nullResult = compareNullable(published1, published2);
+    if (nullResult !== null) { return nullResult; }
+
+    return compare(published1.valueOf(), published2.valueOf());
+}
+
+function descending(result) {
+    return result * -1;
+}
+
 export default Model.extend(Comparable, ValidationEngine, {
+    // Services
     session: service(),
     feature: service(),
     ghostPaths: service(),
@@ -55,9 +66,9 @@ export default Model.extend(Comparable, ValidationEngine, {
     search: service(),
     settings: service(),
     membersUtils: service(),
-
     config: inject(),
 
+    // Model metadata
     displayName: 'post',
     validationType: 'post',
 
@@ -88,7 +99,7 @@ export default Model.extend(Comparable, ValidationEngine, {
     plaintext: attr('string'),
     publishedAtUTC: attr('moment-utc'),
     slug: attr('string'),
-    status: attr('string', {defaultValue: 'draft'}),
+    status: attr('string', {defaultValue: STATUS.DRAFT}),
     title: attr('string', {defaultValue: ''}),
     updatedAtUTC: attr('moment-utc'),
     url: attr('string'),
@@ -109,19 +120,22 @@ export default Model.extend(Comparable, ValidationEngine, {
     tags: hasMany('tag', {embedded: 'always', async: false}),
     postRevisions: hasMany('post_revisions', {embedded: 'always', async: false}),
 
-    // Computed relationships
+    // Derived reads
     primaryAuthor: reads('authors.firstObject'),
     primaryTag: reads('tags.firstObject'),
+    isFeedbackEnabledForEmail: reads('email.feedbackEnabled'),
 
-    // Scratch properties
+    // Scratch fields
     scratch: null,
     lexicalScratch: null,
     titleScratch: null,
     secondaryLexicalState: null,
+
+    // Date/time picker fields
     publishedAtBlogDate: '',
     publishedAtBlogTime: '',
 
-    // Bound one-way properties
+    // Scratch computed properties
     canonicalUrlScratch: boundOneWay('canonicalUrl'),
     customExcerptScratch: boundOneWay('customExcerpt'),
     codeinjectionFootScratch: boundOneWay('codeinjectionFoot'),
@@ -134,16 +148,18 @@ export default Model.extend(Comparable, ValidationEngine, {
     twitterTitleScratch: boundOneWay('twitterTitle'),
     emailSubjectScratch: boundOneWay('emailSubject'),
 
-    // Status computed properties
-    isPublished: equal('status', 'published'),
-    isDraft: equal('status', 'draft'),
-    isScheduled: equal('status', 'scheduled'),
-    isSent: equal('status', 'sent'),
+    // Status flags
+    isPublished: equal('status', STATUS.PUBLISHED),
+    isDraft: equal('status', STATUS.DRAFT),
+    isScheduled: equal('status', STATUS.SCHEDULED),
+    isSent: equal('status', STATUS.SENT),
     isPost: equal('displayName', 'post'),
     isPage: equal('displayName', 'page'),
     internalTags: filterBy('tags', 'isInternal', true),
 
-    // Email computed properties
+    showPaidAttributionAnalytics: computed.and('showAttributionAnalytics', 'membersUtils.paidMembersEnabled'),
+
+    // Computed properties
     hasEmail: computed('email', 'emailOnly', function () {
         return this.email !== null || this.emailOnly;
     }),
@@ -153,42 +169,95 @@ export default Model.extend(Comparable, ValidationEngine, {
     }),
 
     hasBeenEmailed: computed('isPost', 'isSent', 'isPublished', 'email', function () {
-        return this.isPost && (this.isSent || this.isPublished) && this.email?.status !== 'failed';
+        return this.isPost
+            && (this.isSent || this.isPublished)
+            && this.email?.status !== 'failed'
+            && !!this.email;
     }),
 
     didEmailFail: computed('isPost', 'isSent', 'isPublished', 'email.status', function () {
-        return this.isPost && (this.isSent || this.isPublished) && this.email?.status === 'failed';
+        return this.isPost
+            && (this.isSent || this.isPublished)
+            && this.email?.status === 'failed';
     }),
 
-    isFeedbackEnabledForEmail: computed.reads('email.feedbackEnabled'),
+    showAudienceFeedback: computed('sentiment', function () {
+        return this.feature.get('audienceFeedback') && this.sentiment !== undefined;
+    }),
 
-    clickRate: computed('email.emailCount', 'count.clicks', function () {
-        if (!this.email?.emailCount || !this.count?.clicks) {
-            return 0;
+    showEmailOpenAnalytics: computed('hasBeenEmailed', 'isSent', 'isPublished', function () {
+        return this.hasBeenEmailed
+            && !this.session.user.isContributor
+            && this.settings.membersSignupAccess !== 'none'
+            && this.email.trackOpens
+            && this.settings.emailTrackOpens;
+    }),
+
+    showEmailClickAnalytics: computed('hasBeenEmailed', 'isSent', 'isPublished', 'email', function () {
+        return this.hasBeenEmailed
+            && !this.session.user.isContributor
+            && this.settings.membersSignupAccess !== 'none'
+            && (this.isSent || this.isPublished)
+            && this.email.trackClicks
+            && this.settings.emailTrackClicks;
+    }),
+
+    showAttributionAnalytics: computed(
+        'isPage', 'emailOnly', 'isPublished',
+        'membersUtils.isMembersInviteOnly', 'settings.membersTrackSources',
+        function () {
+            return (this.isPage || !this.emailOnly)
+                && this.isPublished
+                && this.settings.membersTrackSources
+                && !this.membersUtils.isMembersInviteOnly
+                && !this.session.user.isContributor;
         }
-        return Math.round(this.count.clicks / this.email.emailCount * 100);
+    ),
+
+    hasAnalyticsPage: computed(
+        'isPost', 'showEmailOpenAnalytics',
+        'showEmailClickAnalytics', 'showAttributionAnalytics',
+        function () {
+            return this.isPost
+                && this.session.user.isAdmin
+                && (
+                    this.showEmailOpenAnalytics
+                    || this.showEmailClickAnalytics
+                    || this.showAttributionAnalytics
+                );
+        }
+    ),
+
+    previewUrl: computed('uuid', 'ghostPaths.url', 'config.blogUrl', function () {
+        if (!this.uuid) { return ''; }
+        return this.get('ghostPaths.url').join(this.config.blogUrl, 'p', this.uuid);
     }),
 
-    // Visibility computed properties
     isPublic: computed('visibility', function () {
         return this.visibility === 'public';
     }),
 
     visibilitySegment: computed('visibility', 'isPublic', 'tiers', function () {
         if (this.isPublic) {
-            return this.settings.defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
+            return this.settings.defaultContentVisibility === 'paid'
+                ? 'status:-free'
+                : 'status:free,status:-free';
         }
 
-        switch (this.visibility) {
-            case 'members':
-                return 'status:free,status:-free';
-            case 'paid':
-                return 'status:-free';
-            case 'tiers':
-                return this.tiers?.map(tier => `tier:${tier.slug}`).join(',') || this.visibility;
-            default:
-                return this.visibility;
+        const visibilityMap = {
+            members: 'status:free,status:-free',
+            paid: 'status:-free'
+        };
+
+        if (visibilityMap[this.visibility]) {
+            return visibilityMap[this.visibility];
         }
+
+        if (this.visibility === 'tiers' && this.tiers) {
+            return this.tiers.map(tier => `tier:${tier.slug}`).join(',');
+        }
+
+        return this.visibility;
     }),
 
     fullRecipientFilter: computed('newsletter.recipientFilter', 'emailSegment', function () {
@@ -198,77 +267,36 @@ export default Model.extend(Comparable, ValidationEngine, {
         return `${this.newsletter.recipientFilter}+(${this.emailSegment})`;
     }),
 
-    // Analytics computed properties
-    showAudienceFeedback: computed('sentiment', function () {
-        return this.feature.get('audienceFeedback') && this.sentiment !== undefined;
-    }),
-
-    showEmailOpenAnalytics: computed('hasBeenEmailed', 'isSent', 'isPublished', function () {
-        return this.hasBeenEmailed
-            && !this.session.user.isContributor
-            && this.settings.membersSignupAccess !== 'none'
-            && this.email?.trackOpens
-            && this.settings.emailTrackOpens;
-    }),
-
-    showEmailClickAnalytics: computed('hasBeenEmailed', 'isSent', 'isPublished', 'email', function () {
-        return this.hasBeenEmailed
-            && !this.session.user.isContributor
-            && this.settings.membersSignupAccess !== 'none'
-            && (this.isSent || this.isPublished)
-            && this.email?.trackClicks
-            && this.settings.emailTrackClicks;
-    }),
-
-    showAttributionAnalytics: computed('isPage', 'emailOnly', 'isPublished', 'membersUtils.isMembersInviteOnly', 'settings.membersTrackSources', function () {
-        return (this.isPage || !this.emailOnly)
-            && this.isPublished
-            && this.settings.membersTrackSources
-            && !this.membersUtils.isMembersInviteOnly
-            && !this.session.user.isContributor;
-    }),
-
-    showPaidAttributionAnalytics: computed.and('showAttributionAnalytics', 'membersUtils.paidMembersEnabled'),
-
-    hasAnalyticsPage: computed('isPost', 'showEmailOpenAnalytics', 'showEmailClickAnalytics', 'showAttributionAnalytics', function () {
-        return this.isPost
-            && this.session.user.isAdmin
-            && (this.showEmailOpenAnalytics || this.showEmailClickAnalytics || this.showAttributionAnalytics);
-    }),
-
-    // Preview and scheduling
-    previewUrl: computed('uuid', 'ghostPaths.url', 'config.blogUrl', function () {
-        if (!this.uuid) {
-            return '';
-        }
-        return this.get('ghostPaths.url').join(this.config.blogUrl, PREVIEW_KEYWORD, this.uuid);
-    }),
-
     pastScheduledTime: computed('isScheduled', 'publishedAtUTC', 'clock.second', function () {
-        if (!this.isScheduled) {
-            return false;
-        }
+        if (!this.isScheduled) { return false; }
 
         const now = moment.utc();
         const publishedAtUTC = this.publishedAtUTC || now;
-        const pastScheduledTime = publishedAtUTC.diff(now, 'hours', true) < 0;
 
+        // Access clock.second to force recompute each second
         this.get('clock.second');
-        return pastScheduledTime;
+
+        return publishedAtUTC.diff(now, 'hours', true) < 0;
     }),
 
-    // Published at timezone handling
     publishedAtBlogTZ: computed('publishedAtBlogDate', 'publishedAtBlogTime', 'settings.timezone', {
         get() {
             return this._getPublishedAtBlogTZ();
         },
         set(key, value) {
-            const momentValue = value ? moment(value) : null;
-            this._setPublishedAtBlogStrings(momentValue);
+            this._setPublishedAtBlogStrings(value ? moment(value) : null);
             return this._getPublishedAtBlogTZ();
         }
     }),
 
+    clickRate: computed('email.emailCount', 'count.clicks', function () {
+        if (!this.email?.emailCount || !this.count?.clicks) {
+            return 0;
+        }
+        return Math.round(this.count.clicks / this.email.emailCount * 100);
+    }),
+
+    // Private methods
     _getPublishedAtBlogTZ() {
         const {publishedAtUTC, publishedAtBlogDate, publishedAtBlogTime} = this;
         const blogTimezone = this.settings.timezone;
@@ -280,6 +308,8 @@ export default Model.extend(Comparable, ValidationEngine, {
         if (publishedAtBlogDate && publishedAtBlogTime) {
             const publishedAtBlog = moment.tz(`${publishedAtBlogDate} ${publishedAtBlogTime}`, blogTimezone);
 
+            // Preserve original seconds if the time hasn't changed
+            // See https://github.com/TryGhost/Ghost/issues/8603#issuecomment-309538395
             if (publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {
                 return publishedAtUTC;
             }
@@ -287,9 +317,10 @@ export default Model.extend(Comparable, ValidationEngine, {
             return publishedAtBlog;
         }
 
-        return moment.tz(publishedAtUTC, blogTimezone);
+        return moment.tz(this.publishedAtUTC, blogTimezone);
     },
 
+    // eslint-disable-next-line ghost/ember/no-observers
     _setPublishedAtBlogTZ: on('init', observer('publishedAtUTC', 'settings.timezone', function () {
         this._setPublishedAtBlogStrings(this.publishedAtUTC);
     })),
@@ -298,7 +329,6 @@ export default Model.extend(Comparable, ValidationEngine, {
         if (momentDate) {
             const blogTimezone = this.settings.timezone;
             const publishedAtBlog = moment.tz(momentDate, blogTimezone);
-
             this.set('publishedAtBlogDate', publishedAtBlog.format('YYYY-MM-DD'));
             this.set('publishedAtBlogTime', publishedAtBlog.format('HH:mm'));
         } else {
@@ -307,63 +337,35 @@ export default Model.extend(Comparable, ValidationEngine, {
         }
     },
 
-    // Tag management
+    // Public methods
+
+    // Remove client-generated tags (id: null) since Ember Data won't
+    // recognize/update them automatically when returned from server with ids.
+    // https://github.com/emberjs/data/issues/1829
     updateTags() {
         const tags = this.tags;
-        const oldTags = tags.filterBy('id', null);
-
-        tags.removeObjects(oldTags);
-        oldTags.invoke('deleteRecord');
+        const clientTags = tags.filterBy('id', null);
+        tags.removeObjects(clientTags);
+        clientTags.invoke('deleteRecord');
     },
 
     isAuthoredByUser(user) {
         return this.authors.includes(user);
     },
 
-    // Sorting
+    // Custom sort matching server order:
+    //   status: scheduled > draft > published
+    //   publishedAt: DESC, updatedAt: DESC, id: DESC
     compare(postA, postB) {
         const updated1 = postA.get('updatedAtUTC');
         const updated2 = postB.get('updatedAtUTC');
 
-        if (postA.get('isNew') || !updated1) {
-            return -1;
-        }
+        // New/unresolved models sort first
+        if (postA.get('isNew') || !updated1) { return -1; }
+        if (postB.get('isNew') || !updated2) { return 1; }
 
-        if (postB.get('isNew') || !updated2) {
-            return 1;
-        }
+        const statusResult = statusCompare(postA, postB);
+        if (statusResult !== 0) { return statusResult; }
 
-        const statusResult = ComparisonUtils.compareStatus(postA.get('status'), postB.get('status'));
-        if (statusResult !== 0) {
-            return statusResult;
-        }
-
-        const publishedAtResult = ComparisonUtils.comparePublishedAt(postA.get('publishedAtUTC'), postB.get('publishedAtUTC'));
-        if (publishedAtResult !== 0) {
-            return publishedAtResult * -1;
-        }
-
-        const updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
-        if (updatedAtResult !== 0) {
-            return updatedAtResult * -1;
-        }
-
-        return compare(postA.get('id'), postB.get('id')) * -1;
-    },
-
-    // Lifecycle hooks
-    beforeSave() {
-        const publishedAtBlogTZ = this.publishedAtBlogTZ;
-        const publishedAtUTC = publishedAtBlogTZ ? publishedAtBlogTZ.utc() : null;
-        this.set('publishedAtUTC', publishedAtUTC);
-    },
-
-    save() {
-        const [oldStatus] = this.changedAttributes().status || [];
-
-        return this._super(...arguments).then((res) => {
-            if (this.status === 'published' || oldStatus === 'published') {
-                this.search.expireContent();
-            }
-            return res;
-        });
+        const publishedAtResult = publishedAtCompare(postA, postB);
+        if (publishedAtResult !== 0) { return descending
