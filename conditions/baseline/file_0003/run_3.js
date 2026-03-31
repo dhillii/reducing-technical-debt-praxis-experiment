@@ -1,4 +1,4 @@
-```typescript
+```tsx
 import {memo, useCallback, useEffect, useRef, useState} from 'react';
 
 import APAvatar from '@src/components/global/ap-avatar';
@@ -12,284 +12,239 @@ import {imageUrlToDataUrl} from '@src/utils/image';
 import {toast} from 'sonner';
 import {useBrowseSite} from '@tryghost/admin-x-framework/api/site';
 
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+type BackgroundColor = 'light' | 'dark' | 'accent';
+type CardFormat = 'vertical' | 'square';
+
 type ProfileProps = {
-    account?: Account
-    isLoading: boolean
-}
+    account?: Account;
+    isLoading: boolean;
+};
 
 type ProfileCardProps = {
-    isScreenshot?: boolean
-    format?: 'vertical' | 'square'
-    account?: Account
-    isLoading: boolean
-    bannerDataUrl: string | null
-    avatarDataUrl: string | null
-    coverImage?: string
-    publicationIcon?: string
-    siteTitle?: string
-    backgroundColor: 'light' | 'dark' | 'accent'
-    accentColor?: string
-}
-
-type BackgroundColorType = 'light' | 'dark' | 'accent';
-type CardFormatType = 'vertical' | 'square';
-
-const COLOR_MAP = {
-    light: {bg: '#fff', text: '#15171a'},
-    dark: {bg: '#15171a', text: '#fff'},
-    accent: {bg: 'accent', text: '#fff'}
-} as const;
-
-const GRADIENT_MAP: Record<BackgroundColorType, (accentColor?: string) => string> = {
-    light: () => `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`,
-    dark: () => `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`,
-    accent: (accentColor) => `linear-gradient(to bottom left, ${hexToRgba(accentColor || '#15171a', 0.08)}, ${hexToRgba(accentColor || '#15171a', 0.06)})`
+    isScreenshot?: boolean;
+    format?: CardFormat;
+    account?: Account;
+    isLoading: boolean;
+    bannerDataUrl: string | null;
+    avatarDataUrl: string | null;
+    coverImage?: string;
+    publicationIcon?: string;
+    siteTitle?: string;
+    backgroundColor: BackgroundColor;
+    accentColor?: string;
 };
 
-const DOTS_PATTERN_COLOR_MAP: Record<BackgroundColorType, string> = {
-    light: hexToRgba('#15171a', 0.025),
-    dark: hexToRgba('#15171a', 0.23),
-    accent: 'rgba(0, 0, 0, 0.02)'
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const BACKGROUND_COLORS: Record<BackgroundColor, string> = {
+    light: '#fff',
+    dark: '#15171a',
+    accent: '',
 };
 
-const hexToRgba = (hex: string, alpha: number): string => {
+const TEXT_COLORS: Record<BackgroundColor, string> = {
+    light: '#15171a',
+    dark: '#fff',
+    accent: '#fff',
+};
+
+const CARD_DIMENSIONS: Record<CardFormat, {width: string; shadowWidth: string; containerWidth: string}> = {
+    vertical: {width: 'w-[316px]', shadowWidth: '466px', containerWidth: '412px'},
+    square: {width: 'w-[422px]', shadowWidth: '572px', containerWidth: '518px'},
+};
+
+const SOCIAL_LINKS = [
+    {
+        name: 'X',
+        getHref: (text: string) => `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
+        icon: (
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path className="social-x_svg__x" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+            </svg>
+        ),
+    },
+    {
+        name: 'Threads',
+        getHref: (text: string) => `https://threads.net/intent/post?text=${encodeURIComponent(text)}`,
+        icon: (
+            <svg fill="none" viewBox="0 0 18 18">
+                <g clipPath="url(#social-threads_svg__clip0_351_18008)">
+                    <path d="M13.033 8.38a5.924 5.924 0 00-.223-.102c-.13-2.418-1.452-3.802-3.67-3.816h-.03c-1.327 0-2.43.566-3.11 1.597l1.22.837c.507-.77 1.304-.934 1.89-.934h.02c.73.004 1.282.217 1.639.63.26.302.433.72.519 1.245a9.334 9.334 0 00-2.097-.101c-2.109.121-3.465 1.351-3.374 3.06.047.868.478 1.614 1.216 2.1.624.413 1.428.614 2.263.568 1.103-.06 1.969-.48 2.572-1.25.459-.585.749-1.342.877-2.296.526.317.915.735 1.13 1.236.366.854.387 2.255-.756 3.398-1.003 1.002-2.207 1.435-4.028 1.448-2.02-.015-3.547-.663-4.54-1.925-.93-1.182-1.41-2.89-1.428-5.075.018-2.185.498-3.893 1.428-5.075.993-1.262 2.52-1.91 4.54-1.925 2.034.015 3.588.666 4.62 1.934.505.622.886 1.405 1.137 2.317l1.43-.382c-.305-1.122-.784-2.09-1.436-2.892C13.52 1.35 11.587.517 9.096.5h-.01C6.6.517 4.689 1.354 3.404 2.986 2.262 4.44 1.672 6.46 1.652 8.994v.012c.02 2.534.61 4.555 1.752 6.008C4.69 16.646 6.6 17.483 9.086 17.5h.01c2.21-.015 3.768-.594 5.051-1.876 1.68-1.678 1.629-3.78 1.075-5.07-.397-.927-1.154-1.678-2.189-2.175zm-3.816 3.587c-.924.052-1.884-.363-1.932-1.252-.035-.659.47-1.394 1.99-1.482a8.9 8.9 0 01.512-.014c.552 0 1.068.053 1.538.156-.175 2.187-1.203 2.542-2.108 2.592z" fill="#000" />
+                </g>
+                <defs>
+                    <clipPath id="social-threads_svg__clip0_351_18008">
+                        <path d="M0 0h17v17H0z" fill="#fff" transform="translate(.5 .5)" />
+                    </clipPath>
+                </defs>
+            </svg>
+        ),
+    },
+    {
+        name: 'Facebook',
+        getHref: () => `https://www.facebook.com/sharer/sharer.php?u=`,
+        icon: (
+            <svg fill="none" viewBox="0 0 40 40">
+                <title>social-facebook</title>
+                <path className="social-facebook_svg__fb" d="M20 40.004c11.046 0 20-8.955 20-20 0-11.046-8.954-20-20-20s-20 8.954-20 20c0 11.045 8.954 20 20 20z" fill="#1977f3" />
+                <path d="M27.785 25.785l.886-5.782h-5.546V16.25c0-1.58.773-3.125 3.26-3.125h2.522V8.204s-2.29-.39-4.477-.39c-4.568 0-7.555 2.767-7.555 7.781v4.408h-5.08v5.782h5.08v13.976a20.08 20.08 0 003.125.242c1.063 0 2.107-.085 3.125-.242V25.785h4.66z" fill="#fff" />
+            </svg>
+        ),
+    },
+    {
+        name: 'LinkedIn',
+        getHref: (text: string) => `http://www.linkedin.com/shareArticle?mini=true&title=${encodeURIComponent(text)}`,
+        icon: (
+            <svg fill="none" viewBox="0 0 16 16">
+                <g clipPath="url(#social-linkedin_svg__clip0_537_833)">
+                    <path className="social-linkedin_svg__linkedin" clipRule="evenodd" d="M1.778 16h12.444c.982 0 1.778-.796 1.778-1.778V1.778C16 .796 15.204 0 14.222 0H1.778C.796 0 0 .796 0 1.778v12.444C0 15.204.796 16 1.778 16z" fill="#007ebb" fillRule="evenodd" />
+                    <path clipRule="evenodd" d="M13.778 13.778h-2.374V9.734c0-1.109-.421-1.729-1.299-1.729-.955 0-1.453.645-1.453 1.729v4.044H6.363V6.074h2.289v1.038s.688-1.273 2.322-1.273c1.634 0 2.804.997 2.804 3.061v4.878zM3.634 5.065c-.78 0-1.411-.636-1.411-1.421s.631-1.422 1.41-1.422c.78 0 1.411.637 1.411 1.422 0 .785-.631 1.421-1.41 1.421zm-1.182 8.713h2.386V6.074H2.452v7.704z" fill="#fff" fillRule="evenodd" />
+                </g>
+                <defs>
+                    <clipPath id="social-linkedin_svg__clip0_537_833">
+                        <path d="M0 0h16v16H0z" fill="#fff" />
+                    </clipPath>
+                </defs>
+            </svg>
+        ),
+    },
+];
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const hexToRgba = (hex: string, alpha: number) => {
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
     const b = parseInt(hex.slice(5, 7), 16);
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
-const getBackgroundColor = (backgroundColor: BackgroundColorType, accentColor?: string): string => {
+const resolveAccentOrFallback = (backgroundColor: BackgroundColor, accentColor?: string) =>
+    backgroundColor === 'accent' ? '#ffffff' : accentColor || '#15171a';
+
+const getCardBackgroundColor = (backgroundColor: BackgroundColor, accentColor?: string): string => {
     if (backgroundColor === 'accent') {
-        return accentColor || '#15171a';
+        return accentColor || BACKGROUND_COLORS.dark;
     }
-    return COLOR_MAP[backgroundColor].bg;
+    return BACKGROUND_COLORS[backgroundColor];
 };
 
-const getTextColor = (backgroundColor: BackgroundColorType): string => {
-    return COLOR_MAP[backgroundColor].text;
+const getTextColor = (backgroundColor: BackgroundColor): string => TEXT_COLORS[backgroundColor];
+
+const getGradient = (backgroundColor: BackgroundColor, accentColor?: string): string => {
+    switch (backgroundColor) {
+    case 'light':
+        return `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`;
+    case 'dark':
+        return `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`;
+    case 'accent':
+        return `linear-gradient(to bottom left, ${hexToRgba(accentColor || '#15171a', 0.08)}, ${hexToRgba(accentColor || '#15171a', 0.06)})`;
+    }
 };
 
-const getGradient = (backgroundColor: BackgroundColorType, accentColor?: string): string => {
-    return GRADIENT_MAP[backgroundColor](accentColor);
+const getDotsPatternColor = (backgroundColor: BackgroundColor): string => {
+    switch (backgroundColor) {
+    case 'light':
+        return hexToRgba('#15171a', 0.025);
+    case 'dark':
+        return hexToRgba('#15171a', 0.23);
+    case 'accent':
+        return 'rgba(0, 0, 0, 0.02)';
+    }
 };
 
-const getDotsPatternColor = (backgroundColor: BackgroundColorType): string => {
-    return DOTS_PATTERN_COLOR_MAP[backgroundColor];
+const captureCanvasBlob = async (element: HTMLElement): Promise<Blob> => {
+    const canvas = await html2canvas(element, {
+        backgroundColor: 'transparent',
+        scale: 2,
+        logging: false,
+        useCORS: true,
+        allowTaint: true,
+        imageTimeout: 0,
+    });
+
+    return new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => {
+            blob ? resolve(blob) : reject(new Error('Failed to create blob'));
+        }, 'image/png');
+    });
 };
 
-const BannerSection = memo(({
-    bannerImageSrc,
-    account,
-    coverImage,
-    backgroundColor,
-    accentColor,
-    isScreenshot,
-    cardBackgroundColor
-}: {
-    bannerImageSrc?: string
-    account?: Account
-    coverImage?: string
-    backgroundColor: BackgroundColorType
-    accentColor?: string
-    isScreenshot: boolean
-    cardBackgroundColor: string
-}) => {
-    const gradientColor = backgroundColor === 'accent' ? '#ffffff' : accentColor || '#15171a';
-    const patternColor = backgroundColor === 'accent' ? hexToRgba(accentColor || '#15171a', 0.2) : 'rgba(255, 255, 255, 0.2)';
+const waitForDoubleFrame = () =>
+    new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
 
-    return (
-        <div className='relative h-48 p-2'>
-            {bannerImageSrc ? (
-                <img
-                    alt={account?.name}
-                    className='size-full rounded-[26px] rounded-b-none object-cover'
-                    referrerPolicy='no-referrer'
-                    src={bannerImageSrc}
-                />
-            ) : (
-                <div className='relative size-full overflow-hidden rounded-[26px] rounded-b-none' style={{background: `linear-gradient(to bottom, ${hexToRgba(gradientColor, 1)}, ${hexToRgba(gradientColor, 0.5)})`}}>
-                    <DotsPattern className='absolute' style={{color: patternColor, top: isScreenshot ? '-42px' : '-84px', left: isScreenshot ? '-69px' : '-138px'}} />
-                </div>
-            )}
-        </div>
-    );
-});
+// ─── Sub-components ──────────────────────────────────────────────────────────
 
-BannerSection.displayName = 'BannerSection';
+const ColorToggleOption: React.FC<{value: string; label: string; children: React.ReactNode}> = ({value, label, children}) => (
+    <Tooltip>
+        <TooltipTrigger>
+            <ToggleGroupItem aria-label={label} value={value}>
+                {children}
+            </ToggleGroupItem>
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+);
 
-const AvatarSection = memo(({
-    avatarImageSrc,
-    account,
-    siteTitle,
-    cardBackgroundColor
-}: {
-    avatarImageSrc?: string
-    account?: Account
-    siteTitle?: string
-    cardBackgroundColor: string
-}) => {
-    if (!avatarImageSrc) return null;
+const SocialShareLinks: React.FC<{shareText: string}> = ({shareText}) => (
+    <div className='flex items-center gap-2'>
+        {SOCIAL_LINKS.map(({name, getHref, icon}) => (
+            <a
+                key={name}
+                className='flex h-[34px] w-10 items-center justify-center rounded-sm bg-white px-3 shadow-xs hover:bg-gray-50 [&_svg]:size-4'
+                href={getHref(shareText)}
+                rel="noopener noreferrer"
+                target='_blank'
+            >
+                {icon}
+            </a>
+        ))}
+    </div>
+);
 
-    return (
-        <div className='absolute bottom-0 left-1/2 -mb-8 -translate-x-1/2 rounded-full border-8 [&>div]:!size-16 [&_img]:!size-16' style={{borderColor: cardBackgroundColor}}>
-            <APAvatar
-                author={{
-                    icon: {url: avatarImageSrc},
-                    name: account?.name || siteTitle || '',
-                    handle: account?.handle
-                }}
-                size='md'
-            />
-        </div>
-    );
-});
+// ─── Hooks ───────────────────────────────────────────────────────────────────
 
-AvatarSection.displayName = 'AvatarSection';
-
-const HandleSection = memo(({
-    account,
-    backgroundColor,
-    accentColor,
-    isScreenshot,
-    onCopy
-}: {
-    account?: Account
-    backgroundColor: BackgroundColorType
-    accentColor?: string
-    isScreenshot: boolean
-    onCopy: () => void
-}) => {
+const useCopyHandle = () => {
     const [copied, setCopied] = useState(false);
-    const copyTimeoutRef = useRef<number | null>(null);
+    const timeoutRef = useRef<number | null>(null);
 
     useEffect(() => () => {
-        if (copyTimeoutRef.current) {
-            window.clearTimeout(copyTimeoutRef.current);
+        if (timeoutRef.current) {
+            window.clearTimeout(timeoutRef.current);
         }
     }, []);
 
-    const handleCopyClick = async () => {
-        if (!account?.handle || !navigator?.clipboard?.writeText) {
+    const copyHandle = useCallback(async (handle?: string) => {
+        if (!handle || !navigator?.clipboard?.writeText) {
             toast.error('Unable to copy handle');
             return;
         }
         try {
-            await navigator.clipboard.writeText(account.handle);
+            await navigator.clipboard.writeText(handle);
             setCopied(true);
             toast.success('Handle copied');
-            if (copyTimeoutRef.current) {
-                window.clearTimeout(copyTimeoutRef.current);
+            if (timeoutRef.current) {
+                window.clearTimeout(timeoutRef.current);
             }
-            copyTimeoutRef.current = window.setTimeout(() => setCopied(false), 2000);
+            timeoutRef.current = window.setTimeout(() => setCopied(false), 2000);
         } catch {
             toast.error('Failed to copy handle');
             setCopied(false);
         }
-    };
+    }, []);
 
-    const handleColor = backgroundColor !== 'light' ? '#fff' : accentColor;
-    const borderColor = accentColor ? hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor !== 'light' ? 0.7 : 0.2) : undefined;
-    const backgroundGradient = accentColor ? `linear-gradient(to top right, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor === 'dark' ? 0.12 : 0.04)}, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor === 'dark' ? 0.48 : 0.16)})` : undefined;
+    return {copied, copyHandle};
+};
 
-    return (
-        <div
-            className={`mt-auto flex max-h-[60px] min-h-12 w-full items-center justify-center break-all rounded-full border px-4 py-2 font-medium leading-7 ${isScreenshot && 'tracking-normal'}`}
-            style={{
-                color: handleColor,
-                borderColor,
-                background: backgroundGradient
-            }}
-        >
-            <div className='mb-0.5'>
-                {account?.handle}
-                {!isScreenshot && account?.handle && (
-                    <Button
-                        className='relative top-[3px] ml-1.5 size-4 p-0 hover:opacity-80'
-                        style={{color: handleColor}}
-                        title='Copy handle'
-                        variant='link'
-                        onClick={handleCopyClick}
-                    >
-                        {!copied ? <LucideIcon.Copy size={12} /> : <LucideIcon.Check size={12} />}
-                    </Button>
-                )}
-            </div>
-        </div>
-    );
-});
+const useCopyImage = (elementRef: React.RefObject<HTMLDivElement>) => {
+    const [isProcessing, setIsProcessing] = useState(false);
 
-HandleSection.displayName = 'HandleSection';
+    const copyImage = useCallback(async () => {
+        if (!elementRef.current || isProcessing) {
+            return;
+        }
 
-const ProfileCard: React.FC<ProfileCardProps> = memo(({
-    isScreenshot = false,
-    format = 'vertical',
-    account,
-    isLoading,
-    bannerDataUrl,
-    avatarDataUrl,
-    coverImage,
-    publicationIcon,
-    siteTitle,
-    backgroundColor,
-    accentColor
-}) => {
-    const cardBackgroundColor = getBackgroundColor(backgroundColor, accentColor);
-    const textColor = getTextColor(backgroundColor);
-    const margin = isScreenshot ? 'm-12' : 'm-16 max-sm:m-8';
-    const borderClass = isScreenshot ? '' : 'shadow-xl';
-    const cardWidth = format === 'square' ? 'w-[422px]' : 'w-[316px]';
-    const cardHeight = 'h-[422px]';
-
-    const bannerImageSrc = isScreenshot && bannerDataUrl ? bannerDataUrl : (account?.bannerImageUrl || coverImage);
-    const avatarImageSrc = isScreenshot && avatarDataUrl ? avatarDataUrl : (account?.avatarUrl || publicationIcon);
-    const hasAvatar = account?.avatarUrl || publicationIcon;
-
-    return (
-        <div className={`relative z-20 flex flex-col ${margin} ${cardWidth} ${cardHeight} rounded-[32px] ${borderClass}`} style={{backgroundColor: cardBackgroundColor}}>
-            <BannerSection
-                bannerImageSrc={bannerImageSrc}
-                account={account}
-                coverImage={coverImage}
-                backgroundColor={backgroundColor}
-                accentColor={accentColor}
-                isScreenshot={isScreenshot}
-                cardBackgroundColor={cardBackgroundColor}
-            />
-            <AvatarSection
-                avatarImageSrc={avatarImageSrc}
-                account={account}
-                siteTitle={siteTitle}
-                cardBackgroundColor={cardBackgroundColor}
-            />
-            <div className={`flex grow flex-col items-center p-6 ${hasAvatar ? 'pt-9' : 'pt-3'} text-center ${format === 'square' ? 'flex-1 justify-center' : ''}`}>
-                <H2 className={`${isScreenshot && 'tracking-normal'}`} style={{color: textColor}}>
-                    {!isLoading ? account?.name : <Skeleton className='w-32' />}
-                </H2>
-                <span className={`mt-1.5 leading-7 ${isScreenshot && 'tracking-normal'}`} style={{color: textColor}}>
-                    {!isLoading ? 'Available on Ghost, Flipboard, Threads, Bluesky, Mastodon, or wherever you get your social web feeds.' : <Skeleton className='w-28' />}
-                </span>
-                <HandleSection
-                    account={account}
-                    backgroundColor={backgroundColor}
-                    accentColor={accentColor}
-                    isScreenshot={isScreenshot}
-                    onCopy={() => {}}
-                />
-            </div>
-        </div>
-    );
-});
-
-ProfileCard.displayName = 'ProfileCard';
-
-const SocialShareButtons = memo(({shareText}: {shareText: string}) => {
-    const socialLinks = [
-        {
-            href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`,
-            icon: <svg aria-hidden="true" viewBox="0 0 24 24"><path className="social-x_svg__x" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path></svg>,
-            label: 'Twitter'
-        },
-        {
-            href: `https://threads.net/intent/post?text=${encodeURIComponent(shareText)}`,
-            icon: <svg fill="none" viewBox="0 0 18 18"><g clipPath="url(#social-threads_svg__clip0_351_18008)"><path d="M13.033 8.38a5.924 5.924 0 00-.223-.102c-.13-2.418-1.452-3.802-3.67-3.816h-.03c-1.327 0-2.43.566-3.11 1.597l1.22.837c.507-.77 1.304-.934 1.89-.934h.02c.73.004 1.282.217 1.639.63.26.302.433.72.519 1.245a9.334 9.334 0 00-2.097-.101c-2.109.121-3.465 1.351-3.374 3.06.047.868.478 1.614 1.216 2.1.624.413 1.428.614 2.263.568 1.103-.06 1.969-.48 2.572-1.25.459-.585.749-1.342.877-2.296.526.317.915.735 1.13 1.236.366.854.387 2.255-.756 3.398-1.003 1.002-2.207 1.435-4.028 1.448-2.02-.015-3.547-.663-4.54-1.925-.93-1.182-1.41-2.89-1.428-5.075.018-2.185.498-3.893 1.428-5.075.993-1.262 2.52-1.91 4.54-1.925 2.034.015 3.588.666 4.62 1.934.505.622.886 1.405 1.137 2.317l1.43-.382c-.305-1.122-.784-2.09-1.436-2.892C13.52 1.35 11.587.517 9.096.5h-.01C6.6.517 4.689 1.354 3.404 2.986 2.262 4.44 1.672 6.46 1.652 8.994v.012c.02 2.534.61 4.555 1.752 6.008C4.69 16.646 6.6 17.483 9.086 17.5h.01c2.21-.015
+        setIsProcessing
