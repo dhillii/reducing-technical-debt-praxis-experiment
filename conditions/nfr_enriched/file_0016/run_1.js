@@ -1,17 +1,31 @@
-```javascript
+```jsx
 import React, {useContext, useEffect, useState} from 'react';
 import {ReactComponent as LoaderIcon} from '../../images/icons/loader.svg';
 import {ReactComponent as CheckmarkIcon} from '../../images/icons/checkmark.svg';
 import {
-    getCurrencySymbol, getPriceString, getStripeAmount, getMemberActivePrice,
-    getProductFromPrice, getFreeTierTitle, getFreeTierDescription, getFreeProduct,
-    getFreeProductBenefits, getSupportAddress, formatNumber, isCookiesDisabled,
-    hasOnlyFreeProduct, isMemberActivePrice, hasFreeTrialTier, isComplimentaryMember
+    getCurrencySymbol,
+    getPriceString,
+    getStripeAmount,
+    getMemberActivePrice,
+    getProductFromPrice,
+    getFreeTierTitle,
+    getFreeTierDescription,
+    getFreeProduct,
+    getFreeProductBenefits,
+    getSupportAddress,
+    formatNumber,
+    isCookiesDisabled,
+    hasOnlyFreeProduct,
+    isMemberActivePrice,
+    hasFreeTrialTier,
+    isComplimentaryMember
 } from '../../utils/helpers';
 import AppContext from '../../app-context';
 import calculateDiscount from '../../utils/discount';
 import Interpolate from '@doist/react-interpolate';
 import {t} from '../../utils/i18n';
+
+// ─── Styles ──────────────────────────────────────────────────────────────────
 
 export const ProductsSectionStyles = () => `
     .gh-portal-products {
@@ -44,6 +58,7 @@ export const ProductsSectionStyles = () => `
         border-radius: 999px;
         transition: all 0.15s ease-in-out;
     }
+
     html[dir="rtl"] .gh-portal-products-pricetoggle:before {
         left: 4px;
         right: unset;
@@ -52,6 +67,7 @@ export const ProductsSectionStyles = () => `
     .gh-portal-products-pricetoggle.left:before {
         transform: translateX(calc(-100% + 8px));
     }
+
     html[dir="rtl"] .gh-portal-products-pricetoggle.left:before {
         transform: translateX(calc(100% - 8px));
     }
@@ -80,13 +96,8 @@ export const ProductsSectionStyles = () => `
         min-width: 180px;
     }
 
-    .gh-portal-priceoption-label.monthly {
-        text-align: right;
-    }
-
-    .gh-portal-priceoption-label.inactive {
-        color: var(--grey8);
-    }
+    .gh-portal-priceoption-label.monthly { text-align: right; }
+    .gh-portal-priceoption-label.inactive { color: var(--grey8); }
 
     .gh-portal-maximum-discount {
         font-weight: 400;
@@ -134,9 +145,7 @@ export const ProductsSectionStyles = () => `
         padding-top: 0;
     }
 
-    .gh-portal-product-card:not(.disabled):hover {
-        border-color: var(--grey9);
-    }
+    .gh-portal-product-card:not(.disabled):hover { border-color: var(--grey9); }
 
     .gh-portal-product-card.checked::before {
         position: absolute;
@@ -162,9 +171,7 @@ export const ProductsSectionStyles = () => `
         align-items: center;
     }
 
-    .gh-portal-product-card-name-trial .gh-portal-discount-label {
-        margin-top: -4px;
-    }
+    .gh-portal-product-card-name-trial .gh-portal-discount-label { margin-top: -4px; }
 
     .gh-portal-product-card-details {
         flex: 1;
@@ -252,9 +259,7 @@ export const ProductsSectionStyles = () => `
         line-height: 1.135em;
     }
 
-    .gh-portal-product-price .currency-sign.long {
-        margin-inline-end: 5px;
-    }
+    .gh-portal-product-price .currency-sign.long { margin-inline-end: 5px; }
 
     .gh-portal-product-price .amount {
         font-size: 3.5rem;
@@ -264,9 +269,7 @@ export const ProductsSectionStyles = () => `
         color: var(--grey0);
     }
 
-    .gh-portal-product-price .amount.trial-duration {
-        letter-spacing: -0.022em;
-    }
+    .gh-portal-product-price .amount.trial-duration { letter-spacing: -0.022em; }
 
     .gh-portal-product-price .billing-period {
         align-self: flex-end;
@@ -294,9 +297,7 @@ export const ProductsSectionStyles = () => `
         line-height: 1;
     }
 
-    .gh-portal-product-card-detaildata {
-        flex: 1;
-    }
+    .gh-portal-product-card-detaildata { flex: 1; }
 
     .gh-portal-product-description {
         font-size: 1.55rem;
@@ -326,18 +327,13 @@ export const ProductsSectionStyles = () => `
         margin: 3px 10px 0 0;
         overflow: visible;
     }
-    html[dir="rtl"] .gh-portal-benefit-checkmark {
-        margin: 3px 0 0 10px;
-    }
+
+    html[dir="rtl"] .gh-portal-benefit-checkmark { margin: 3px 0 0 10px; }
 
     .gh-portal-benefit-checkmark polyline,
-    .gh-portal-benefit-checkmark g {
-        stroke-width: 3px;
-    }
+    .gh-portal-benefit-checkmark g { stroke-width: 3px; }
 
-    .gh-portal-products-grid.change-plan {
-        padding: 0;
-    }
+    .gh-portal-products-grid.change-plan { padding: 0; }
 
     .gh-portal-btn-product {
         position: sticky;
@@ -372,9 +368,7 @@ export const ProductsSectionStyles = () => `
         z-index: 900;
     }
 
-    .gh-portal-btn-product:not(.gh-portal-btn-unsubscribe) .gh-portal-btn:hover {
-        opacity: 0.9;
-    }
+    .gh-portal-btn-product:not(.gh-portal-btn-unsubscribe) .gh-portal-btn:hover { opacity: 0.9; }
 
     .gh-portal-btn-product .gh-portal-error-message {
         z-index: 900;
@@ -408,9 +402,7 @@ export const ProductsSectionStyles = () => `
         min-height: unset;
     }
 
-    .gh-portal-product-card.only-free .gh-portal-product-card-header {
-        min-height: unset;
-    }
+    .gh-portal-product-card.only-free .gh-portal-product-card-header { min-height: unset; }
 
     @media (max-width: 670px) {
         .gh-portal-products-grid {
@@ -420,57 +412,25 @@ export const ProductsSectionStyles = () => `
             max-width: 440px;
         }
 
-        .gh-portal-priceoption-label {
-            font-size: 1.25rem;
-        }
+        .gh-portal-priceoption-label { font-size: 1.25rem; }
+        .gh-portal-products-priceswitch .gh-portal-discount-label { display: none; }
+        .gh-portal-products-priceswitch { padding-top: 18px; }
+        .gh-portal-product-card { min-height: unset; }
 
-        .gh-portal-products-priceswitch .gh-portal-discount-label {
-            display: none;
-        }
-
-        .gh-portal-products-priceswitch {
-            padding-top: 18px;
-        }
-
-        .gh-portal-product-card {
-            min-height: unset;
-        }
-
-        .gh-portal-singleproduct-benefits .gh-portal-product-description {
-            text-align: center;
-        }
-
-        .gh-portal-product-benefit:last-of-type {
-            margin-bottom: 0;
-        }
+        .gh-portal-singleproduct-benefits .gh-portal-product-description { text-align: center; }
+        .gh-portal-product-benefit:last-of-type { margin-bottom: 0; }
     }
 
     @media (max-width: 480px) {
-        .gh-portal-product-price .amount {
-            font-size: 3.4rem;
-        }
-
-        .gh-portal-product-card {
-            min-width: unset;
-        }
-
-        .gh-portal-btn-product:not(.gh-portal-btn-unsubscribe) {
-            position: static;
-        }
-
-        .gh-portal-btn-product:not(.gh-portal-btn-unsubscribe)::before {
-            display: none;
-        }
+        .gh-portal-product-price .amount { font-size: 3.4rem; }
+        .gh-portal-product-card { min-width: unset; }
+        .gh-portal-btn-product:not(.gh-portal-btn-unsubscribe) { position: static; }
+        .gh-portal-btn-product:not(.gh-portal-btn-unsubscribe)::before { display: none; }
     }
 
     @media (max-width: 370px) {
-        .gh-portal-product-price .currency-sign {
-            font-size: 1.8rem;
-        }
-
-        .gh-portal-product-price .amount {
-            font-size: 2.8rem;
-        }
+        .gh-portal-product-price .currency-sign { font-size: 1.8rem; }
+        .gh-portal-product-price .amount { font-size: 2.8rem; }
     }
 
     .gh-portal-upgrade-product {
@@ -488,4 +448,10 @@ export const ProductsSectionStyles = () => `
         display: inline-block;
         position: relative;
         padding: 2px 8px;
-        font-size: 1.
+        font-size: 1.2rem;
+        letter-spacing: 0.3px;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+    }
+
+    .gh-portal-upgrade-product .
