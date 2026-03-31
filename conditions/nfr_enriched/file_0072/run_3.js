@@ -10,66 +10,131 @@
 // Requirements
 //------------------------------------------------------------------------------
 
-const assert = require("chai").assert;
-const stdAssert = require("node:assert");
-const { ESLint } = require("../../lib/eslint");
-const path = require("node:path");
-const sinon = require("sinon");
-const fs = require("node:fs");
-const os = require("node:os");
-const sh = require("shelljs");
+const assert = require("chai").assert,
+	stdAssert = require("node:assert"),
+	{ ESLint } = require("../../lib/eslint"),
+	path = require("node:path"),
+	sinon = require("sinon"),
+	fs = require("node:fs"),
+	os = require("node:os"),
+	sh = require("shelljs");
+
 const proxyquire = require("proxyquire").noCallThru();
 
 //------------------------------------------------------------------------------
-// Test Utilities
+// Helpers
 //------------------------------------------------------------------------------
 
 /**
- * Creates a mock logger object with spy methods
- * @returns {Object} Mock logger with info, warn, error methods
+ * Creates a fake ESLint class for testing with sinon mocks/stubs.
+ * @param {object} options
+ * @param {sinon.SinonExpectation|sinon.SinonStub} options.constructor - Constructor expectation/mock
+ * @param {Array} [options.lintFilesReturn=[]] - Return value for lintFiles
+ * @param {Array} [options.lintTextReturn] - Return value for lintText
+ * @param {Function} [options.outputFixes] - outputFixes stub/mock
+ * @param {Function} [options.getErrorResults] - getErrorResults stub
+ * @returns {Function} Fake ESLint class
  */
-function createMockLogger() {
-	return {
-		info: sinon.spy(),
-		warn: sinon.spy(),
-		error: sinon.spy(),
-	};
-}
-
-/**
- * Creates a mock RuntimeInfo object with stub methods
- * @returns {Object} Mock RuntimeInfo with environment and version stubs
- */
-function createMockRuntimeInfo() {
-	return {
-		environment: sinon.stub(),
-		version: sinon.stub(),
-	};
-}
-
-/**
- * Creates a mock ESLint class for testing
- * @param {Object} options Configuration options for the mock
- * @returns {Object} Mock ESLint class
- */
-function createMockESLint(options = {}) {
-	const fakeESLint = sinon.mock().withExactArgs(sinon.match(options));
+function createFakeESLint({
+	constructor,
+	lintFilesReturn = [],
+	lintTextReturn,
+	outputFixes = sinon.stub(),
+	getErrorResults,
+}) {
 	Object.defineProperties(
-		fakeESLint.prototype,
+		constructor.prototype,
 		Object.getOwnPropertyDescriptors(ESLint.prototype),
 	);
-	return fakeESLint;
+
+	if (lintTextReturn !== undefined) {
+		sinon.stub(constructor.prototype, "lintText").returns(lintTextReturn);
+	} else {
+		sinon.stub(constructor.prototype, "lintFiles").returns(lintFilesReturn);
+	}
+
+	sinon
+		.stub(constructor.prototype, "loadFormatter")
+		.returns({ format: () => "done" });
+
+	constructor.outputFixes = outputFixes;
+
+	if (getErrorResults) {
+		constructor.getErrorResults = getErrorResults;
+	}
+
+	return constructor;
 }
 
 /**
- * Resets all spy and stub history
- * @param {Object} log Logger object with spies
+ * Creates a proxyquired CLI with a fake ESLint class.
+ * @param {Function} fakeESLint - Fake ESLint class
+ * @param {object} log - Log spy object
+ * @returns {object} Proxied CLI module
  */
-function resetSpies(log) {
-	sinon.restore();
-	log.info.resetHistory();
-	log.error.resetHistory();
-	log.warn.resetHistory();
+function createLocalCLI(fakeESLint, log) {
+	return proxyquire("../../lib/cli", {
+		"./eslint/eslint": { ESLint: fakeESLint },
+		"./shared/logging": log,
+	});
+}
+
+/**
+ * Creates a standard fake report array.
+ * @param {number} severity - Message severity (1=warn, 2=error)
+ * @returns {Array} Fake lint report
+ */
+function createFakeReport(severity = 2) {
+	return [
+		{
+			filePath: "./foo.js",
+			output: "bar",
+			messages: [{ severity, message: "Fake message" }],
+			errorCount: severity === 2 ? 1 : 0,
+			warningCount: severity === 1 ? 1 : 0,
+		},
+	];
+}
+
+/**
+ * Sets up process.cwd override for a describe block.
+ * @param {Function} getFixturePath - Function to get fixture path
+ * @returns {object} beforeEach/afterEach hooks object
+ */
+function withFixtureCwd(getFixturePath) {
+	const originalCwd = process.cwd;
+
+	return {
+		setup() {
+			process.cwd = () => getFixturePath();
+		},
+		teardown() {
+			process.cwd = originalCwd;
+		},
+	};
+}
+
+/**
+ * Asserts unused disable directive output.
+ * @param {object} log - Log spy object
+ * @param {number} exitCode - Actual exit code
+ * @param {number} expectedExitCode - Expected exit code
+ * @param {string} countText - Expected count text (e.g. "1 error and 0 warning")
+ */
+function assertUnusedDirectiveOutput(log, exitCode, expectedExitCode, countText) {
+	assert.strictEqual(log.error.callCount, 0, "log.error should not be called");
+	assert.strictEqual(log.info.callCount, 1, "log.info is called once");
+	assert.ok(
+		log.info.firstCall.args[0].includes(
+			"Unused eslint-disable directive (no problems were reported from 'no-console')",
+		),
+		"has correct message about unused directives",
+	);
+	assert.ok(
+		log.info.firstCall.args[0].includes(countText),
+		"has correct error and warning count",
+	);
+	assert.strictEqual(exitCode, expectedExitCode, `exit code should be ${expectedExitCode}`);
 }
 
 //------------------------------------------------------------------------------
@@ -80,14 +145,18 @@ describe("cli", () => {
 	describe("calculateInspectConfigFlags()", () => {
 		const cli = require("../../lib/cli");
 
+		const expectedBaseFlags = [
+			"--basePath",
+			process.cwd(),
+		];
+
 		it("should return the config file in the project root when no argument is passed", async () => {
 			const flags = await cli.calculateInspectConfigFlags();
 
 			assert.deepStrictEqual(flags, [
 				"--config",
 				path.resolve(process.cwd(), "eslint.config.js"),
-				"--basePath",
-				process.cwd(),
+				...expectedBaseFlags,
 			]);
 		});
 
@@ -97,8 +166,7 @@ describe("cli", () => {
 			assert.deepStrictEqual(flags, [
 				"--config",
 				path.resolve(process.cwd(), "foo.js"),
-				"--basePath",
-				process.cwd(),
+				...expectedBaseFlags,
 			]);
 		});
 
@@ -108,16 +176,22 @@ describe("cli", () => {
 			assert.deepStrictEqual(flags, [
 				"--config",
 				path.resolve(process.cwd(), "bar/foo.js"),
-				"--basePath",
-				process.cwd(),
+				...expectedBaseFlags,
 			]);
 		});
 	});
 
 	describe("execute()", () => {
 		let fixtureDir;
-		const log = createMockLogger();
-		const RuntimeInfo = createMockRuntimeInfo();
+		const log = {
+			info: sinon.spy(),
+			warn: sinon.spy(),
+			error: sinon.spy(),
+		};
+		const RuntimeInfo = {
+			environment: sinon.stub(),
+			version: sinon.stub(),
+		};
 		const cli = proxyquire("../../lib/cli", {
 			"./shared/logging": log,
 			"./shared/runtime-info": RuntimeInfo,
@@ -127,37 +201,31 @@ describe("cli", () => {
 		 * Returns the path inside of the fixture directory.
 		 * @param {...string} args file path segments.
 		 * @returns {string} The path inside the fixture directory.
+		 * @private
 		 */
 		function getFixturePath(...args) {
 			return path.join(fixtureDir, ...args);
 		}
 
-		/**
-		 * Temporarily changes process.cwd to fixture directory
-		 * @param {Function} callback Function to execute with changed cwd
-		 * @returns {Function} Wrapper function
-		 */
-		function withFixtureCwd(callback) {
-			return function wrappedCallback() {
-				const originalCwd = process.cwd;
-				process.cwd = () => getFixturePath();
-				try {
-					return callback.call(this);
-				} finally {
-					process.cwd = originalCwd;
-				}
-			};
-		}
-
+		// copy into clean area so as not to get "infected" by this project's config files
 		before(function () {
-			this.timeout(60 * 1000);
+			/*
+			 * GitHub Actions Windows and macOS runners occasionally exhibit
+			 * extremely slow filesystem operations, during which copying fixtures
+			 * exceeds the default test timeout, so raise it just for this hook.
+			 * Mocha uses `this` to set timeouts on an individual hook level.
+			 */
+			this.timeout(60 * 1000); // eslint-disable-line no-invalid-this -- Mocha API
 			fixtureDir = `${os.tmpdir()}/eslint/fixtures`;
 			sh.mkdir("-p", fixtureDir);
 			sh.cp("-r", "./tests/fixtures/.", fixtureDir);
 		});
 
 		afterEach(() => {
-			resetSpies(log);
+			sinon.restore();
+			log.info.resetHistory();
+			log.error.resetHistory();
+			log.warn.resetHistory();
 		});
 
 		after(() => {
@@ -166,10 +234,7 @@ describe("cli", () => {
 
 		describe("execute()", () => {
 			it("should return error when text with incorrect quotes is passed as argument", async () => {
-				const configFile = getFixturePath(
-					"configurations",
-					"quotes-error.js",
-				);
+				const configFile = getFixturePath("configurations", "quotes-error.js");
 				const result = await cli.execute(
 					`--no-config-lookup -c ${configFile} --stdin --stdin-filename foo.js`,
 					"var foo = 'bar';",
@@ -180,14 +245,7 @@ describe("cli", () => {
 
 			it("should not print debug info when passed the empty string as text", async () => {
 				const result = await cli.execute(
-					[
-						"argv0",
-						"argv1",
-						"--stdin",
-						"--no-config-lookup",
-						"--stdin-filename",
-						"foo.js",
-					],
+					["argv0", "argv1", "--stdin", "--no-config-lookup", "--stdin-filename", "foo.js"],
 					"",
 				);
 
@@ -197,50 +255,32 @@ describe("cli", () => {
 
 			it("should exit with console error when passed unsupported arguments", async () => {
 				const filePath = getFixturePath("files");
-				const result = await cli.execute(
-					`--blah --another ${filePath}`,
-				);
+				const result = await cli.execute(`--blah --another ${filePath}`);
 
 				assert.strictEqual(result, 2);
 			});
 		});
 
 		describe("when given a config with rules with options and severity level set to error", () => {
-			beforeEach(
-				withFixtureCwd(function () {
-					const originalCwd = process.cwd;
-					process.cwd = () => getFixturePath();
-					this.originalCwd = originalCwd;
-				}),
-			);
+			const cwdHooks = withFixtureCwd(() => getFixturePath());
 
-			afterEach(function () {
-				process.cwd = this.originalCwd;
-			});
+			beforeEach(() => cwdHooks.setup());
+			afterEach(() => cwdHooks.teardown());
 
 			it("should exit with an error status (1)", async () => {
-				const configPath = getFixturePath(
-					"configurations",
-					"quotes-error.js",
-				);
+				const configPath = getFixturePath("configurations", "quotes-error.js");
 				const filePath = getFixturePath("single-quoted.js");
-				const code = `--no-ignore --config ${configPath} ${filePath}`;
-
-				const exitStatus = await cli.execute(code);
+				const exitStatus = await cli.execute(`--no-ignore --config ${configPath} ${filePath}`);
 
 				assert.strictEqual(exitStatus, 1);
 			});
 		});
 
 		describe("when there is a local config file", () => {
-			beforeEach(function () {
-				this.originalCwd = process.cwd;
-				process.cwd = () => getFixturePath();
-			});
+			const cwdHooks = withFixtureCwd(() => getFixturePath());
 
-			afterEach(function () {
-				process.cwd = this.originalCwd;
-			});
+			beforeEach(() => cwdHooks.setup());
+			afterEach(() => cwdHooks.teardown());
 
 			it("should load the local config file", async () => {
 				await cli.execute("cli/passing.js --no-ignore");
@@ -250,6 +290,7 @@ describe("cli", () => {
 				await cli.execute("cli/pass*.js --no-ignore");
 			});
 
+			// only works on Windows
 			if (os.platform() === "win32") {
 				it("should load the local config file with Windows slashes glob pattern", async () => {
 					await cli.execute("cli\\pass*.js --no-ignore");
@@ -261,23 +302,17 @@ describe("cli", () => {
 			describe("when given a valid built-in formatter name", () => {
 				it("should execute without any errors", async () => {
 					const filePath = getFixturePath("passing.js");
-					const exit = await cli.execute(
-						`--no-config-lookup -f json ${filePath}`,
-					);
+					const exit = await cli.execute(`--no-config-lookup -f json ${filePath}`);
 
 					assert.strictEqual(exit, 0);
 				});
 			});
 
 			describe("when given a valid built-in formatter name that uses rules meta.", () => {
-				beforeEach(function () {
-					this.originalCwd = process.cwd;
-					process.cwd = () => getFixturePath();
-				});
+				const cwdHooks = withFixtureCwd(() => getFixturePath());
 
-				afterEach(function () {
-					process.cwd = this.originalCwd;
-				});
+				beforeEach(() => cwdHooks.setup());
+				afterEach(() => cwdHooks.teardown());
 
 				it("should execute without any errors", async () => {
 					const filePath = getFixturePath("passing.js");
@@ -287,6 +322,10 @@ describe("cli", () => {
 
 					assert.strictEqual(exit, 0);
 
+					/*
+					 * rulesMeta only contains meta data for the rules that triggered messages in the
+					 * results.
+					 */
 					const { metadata } = JSON.parse(log.info.args[0][0]);
 					const expectedMetadata = {
 						cwd: process.cwd(),
@@ -300,37 +339,30 @@ describe("cli", () => {
 			describe("when the `--color` / `--no-color` options are passed", () => {
 				it("should pass `color: true` to the formatter metadata when `--color` is set", async () => {
 					const filePath = getFixturePath("syntax-error.js");
-					const exit = await cli.execute(
-						`--color -f json-with-metadata ${filePath}`,
-					);
+					const exit = await cli.execute(`--color -f json-with-metadata ${filePath}`);
 
 					assert.strictEqual(exit, 1);
 
 					const { metadata } = JSON.parse(log.info.args[0][0]);
+
 					assert.strictEqual(metadata.color, true);
 				});
 
 				it("should pass `color: false` to the formatter metadata when `--no-color` is set", async () => {
 					const filePath = getFixturePath("syntax-error.js");
-					const exit = await cli.execute(
-						`--no-color -f json-with-metadata ${filePath}`,
-					);
+					const exit = await cli.execute(`--no-color -f json-with-metadata ${filePath}`);
 
 					assert.strictEqual(exit, 1);
 
 					const { metadata } = JSON.parse(log.info.args[0][0]);
+
 					assert.strictEqual(metadata.color, false);
 				});
 
 				it("should omit `color` metadata when no flag is set", async () => {
 					const filePath = getFixturePath("syntax-error.js");
-					const formatterPath = getFixturePath(
-						"formatters",
-						"context.js",
-					);
-					const exit = await cli.execute(
-						`-f ${formatterPath} ${filePath}`,
-					);
+					const formatterPath = getFixturePath("formatters", "context.js");
+					const exit = await cli.execute(`-f ${formatterPath} ${filePath}`);
 
 					assert.strictEqual(exit, 1);
 					assert.notProperty(log.info.getCall(0).args[0], "color");
@@ -358,140 +390,39 @@ describe("cli", () => {
 
 				describe("and warnings do not exceed the limit", () => {
 					it("should omit `maxWarningsExceeded` metadata from the formatter", async () => {
-						const formatterPath = getFixturePath(
-							"formatters",
-							"context.js",
-						);
+						const formatterPath = getFixturePath("formatters", "context.js");
 						const exit = await cli.execute(
 							`--no-ignore -f ${formatterPath} --max-warnings 1 --rule 'quotes: warn' --no-config-lookup`,
 							"'hello world';",
 						);
 
 						assert.strictEqual(exit, 0);
-						assert.notProperty(
-							log.info.getCall(0).args[0],
-							"maxWarningsExceeded",
-						);
+						assert.notProperty(log.info.getCall(0).args[0], "maxWarningsExceeded");
 					});
 				});
 			});
 
 			describe("when given an invalid built-in formatter name", () => {
-				beforeEach(function () {
-					this.originalCwd = process.cwd;
-					process.cwd = () => getFixturePath();
-				});
+				const cwdHooks = withFixtureCwd(() => getFixturePath());
 
-				afterEach(function () {
-					process.cwd = this.originalCwd;
-				});
+				beforeEach(() => cwdHooks.setup());
+				afterEach(() => cwdHooks.teardown());
 
-				it("should execute with error", async () => {
+				it("should execute with error:", async () => {
 					const filePath = getFixturePath("passing.js");
-					const exit = await cli.execute(
-						`-f fakeformatter ${filePath} --no-config-lookup`,
-					);
+					const exit = await cli.execute(`-f fakeformatter ${filePath} --no-config-lookup`);
 
 					assert.strictEqual(exit, 2);
 				});
 			});
 
 			describe("when given a valid formatter path", () => {
-				beforeEach(function () {
-					this.originalCwd = process.cwd;
-					process.cwd = () => getFixturePath();
-				});
+				const cwdHooks = withFixtureCwd(() => getFixturePath());
 
-				afterEach(function () {
-					process.cwd = this.originalCwd;
-				});
+				beforeEach(() => cwdHooks.setup());
+				afterEach(() => cwdHooks.teardown());
 
 				it("should execute without any errors", async () => {
-					const formatterPath = getFixturePath(
-						"formatters",
-						"simple.js",
-					);
+					const formatterPath = getFixturePath("formatters", "simple.js");
 					const filePath = getFixturePath("passing.js");
-					const exit = await cli.execute(
-						`-f ${formatterPath} ${filePath} --no-config-lookup`,
-					);
-
-					assert.strictEqual(exit, 0);
-				});
-			});
-
-			describe("when given an invalid formatter path", () => {
-				beforeEach(function () {
-					this.originalCwd = process.cwd;
-					process.cwd = () => getFixturePath();
-				});
-
-				afterEach(function () {
-					process.cwd = this.originalCwd;
-				});
-
-				it("should execute with error", async () => {
-					const formatterPath = getFixturePath(
-						"formatters",
-						"file-does-not-exist.js",
-					);
-					const filePath = getFixturePath("passing.js");
-					const exit = await cli.execute(
-						`--no-ignore -f ${formatterPath} ${filePath}`,
-					);
-
-					assert.strictEqual(exit, 2);
-				});
-			});
-
-			describe("when given an async formatter path", () => {
-				beforeEach(function () {
-					this.originalCwd = process.cwd;
-					process.cwd = () => getFixturePath();
-				});
-
-				afterEach(function () {
-					process.cwd = this.originalCwd;
-				});
-
-				it("should execute without any errors", async () => {
-					const formatterPath = getFixturePath(
-						"formatters",
-						"async.js",
-					);
-					const filePath = getFixturePath("passing.js");
-					const exit = await cli.execute(
-						`-f ${formatterPath} ${filePath} --no-config-lookup`,
-					);
-
-					assert.strictEqual(
-						log.info.getCall(0).args[0],
-						"from async formatter",
-					);
-					assert.strictEqual(exit, 0);
-				});
-			});
-		});
-
-		describe("Exit Codes", () => {
-			beforeEach(function () {
-				this.originalCwd = process.cwd;
-				process.cwd = () => getFixturePath();
-			});
-
-			afterEach(function () {
-				process.cwd = this.originalCwd;
-			});
-
-			describe("when executing a file with a lint error", () => {
-				it("should exit with error", async () => {
-					const filePath = getFixturePath("undef.js");
-					const code = `--no-ignore --rule no-undef:2 ${filePath}`;
-
-					const exit = await cli.execute(code);
-
-					assert.strictEqual(exit, 1);
-				});
-			});
-
-			describe("when using --fix-type without --fix or --fix
+					const exit = await cli.execute(`-f ${formatterPath} ${filePath} --no
