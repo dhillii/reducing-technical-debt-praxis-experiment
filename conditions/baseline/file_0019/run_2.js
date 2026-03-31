@@ -1,4 +1,4 @@
-```javascript
+```jsx
 import React from 'react';
 import ActionButton from '../common/action-button';
 import AppContext from '../../app-context';
@@ -350,6 +350,10 @@ html[dir=rtl] .gh-portal-signup-terms .checkbox:before {
     text-decoration: none;
 }
 
+@media (min-width: 480px) {
+
+}
+
 @media (max-width: 480px) {
     .gh-portal-signup-logo {
         width: 48px;
@@ -373,7 +377,23 @@ const INITIAL_STATE = {
     termsCheckboxChecked: false
 };
 
-const ENTER_KEY_CODE = 13;
+const NOTIFICATION_CONFIGS = {
+    inviteOnly: {
+        className: 'gh-portal-invite-only-notification',
+        testId: 'invite-only-notification-text',
+        message: t('This site is invite-only, contact the owner for access.')
+    },
+    paidMembersOnly: {
+        className: 'gh-portal-paid-members-only-notification',
+        testId: 'paid-members-only-notification-text',
+        message: t('This site only accepts paid members.')
+    },
+    membersDisabled: {
+        className: 'gh-portal-members-disabled-notification',
+        testId: 'members-disabled-notification-text',
+        message: t('Memberships unavailable, contact the owner for access.')
+    }
+};
 
 class SignupPage extends React.Component {
     static contextType = AppContext;
@@ -382,8 +402,12 @@ class SignupPage extends React.Component {
         super(props);
         this.state = {...INITIAL_STATE};
         this.termsRef = React.createRef();
-        this.timeoutId = null;
+        this.handleSelectPlan = this.handleSelectPlan.bind(this);
     }
+
+    // -------------------------
+    // Lifecycle
+    // -------------------------
 
     componentDidMount() {
         const {member} = this.context;
@@ -401,98 +425,75 @@ class SignupPage extends React.Component {
         clearTimeout(this.timeoutId);
     }
 
+    // -------------------------
+    // Plan helpers
+    // -------------------------
+
     syncSelectedPlan() {
         const {site, pageQuery} = this.context;
         const prices = getSitePrices({site, pageQuery});
-        const selectedPriceId = this.getSelectedPriceId(prices, this.state.plan);
+        const selectedPriceId = this.resolveSelectedPriceId(prices, this.state.plan);
 
         if (selectedPriceId !== this.state.plan) {
             this.setState({plan: selectedPriceId});
         }
     }
 
+    resolveSelectedPriceId(prices = [], selectedPriceId) {
+        if (!prices.length || selectedPriceId === 'free') {
+            return 'free';
+        }
+        const isValid = prices.some(p => p.id === selectedPriceId);
+        return isValid ? selectedPriceId : (prices[0].id || 'free');
+    }
+
+    // -------------------------
+    // Form helpers
+    // -------------------------
+
     getFormErrors(state) {
         const {site} = this.context;
         const checkboxRequired = site.portal_signup_checkbox_required && site.portal_signup_terms_html;
-        const checkboxError = checkboxRequired && !state.termsCheckboxChecked;
-
         return {
             ...ValidateInputForm({fields: this.getInputFields({state})}),
-            checkbox: checkboxError
+            checkbox: checkboxRequired && !state.termsCheckboxChecked
         };
     }
 
-    hasFormErrors(errors) {
-        return errors && Object.values(errors).some(error => !!error);
-    }
+    getInputFields({state, fieldNames} = {}) {
+        const {site: {portal_name: portalName}} = this.context;
+        const errors = state?.errors || {};
 
-    getOtherErrors(errors) {
-        const otherErrors = {...errors};
-        delete otherErrors.checkbox;
-        return otherErrors;
-    }
-
-    handleCheckboxError(errors) {
-        const otherErrors = this.getOtherErrors(errors);
-        const hasOnlyCheckboxError = errors?.checkbox && Object.values(otherErrors).every(error => !error);
-
-        if (hasOnlyCheckboxError && this.termsRef.current) {
-            this.termsRef.current.scrollIntoView({behavior: 'smooth', block: 'center'});
-        }
-    }
-
-    proceedWithSignup(name, email, plan, phonenumber, token) {
-        const {site, doAction} = this.context;
-
-        if (hasMultipleNewsletters({site})) {
-            this.setState({
-                showNewsletterSelection: true,
-                pageData: {name, email, plan, phonenumber, token},
-                errors: {}
-            });
-        } else {
-            this.setState({errors: {}});
-            doAction('signup', {name, email, phonenumber, plan, token});
-        }
-    }
-
-    doSignup() {
-        this.setState((state) => ({errors: this.getFormErrors(state)}), () => {
-            const {name, email, plan, phonenumber, token, errors} = this.state;
-
-            this.handleCheckboxError(errors);
-
-            if (!this.hasFormErrors(errors)) {
-                this.proceedWithSignup(name, email, plan, phonenumber, token);
+        const fields = [
+            {
+                type: 'email',
+                value: state?.email,
+                placeholder: t('jamie@example.com'),
+                label: t('Email'),
+                name: 'email',
+                required: true,
+                tabIndex: 2,
+                errorMessage: errors.email || ''
+            },
+            {
+                type: 'text',
+                value: state?.phonenumber,
+                placeholder: t('+1 (123) 456-7890'),
+                label: t('Phone number'),
+                name: 'phonenumber',
+                required: false,
+                tabIndex: -1,
+                autoComplete: 'off',
+                hidden: true
             }
-        });
-    }
+        ];
 
-    handleSignup = (e) => {
-        e.preventDefault();
-        this.doSignup();
-    };
-
-    handleChooseSignup = (e, plan) => {
-        e.preventDefault();
-        this.setState({plan}, () => this.doSignup());
-    };
-
-    handleInputChange = (e, field) => {
-        this.setState({[field.name]: e.target.value});
-    };
-
-    handleSelectPlan = (e, priceId) => {
-        e?.preventDefault();
-        this.timeoutId = setTimeout(() => {
-            this.setState({plan: priceId});
-        }, 5);
-    };
-
-    onKeyDown = (e) => {
-        if (e.keyCode === ENTER_KEY_CODE) {
-            this.handleSignup(e);
-        }
-    };
-
-    getSelectedP
+        if (portalName) {
+            fields.unshift({
+                type: 'text',
+                value: state?.name,
+                placeholder: t('Jamie Larson'),
+                label: t('Name'),
+                name: 'name',
+                required: true,
+                tabIndex: 1,
