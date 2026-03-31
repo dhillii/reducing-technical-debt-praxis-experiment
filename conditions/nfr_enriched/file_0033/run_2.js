@@ -1,4 +1,4 @@
-```typescript
+```javascript
 import * as Sentry from '@sentry/ember';
 import AjaxService from 'ember-ajax/services/ajax';
 import classic from 'ember-classic-decorator';
@@ -16,109 +16,71 @@ import {timeout} from 'ember-concurrency';
 
 const JSON_CONTENT_TYPE = 'application/json';
 const GHOST_REQUEST = /\/ghost\/api\//;
-const TWO_FACTOR_AUTH_CODES = ['2FA_TOKEN_REQUIRED', '2FA_NEW_DEVICE_DETECTED'];
 const MAX_RETRY_MS = 15_000;
 const RETRY_PERIODS = [500, 1000];
+const TWO_FACTOR_AUTH_CODES = ['2FA_TOKEN_REQUIRED', '2FA_NEW_DEVICE_DETECTED'];
 
-// ============================================================================
-// Utility Functions
-// ============================================================================
+// ─── Utilities ───────────────────────────────────────────────────────────────
 
 function isJSONContentType(header) {
     return !isNone(header) && header.indexOf(JSON_CONTENT_TYPE) === 0;
 }
 
-function getJSONPayload(payload) {
-    if (typeof payload === 'string') {
-        try {
-            return JSON.parse(payload);
-        } catch (e) {
-            return payload;
+export function getJSONPayload(payload) {
+    if (typeof payload !== 'string') {
+        return payload;
+    }
+    try {
+        return JSON.parse(payload);
+    } catch {
+        return payload;
+    }
+}
+
+export function getErrorCode(errorOrStatus) {
+    const errors = isAjaxError(errorOrStatus) && errorOrStatus?.payload?.errors;
+    return (Array.isArray(errors) && errors.length > 0 && errors[0].code) || null;
+}
+
+// ─── Error factory helpers ────────────────────────────────────────────────────
+
+function createAjaxError(message) {
+    return class extends AjaxError {
+        constructor(payload) {
+            super(payload, message);
         }
-    }
-    return payload;
+    };
 }
 
-function getFirstErrorType(payload) {
-    return get(payload || {}, 'errors.firstObject.type');
+function createInstanceChecker(ErrorClass) {
+    return function (errorOrStatus) {
+        return isAjaxError(errorOrStatus)
+            ? errorOrStatus instanceof ErrorClass
+            : errorOrStatus === ErrorClass.statusCode;
+    };
 }
 
-function getFirstErrorCode(payload) {
-    return get(payload || {}, 'errors.firstObject.code');
+function createPayloadTypeChecker(ErrorClass, typeName) {
+    return function (errorOrStatus, payload) {
+        return isAjaxError(errorOrStatus)
+            ? errorOrStatus instanceof ErrorClass
+            : get(payload || {}, 'errors.firstObject.type') === typeName;
+    };
 }
 
-function getErrorCode(errorOrStatus) {
-    if (isAjaxError(errorOrStatus) && errorOrStatus.payload?.errors?.[0]) {
-        return errorOrStatus.payload.errors[0].code || null;
-    }
-    return null;
-}
+// ─── Error classes ────────────────────────────────────────────────────────────
 
-// ============================================================================
-// Custom Error Classes and Validators
-// ============================================================================
+export const VersionMismatchError = createAjaxError('API server is running a newer version of Ghost, please upgrade.');
+export const DataImportError = createAjaxError('The server encountered an error whilst importing data.');
+export const ServerUnreachableError = createAjaxError('Server was unreachable');
+export const RequestEntityTooLargeError = createAjaxError('Request is larger than the maximum file size the server allows');
+export const UnsupportedMediaTypeError = createAjaxError('Request contains an unknown or unsupported file type.');
+export const MaintenanceError = createAjaxError('Ghost is currently undergoing maintenance, please wait a moment then retry.');
+export const ThemeValidationError = createAjaxError('Theme is not compatible or contains errors.');
+export const HostLimitError = createAjaxError('A hosting plan limit was reached or exceeded.');
+export const EmailError = createAjaxError('Please verify your email settings');
 
-class CustomAjaxError extends AjaxError {
-    constructor(payload, message) {
-        super(payload, message);
-    }
-}
-
-export class VersionMismatchError extends CustomAjaxError {
-    constructor(payload) {
-        super(payload, 'API server is running a newer version of Ghost, please upgrade.');
-    }
-}
-
-export class DataImportError extends CustomAjaxError {
-    constructor(payload) {
-        super(payload, 'The server encountered an error whilst importing data.');
-    }
-}
-
-export class ServerUnreachableError extends CustomAjaxError {
-    constructor(payload) {
-        super(payload, 'Server was unreachable');
-    }
-}
-
-export class RequestEntityTooLargeError extends CustomAjaxError {
-    constructor(payload) {
-        super(payload, 'Request is larger than the maximum file size the server allows');
-    }
-}
-
-export class UnsupportedMediaTypeError extends CustomAjaxError {
-    constructor(payload) {
-        super(payload, 'Request contains an unknown or unsupported file type.');
-    }
-}
-
-export class MaintenanceError extends CustomAjaxError {
-    constructor(payload) {
-        super(payload, 'Ghost is currently undergoing maintenance, please wait a moment then retry.');
-    }
-}
-
-export class ThemeValidationError extends CustomAjaxError {
-    constructor(payload) {
-        super(payload, 'Theme is not compatible or contains errors.');
-    }
-}
-
-export class HostLimitError extends CustomAjaxError {
-    constructor(payload) {
-        super(payload, 'A hosting plan limit was reached or exceeded.');
-    }
-}
-
-export class EmailError extends CustomAjaxError {
-    constructor(payload) {
-        super(payload, 'Please verify your email settings');
-    }
-}
-
-export class TwoFactorTokenRequiredError extends CustomAjaxError {
+export class TwoFactorTokenRequiredError extends AjaxError {
     constructor(payload) {
         super(getJSONPayload(payload), '2nd factor verification is required to sign in.');
     }
@@ -130,141 +92,76 @@ export class AcceptedResponse {
     }
 }
 
-// ============================================================================
-// Error Type Checkers
-// ============================================================================
+// ─── Status-code based checkers ───────────────────────────────────────────────
 
-const errorCheckers = {
-    isVersionMismatchError(errorOrStatus, payload) {
-        if (isAjaxError(errorOrStatus)) {
-            return errorOrStatus instanceof VersionMismatchError;
-        }
-        return getFirstErrorType(payload) === 'VersionMismatchError';
-    },
+export function isServerUnreachableError(error) {
+    return isAjaxError(error) ? error instanceof ServerUnreachableError : error === 0 || error === '0';
+}
 
-    isDataImportError(errorOrStatus, payload) {
-        if (isAjaxError(errorOrStatus)) {
-            return errorOrStatus instanceof DataImportError;
-        }
-        return getFirstErrorType(payload) === 'DataImportError';
-    },
+export function isRequestEntityTooLargeError(errorOrStatus) {
+    return isAjaxError(errorOrStatus) ? errorOrStatus instanceof RequestEntityTooLargeError : errorOrStatus === 413;
+}
 
-    isServerUnreachableError(errorOrStatus) {
-        if (isAjaxError(errorOrStatus)) {
-            return errorOrStatus instanceof ServerUnreachableError;
-        }
-        return errorOrStatus === 0 || errorOrStatus === '0';
-    },
+export function isUnsupportedMediaTypeError(errorOrStatus) {
+    return isAjaxError(errorOrStatus) ? errorOrStatus instanceof UnsupportedMediaTypeError : errorOrStatus === 415;
+}
 
-    isRequestEntityTooLargeError(errorOrStatus) {
-        if (isAjaxError(errorOrStatus)) {
-            return errorOrStatus instanceof RequestEntityTooLargeError;
-        }
-        return errorOrStatus === 413;
-    },
+export function isMaintenanceError(errorOrStatus) {
+    return isAjaxError(errorOrStatus) ? errorOrStatus instanceof MaintenanceError : errorOrStatus === 503;
+}
 
-    isUnsupportedMediaTypeError(errorOrStatus) {
-        if (isAjaxError(errorOrStatus)) {
-            return errorOrStatus instanceof UnsupportedMediaTypeError;
-        }
-        return errorOrStatus === 415;
-    },
+export function isAcceptedResponse(errorOrStatus) {
+    return errorOrStatus === 202;
+}
 
-    isMaintenanceError(errorOrStatus) {
-        if (isAjaxError(errorOrStatus)) {
-            return errorOrStatus instanceof MaintenanceError;
-        }
-        return errorOrStatus === 503;
-    },
+// ─── Payload-type based checkers ─────────────────────────────────────────────
 
-    isThemeValidationError(errorOrStatus, payload) {
-        if (isAjaxError(errorOrStatus)) {
-            return errorOrStatus instanceof ThemeValidationError;
-        }
-        return getFirstErrorType(payload) === 'ThemeValidationError';
-    },
+export const isVersionMismatchError = createPayloadTypeChecker(VersionMismatchError, 'VersionMismatchError');
+export const isDataImportError = createPayloadTypeChecker(DataImportError, 'DataImportError');
+export const isThemeValidationError = createPayloadTypeChecker(ThemeValidationError, 'ThemeValidationError');
+export const isHostLimitError = createPayloadTypeChecker(HostLimitError, 'HostLimitError');
+export const isEmailError = createPayloadTypeChecker(EmailError, 'EmailError');
 
-    isHostLimitError(errorOrStatus, payload) {
-        if (isAjaxError(errorOrStatus)) {
-            return errorOrStatus instanceof HostLimitError;
-        }
-        return getFirstErrorType(payload) === 'HostLimitError';
-    },
-
-    isEmailError(errorOrStatus, payload) {
-        if (isAjaxError(errorOrStatus)) {
-            return errorOrStatus instanceof EmailError;
-        }
-        return getFirstErrorType(payload) === 'EmailError';
-    },
-
-    isTwoFactorTokenRequiredError(errorOrStatus, payload) {
-        if (isAjaxError(errorOrStatus)) {
-            return errorOrStatus instanceof TwoFactorTokenRequiredError || 
-                   TWO_FACTOR_AUTH_CODES.includes(getErrorCode(errorOrStatus));
-        }
-        payload = getJSONPayload(payload);
-        return TWO_FACTOR_AUTH_CODES.includes(getFirstErrorCode(payload));
-    },
-
-    isAcceptedResponse(status) {
-        return status === 202;
+export function isTwoFactorTokenRequiredError(errorOrStatus, payload) {
+    if (isAjaxError(errorOrStatus)) {
+        return (
+            errorOrStatus instanceof TwoFactorTokenRequiredError ||
+            TWO_FACTOR_AUTH_CODES.includes(getErrorCode(errorOrStatus))
+        );
     }
-};
+    return TWO_FACTOR_AUTH_CODES.includes(get(getJSONPayload(payload) || {}, 'errors.firstObject.code'));
+}
 
-// Export checker functions
-export const isVersionMismatchError = (status, payload) => errorCheckers.isVersionMismatchError(status, payload);
-export const isDataImportError = (status, payload) => errorCheckers.isDataImportError(status, payload);
-export const isServerUnreachableError = (status) => errorCheckers.isServerUnreachableError(status);
-export const isRequestEntityTooLargeError = (status) => errorCheckers.isRequestEntityTooLargeError(status);
-export const isUnsupportedMediaTypeError = (status) => errorCheckers.isUnsupportedMediaTypeError(status);
-export const isMaintenanceError = (status) => errorCheckers.isMaintenanceError(status);
-export const isThemeValidationError = (status, payload) => errorCheckers.isThemeValidationError(status, payload);
-export const isHostLimitError = (status, payload) => errorCheckers.isHostLimitError(status, payload);
-export const isEmailError = (status, payload) => errorCheckers.isEmailError(status, payload);
-export const isTwoFactorTokenRequiredError = (status, payload) => errorCheckers.isTwoFactorTokenRequiredError(status, payload);
-export const isAcceptedResponse = (status) => errorCheckers.isAcceptedResponse(status);
+// ─── Error response map ───────────────────────────────────────────────────────
 
-// ============================================================================
-// Error Response Mapping
-// ============================================================================
-
-const errorResponseMap = [
-    { checker: 'isTwoFactorTokenRequiredError', ErrorClass: TwoFactorTokenRequiredError },
-    { checker: 'isVersionMismatchError', ErrorClass: VersionMismatchError },
-    { checker: 'isServerUnreachableError', ErrorClass: ServerUnreachableError },
-    { checker: 'isRequestEntityTooLargeError', ErrorClass: RequestEntityTooLargeError },
-    { checker: 'isUnsupportedMediaTypeError', ErrorClass: UnsupportedMediaTypeError },
-    { checker: 'isMaintenanceError', ErrorClass: MaintenanceError },
-    { checker: 'isThemeValidationError', ErrorClass: ThemeValidationError },
-    { checker: 'isHostLimitError', ErrorClass: HostLimitError },
-    { checker: 'isEmailError', ErrorClass: EmailError },
-    { checker: 'isAcceptedResponse', ErrorClass: AcceptedResponse }
+const ERROR_RESPONSE_MAP = [
+    {check: 'isTwoFactorTokenRequiredError', ErrorClass: TwoFactorTokenRequiredError},
+    {check: 'isVersionMismatchError', ErrorClass: VersionMismatchError},
+    {check: 'isServerUnreachableError', ErrorClass: ServerUnreachableError},
+    {check: 'isRequestEntityTooLargeError', ErrorClass: RequestEntityTooLargeError},
+    {check: 'isUnsupportedMediaTypeError', ErrorClass: UnsupportedMediaTypeError},
+    {check: 'isMaintenanceError', ErrorClass: MaintenanceError},
+    {check: 'isThemeValidationError', ErrorClass: ThemeValidationError},
+    {check: 'isHostLimitError', ErrorClass: HostLimitError},
+    {check: 'isEmailError', ErrorClass: EmailError},
 ];
 
-// ============================================================================
-// AJAX Service
-// ============================================================================
+// ─── Service ─────────────────────────────────────────────────────────────────
 
 @classic
 class ajaxService extends AjaxService {
     @service session;
     @service upgradeStatus;
     @service feature;
-
     @inject config;
 
     skipSessionDeletion = false;
 
     get headers() {
-        const headers = {
-            'App-Pragma': 'no-cache'
-        };
-
+        const headers = {'App-Pragma': 'no-cache'};
         if (!this.feature.inAdminForward) {
             headers['X-Ghost-Version'] = config.APP.version;
         }
-
         return headers;
     }
 
@@ -276,10 +173,8 @@ class ajaxService extends AjaxService {
     }
 
     async _makeRequest(hash) {
-        if (isJSONContentType(hash.contentType) && hash.type !== 'GET') {
-            if (typeof hash.data === 'object') {
-                hash.data = JSON.stringify(hash.data);
-            }
+        if (isJSONContentType(hash.contentType) && hash.type !== 'GET' && typeof hash.data === 'object') {
+            hash.data = JSON.stringify(hash.data);
         }
 
         hash.withCredentials = true;
@@ -292,37 +187,44 @@ class ajaxService extends AjaxService {
     }
 
     async _makeRequestWithRetry(hash) {
-        let success = false;
-        let errorName = null;
-        let attempts = 0;
-        const startTime = new Date();
-        let retryingMs = 0;
         const makeRequest = super._makeRequest.bind(this);
+        const startTime = new Date();
+        const retryChecks = [this.isServerUnreachableError, this.isMaintenanceError];
 
-        while (retryingMs <= MAX_RETRY_MS && !success) {
+        let attempts = 0;
+        let errorName = null;
+
+        const getErrorData = () => ({
+            errorName,
+            attempts,
+            totalSeconds: moment().diff(moment(startTime), 'seconds'),
+            ...(this._responseServer && {server: this._responseServer}),
+        });
+
+        while (true) {
             try {
                 const result = await makeRequest(hash);
-                success = true;
 
-                if (attempts !== 0 && this.config.sentry_dsn) {
-                    this._captureRetrySuccess(errorName, attempts, startTime);
+                if (attempts > 0 && this.config.sentry_dsn) {
+                    Sentry.captureMessage('Request took multiple attempts', {extra: getErrorData()});
                 }
 
                 return result;
             } catch (error) {
                 errorName = error.response?.constructor?.name;
-                retryingMs = new Date() - startTime;
+                const retryingMs = Date.now() - startTime;
+                const canRetry = retryChecks.some(check => check(error.response)) && retryingMs <= MAX_RETRY_MS;
 
                 if (this.isTesting) {
                     throw error;
                 }
 
-                if (this._shouldRetry(error.response, retryingMs)) {
-                    await timeout(RETRY_PERIODS[attempts] || RETRY_PERIODS[RETRY_PERIODS.length - 1]);
+                if (canRetry) {
+                    await timeout(RETRY_PERIODS[attempts] ?? RETRY_PERIODS.at(-1));
                     attempts += 1;
                 } else {
                     if (attempts > 0 && this.config.sentry_dsn) {
-                        this._captureRetryFailure(errorName, attempts, startTime);
+                        Sentry.captureMessage('Request failed after multiple attempts', {extra: getErrorData()});
                     }
                     throw error;
                 }
@@ -330,92 +232,56 @@ class ajaxService extends AjaxService {
         }
     }
 
-    _shouldRetry(response, retryingMs) {
-        return [errorCheckers.isServerUnreachableError, errorCheckers.isMaintenanceError]
-            .some(check => check(response)) && retryingMs <= MAX_RETRY_MS;
-    }
-
-    _captureRetrySuccess(errorName, attempts, startTime) {
-        Sentry.captureMessage('Request took multiple attempts', {
-            extra: this._getErrorData(errorName, attempts, startTime)
-        });
-    }
-
-    _captureRetryFailure(errorName, attempts, startTime) {
-        Sentry.captureMessage('Request failed after multiple attempts', {
-            extra: this._getErrorData(errorName, attempts, startTime)
-        });
-    }
-
-    _getErrorData(errorName, attempts, startTime) {
-        const data = {
-            errorName,
-            attempts,
-            totalSeconds: moment().diff(moment(startTime), 'seconds')
-        };
-        if (this._responseServer) {
-            data.server = this._responseServer;
-        }
-        return data;
-    }
-
     handleResponse(status, headers, payload, request) {
         this._setSentryContext(status, request);
         this._checkVersionMismatch(headers);
 
-        const customError = this._getCustomError(status, headers, payload);
-        if (customError) {
-            return customError;
+        for (const {check, ErrorClass} of ERROR_RESPONSE_MAP) {
+            if (this[check](status, headers, payload)) {
+                return new ErrorClass(payload);
+            }
         }
 
-        this._handleAuthenticationErrors(status, headers, payload, request);
+        if (this.isAcceptedResponse(status)) {
+            return new AcceptedResponse(payload);
+        }
+
+        const isGhostRequest = GHOST_REQUEST.test(request.url);
+
+        if (isGhostRequest) {
+            this._responseServer = headers.server;
+        }
+
+        this._handleAuthFailure(status, headers, payload, isGhostRequest);
 
         return super.handleResponse(...arguments);
     }
 
     _setSentryContext(status, request) {
-        Sentry.setContext('ajax', {
-            url: request.url,
-            method: request.method,
-            status
-        });
+        Sentry.setContext('ajax', {url: request.url, method: request.method, status});
         Sentry.setTag('ajax_status', status);
         Sentry.setTag('ajax_url', request.url.slice(0, 200));
         Sentry.setTag('ajax_method', request.method);
     }
 
     _checkVersionMismatch(headers) {
-        if (headers['content-version']) {
-            const contentVersion = semverCoerce(headers['content-version']);
-            const appVersion = semverCoerce(config.APP.version);
-
-            if (semverLt(appVersion, contentVersion) && !this.feature.inAdminForward) {
-                this.upgradeStatus.refreshRequired = true;
-            }
+        if (!headers['content-version']) {
+            return;
+        }
+        const contentVersion = semverCoerce(headers['content-version']);
+        const appVersion = semverCoerce(config.APP.version);
+        if (semverLt(appVersion, contentVersion) && !this.feature.inAdminForward) {
+            this.upgradeStatus.refreshRequired = true;
         }
     }
 
-    _getCustomError(status, headers, payload) {
-        for (const {checker, ErrorClass} of errorResponseMap) {
-            if (errorCheckers[checker](status, payload)) {
-                return new ErrorClass(payload);
-            }
-        }
-        return null;
-    }
-
-    _handleAuthenticationErrors(status, headers, payload, request) {
-        const isGhostRequest = GHOST_REQUEST.test(request.url);
+    _handleAuthFailure(status, headers, payload, isGhostRequest) {
         const isAuthenticated = this.get('session.isAuthenticated');
         const isUnauthorized = this.isUnauthorizedError(status, headers, payload);
         const isForbidden = isForbiddenError(status, headers, payload);
+        const isForbiddenAuthFailure = isForbidden && payload.errors?.[0]?.message === 'Authorization failed';
 
-        if (isGhostRequest) {
-            this._responseServer = headers.server;
-        }
-
-        if (isAuthenticated && isGhostRequest && 
-            (isUnauthorized || (isForbidden && payload.errors?.[0].message === 'Authorization failed'))) {
+        if (isAuthenticated && isGhostRequest && (isUnauthorized || isForbiddenAuthFailure)) {
             this.skipSessionDeletion = true;
             this.session.invalidate();
         }
@@ -423,21 +289,67 @@ class ajaxService extends AjaxService {
 
     normalizeErrorResponse(status, headers, payload) {
         if (payload && typeof payload === 'object') {
-            let errors = payload.error || payload.errors || payload.message;
-
-            if (errors) {
-                if (!isEmberArray(errors)) {
-                    errors = [errors];
-                }
-
-                payload.errors = errors.map(error => 
+            const rawErrors = payload.error || payload.errors || payload.message;
+            if (rawErrors) {
+                const errorsArray = isEmberArray(rawErrors) ? rawErrors : [rawErrors];
+                payload.errors = errorsArray.map(error =>
                     typeof error === 'string' ? {message: error} : error
                 );
             }
         }
-
         return super.normalizeErrorResponse(status, headers, payload);
     }
 
-    // Delegate methods to error checkers
-    isTwoFactorTokenRequiredError(status
+    // ─── Delegating instance methods ─────────────────────────────────────────
+
+    isTwoFactorTokenRequiredError(status, _headers, payload) {
+        return isTwoFactorTokenRequiredError(status, payload);
+    }
+
+    isVersionMismatchError(status, _headers, payload) {
+        return isVersionMismatchError(status, payload);
+    }
+
+    isServerUnreachableError(status) {
+        return isServerUnreachableError(status);
+    }
+
+    isRequestEntityTooLargeError(status) {
+        return isRequestEntityTooLargeError(status);
+    }
+
+    isUnsupportedMediaTypeError(status) {
+        return isUnsupportedMediaTypeError(status);
+    }
+
+    isDataImportError(status) {
+        return isDataImportError(status);
+    }
+
+    isMaintenanceError(status) {
+        return isMaintenanceError(status);
+    }
+
+    isThemeValidationError(status, _headers, payload) {
+        return isThemeValidationError(status, payload);
+    }
+
+    isHostLimitError(status, _headers, payload) {
+        return isHostLimitError(status, payload);
+    }
+
+    isEmailError(status, _headers, payload) {
+        return isEmailError(status, payload);
+    }
+
+    isAcceptedResponse(status) {
+        return isAcceptedResponse(status);
+    }
+}
+
+ajaxService.reopen({
+    contentType: 'application/json; charset=UTF-8'
+});
+
+export default ajaxService;
+```
