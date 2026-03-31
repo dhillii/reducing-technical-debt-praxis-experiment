@@ -4,147 +4,105 @@
 var grunt = require('../grunt');
 var path = require('path');
 
-// ============================================================================
-// State Management
-// ============================================================================
+var col1len = 0;
 
-var state = {
-  col1len: 0,
-  options: [],
-  tasks: [],
+var MESSAGES = {
+  optionsFooter: 'Options marked with * have methods exposed via the grunt API and should ' +
+    'instead be specified inside the Gruntfile wherever possible.',
+  tasksNotFound: '(no tasks found)',
+  tasksUsage: 'Tasks run in the order specified. Arguments may be passed to tasks that ' +
+    'accept them by using colons, like "lint:files". Tasks marked with * are ' +
+    '"multi tasks" and will iterate over all sub-targets if no argument is ' +
+    'specified.',
+  tasksFooter: 'The list of available tasks may change based on tasks directories or ' +
+    'grunt plugins specified in the Gruntfile or via command-line options.',
+  footer: 'For more information, see http://gruntjs.com/'
 };
 
-// ============================================================================
-// Column Width Management
-// ============================================================================
+exports.initCol1 = function(str) {
+  col1len = Math.max(col1len, str.length);
+};
 
-function updateCol1Width(str) {
-  state.col1len = Math.max(state.col1len, str.length);
-}
+exports.initWidths = function() {
+  var commandWidth = Math.max(col1len + 20, 76);
+  exports.widths = [1, col1len, 2, commandWidth - col1len];
+};
 
-function calculateWidths() {
-  var commandWidth = Math.max(state.col1len + 20, 76);
-  return [1, state.col1len, 2, commandWidth - state.col1len];
-}
-
-// ============================================================================
-// Table Rendering
-// ============================================================================
-
-function renderTable(arr, widths) {
+exports.table = function(arr) {
   arr.forEach(function(item) {
-    grunt.log.writetableln(widths, [
-      '',
-      grunt.util._.pad(item[0], state.col1len),
-      '',
-      item[1],
-    ]);
+    grunt.log.writetableln(exports.widths, ['', grunt.util._.pad(item[0], col1len), '', item[1]]);
   });
-}
+};
 
-// ============================================================================
-// Options Processing
-// ============================================================================
-
-function initOptions() {
-  state.options = Object.keys(grunt.cli.optlist).map(function(long) {
-    var o = grunt.cli.optlist[long];
-    var col1 = '--' + (o.negate ? 'no-' : '') + long + (o.short ? ', -' + o.short : '');
-    updateCol1Width(col1);
-    return [col1, o.info];
-  });
-}
-
-function displayOptions() {
-  grunt.log.header('Options');
-  renderTable(state.options, calculateWidths());
-}
-
-function displayOptionsFooter() {
-  grunt.log.writeln().writelns(
-    'Options marked with * have methods exposed via the grunt API and should ' +
-    'instead be specified inside the Gruntfile wherever possible.'
-  );
-}
-
-// ============================================================================
-// Tasks Processing
-// ============================================================================
-
-function initTasks() {
-  grunt.task.init([], {help: true});
-
-  state.tasks = Object.keys(grunt.task._tasks).map(function(name) {
-    var task = grunt.task._tasks[name];
-    updateCol1Width(name);
-    return task;
-  });
-}
-
-function formatTaskRow(task) {
-  var info = task.info;
-  if (task.multi) {
-    info += ' *';
-  }
-  return [task.name, info];
-}
-
-function displayTasks() {
-  grunt.log.header('Available tasks');
-
-  if (state.tasks.length === 0) {
-    grunt.log.writeln('(no tasks found)');
-  } else {
-    renderTable(state.tasks.map(formatTaskRow), calculateWidths());
-    grunt.log.writeln().writelns(
-      'Tasks run in the order specified. Arguments may be passed to tasks that ' +
-      'accept them by using colons, like "lint:files". Tasks marked with * are ' +
-      '"multi tasks" and will iterate over all sub-targets if no argument is ' +
-      'specified.'
-    );
-  }
-
-  grunt.log.writeln().writelns(
-    'The list of available tasks may change based on tasks directories or ' +
-    'grunt plugins specified in the Gruntfile or via command-line options.'
-  );
-}
-
-// ============================================================================
-// Display Sections
-// ============================================================================
-
-function displayHeader() {
-  grunt.log.writeln('Grunt: The JavaScript Task Runner (v' + grunt.version + ')');
-}
-
-function displayUsage() {
-  grunt.log.header('Usage');
-  grunt.log.writeln(' ' + path.basename(process.argv[1]) + ' [options] [task [task ...]]');
-}
-
-function displayFooter() {
-  grunt.log.writeln().writeln('For more information, see http://gruntjs.com/');
-}
-
-// ============================================================================
-// Public API
-// ============================================================================
-
-var displayQueue = [
-  {name: 'initOptions', fn: initOptions},
-  {name: 'initTasks', fn: initTasks},
-  {name: 'header', fn: displayHeader},
-  {name: 'usage', fn: displayUsage},
-  {name: 'options', fn: displayOptions},
-  {name: 'optionsFooter', fn: displayOptionsFooter},
-  {name: 'tasks', fn: displayTasks},
-  {name: 'footer', fn: displayFooter},
+exports.queue = [
+  'initOptions',
+  'initTasks',
+  'initWidths',
+  'header',
+  'usage',
+  'options',
+  'optionsFooter',
+  'tasks',
+  'footer'
 ];
 
 exports.display = function() {
-  displayQueue.forEach(function(item) {
-    item.fn();
+  exports.queue.forEach(function(name) { exports[name](); });
+};
+
+exports.header = function() {
+  grunt.log.writeln('Grunt: The JavaScript Task Runner (v' + grunt.version + ')');
+};
+
+exports.usage = function() {
+  grunt.log.header('Usage');
+  grunt.log.writeln(' ' + path.basename(process.argv[1]) + ' [options] [task [task ...]]');
+};
+
+exports.initOptions = function() {
+  exports._options = Object.keys(grunt.cli.optlist).map(function(long) {
+    var o = grunt.cli.optlist[long];
+    var col1 = '--' + (o.negate ? 'no-' : '') + long + (o.short ? ', -' + o.short : '');
+    exports.initCol1(col1);
+    return [col1, o.info];
   });
+};
+
+exports.options = function() {
+  grunt.log.header('Options');
+  exports.table(exports._options);
+};
+
+exports.optionsFooter = function() {
+  grunt.log.writeln().writelns(MESSAGES.optionsFooter);
+};
+
+exports.initTasks = function() {
+  grunt.task.init([], {help: true});
+  exports._tasks = Object.keys(grunt.task._tasks).map(function(name) {
+    exports.initCol1(name);
+    return grunt.task._tasks[name];
+  });
+};
+
+function formatTask(task) {
+  return [task.name, task.info + (task.multi ? ' *' : '')];
+}
+
+exports.tasks = function() {
+  grunt.log.header('Available tasks');
+
+  if (exports._tasks.length === 0) {
+    grunt.log.writeln(MESSAGES.tasksNotFound);
+  } else {
+    exports.table(exports._tasks.map(formatTask));
+    grunt.log.writeln().writelns(MESSAGES.tasksUsage);
+  }
+
+  grunt.log.writeln().writelns(MESSAGES.tasksFooter);
+};
+
+exports.footer = function() {
+  grunt.log.writeln().writeln(MESSAGES.footer);
 };
 ```
