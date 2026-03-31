@@ -207,7 +207,7 @@ class BatchRunOrchestrator:
                 logger.warning(f"Error loading source code for {record_id}: {e}")
                 continue
 
-            prompt = self._build_prompt(run.condition, row, source_code)
+            prompt = self._build_prompt(record_id, source_code)
             system_prompt = self._get_system_prompt(run.condition)
 
             requests.append({
