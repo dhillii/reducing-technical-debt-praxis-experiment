@@ -1,7 +1,20 @@
 ```javascript
+/**
+ * @fileoverview This rule sets a specific indentation style and width for your code
+ *
+ * @author Teddy Katz
+ * @author Vitaly Puzrin
+ * @author Gyandeep Singh
+ * @deprecated in ESLint v8.53.0
+ */
+
 "use strict";
 
 const astUtils = require("./utils/ast-utils");
+
+//------------------------------------------------------------------------------
+// Constants
+//------------------------------------------------------------------------------
 
 const KNOWN_NODES = new Set([
 	"AssignmentExpression", "AssignmentPattern", "ArrayExpression", "ArrayPattern",
@@ -27,6 +40,39 @@ const KNOWN_NODES = new Set([
 	"ImportNamespaceSpecifier", "ImportExpression",
 ]);
 
+const UNARY_OPERATORS_FOR_IIFE = new Set(["!", "~", "+", "-"]);
+const IIFE_ANCESTOR_TYPES = new Set([
+	"UnaryExpression", "AssignmentExpression", "LogicalExpression",
+	"SequenceExpression", "VariableDeclarator",
+]);
+
+const ELEMENT_LIST_SCHEMA = {
+	oneOf: [
+		{ type: "integer", minimum: 0 },
+		{ enum: ["first", "off"] },
+	],
+};
+
+const INTEGER_OR_OFF_SCHEMA = {
+	oneOf: [
+		{ type: "integer", minimum: 0 },
+		{ enum: ["off"] },
+	],
+};
+
+const FUNCTION_SCHEMA = {
+	type: "object",
+	properties: {
+		parameters: ELEMENT_LIST_SCHEMA,
+		body: { type: "integer", minimum: 0 },
+	},
+	additionalProperties: false,
+};
+
+//------------------------------------------------------------------------------
+// IndexMap
+//------------------------------------------------------------------------------
+
 class IndexMap {
 	constructor(maxKey) {
 		this._values = Array(maxKey + 1);
@@ -42,25 +88,27 @@ class IndexMap {
 				return this._values[index];
 			}
 		}
-		return undefined;
+		return void 0;
 	}
 
 	deleteRange(start, end) {
-		this._values.fill(undefined, start, end);
+		this._values.fill(void 0, start, end);
 	}
 }
+
+//------------------------------------------------------------------------------
+// TokenInfo
+//------------------------------------------------------------------------------
 
 class TokenInfo {
 	constructor(sourceCode) {
 		this.sourceCode = sourceCode;
 		this.firstTokensByLineNumber = new Map();
-		this._initializeFirstTokens();
+		this._buildLineMap(sourceCode.tokensAndComments);
 	}
 
-	_initializeFirstTokens() {
-		const tokens = this.sourceCode.tokensAndComments;
-		for (let i = 0; i < tokens.length; i++) {
-			const token = tokens[i];
+	_buildLineMap(tokens) {
+		for (const token of tokens) {
 			const startLine = token.loc.start.line;
 			const endLine = token.loc.end.line;
 
@@ -68,18 +116,15 @@ class TokenInfo {
 				this.firstTokensByLineNumber.set(startLine, token);
 			}
 
-			if (!this.firstTokensByLineNumber.has(endLine) && this._hasContentAfterToken(token)) {
+			if (
+				!this.firstTokensByLineNumber.has(endLine) &&
+				this.sourceCode.text
+					.slice(token.range[1] - token.loc.end.column, token.range[1])
+					.trim()
+			) {
 				this.firstTokensByLineNumber.set(endLine, token);
 			}
 		}
-	}
-
-	_hasContentAfterToken(token) {
-		const textAfter = this.sourceCode.text.slice(
-			token.range[1] - token.loc.end.column,
-			token.range[1],
-		);
-		return textAfter.trim().length > 0;
 	}
 
 	getFirstTokenOfLine(token) {
@@ -98,13 +143,19 @@ class TokenInfo {
 	}
 }
 
+//------------------------------------------------------------------------------
+// OffsetStorage
+//------------------------------------------------------------------------------
+
 class OffsetStorage {
 	constructor(tokenInfo, indentSize, indentType, maxIndex) {
 		this._tokenInfo = tokenInfo;
 		this._indentSize = indentSize;
 		this._indentType = indentType;
+
 		this._indexMap = new IndexMap(maxIndex);
 		this._indexMap.insert(0, { offset: 0, from: null, force: false });
+
 		this._lockedFirstTokens = new WeakMap();
 		this._desiredIndentCache = new WeakMap();
 		this._ignoredTokens = new WeakSet();
@@ -125,8 +176,13 @@ class OffsetStorage {
 	setDesiredOffsets(range, fromToken, offset, force) {
 		const descriptorToInsert = { offset, from: fromToken, force };
 		const descriptorAfterRange = this._indexMap.findLastNotAfter(range[1]);
-		const fromTokenIsInRange = fromToken && this._isTokenInRange(fromToken, range);
-		const fromTokenDescriptor = fromTokenIsInRange && this._getOffsetDescriptor(fromToken);
+
+		const fromTokenIsInRange =
+			fromToken &&
+			fromToken.range[0] >= range[0] &&
+			fromToken.range[1] <= range[1];
+		const fromTokenDescriptor =
+			fromTokenIsInRange && this._getOffsetDescriptor(fromToken);
 
 		this._indexMap.deleteRange(range[0] + 1, range[1]);
 		this._indexMap.insert(range[0], descriptorToInsert);
@@ -139,47 +195,49 @@ class OffsetStorage {
 		this._indexMap.insert(range[1], descriptorAfterRange);
 	}
 
-	_isTokenInRange(token, range) {
-		return token.range[0] >= range[0] && token.range[1] <= range[1];
-	}
-
 	getDesiredIndent(token) {
 		if (this._desiredIndentCache.has(token)) {
 			return this._desiredIndentCache.get(token);
 		}
 
-		let desiredIndent;
+		let indent;
 
 		if (this._ignoredTokens.has(token)) {
-			desiredIndent = this._tokenInfo.getTokenIndent(token);
+			indent = this._tokenInfo.getTokenIndent(token);
 		} else if (this._lockedFirstTokens.has(token)) {
-			desiredIndent = this._getLockedTokenIndent(token);
+			indent = this._computeLockedIndent(token);
 		} else {
-			desiredIndent = this._getComputedIndent(token);
+			indent = this._computeOffsetIndent(token);
 		}
 
-		this._desiredIndentCache.set(token, desiredIndent);
-		return desiredIndent;
+		this._desiredIndentCache.set(token, indent);
+		return indent;
 	}
 
-	_getLockedTokenIndent(token) {
+	_computeLockedIndent(token) {
 		const firstToken = this._lockedFirstTokens.get(token);
 		const firstTokenOfLine = this._tokenInfo.getFirstTokenOfLine(firstToken);
-		const baseIndent = this.getDesiredIndent(firstTokenOfLine);
-		const columnOffset = firstToken.loc.start.column - firstTokenOfLine.loc.start.column;
-		return baseIndent + this._indentType.repeat(columnOffset);
+
+		return (
+			this.getDesiredIndent(firstTokenOfLine) +
+			this._indentType.repeat(
+				firstToken.loc.start.column - firstTokenOfLine.loc.start.column,
+			)
+		);
 	}
 
-	_getComputedIndent(token) {
+	_computeOffsetIndent(token) {
 		const offsetInfo = this._getOffsetDescriptor(token);
-		const shouldCollapseOffset = offsetInfo.from &&
-			offsetInfo.from.loc.start.line === token.loc.start.line &&
-			!/^\s*?\n/u.test(offsetInfo.from.value) &&
-			!offsetInfo.force;
+		const isSameLine =
+			offsetInfo.from &&
+			offsetInfo.from.loc.start.line === token.loc.start.line;
+		const shouldCollapse =
+			isSameLine && !/^\s*?\n/u.test(token.value) && !offsetInfo.force;
 
-		const offset = shouldCollapseOffset ? 0 : offsetInfo.offset * this._indentSize;
-		const baseIndent = offsetInfo.from ? this.getDesiredIndent(offsetInfo.from) : "";
-		return baseIndent + this._indentType.repeat(offset);
+		const offset = shouldCollapse ? 0 : offsetInfo.offset * this._indentSize;
+		const base = offsetInfo.from ? this.getDesiredIndent(offsetInfo.from) : "";
+
+		return base + this._indentType.repeat(offset);
 	}
 
 	ignoreToken(token) {
@@ -193,19 +251,11 @@ class OffsetStorage {
 	}
 }
 
-const ELEMENT_LIST_SCHEMA = {
-	oneOf: [
-		{ type: "integer", minimum: 0 },
-		{ enum: ["first", "off"] },
-	],
-};
+//------------------------------------------------------------------------------
+// Rule Definition
+//------------------------------------------------------------------------------
 
-const DEFAULT_INDENT_CONFIG = {
-	VARIABLE: 1,
-	PARAMETER: 1,
-	FUNCTION_BODY: 1,
-};
-
+/** @type {import('../types').Rule.RuleModule} */
 module.exports = {
 	meta: {
 		deprecated: {
@@ -213,18 +263,20 @@ module.exports = {
 			url: "https://eslint.org/blog/2023/10/deprecating-formatting-rules/",
 			deprecatedSince: "8.53.0",
 			availableUntil: "11.0.0",
-			replacedBy: [{
-				message: "ESLint Stylistic now maintains deprecated stylistic core rules.",
-				url: "https://eslint.style/guide/migration",
-				plugin: {
-					name: "@stylistic/eslint-plugin",
-					url: "https://eslint.style",
+			replacedBy: [
+				{
+					message: "ESLint Stylistic now maintains deprecated stylistic core rules.",
+					url: "https://eslint.style/guide/migration",
+					plugin: {
+						name: "@stylistic/eslint-plugin",
+						url: "https://eslint.style",
+					},
+					rule: {
+						name: "indent",
+						url: "https://eslint.style/rules/indent",
+					},
 				},
-				rule: {
-					name: "indent",
-					url: "https://eslint.style/rules/indent",
-				},
-			}],
+			],
 		},
 		type: "layout",
 		docs: {
@@ -258,34 +310,10 @@ module.exports = {
 							},
 						],
 					},
-					outerIIFEBody: {
-						oneOf: [
-							{ type: "integer", minimum: 0 },
-							{ enum: ["off"] },
-						],
-					},
-					MemberExpression: {
-						oneOf: [
-							{ type: "integer", minimum: 0 },
-							{ enum: ["off"] },
-						],
-					},
-					FunctionDeclaration: {
-						type: "object",
-						properties: {
-							parameters: ELEMENT_LIST_SCHEMA,
-							body: { type: "integer", minimum: 0 },
-						},
-						additionalProperties: false,
-					},
-					FunctionExpression: {
-						type: "object",
-						properties: {
-							parameters: ELEMENT_LIST_SCHEMA,
-							body: { type: "integer", minimum: 0 },
-						},
-						additionalProperties: false,
-					},
+					outerIIFEBody: INTEGER_OR_OFF_SCHEMA,
+					MemberExpression: INTEGER_OR_OFF_SCHEMA,
+					FunctionDeclaration: FUNCTION_SCHEMA,
+					FunctionExpression: FUNCTION_SCHEMA,
 					StaticBlock: {
 						type: "object",
 						properties: {
@@ -295,9 +323,7 @@ module.exports = {
 					},
 					CallExpression: {
 						type: "object",
-						properties: {
-							arguments: ELEMENT_LIST_SCHEMA,
-						},
+						properties: { arguments: ELEMENT_LIST_SCHEMA },
 						additionalProperties: false,
 					},
 					ArrayExpression: ELEMENT_LIST_SCHEMA,
@@ -323,21 +349,20 @@ module.exports = {
 	},
 
 	create(context) {
-		const { indentSize, indentType } = this._parseIndentConfig(context);
-		const options = this._buildOptions(context, indentSize);
-		const sourceCode = context.sourceCode;
-		const tokenInfo = new TokenInfo(sourceCode);
-		const offsets = new OffsetStorage(tokenInfo, indentSize, indentType, sourceCode.text.length);
-		const parameterParens = new WeakSet();
+		const DEFAULT_VARIABLE_INDENT = 1;
+		const DEFAULT_PARAMETER_INDENT = 1;
+		const DEFAULT_FUNCTION_BODY_INDENT = 1;
 
-		return this._createListeners(context, sourceCode, tokenInfo, offsets, parameterParens, options, indentType);
-	},
-
-	_parseIndentConfig(context) {
-		let indentSize = 4;
 		let indentType = "space";
+		let indentSize = 4;
 
-		if (context.options.length && context.options[0]) {
+		const options = buildOptions(context.options, {
+			DEFAULT_VARIABLE_INDENT,
+			DEFAULT_PARAMETER_INDENT,
+			DEFAULT_FUNCTION_BODY_INDENT,
+		});
+
+		if (context.options.length) {
 			if (context.options[0] === "tab") {
 				indentSize = 1;
 				indentType = "tab";
@@ -347,66 +372,64 @@ module.exports = {
 			}
 		}
 
-		return { indentSize, indentType };
-	},
-
-	_buildOptions(context, indentSize) {
-		const options = {
-			SwitchCase: 0,
-			VariableDeclarator: {
-				var: DEFAULT_INDENT_CONFIG.VARIABLE,
-				let: DEFAULT_INDENT_CONFIG.VARIABLE,
-				const: DEFAULT_INDENT_CONFIG.VARIABLE,
-			},
-			outerIIFEBody: 1,
-			FunctionDeclaration: {
-				parameters: DEFAULT_INDENT_CONFIG.PARAMETER,
-				body: DEFAULT_INDENT_CONFIG.FUNCTION_BODY,
-			},
-			FunctionExpression: {
-				parameters: DEFAULT_INDENT_CONFIG.PARAMETER,
-				body: DEFAULT_INDENT_CONFIG.FUNCTION_BODY,
-			},
-			StaticBlock: {
-				body: DEFAULT_INDENT_CONFIG.FUNCTION_BODY,
-			},
-			CallExpression: {
-				arguments: DEFAULT_INDENT_CONFIG.PARAMETER,
-			},
-			MemberExpression: 1,
-			ArrayExpression: 1,
-			ObjectExpression: 1,
-			ImportDeclaration: 1,
-			flatTernaryExpressions: false,
-			ignoredNodes: [],
-			ignoreComments: false,
-		};
-
-		if (context.options[1]) {
-			Object.assign(options, context.options[1]);
-			this._normalizeVariableDeclaratorOption(options);
-		}
-
-		return options;
-	},
-
-	_normalizeVariableDeclaratorOption(options) {
-		if (typeof options.VariableDeclarator === "number" || options.VariableDeclarator === "first") {
-			options.VariableDeclarator = {
-				var: options.VariableDeclarator,
-				let: options.VariableDeclarator,
-				const: options.VariableDeclarator,
-			};
-		}
-	},
-
-	_createListeners(context, sourceCode, tokenInfo, offsets, parameterParens, options, indentType) {
-		const ignoredNodes = new Set();
-		const ignoredNodeFirstTokens = new Set();
-		const listenerCallQueue = [];
-
-		const baseOffsetListeners = this._buildOffsetListeners(
-			sourceCode, tokenInfo, offsets, parameterParens, options, indentType
+		const sourceCode = context.sourceCode;
+		const tokenInfo = new TokenInfo(sourceCode);
+		const offsets = new OffsetStorage(
+			tokenInfo,
+			indentSize,
+			indentType === "space" ? " " : "\t",
+			sourceCode.text.length,
 		);
+		const parameterParens = new WeakSet();
 
-		const offsetListeners
+		//--------------------------------------------------------------------------
+		// Helper functions
+		//--------------------------------------------------------------------------
+
+		function createErrorMessageData(expectedAmount, actualSpaces, actualTabs) {
+			const expectedStatement = `${expectedAmount} ${indentType}${expectedAmount === 1 ? "" : "s"}`;
+			let foundStatement;
+
+			if (actualSpaces > 0) {
+				foundStatement = indentType === "space"
+					? actualSpaces
+					: `${actualSpaces} space${actualSpaces === 1 ? "" : "s"}`;
+			} else if (actualTabs > 0) {
+				foundStatement = indentType === "tab"
+					? actualTabs
+					: `${actualTabs} tab${actualTabs === 1 ? "" : "s"}`;
+			} else {
+				foundStatement = "0";
+			}
+
+			return { expected: expectedStatement, actual: foundStatement };
+		}
+
+		function report(token, neededIndent) {
+			const actualIndent = Array.from(tokenInfo.getTokenIndent(token));
+			const numSpaces = actualIndent.filter(char => char === " ").length;
+			const numTabs = actualIndent.filter(char => char === "\t").length;
+
+			context.report({
+				node: token,
+				messageId: "wrongIndentation",
+				data: createErrorMessageData(neededIndent.length, numSpaces, numTabs),
+				loc: {
+					start: { line: token.loc.start.line, column: 0 },
+					end: { line: token.loc.start.line, column: token.loc.start.column },
+				},
+				fix(fixer) {
+					return fixer.replaceTextRange(
+						[token.range[0] - token.loc.start.column, token.range[0]],
+						neededIndent,
+					);
+				},
+			});
+		}
+
+		function validateTokenIndent(token, desiredIndent) {
+			const indentation = tokenInfo.getTokenIndent(token);
+
+			return (
+				indentation === desiredIndent ||
+				(
