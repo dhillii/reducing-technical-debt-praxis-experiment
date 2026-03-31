@@ -11,215 +11,107 @@ const messages = {
     notEnoughPermission: 'You do not have permission to perform this action'
 };
 
-class PostModelExtension {
-    constructor(Post, Posts, ghostBookshelf) {
-        this.Post = Post;
-        this.Posts = Posts;
-        this.ghostBookshelf = ghostBookshelf;
-        this.proto = Post.prototype;
+const FETCH_HOOKS = ['onFetching', 'onFetchingCollection'];
+
+function normalizeWithRelated(options) {
+    if (!options.withRelated) {
+        options.withRelated = [];
     }
 
-    normalizeWithRelated(options) {
-        if (!options.withRelated) {
-            options.withRelated = [];
-        }
-
-        const authorIndex = options.withRelated.indexOf('author');
-        if (authorIndex !== -1) {
-            options.withRelated.splice(authorIndex, 1);
-            options.withRelated.push('authors');
-        }
-    }
-
-    shouldFetchAuthorsForUpdate(fnName, options) {
-        return options.forUpdate &&
-            ['onFetching', 'onFetchingCollection'].includes(fnName) &&
-            !options.withRelated.includes('authors');
-    }
-
-    createHandleOptions(fnName) {
-        return (model, attrs, options) => {
-            model._originalOptions = _.cloneDeep(_.pick(options, ['withRelated']));
-
-            this.normalizeWithRelated(options);
-
-            if (this.shouldFetchAuthorsForUpdate(fnName, options)) {
-                options.withRelated.push('authors');
-            }
-
-            return this.proto[fnName].call(this, model, attrs, options);
-        };
-    }
-
-    async getContextUser(options) {
-        return this.ghostBookshelf.model('User').contextUser(options);
-    }
-
-    validateAuthors(model) {
-        if (model.get('authors') && !model.get('authors').length) {
-            throw new errors.ValidationError({
-                message: 'At least one author is required.'
-            });
-        }
-    }
-
-    async matchAuthors(model, options) {
-        const ownerUser = await this.ghostBookshelf
-            .model('User')
-            .getOwnerUser(_.pick(options, 'transacting'));
-
-        const authors = model.get('authors');
-        const authorsToSet = [];
-
-        await Promise.all(authors.map(async (author, index) => {
-            const query = this.buildAuthorQuery(author);
-            const user = await this.ghostBookshelf
-                .model('User')
-                .where(query)
-                .fetch(Object.assign({columns: ['id']}, _.pick(options, 'transacting')));
-
-            const userId = user ? user.id : ownerUser.id;
-            const userExists = _.find(authorsToSet, {id: userId});
-
-            if (!userExists) {
-                authorsToSet[index] = {id: userId};
-            }
-        }));
-
-        model.set('authors', authorsToSet);
-    }
-
-    buildAuthorQuery(author) {
-        if (author.id) return {id: author.id};
-        if (author.slug) return {slug: author.slug};
-        if (author.email) return {email: author.email};
-        return {};
-    }
-
-    shouldIncludeAuthorsInSerialization(originalOptions) {
-        return originalOptions &&
-            originalOptions.withRelated &&
-            originalOptions.withRelated.includes('authors');
-    }
-
-    attachPrimaryAuthor(attrs, options) {
-        if (!options.columns || options.columns.includes('primary_author')) {
-            attrs.primary_author = attrs.authors?.length ? attrs.authors[0] : null;
-        }
+    const authorIndex = options.withRelated.indexOf('author');
+    if (authorIndex !== -1) {
+        options.withRelated.splice(authorIndex, 1);
+        options.withRelated.push('authors');
     }
 }
 
-class PostPermissions {
-    constructor(Post, ghostBookshelf) {
-        this.Post = Post;
-        this.ghostBookshelf = ghostBookshelf;
-    }
-
-    async getOwnerUserId(trx) {
-        const ownerUser = await this.ghostBookshelf.knex('roles')
-            .transacting(trx)
-            .join('roles_users', 'roles.id', '=', 'roles_users.role_id')
-            .where('roles.name', 'Owner')
-            .select('roles_users.user_id');
-        return ownerUser[0].user_id;
-    }
-
-    async getAuthorsPosts(authorId, trx) {
-        return this.ghostBookshelf.knex('posts_authors')
-            .transacting(trx)
-            .where('author_id', authorId)
-            .select('post_id', 'sort_order');
-    }
-
-    async getOwnersPosts(ownerId, trx) {
-        return this.ghostBookshelf.knex('posts_authors')
-            .transacting(trx)
-            .where('author_id', ownerId)
-            .select('post_id');
-    }
-
-    async removeAuthorFromPosts(postIds, authorId, trx) {
-        await this.ghostBookshelf.knex('posts_authors')
-            .transacting(trx)
-            .whereIn('post_id', postIds)
-            .where('author_id', authorId)
-            .del();
-    }
-
-    async updateAuthorSortOrder(postIds, authorId, sortOrder, trx) {
-        await this.ghostBookshelf.knex('posts_authors')
-            .transacting(trx)
-            .whereIn('post_id', postIds)
-            .where('author_id', authorId)
-            .update('sort_order', sortOrder);
-    }
-
-    async replaceAuthor(postIds, oldAuthorId, newAuthorId, trx) {
-        await this.ghostBookshelf.knex('posts_authors')
-            .transacting(trx)
-            .whereIn('post_id', postIds)
-            .where('author_id', oldAuthorId)
-            .update('author_id', newAuthorId);
-    }
+function shouldAddAuthorsForUpdate(fnName, options) {
+    return options.forUpdate &&
+        FETCH_HOOKS.includes(fnName) &&
+        !options.withRelated.includes('authors');
 }
 
-class PostPermissionChecker {
-    constructor(postModel, context, unsafeAttrs) {
-        this.postModel = postModel;
-        this.context = context;
-        this.unsafeAttrs = unsafeAttrs;
+function buildAuthorQuery(author) {
+    if (author.id) return {id: author.id};
+    if (author.slug) return {slug: author.slug};
+    if (author.email) return {email: author.email};
+    return {};
+}
+
+function resolveAuthorId(user, ownerUser) {
+    return user ? user.id : ownerUser.id;
+}
+
+function isChangingAuthors(unsafeAttrs, postModel) {
+    if (!unsafeAttrs.authors) return false;
+    if (!unsafeAttrs.authors.length) return true;
+    return unsafeAttrs.authors[0].id !== postModel.related('authors').models[0].id;
+}
+
+function isOwner(unsafeAttrs, context) {
+    if (!unsafeAttrs.authors) return false;
+    return unsafeAttrs.authors.length > 0 && unsafeAttrs.authors[0].id === context.user;
+}
+
+function isPrimaryAuthor(postModel, context) {
+    return context.user === postModel.related('authors').models[0].id;
+}
+
+function isCoAuthor(postModel, context) {
+    return postModel.related('authors').models.map(a => a.id).includes(context.user);
+}
+
+function resolveUserPermission({isContributor, isAuthor, isEdit, isAdd, isDestroy, postModel, unsafeAttrs, context, hasUserPermission}) {
+    if (isContributor && isEdit) {
+        return !isChangingAuthors(unsafeAttrs, postModel) && isCoAuthor(postModel, context);
     }
-
-    isChangingAuthors() {
-        if (!this.unsafeAttrs.authors) {
-            return false;
-        }
-
-        if (!this.unsafeAttrs.authors.length) {
-            return true;
-        }
-
-        const currentPrimaryAuthorId = this.postModel.related('authors').models[0]?.id;
-        return this.unsafeAttrs.authors[0].id !== currentPrimaryAuthorId;
+    if (isContributor && isAdd) {
+        return isOwner(unsafeAttrs, context);
     }
-
-    isOwner() {
-        if (!this.unsafeAttrs.authors?.length) {
-            return false;
-        }
-
-        return this.unsafeAttrs.authors[0].id === this.context.user;
+    if (isContributor && isDestroy) {
+        return isPrimaryAuthor(postModel, context);
     }
-
-    isPrimaryAuthor() {
-        const primaryAuthorId = this.postModel.related('authors').models[0]?.id;
-        return this.context.user === primaryAuthorId;
+    if (isAuthor && isEdit) {
+        return isCoAuthor(postModel, context) && !isChangingAuthors(unsafeAttrs, postModel);
     }
-
-    isCoAuthor() {
-        const authorIds = this.postModel.related('authors').models.map(author => author.id);
-        return authorIds.includes(this.context.user);
+    if (isAuthor && isAdd) {
+        return isOwner(unsafeAttrs, context);
     }
+    if (postModel) {
+        return hasUserPermission || isPrimaryAuthor(postModel, context);
+    }
+    return hasUserPermission;
 }
 
 module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
-    const extension = new PostModelExtension(Post, Posts, ghostBookshelf);
-    const proto = extension.proto;
+    const proto = Post.prototype;
 
     const Model = Post.extend({
-        _handleOptions(fnName) {
-            return extension.createHandleOptions(fnName);
+        _handleOptions: function _handleOptions(fnName) {
+            const self = this;
+
+            return function innerHandleOptions(model, attrs, options) {
+                model._originalOptions = _.cloneDeep(_.pick(options, ['withRelated']));
+
+                normalizeWithRelated(options);
+
+                if (shouldAddAuthorsForUpdate(fnName, options)) {
+                    options.withRelated.push('authors');
+                }
+
+                return proto[fnName].call(self, model, attrs, options);
+            };
         },
 
-        onFetching(model, attrs, options) {
+        onFetching: function onFetching(model, attrs, options) {
             return this._handleOptions('onFetching')(model, attrs, options);
         },
 
-        onFetchingCollection(collection, attrs, options) {
+        onFetchingCollection: function onFetchingCollection(collection, attrs, options) {
             return this._handleOptions('onFetchingCollection')(collection, attrs, options);
         },
 
-        onFetchedCollection(collection, attrs, options) {
+        onFetchedCollection: function onFetchedCollection(collection, attrs, options) {
             _.each(collection.models, (model) => {
                 model._originalOptions = collection._originalOptions;
             });
@@ -227,27 +119,32 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             return proto.onFetchedCollection.call(this, collection, attrs, options);
         },
 
-        async onCreating(model, attrs, options) {
+        onCreating: async function onCreating(model, attrs, options) {
             if (!model.get('authors')) {
-                const userId = await extension.getContextUser(options);
-                model.set('authors', [{id: userId}]);
+                model.set('authors', [{id: await this.contextUser(options)}]);
             }
 
             return this._handleOptions('onCreating')(model, attrs, options);
         },
 
-        onUpdating(model, attrs, options) {
+        onUpdating: function onUpdating(model, attrs, options) {
             return this._handleOptions('onUpdating')(model, attrs, options);
         },
 
-        onSaving(model, attrs, options) {
-            model.unset('author');
-            extension.validateAuthors(model);
-
+        onSaving: function onSaving(model, attrs, options) {
             const ops = [];
 
+            /** @deprecated: single authors superseded by multiple authors in Ghost 1.22.0 */
+            model.unset('author');
+
+            if (model.get('authors') && !model.get('authors').length) {
+                throw new errors.ValidationError({
+                    message: 'At least one author is required.'
+                });
+            }
+
             if (model.get('authors')) {
-                ops.push(() => extension.matchAuthors(model, options));
+                ops.push(() => this.matchAuthors(model, options));
             }
 
             ops.push(() => proto.onSaving.call(this, model, attrs, options));
@@ -255,48 +152,119 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             return sequence(ops);
         },
 
-        serialize(options) {
+        serialize: function serialize(options) {
             let attrs = proto.serialize.call(this, options);
 
-            this._originalOptions = this._originalOptions || {};
+            const originalOptions = this._originalOptions || {};
+            const requestedAuthors = originalOptions.withRelated && originalOptions.withRelated.includes('authors');
 
-            if (!extension.shouldIncludeAuthorsInSerialization(this._originalOptions)) {
+            if (!requestedAuthors) {
                 delete attrs.authors;
             }
 
-            extension.attachPrimaryAuthor(attrs, options);
+            const includesPrimaryAuthor = !options.columns || options.columns.includes('primary_author');
+            if (includesPrimaryAuthor) {
+                attrs.primary_author = (attrs.authors && attrs.authors.length) ? attrs.authors[0] : null;
+            }
 
             return attrs;
+        },
+
+        matchAuthors: function matchAuthors(model, options) {
+            const transactingOption = _.pick(options, 'transacting');
+            let ownerUser;
+
+            const fetchOwner = () => ghostBookshelf
+                .model('User')
+                .getOwnerUser(Object.assign({}, transactingOption))
+                .then((_ownerUser) => {
+                    ownerUser = _ownerUser;
+                });
+
+            const resolveAuthors = () => {
+                const authors = model.get('authors');
+                const authorsToSet = [];
+
+                return Promise.all(authors.map((author, index) => {
+                    const query = buildAuthorQuery(author);
+
+                    return ghostBookshelf
+                        .model('User')
+                        .where(query)
+                        .fetch(Object.assign({columns: ['id']}, transactingOption))
+                        .then((user) => {
+                            const userId = resolveAuthorId(user, ownerUser);
+                            const userExists = _.find(authorsToSet, {id: userId.id});
+
+                            if (!userExists) {
+                                authorsToSet[index] = {id: userId};
+                            }
+                        });
+                })).then(() => {
+                    model.set('authors', authorsToSet);
+                });
+            };
+
+            return sequence([fetchOwner, resolveAuthors]);
         }
     }, {
-        async reassignByAuthor(unfilteredOptions) {
+        reassignByAuthor: async function reassignByAuthor(unfilteredOptions) {
             const options = this.filterOptions(unfilteredOptions, 'reassignByAuthor', {extraAllowedProperties: ['id']});
             const authorId = options.id;
 
             if (!authorId) {
-                throw new errors.NotFoundError({message: tpl(messages.noUserFound)});
+                return Promise.reject(new errors.NotFoundError({
+                    message: tpl(messages.noUserFound)
+                }));
             }
 
-            const permissions = new PostPermissions(Post, ghostBookshelf);
-
             const reassignPost = async () => {
+                const trx = options.transacting;
+                const knex = ghostBookshelf.knex;
+
                 try {
-                    const trx = options.transacting;
-                    const ownerId = await permissions.getOwnerUserId(trx);
-                    const authorsPosts = await permissions.getAuthorsPosts(authorId, trx);
-                    const ownersPosts = await permissions.getOwnersPosts(ownerId, trx);
+                    const ownerUser = await knex('roles')
+                        .transacting(trx)
+                        .join('roles_users', 'roles.id', '=', 'roles_users.role_id')
+                        .where('roles.name', 'Owner')
+                        .select('roles_users.user_id');
 
-                    const primaryPosts = authorsPosts.filter(ap => ap.sort_order === 0);
-                    const primaryWithOwner = _.intersectionBy(primaryPosts, ownersPosts, 'post_id');
-                    const primaryWithoutOwner = _.differenceBy(primaryPosts, primaryWithOwner, 'post_id');
+                    const ownerId = ownerUser[0].user_id;
 
-                    const primaryWithOwnerIds = primaryWithOwner.map(p => p.post_id);
-                    const primaryWithoutOwnerIds = primaryWithoutOwner.map(p => p.post_id);
+                    const [authorsPosts, ownersPosts] = await Promise.all([
+                        knex('posts_authors').transacting(trx).where('author_id', authorId).select('post_id', 'sort_order'),
+                        knex('posts_authors').transacting(trx).where('author_id', ownerId).select('post_id')
+                    ]);
 
-                    await permissions.removeAuthorFromPosts(primaryWithOwnerIds, authorId, trx);
-                    await permissions.updateAuthorSortOrder(primaryWithOwnerIds, ownerId, 0, trx);
-                    await permissions.replaceAuthor(primaryWithoutOwnerIds, authorId, ownerId, trx);
-                    await permissions.removeAuthorFromPosts(null, authorId, trx);
+                    const authorsPrimaryPosts = authorsPosts.filter(ap => ap.sort_order === 0);
+                    const primaryPostsWithOwnerCoauthor = _.intersectionBy(authorsPrimaryPosts, ownersPosts, 'post_id');
+                    const primaryPostsWithOwnerCoauthorIds = primaryPostsWithOwnerCoauthor.map(post => post.post_id);
+
+                    await knex('posts_authors')
+                        .transacting(trx)
+                        .whereIn('post_id', primaryPostsWithOwnerCoauthorIds)
+                        .where('author_id', authorId)
+                        .del();
+
+                    await knex('posts_authors')
+                        .transacting(trx)
+                        .whereIn('post_id', primaryPostsWithOwnerCoauthorIds)
+                        .where('author_id', ownerId)
+                        .update('sort_order', 0);
+
+                    const primaryPostsWithoutOwnerCoauthor = _.differenceBy(authorsPrimaryPosts, primaryPostsWithOwnerCoauthor, 'post_id');
+                    const postsWithoutOwnerCoauthorIds = primaryPostsWithoutOwnerCoauthor.map(post => post.post_id);
+
+                    await knex('posts_authors')
+                        .transacting(trx)
+                        .whereIn('post_id', postsWithoutOwnerCoauthorIds)
+                        .where('author_id', authorId)
+                        .update('author_id', ownerId);
+
+                    await knex('posts_authors')
+                        .transacting(trx)
+                        .where('author_id', authorId)
+                        .del();
                 } catch (err) {
                     throw new errors.InternalServerError({err});
                 }
@@ -312,62 +280,63 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             return reassignPost();
         },
 
-        async permissible(postModelOrId, action, context, unsafeAttrs, loadedPermissions, hasUserPermission, hasApiKeyPermission) {
+        permissible: function permissible(postModelOrId, action, context, unsafeAttrs, loadedPermissions, hasUserPermission, hasApiKeyPermission) {
+            const self = this;
+            const {isContributor, isAuthor} = setIsRoles(loadedPermissions);
+
             if (_.isNumber(postModelOrId) || _.isString(postModelOrId)) {
-                const foundPostModel = await this.findOne({id: postModelOrId, status: 'all'}, {withRelated: ['authors']});
-
-                if (!foundPostModel) {
-                    throw new errors.NotFoundError({message: tpl(messages.postNotFound)});
-                }
-
                 const origArgs = _.toArray(arguments).slice(1);
-                const newArgs = [foundPostModel].concat(origArgs);
-                return this.permissible.apply(this, newArgs);
+
+                return this.findOne({id: postModelOrId, status: 'all'}, {withRelated: ['authors']})
+                    .then((foundPostModel) => {
+                        if (!foundPostModel) {
+                            throw new errors.NotFoundError({
+                                message: tpl(messages.postNotFound)
+                            });
+                        }
+
+                        return self.permissible.apply(self, [foundPostModel].concat(origArgs));
+                    });
             }
 
-            const {isContributor, isAuthor} = setIsRoles(loadedPermissions);
-            const checker = new PostPermissionChecker(postModelOrId, context, unsafeAttrs);
-
+            const postModel = postModelOrId;
             const isEdit = action === 'edit';
             const isAdd = action === 'add';
             const isDestroy = action === 'destroy';
 
-            if (isContributor && isEdit) {
-                hasUserPermission = !checker.isChangingAuthors() && checker.isCoAuthor();
-            } else if (isContributor && isAdd) {
-                hasUserPermission = checker.isOwner();
-            } else if (isContributor && isDestroy) {
-                hasUserPermission = checker.isPrimaryAuthor();
-            } else if (isAuthor && isEdit) {
-                hasUserPermission = checker.isCoAuthor() && !checker.isChangingAuthors();
-            } else if (isAuthor && isAdd) {
-                hasUserPermission = checker.isOwner();
-            } else if (postModelOrId) {
-                hasUserPermission = hasUserPermission || checker.isPrimaryAuthor();
+            hasUserPermission = resolveUserPermission({
+                isContributor,
+                isAuthor,
+                isEdit,
+                isAdd,
+                isDestroy,
+                postModel,
+                unsafeAttrs,
+                context,
+                hasUserPermission
+            });
+
+            if (!hasUserPermission || !hasApiKeyPermission) {
+                return Promise.reject(new errors.NoPermissionError({
+                    message: tpl(messages.notEnoughPermission)
+                }));
             }
 
-            if (hasUserPermission && hasApiKeyPermission) {
-                const result = await Post.permissible.call(
-                    this,
-                    postModelOrId,
-                    action,
-                    context,
-                    unsafeAttrs,
-                    loadedPermissions,
-                    hasUserPermission,
-                    hasApiKeyPermission
-                );
-
+            return Post.permissible.call(
+                this,
+                postModelOrId,
+                action,
+                context,
+                unsafeAttrs,
+                loadedPermissions,
+                hasUserPermission,
+                hasApiKeyPermission
+            ).then(({excludedAttrs}) => {
                 if (isContributor || isAuthor) {
-                    return {
-                        excludedAttrs: ['authors'].concat(result.excludedAttrs)
-                    };
+                    return {excludedAttrs: ['authors'].concat(excludedAttrs)};
                 }
-
-                return result;
-            }
-
-            throw new errors.NoPermissionError({message: tpl(messages.notEnoughPermission)});
+                return {excludedAttrs};
+            });
         }
     });
 
