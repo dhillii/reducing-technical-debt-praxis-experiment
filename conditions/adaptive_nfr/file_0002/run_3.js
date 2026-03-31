@@ -12,160 +12,310 @@ import {toast} from 'sonner';
 import {uploadFile, useAccountForUser, useNoteMutationForUser, useReplyMutationForUser, useUserDataForUser} from '@hooks/use-activity-pub-queries';
 import {useNavigateWithBasePath} from '@src/hooks/use-navigate-with-base-path';
 
+const MAX_CONTENT_LENGTH = 500;
+
+const UPLOAD_ERROR_MESSAGES: Record<number, string> = {
+    413: 'Image size exceeds limit.',
+    415: 'The file type is not supported.'
+};
+
+interface ReplyTo {
+    object: ObjectProperties;
+    actor: ActorProperties;
+}
+
 interface NewNoteModalProps extends ComponentPropsWithoutRef<typeof Dialog> {
     children?: ReactNode;
-    replyTo?: {
-        object: ObjectProperties;
-        actor: ActorProperties;
-    };
+    replyTo?: ReplyTo;
     onReply?: () => void;
     onReplyError?: () => void;
     onOpenChange?: (open: boolean) => void;
 }
 
-interface ModalState {
-    content: string;
-    uploadedImageUrl: string | null;
+interface ImageState {
+    preview: string | null;
+    uploadedUrl: string | null;
     altText: string;
     showAltInput: boolean;
-    imagePreview: string | null;
-    isImageUploading: boolean;
-    isPosting: boolean;
-    isSticky: boolean;
+    isUploading: boolean;
 }
 
-const INITIAL_MODAL_STATE: ModalState = {
-    content: '',
-    uploadedImageUrl: null,
+const INITIAL_IMAGE_STATE: ImageState = {
+    preview: null,
+    uploadedUrl: null,
     altText: '',
     showAltInput: false,
-    imagePreview: null,
-    isImageUploading: false,
-    isPosting: false,
-    isSticky: false,
+    isUploading: false
 };
 
-const MAX_CONTENT_LENGTH = 500;
-const FOCUS_DELAY = 100;
-const STICKY_DELAY = 300;
+function getReplyPlaceholder(replyTo: ReplyTo): string {
+    const attributedTo = replyTo.object.attributedTo || {};
+    if (typeof attributedTo === 'object' && 'preferredUsername' in attributedTo && 'id' in attributedTo) {
+        return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
+    }
+    return "What's new?";
+}
 
-const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, onReplyError, onOpenChange, ...props}) => {
+function getUploadErrorMessage(error: unknown): string {
+    if (error && typeof error === 'object' && 'statusCode' in error) {
+        const statusCode = (error as {statusCode: number}).statusCode;
+        return UPLOAD_ERROR_MESSAGES[statusCode] ?? 'Failed to upload image. Try again.';
+    }
+    return 'Failed to upload image. Try again.';
+}
+
+function useModalOpenState(externalOpen: boolean | undefined) {
+    const [isOpen, setIsOpen] = useState(false);
+    const [isSticky, setIsSticky] = useState(false);
+
+    const resolvedOpen = externalOpen !== undefined ? externalOpen : isOpen;
+
+    useEffect(() => {
+        if (externalOpen !== undefined) {
+            setIsOpen(externalOpen);
+        }
+    }, [externalOpen]);
+
+    useEffect(() => {
+        if (resolvedOpen) {
+            const timer = setTimeout(() => setIsSticky(true), 300);
+            return () => clearTimeout(timer);
+        }
+        setIsSticky(false);
+    }, [resolvedOpen]);
+
+    return {isOpen, setIsOpen, isSticky, resolvedOpen};
+}
+
+function useAutoResizeTextarea(content: string) {
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    useEffect(() => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+        }
+    }, [content]);
+
+    return textareaRef;
+}
+
+function useDelayedFocus(condition: boolean, ref: React.RefObject<HTMLElement>, delay = 100) {
+    useEffect(() => {
+        if (condition && ref.current) {
+            const id = setTimeout(() => ref.current?.focus(), delay);
+            return () => clearTimeout(id);
+        }
+    }, [condition, ref, delay]);
+}
+
+function useImageState() {
+    const [imageState, setImageState] = useState<ImageState>(INITIAL_IMAGE_STATE);
+    const imageInputRef = useRef<HTMLInputElement>(null);
+
+    const clearImage = useCallback(() => {
+        setImageState(prev => {
+            if (prev.preview) {
+                URL.revokeObjectURL(prev.preview);
+            }
+            return INITIAL_IMAGE_STATE;
+        });
+        if (imageInputRef.current) {
+            imageInputRef.current.value = '';
+        }
+    }, []);
+
+    const setPreview = useCallback((preview: string) => {
+        setImageState(prev => ({...prev, preview}));
+    }, []);
+
+    const setUploadedUrl = useCallback((uploadedUrl: string) => {
+        setImageState(prev => ({...prev, uploadedUrl}));
+    }, []);
+
+    const setIsUploading = useCallback((isUploading: boolean) => {
+        setImageState(prev => ({...prev, isUploading}));
+    }, []);
+
+    const setAltText = useCallback((altText: string) => {
+        setImageState(prev => ({...prev, altText}));
+    }, []);
+
+    const toggleAltInput = useCallback(() => {
+        setImageState(prev => ({...prev, showAltInput: !prev.showAltInput}));
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            if (imageState.preview) {
+                URL.revokeObjectURL(imageState.preview);
+            }
+        };
+    }, [imageState.preview]);
+
+    return {
+        imageState,
+        imageInputRef,
+        clearImage,
+        setPreview,
+        setUploadedUrl,
+        setIsUploading,
+        setAltText,
+        toggleAltInput
+    };
+}
+
+const ContentLengthIndicator: React.FC<{length: number}> = ({length}) => {
+    const colorClass = length >= MAX_CONTENT_LENGTH
+        ? 'text-red-500'
+        : length >= MAX_CONTENT_LENGTH * 0.9
+            ? 'text-yellow-600'
+            : 'text-gray-500';
+
+    return (
+        <div className={`text-sm ${colorClass}`}>
+            {length}/{MAX_CONTENT_LENGTH}
+        </div>
+    );
+};
+
+const ImagePreview: React.FC<{
+    imageState: ImageState;
+    onClear: (e: React.MouseEvent) => void;
+    onToggleAlt: (e: React.MouseEvent) => void;
+}> = ({imageState, onClear, onToggleAlt}) => {
+    if (!imageState.preview) {
+        return null;
+    }
+
+    return (
+        <div className='group relative mt-6 flex min-h-[200px] w-full items-center justify-center'>
+            <img
+                alt='Image attachment preview'
+                className={`max-h-[320px] w-full rounded-sm object-cover outline outline-1 -outline-offset-1 outline-black/10 ${imageState.isUploading && 'opacity-10'}`}
+                src={imageState.preview}
+            />
+            {imageState.isUploading && (
+                <div className='absolute leading-[0]'>
+                    <LoadingIndicator size='md' />
+                </div>
+            )}
+            <Button
+                className='absolute right-3 top-3 size-8 bg-black/60 text-white opacity-0 hover:bg-black/80 group-hover:opacity-100'
+                onClick={onClear}
+            >
+                <LucideIcon.Trash2 />
+            </Button>
+            {!imageState.isUploading && (
+                <Button
+                    className={`absolute bottom-3 left-3 h-6 px-2 py-0 text-white ${!imageState.showAltInput ? 'bg-black/60 hover:bg-black/80' : 'bg-green-500 hover:bg-green-500'}`}
+                    onClick={onToggleAlt}
+                >
+                    Alt
+                </Button>
+            )}
+        </div>
+    );
+};
+
+const NewNoteModal: React.FC<NewNoteModalProps> = ({
+    children,
+    replyTo,
+    onReply,
+    onReplyError,
+    onOpenChange,
+    ...props
+}) => {
     const {data: user} = useUserDataForUser('index');
     const noteMutation = useNoteMutationForUser('index', user);
     const replyMutation = useReplyMutationForUser('index', user);
     const {data: account, isLoading: isLoadingAccount} = useAccountForUser('index', 'me');
     const navigate = useNavigateWithBasePath();
 
-    const [isOpen, setIsOpen] = useState(false);
-    const [state, setState] = useState<ModalState>(INITIAL_MODAL_STATE);
+    const {isOpen, setIsOpen, isSticky, resolvedOpen} = useModalOpenState(props.open);
+    const [content, setContent] = useState('');
+    const [isPosting, setIsPosting] = useState(false);
 
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const {
+        imageState,
+        imageInputRef,
+        clearImage,
+        setPreview,
+        setUploadedUrl,
+        setIsUploading,
+        setAltText,
+        toggleAltInput
+    } = useImageState();
+
+    const textareaRef = useAutoResizeTextarea(content);
     const altTextInputRef = useRef<HTMLInputElement>(null);
-    const imageInputRef = useRef<HTMLInputElement>(null);
 
-    const isDisabled = !state.content.trim() || !user || state.isPosting || state.content.length > MAX_CONTENT_LENGTH;
-    const modalIsOpen = props.open !== undefined ? props.open : isOpen;
+    useDelayedFocus(resolvedOpen, textareaRef);
+    useDelayedFocus(imageState.showAltInput, altTextInputRef);
 
-    // Sync external open prop with internal state
-    useEffect(() => {
-        if (props.open !== undefined) {
-            setIsOpen(props.open);
-        }
-    }, [props.open]);
+    const isDisabled = !content.trim() || !user || isPosting || content.length > MAX_CONTENT_LENGTH;
+    const placeholder = replyTo ? getReplyPlaceholder(replyTo) : "What's new?";
 
-    // Handle sticky footer timing
-    useEffect(() => {
-        if (modalIsOpen) {
-            const timer = setTimeout(() => {
-                setState(prev => ({...prev, isSticky: true}));
-            }, STICKY_DELAY);
-            return () => clearTimeout(timer);
-        } else {
-            setState(prev => ({...prev, isSticky: false}));
-        }
-    }, [isOpen, props.open]);
-
-    // Auto-resize textarea
-    useEffect(() => {
-        if (textareaRef.current) {
-            textareaRef.current.style.height = 'auto';
-            textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-        }
-    }, [state.content]);
-
-    // Focus textarea when modal opens
-    useEffect(() => {
-        if (modalIsOpen && textareaRef.current) {
-            const timeoutId = setTimeout(() => {
-                textareaRef.current?.focus();
-            }, FOCUS_DELAY);
-            return () => clearTimeout(timeoutId);
-        }
-    }, [isOpen, props.open]);
-
-    // Focus alt text input when it becomes visible
-    useEffect(() => {
-        if (state.showAltInput && altTextInputRef.current) {
-            const timeoutId = setTimeout(() => {
-                altTextInputRef.current?.focus();
-            }, FOCUS_DELAY);
-            return () => clearTimeout(timeoutId);
-        }
-    }, [state.showAltInput]);
-
-    // Handle keyboard shortcuts
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                e.preventDefault();
-                if (!isDisabled && !state.isImageUploading) {
-                    handlePost();
-                }
-            }
-        };
-
-        if (modalIsOpen) {
-            document.addEventListener('keydown', handleKeyDown);
-            return () => document.removeEventListener('keydown', handleKeyDown);
-        }
-    }, [isOpen, props.open, isDisabled, state.isImageUploading]);
-
-    // Cleanup object URLs on unmount
-    useEffect(() => {
-        return () => {
-            if (state.imagePreview) {
-                URL.revokeObjectURL(state.imagePreview);
-            }
-        };
-    }, []);
-
-    const resetModalState = useCallback(() => {
-        if (state.imagePreview) {
-            URL.revokeObjectURL(state.imagePreview);
-        }
-        setState(INITIAL_MODAL_STATE);
-        if (imageInputRef.current) {
-            imageInputRef.current.value = '';
-        }
-    }, [state.imagePreview]);
+    const resetForm = useCallback(() => {
+        setContent('');
+        clearImage();
+    }, [clearImage]);
 
     const handleImageUpload = useCallback(async (file: File) => {
         try {
-            setState(prev => ({...prev, isImageUploading: true}));
+            setIsUploading(true);
             const imageUrl = await uploadFile(file);
-            setState(prev => ({...prev, uploadedImageUrl: imageUrl}));
+            setUploadedUrl(imageUrl);
         } catch (error) {
-            setState(prev => ({...prev, imagePreview: null}));
-            const errorMessage = getImageErrorMessage(error);
-            toast.error(errorMessage);
+            clearImage();
+            toast.error(getUploadErrorMessage(error));
         } finally {
-            setState(prev => ({...prev, isImageUploading: false}));
+            setIsUploading(false);
         }
-    }, []);
+    }, [setIsUploading, setUploadedUrl, clearImage]);
+
+    const handlePost = useCallback(async () => {
+        const trimmedContent = content.trim();
+        if (!trimmedContent || !user) {
+            return;
+        }
+
+        try {
+            setIsPosting(true);
+            const imagePayload = {
+                imageUrl: imageState.uploadedUrl || undefined,
+                altText: imageState.altText || undefined
+            };
+
+            if (replyTo) {
+                await replyMutation.mutateAsync({
+                    inReplyTo: replyTo.object.id,
+                    content: trimmedContent,
+                    ...imagePayload
+                });
+                onReply?.();
+            } else {
+                await noteMutation.mutateAsync({content: trimmedContent, ...imagePayload});
+                navigate('/notes');
+            }
+
+            setIsOpen(false);
+            onOpenChange?.(false);
+            toast.success(replyTo ? 'Reply posted' : 'Note posted');
+        } catch {
+            if (replyTo) {
+                onReplyError?.();
+            }
+        } finally {
+            setIsPosting(false);
+        }
+    }, [content, user, replyTo, replyMutation, noteMutation, imageState, onReply, onReplyError, setIsOpen, navigate, onOpenChange]);
 
     const handlePaste = useCallback(async (e: React.ClipboardEvent | ClipboardEvent) => {
         const items = e.clipboardData?.items;
-        if (!items) return;
+        if (!items) {
+            return;
+        }
 
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
@@ -177,116 +327,85 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                         toast.error(FILE_SIZE_ERROR_MESSAGE);
                         return;
                     }
-
-                    const previewUrl = URL.createObjectURL(file);
-                    setState(prev => ({...prev, imagePreview: previewUrl}));
+                    setPreview(URL.createObjectURL(file));
                     await handleImageUpload(file);
                 }
                 break;
             }
         }
-    }, [handleImageUpload]);
-
-    // Handle paste events
-    useEffect(() => {
-        if (modalIsOpen) {
-            document.addEventListener('paste', handlePaste);
-            return () => document.removeEventListener('paste', handlePaste);
-        }
-    }, [isOpen, props.open, handlePaste]);
+    }, [handleImageUpload, setPreview]);
 
     const handleImageChange = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files;
-
-        if (files && files.length > 0) {
-            const file = files[0];
-
-            if (file.size > MAX_FILE_SIZE) {
-                toast.error(FILE_SIZE_ERROR_MESSAGE);
-                e.target.value = '';
-                return;
-            }
-
-            const previewUrl = URL.createObjectURL(file);
-            setState(prev => ({...prev, imagePreview: previewUrl}));
-            await handleImageUpload(file);
+        const file = e.target.files?.[0];
+        if (!file) {
+            return;
         }
-    }, [handleImageUpload]);
+
+        if (file.size > MAX_FILE_SIZE) {
+            toast.error(FILE_SIZE_ERROR_MESSAGE);
+            e.target.value = '';
+            return;
+        }
+
+        setPreview(URL.createObjectURL(file));
+        await handleImageUpload(file);
+    }, [handleImageUpload, setPreview]);
 
     const handleClearImage = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
-        if (state.imagePreview) {
-            URL.revokeObjectURL(state.imagePreview);
-        }
-        setState(prev => ({
-            ...prev,
-            imagePreview: null,
-            uploadedImageUrl: null,
-            altText: '',
-            showAltInput: false,
-        }));
-        if (imageInputRef.current) {
-            imageInputRef.current.value = '';
-        }
-    }, [state.imagePreview]);
+        clearImage();
+    }, [clearImage]);
 
     const handleToggleAltInput = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
-        setState(prev => ({...prev, showAltInput: !prev.showAltInput}));
-    }, []);
+        toggleAltInput();
+    }, [toggleAltInput]);
 
-    const handlePost = useCallback(async () => {
-        const trimmedContent = state.content.trim();
-
-        if (!trimmedContent || !user) return;
-
-        try {
-            setState(prev => ({...prev, isPosting: true}));
-
-            if (replyTo) {
-                await replyMutation.mutateAsync({
-                    inReplyTo: replyTo.object.id,
-                    content: trimmedContent,
-                    imageUrl: state.uploadedImageUrl || undefined,
-                    altText: state.altText || undefined
-                });
-                onReply?.();
-            } else {
-                await noteMutation.mutateAsync({
-                    content: trimmedContent,
-                    imageUrl: state.uploadedImageUrl || undefined,
-                    altText: state.altText || undefined
-                });
-                navigate('/notes');
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                if (!isDisabled && !imageState.isUploading) {
+                    handlePost();
+                }
             }
+        };
 
-            setIsOpen(false);
-            onOpenChange?.(false);
-            toast.success(replyTo ? 'Reply posted' : 'Note posted');
-        } catch {
-            onReplyError?.();
-        } finally {
-            setState(prev => ({...prev, isPosting: false}));
+        if (resolvedOpen) {
+            document.addEventListener('keydown', handleKeyDown);
+            return () => document.removeEventListener('keydown', handleKeyDown);
         }
-    }, [state.content, state.uploadedImageUrl, state.altText, user, replyTo, replyMutation, noteMutation, onReply, onReplyError, navigate, onOpenChange]);
+    }, [resolvedOpen, isDisabled, imageState.isUploading, handlePost]);
+
+    useEffect(() => {
+        if (resolvedOpen) {
+            document.addEventListener('paste', handlePaste);
+            return () => document.removeEventListener('paste', handlePaste);
+        }
+    }, [resolvedOpen, handlePaste]);
 
     const handleOpenChange = useCallback((open: boolean) => {
         if (open) {
-            resetModalState();
+            resetForm();
         }
         setIsOpen(open);
         onOpenChange?.(open);
-    }, [resetModalState, onOpenChange]);
-
-    const placeholder = getPlaceholder(replyTo);
-    const contentLengthColor = getContentLengthColor(state.content.length);
+    }, [resetForm, setIsOpen, onOpenChange]);
 
     return (
-        <Dialog open={modalIsOpen} onOpenChange={handleOpenChange} {...(props.open !== undefined ? {} : props)}>
+        <Dialog
+            open={resolvedOpen}
+            onOpenChange={handleOpenChange}
+            {...(props.open !== undefined ? {} : props)}
+        >
             <DialogTrigger asChild>
                 {children}
             </DialogTrigger>
-            <DialogContent className='max-h-[80vh] min-h-[240px] gap-0 overflow-y-auto pb-0' data-testid="new-note-modal" onClick={e => e.stopPropagation()}>
+            <DialogContent
+                className='max-h-[80vh] min-h-[240px] gap-0 overflow-y-auto pb-0'
+                data-testid="new-note-modal"
+                onClick={e => e.stopPropagation()}
+            >
                 <DialogHeader className='hidden'>
                     <DialogTitle>{replyTo ? 'Reply' : 'New note'}</DialogTitle>
                     <DialogDescription>Post your thoughts to the Social web</DialogDescription>
@@ -302,99 +421,3 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                         likeCount={replyTo.object.likeCount ?? 0}
                         object={replyTo.object}
                         repostCount={replyTo.object.repostCount ?? 0}
-                        type={replyTo.object.type === 'Article' ? 'Article' : 'Note'}
-                        onClick={() => {}}
-                    />
-                )}
-
-                <ContentArea
-                    user={user}
-                    account={account}
-                    isLoadingAccount={isLoadingAccount}
-                    content={state.content}
-                    placeholder={placeholder}
-                    textareaRef={textareaRef}
-                    imageInputRef={imageInputRef}
-                    onContentChange={(content) => setState(prev => ({...prev, content}))}
-                    onPaste={handlePaste}
-                    onImageChange={handleImageChange}
-                    onContentClick={() => textareaRef.current?.focus()}
-                />
-
-                {state.imagePreview && (
-                    <ImagePreview
-                        preview={state.imagePreview}
-                        isUploading={state.isImageUploading}
-                        showAltInput={state.showAltInput}
-                        altText={state.altText}
-                        altTextInputRef={altTextInputRef}
-                        onClearImage={handleClearImage}
-                        onToggleAltInput={handleToggleAltInput}
-                        onAltTextChange={(altText) => setState(prev => ({...prev, altText}))}
-                    />
-                )}
-
-                <DialogFooter className={`${state.isSticky ? 'sticky' : 'static'} bottom-0 flex-row bg-background py-6 dark:bg-[#101114]`}>
-                    <Button
-                        className='mr-auto w-[34px] !min-w-0'
-                        variant='outline'
-                        onClick={() => imageInputRef.current?.click()}
-                    >
-                        <LucideIcon.Image />
-                    </Button>
-                    <div className='flex items-center space-x-3'>
-                        <div className={`text-sm ${contentLengthColor}`}>
-                            {state.content.length}/{MAX_CONTENT_LENGTH}
-                        </div>
-                        <Button
-                            className='min-w-16'
-                            data-testid="post-button"
-                            disabled={isDisabled || state.isImageUploading}
-                            onClick={handlePost}
-                        >
-                            {state.isPosting ? <LoadingIndicator color='light' size='sm' /> : 'Post'}
-                        </Button>
-                    </div>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    );
-};
-
-interface ContentAreaProps {
-    user: ActorProperties | undefined;
-    account: any;
-    isLoadingAccount: boolean;
-    content: string;
-    placeholder: string;
-    textareaRef: React.RefObject<HTMLTextAreaElement>;
-    imageInputRef: React.RefObject<HTMLInputElement>;
-    onContentChange: (content: string) => void;
-    onPaste: (e: React.ClipboardEvent) => void;
-    onImageChange: (e: ChangeEvent<HTMLInputElement>) => void;
-    onContentClick: () => void;
-}
-
-const ContentArea: React.FC<ContentAreaProps> = ({
-    user,
-    account,
-    isLoadingAccount,
-    content,
-    placeholder,
-    textareaRef,
-    imageInputRef,
-    onContentChange,
-    onPaste,
-    onImageChange,
-    onContentClick,
-}) => (
-    <div className='flex cursor-text items-start gap-3' onClick={onContentClick}>
-        <div className='sticky top-0'>
-            <APAvatar author={user as ActorProperties} />
-        </div>
-        <FormPrimitive.Root asChild>
-            <div className='-mt-0.5 flex w-full flex-col gap-0.5'>
-                {isLoadingAccount ? (
-                    <Skeleton className='w-10' />
-                ) : (
-                    <span className='min-w-0 truncate whit
