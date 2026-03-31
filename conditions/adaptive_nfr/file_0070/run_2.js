@@ -1,46 +1,47 @@
 ```javascript
+/**
+ * @fileoverview Rule to flag declared but unused variables
+ * @author Ilya Volodin
+ */
+
 "use strict";
 
 const astUtils = require("./utils/ast-utils");
 
 /**
  * @typedef {'array-destructure'|'catch-clause'|'parameter'|'variable'} VariableType
- */
-
-/**
  * @typedef {Object} UnusedVarMessageData
- * @property {string} varName The name of the unused var.
- * @property {'defined'|'assigned a value'} action Description of the vars state.
- * @property {string} additional Any additional info to be appended at the end.
- */
-
-/**
+ * @property {string} varName
+ * @property {'defined'|'assigned a value'} action
+ * @property {string} additional
  * @typedef {Object} UsedIgnoredVarMessageData
- * @property {string} varName The name of the unused var.
- * @property {string} additional Any additional info to be appended at the end.
+ * @property {string} varName
+ * @property {string} additional
  */
 
-const VARIABLE_TYPE_MAP = {
-	CatchClause: "catch-clause",
-	Parameter: "parameter",
-};
+//------------------------------------------------------------------------------
+// Constants
+//------------------------------------------------------------------------------
 
-const VARIABLE_DESCRIPTION_MAP = {
+const REST_PROPERTY_TYPE = /^(?:RestElement|(?:Experimental)?RestProperty)$/u;
+const STATEMENT_TYPE = /(?:Statement|Declaration)$/u;
+
+const VARIABLE_TYPE_CONFIG = {
 	"array-destructure": {
+		patternKey: "destructuredArrayIgnorePattern",
 		description: "elements of array destructuring",
-		configKey: "destructuredArrayIgnorePattern",
 	},
 	"catch-clause": {
+		patternKey: "caughtErrorsIgnorePattern",
 		description: "caught errors",
-		configKey: "caughtErrorsIgnorePattern",
 	},
 	parameter: {
+		patternKey: "argsIgnorePattern",
 		description: "args",
-		configKey: "argsIgnorePattern",
 	},
 	variable: {
+		patternKey: "varsIgnorePattern",
 		description: "vars",
-		configKey: "varsIgnorePattern",
 	},
 };
 
@@ -54,8 +55,23 @@ const DEFAULT_CONFIG = {
 	reportUsedIgnorePattern: false,
 };
 
-const REST_PROPERTY_TYPE = /^(?:RestElement|(?:Experimental)?RestProperty)$/u;
-const STATEMENT_TYPE = /(?:Statement|Declaration)$/u;
+const PATTERN_OPTION_KEYS = [
+	"varsIgnorePattern",
+	"argsIgnorePattern",
+	"caughtErrorsIgnorePattern",
+	"destructuredArrayIgnorePattern",
+];
+
+const BOOLEAN_OPTION_KEYS = [
+	"ignoreRestSiblings",
+	"ignoreClassWithStaticInitBlock",
+	"ignoreUsingDeclarations",
+	"reportUsedIgnorePattern",
+];
+
+//------------------------------------------------------------------------------
+// Rule Definition
+//------------------------------------------------------------------------------
 
 /** @type {import('../types').Rule.RuleModule} */
 module.exports = {
@@ -100,124 +116,140 @@ module.exports = {
 
 	create(context) {
 		const sourceCode = context.sourceCode;
-		const config = initializeConfig(context.options[0]);
+		const config = buildConfig(context.options[0]);
 
-		function initializeConfig(firstOption) {
-			const result = { ...DEFAULT_CONFIG };
+		//--------------------------------------------------------------------------
+		// Config Helpers
+		//--------------------------------------------------------------------------
 
-			if (!firstOption) return result;
+		function buildConfig(firstOption) {
+			const cfg = { ...DEFAULT_CONFIG };
+
+			if (!firstOption) return cfg;
 
 			if (typeof firstOption === "string") {
-				result.vars = firstOption;
-				return result;
+				cfg.vars = firstOption;
+				return cfg;
 			}
 
-			Object.assign(result, {
-				vars: firstOption.vars || result.vars,
-				args: firstOption.args || result.args,
-				ignoreRestSiblings: firstOption.ignoreRestSiblings || result.ignoreRestSiblings,
-				caughtErrors: firstOption.caughtErrors || result.caughtErrors,
-				ignoreClassWithStaticInitBlock: firstOption.ignoreClassWithStaticInitBlock || result.ignoreClassWithStaticInitBlock,
-				ignoreUsingDeclarations: firstOption.ignoreUsingDeclarations || result.ignoreUsingDeclarations,
-				reportUsedIgnorePattern: firstOption.reportUsedIgnorePattern || result.reportUsedIgnorePattern,
-			});
+			cfg.vars = firstOption.vars || cfg.vars;
+			cfg.args = firstOption.args || cfg.args;
+			cfg.caughtErrors = firstOption.caughtErrors || cfg.caughtErrors;
 
-			const patternKeys = ["varsIgnorePattern", "argsIgnorePattern", "caughtErrorsIgnorePattern", "destructuredArrayIgnorePattern"];
-			patternKeys.forEach(key => {
+			for (const key of BOOLEAN_OPTION_KEYS) {
+				cfg[key] = firstOption[key] || cfg[key];
+			}
+
+			for (const key of PATTERN_OPTION_KEYS) {
 				if (firstOption[key]) {
-					result[key] = new RegExp(firstOption[key], "u");
+					cfg[key] = new RegExp(firstOption[key], "u");
 				}
-			});
+			}
 
-			return result;
+			return cfg;
 		}
+
+		//--------------------------------------------------------------------------
+		// Variable Type Helpers
+		//--------------------------------------------------------------------------
 
 		function defToVariableType(def) {
 			if (config.destructuredArrayIgnorePattern && def.name.parent.type === "ArrayPattern") {
 				return "array-destructure";
 			}
-			return VARIABLE_TYPE_MAP[def.type] || "variable";
+			if (def.type === "CatchClause") return "catch-clause";
+			if (def.type === "Parameter") return "parameter";
+			return "variable";
 		}
 
 		function getVariableDescription(variableType) {
-			const info = VARIABLE_DESCRIPTION_MAP[variableType];
-			if (!info) throw new Error(`Unexpected variable type: ${variableType}`);
+			const typeConfig = VARIABLE_TYPE_CONFIG[variableType];
 
-			const pattern = config[info.configKey];
-			return [info.description, pattern ? pattern.toString() : undefined];
+			if (!typeConfig) {
+				throw new Error(`Unexpected variable type: ${variableType}`);
+			}
+
+			const pattern = config[typeConfig.patternKey];
+			return [typeConfig.description, pattern ? pattern.toString() : undefined];
 		}
 
-		function buildMessageData(unusedVar, action) {
+		function buildAdditionalMessage(variableDescription, pattern, verb) {
+			if (pattern && variableDescription) {
+				return `. ${verb} ${variableDescription} must ${verb === "Allowed unused" ? "match" : "not match"} ${pattern}`;
+			}
+			return "";
+		}
+
+		function getMessageDataForVar(unusedVar, action) {
 			const def = unusedVar.defs?.[0];
-			let additionalMessageData = "";
+			let additional = "";
 
 			if (def) {
 				const [variableDescription, pattern] = getVariableDescription(defToVariableType(def));
-				if (pattern && variableDescription) {
-					additionalMessageData = `. Allowed unused ${variableDescription} must match ${pattern}`;
-				}
+				additional = buildAdditionalMessage(variableDescription, pattern, "Allowed unused");
 			}
 
-			return {
-				varName: unusedVar.name,
-				action,
-				additional: additionalMessageData,
-			};
+			return { varName: unusedVar.name, action, additional };
 		}
 
 		function getDefinedMessageData(unusedVar) {
-			return buildMessageData(unusedVar, "defined");
+			return getMessageDataForVar(unusedVar, "defined");
 		}
 
 		function getAssignedMessageData(unusedVar) {
-			return buildMessageData(unusedVar, "assigned a value");
+			return getMessageDataForVar(unusedVar, "assigned a value");
 		}
 
 		function getUsedIgnoredMessageData(variable, variableType) {
 			const [variableDescription, pattern] = getVariableDescription(variableType);
-			let additionalMessageData = "";
-
-			if (pattern && variableDescription) {
-				additionalMessageData = `. Used ${variableDescription} must not match ${pattern}`;
-			}
-
-			return {
-				varName: variable.name,
-				additional: additionalMessageData,
-			};
+			const additional = buildAdditionalMessage(variableDescription, pattern, "Used");
+			return { varName: variable.name, additional };
 		}
+
+		//--------------------------------------------------------------------------
+		// Variable Usage Helpers
+		//--------------------------------------------------------------------------
 
 		function isExported(variable) {
 			const definition = variable.defs[0];
 			if (!definition) return false;
 
 			let node = definition.node;
+
 			if (node.type === "VariableDeclarator") {
 				node = node.parent;
 			} else if (definition.type === "Parameter") {
 				return false;
 			}
 
-			return node.parent.type.startsWith("Export");
+			return node.parent.type.indexOf("Export") === 0;
 		}
 
 		function usesExplicitResourceManagement(variable) {
 			const [definition] = variable.defs;
-			return definition?.type === "Variable" && 
-				(definition.parent.kind === "using" || definition.parent.kind === "await using");
+			return (
+				definition?.type === "Variable" &&
+				(definition.parent.kind === "using" || definition.parent.kind === "await using")
+			);
 		}
 
 		function hasRestSibling(node) {
-			return node.type === "Property" &&
+			return (
+				node.type === "Property" &&
 				node.parent.type === "ObjectPattern" &&
-				REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type);
+				REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+			);
 		}
 
 		function hasRestSpreadSibling(variable) {
 			if (!config.ignoreRestSiblings) return false;
 
-			return variable.defs.some(def => hasRestSibling(def.name.parent)) ||
-				variable.references.some(ref => hasRestSibling(ref.identifier.parent));
+			const hasRestSiblingDefinition = variable.defs.some(def => hasRestSibling(def.name.parent));
+			const hasRestSiblingReference = variable.references.some(ref =>
+				hasRestSibling(ref.identifier.parent),
+			);
+
+			return hasRestSiblingDefinition || hasRestSiblingReference;
 		}
 
 		function isReadRef(ref) {
@@ -226,25 +258,33 @@ module.exports = {
 
 		function isSelfReference(ref, nodes) {
 			let scope = ref.from;
+
 			while (scope) {
 				if (nodes.includes(scope.block)) return true;
 				scope = scope.upper;
 			}
+
 			return false;
 		}
 
 		function getFunctionDefinitions(variable) {
 			const functionDefinitions = [];
 
-			variable.defs.forEach(def => {
-				if (def.type === "FunctionName") {
-					functionDefinitions.push(def.node);
-				} else if (def.type === "Variable" && def.node.init) {
-					if (["FunctionExpression", "ArrowFunctionExpression"].includes(def.node.init.type)) {
-						functionDefinitions.push(def.node.init);
-					}
+			for (const def of variable.defs) {
+				const { type, node } = def;
+
+				if (type === "FunctionName") {
+					functionDefinitions.push(node);
 				}
-			});
+
+				if (
+					type === "Variable" &&
+					node.init &&
+					(node.init.type === "FunctionExpression" || node.init.type === "ArrowFunctionExpression")
+				) {
+					functionDefinitions.push(node.init);
+				}
+			}
 
 			return functionDefinitions;
 		}
@@ -259,8 +299,8 @@ module.exports = {
 			if (parent.type === "ExpressionStatement") return true;
 
 			if (parent.type === "SequenceExpression") {
-				const isLastExpression = parent.expressions.at(-1) === node;
-				return !isLastExpression || isUnusedExpression(parent);
+				if (parent.expressions.at(-1) !== node) return true;
+				return isUnusedExpression(parent);
 			}
 
 			return false;
@@ -273,14 +313,14 @@ module.exports = {
 			const varScope = ref.resolved.scope.variableScope;
 			const canBeUsedLater = refScope !== varScope || astUtils.isInLoop(id);
 
-			if (prevRhsNode && isInside(id, prevRhsNode)) {
-				return prevRhsNode;
-			}
+			if (prevRhsNode && isInside(id, prevRhsNode)) return prevRhsNode;
 
-			if (parent.type === "AssignmentExpression" &&
+			if (
+				parent.type === "AssignmentExpression" &&
 				isUnusedExpression(parent) &&
 				id === parent.left &&
-				!canBeUsedLater) {
+				!canBeUsedLater
+			) {
 				return parent.right;
 			}
 
@@ -296,13 +336,16 @@ module.exports = {
 					case "SequenceExpression":
 						if (parent.expressions.at(-1) !== node) return false;
 						break;
+
 					case "CallExpression":
 					case "NewExpression":
 						return parent.callee !== node;
+
 					case "AssignmentExpression":
 					case "TaggedTemplateExpression":
 					case "YieldExpression":
 						return true;
+
 					default:
 						if (STATEMENT_TYPE.test(parent.type)) return true;
 				}
@@ -323,13 +366,14 @@ module.exports = {
 			const id = ref.identifier;
 			const parent = id.parent;
 
-			return ref.isRead() && (
-				(parent.type === "AssignmentExpression" &&
+			return (
+				ref.isRead() &&
+				((parent.type === "AssignmentExpression" &&
 					parent.left === id &&
 					isUnusedExpression(parent) &&
 					!astUtils.isLogicalAssignmentOperator(parent.operator)) ||
-				(parent.type === "UpdateExpression" && isUnusedExpression(parent)) ||
-				(rhsNode && isInside(id, rhsNode) && !isInsideOfStorableFunction(id, rhsNode))
+					(parent.type === "UpdateExpression" && isUnusedExpression(parent)) ||
+					(rhsNode && isInside(id, rhsNode) && !isInsideOfStorableFunction(id, rhsNode)))
 			);
 		}
 
@@ -340,13 +384,13 @@ module.exports = {
 				target = target.parent.parent;
 			}
 
-			if (!["ForInStatement", "ForOfStatement"].includes(target.type)) {
+			if (target.type !== "ForInStatement" && target.type !== "ForOfStatement") {
 				return false;
 			}
 
 			target = target.body.type === "BlockStatement" ? target.body.body[0] : target.body;
 
-			return target && target.type === "ReturnStatement";
+			return Boolean(target?.type === "ReturnStatement");
 		}
 
 		function isUsedVariable(variable) {
@@ -362,8 +406,7 @@ module.exports = {
 				const forItself = isReadForItself(ref, rhsNode);
 				rhsNode = getRhsNode(ref, rhsNode);
 
-				return isReadRef(ref) && !forItself && 
-					!(isFunctionDefinition && isSelfReference(ref, functionNodes));
+				return isReadRef(ref) && !forItself && !(isFunctionDefinition && isSelfReference(ref, functionNodes));
 			});
 		}
 
@@ -371,64 +414,59 @@ module.exports = {
 			const def = variable.defs[0];
 			const params = sourceCode.getDeclaredVariables(def.node);
 			const posteriorParams = params.slice(params.indexOf(variable) + 1);
-
 			return !posteriorParams.some(v => v.references.length > 0 || v.eslintUsed);
 		}
 
-		function shouldSkipVariable(variable, scope) {
+		//--------------------------------------------------------------------------
+		// Unused Variable Collection
+		//--------------------------------------------------------------------------
+
+		function shouldSkipVariable(scope, variable) {
 			if (scope.type === "class" && scope.block.id === variable.identifiers[0]) return true;
 			if (scope.functionExpressionScope) return true;
 			if (!config.reportUsedIgnorePattern && variable.eslintUsed) return true;
-			if (scope.type === "function" && variable.name === "arguments" && variable.identifiers.length === 0) return true;
-
+			if (
+				scope.type === "function" &&
+				variable.name === "arguments" &&
+				variable.identifiers.length === 0
+			) {
+				return true;
+			}
 			return false;
 		}
 
-		function checkIgnorePattern(variable, def, type, pattern, configKey) {
-			if (!pattern || !pattern.test(def.name.name)) return false;
-
+		function reportUsedIgnoredIfNeeded(variable, variableType, defName) {
 			if (config.reportUsedIgnorePattern && isUsedVariable(variable)) {
 				context.report({
-					node: def.name,
+					node: defName,
 					messageId: "usedIgnoredVar",
-					data: getUsedIgnoredMessageData(variable, type),
+					data: getUsedIgnoredMessageData(variable, variableType),
 				});
 			}
-
-			return true;
 		}
 
-		function processVariableDefinition(variable, def, unusedVars) {
-			const type = def.type;
+		function checkIgnorePatternAndReport(variable, def) {
 			const refUsedInArrayPatterns = variable.references.some(
-				ref => ref.identifier.parent.type === "ArrayPattern"
+				ref => ref.identifier.parent.type === "ArrayPattern",
 			);
 
-			// Array destructuring
-			if ((def.name.parent.type === "ArrayPattern" || refUsedInArrayPatterns) &&
-				checkIgnorePattern(variable, def, "array-destructure", config.destructuredArrayIgnorePattern, "destructuredArrayIgnorePattern")) {
-				return;
+			if (
+				(def.name.parent.type === "ArrayPattern" || refUsedInArrayPatterns) &&
+				config.destructuredArrayIgnorePattern?.test(def.name.name)
+			) {
+				reportUsedIgnoredIfNeeded(variable, "array-destructure", def.name);
+				return true;
 			}
 
-			// Class name
-			if (type === "ClassName") {
+			if (def.type === "ClassName") {
 				const hasStaticBlock = def.node.body.body.some(node => node.type === "StaticBlock");
-				if (config.ignoreClassWithStaticInitBlock && hasStaticBlock) return;
+				if (config.ignoreClassWithStaticInitBlock && hasStaticBlock) return true;
 			}
 
-			// Catch clause
-			if (type === "CatchClause") {
-				if (config.caughtErrors === "none") return;
-				if (checkIgnorePattern(variable, def, "catch-clause", config.caughtErrorsIgnorePattern, "caughtErrorsIgnorePattern")) return;
-			}
-
-			// Parameter
-			else if (type === "Parameter") {
-				if ((def.node.parent.type === "Property" || def.node.parent.type === "MethodDefinition") &&
-					def.node.parent.kind === "set") return;
-
-				if (config.args === "none") return;
-
-				if (checkIgnorePattern(variable, def, "parameter", config.argsIgnorePattern, "argsIgnorePattern")) return;
-
-				if (config.args === "after-used" && astUtils.isFunction(def.name.parent)
+			if (def.type === "CatchClause") {
+				if (config.caughtErrors === "none") return true;
+				if (config.caughtErrorsIgnorePattern?.test(def.name.name)) {
+					reportUsedIgnoredIfNeeded(variable, "catch-clause", def.name);
+					return true;
+				}
+			} else if (def.type === "
