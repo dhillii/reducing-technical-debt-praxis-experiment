@@ -1,231 +1,182 @@
 ```javascript
-/**
- * Copyright (c) 2015-present, Facebook, Inc.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
 'use strict';
 
-const stripAnsi = require('strip-ansi');
-const url = require('url');
-const launchEditorEndpoint = require('./launchEditorEndpoint');
-const formatWebpackMessages = require('./formatWebpackMessages');
-const ErrorOverlay = require('react-error-overlay');
+var stripAnsi = require('strip-ansi');
+var url = require('url');
+var launchEditorEndpoint = require('./launchEditorEndpoint');
+var formatWebpackMessages = require('./formatWebpackMessages');
+var ErrorOverlay = require('react-error-overlay');
 
-// ============================================================================
-// Configuration & Constants
-// ============================================================================
+// ─── Constants ───────────────────────────────────────────────────────────────
 
-const CONFIG = {
-  bundlePath: '/static/js/bundle.js',
-  maxWarningsToShow: 5,
-  warningsTruncatedMessage:
-    'There were more warnings in other files.\nYou can find a complete log in the terminal.',
+const BUNDLE_PATH = '/static/js/bundle.js';
+const MAX_WARNINGS_SHOWN = 5;
+
+// ─── State ───────────────────────────────────────────────────────────────────
+
+var hadRuntimeError = false;
+var isFirstCompilation = true;
+var mostRecentCompilationHash = null;
+var hasCompileErrors = false;
+
+// ─── Editor Handler ──────────────────────────────────────────────────────────
+
+ErrorOverlay.setEditorHandler(function editorHandler({ fileName, lineNumber, colNumber }) {
+  const params = new URLSearchParams({
+    fileName,
+    lineNumber: lineNumber || 1,
+    colNumber: colNumber || 1,
+  });
+  fetch(`${launchEditorEndpoint}?${params}`);
+});
+
+// ─── Runtime Error Reporting ─────────────────────────────────────────────────
+
+ErrorOverlay.startReportingRuntimeErrors({
+  onError: () => { hadRuntimeError = true; },
+  filename: BUNDLE_PATH,
+});
+
+if (module.hot && typeof module.hot.dispose === 'function') {
+  module.hot.dispose(() => ErrorOverlay.stopReportingRuntimeErrors());
+}
+
+// ─── WebSocket Connection ────────────────────────────────────────────────────
+
+function buildSocketUrl() {
+  return url.format({
+    protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
+    hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
+    port: process.env.WDS_SOCKET_PORT || window.location.port,
+    pathname: process.env.WDS_SOCKET_PATH || '/ws',
+    slashes: true,
+  });
+}
+
+var connection = new WebSocket(buildSocketUrl());
+
+connection.onclose = function () {
+  console.info?.('The development server has disconnected.\nRefresh the page if necessary.');
 };
 
-const WS_CONFIG = {
-  protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
-  hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
-  port: process.env.WDS_SOCKET_PORT || window.location.port,
-  pathname: process.env.WDS_SOCKET_PATH || '/ws',
-  slashes: true,
-};
+// ─── Compilation Helpers ─────────────────────────────────────────────────────
 
-// ============================================================================
-// State Management
-// ============================================================================
-
-const state = {
-  isFirstCompilation: true,
-  mostRecentCompilationHash: null,
-  hasCompileErrors: false,
-  hadRuntimeError: false,
-};
-
-// ============================================================================
-// Utility Functions
-// ============================================================================
-
-function safeConsoleCall(method, ...args) {
-  if (typeof console !== 'undefined' && typeof console[method] === 'function') {
-    console[method](...args);
+function clearOutdatedErrors() {
+  if (hasCompileErrors) {
+    console.clear?.();
   }
 }
 
-function clearConsoleIfNeeded() {
-  if (state.hasCompileErrors) {
-    safeConsoleCall('clear');
-  }
-}
-
-function dismissErrorOverlayIfNeeded() {
-  if (!state.hasCompileErrors) {
+function tryDismissErrorOverlay() {
+  if (!hasCompileErrors) {
     ErrorOverlay.dismissBuildError();
   }
 }
 
-function isUpdateAvailable() {
-  /* globals __webpack_hash__ */
-  return state.mostRecentCompilationHash !== __webpack_hash__;
+function markCompilationStart() {
+  const isHotUpdate = !isFirstCompilation;
+  isFirstCompilation = false;
+  return isHotUpdate;
 }
 
-function canApplyUpdates() {
-  return module.hot && module.hot.status() === 'idle';
-}
-
-function canAcceptErrors() {
-  const hasReactRefresh = process.env.FAST_REFRESH;
-  const status = module.hot?.status();
-  return hasReactRefresh && status && !['abort', 'fail'].includes(status);
-}
-
-function formatEditorUrl(errorLocation) {
-  const params = new URLSearchParams({
-    fileName: errorLocation.fileName,
-    lineNumber: errorLocation.lineNumber || 1,
-    colNumber: errorLocation.colNumber || 1,
-  });
-  return `${launchEditorEndpoint}?${params.toString()}`;
-}
-
-// ============================================================================
-// Error Overlay Setup
-// ============================================================================
-
-ErrorOverlay.setEditorHandler((errorLocation) => {
-  fetch(formatEditorUrl(errorLocation));
-});
-
-ErrorOverlay.startReportingRuntimeErrors({
-  onError: () => {
-    state.hadRuntimeError = true;
-  },
-  filename: CONFIG.bundlePath,
-});
-
-if (module.hot?.dispose) {
-  module.hot.dispose(() => {
-    ErrorOverlay.stopReportingRuntimeErrors();
+function applyHotUpdateIfNeeded(onSuccess) {
+  tryApplyUpdates(function onHotUpdateSuccess() {
+    tryDismissErrorOverlay();
+    onSuccess?.();
   });
 }
 
-// ============================================================================
-// WebSocket Connection
-// ============================================================================
-
-const connection = new WebSocket(url.format(WS_CONFIG));
-
-connection.onclose = () => {
-  safeConsoleCall(
-    'info',
-    'The development server has disconnected.\nRefresh the page if necessary.'
-  );
-};
-
-// ============================================================================
-// Message Handlers
-// ============================================================================
+// ─── Compilation Handlers ────────────────────────────────────────────────────
 
 function handleSuccess() {
-  clearConsoleIfNeeded();
-
-  const isHotUpdate = !state.isFirstCompilation;
-  state.isFirstCompilation = false;
-  state.hasCompileErrors = false;
+  clearOutdatedErrors();
+  const isHotUpdate = markCompilationStart();
+  hasCompileErrors = false;
 
   if (isHotUpdate) {
-    tryApplyUpdates(() => dismissErrorOverlayIfNeeded());
+    applyHotUpdateIfNeeded();
   }
 }
 
 function handleWarnings(warnings) {
-  clearConsoleIfNeeded();
+  clearOutdatedErrors();
+  const isHotUpdate = markCompilationStart();
+  hasCompileErrors = false;
 
-  const isHotUpdate = !state.isFirstCompilation;
-  state.isFirstCompilation = false;
-  state.hasCompileErrors = false;
-
-  printWarnings(warnings);
+  printFormattedMessages('warnings', warnings);
 
   if (isHotUpdate) {
-    tryApplyUpdates(() => dismissErrorOverlayIfNeeded());
+    applyHotUpdateIfNeeded();
   }
-}
-
-function printWarnings(warnings) {
-  const formatted = formatWebpackMessages({
-    warnings,
-    errors: [],
-  });
-
-  formatted.warnings.forEach((warning, index) => {
-    if (index === CONFIG.maxWarningsToShow) {
-      safeConsoleCall('warn', CONFIG.warningsTruncatedMessage);
-      return;
-    }
-    safeConsoleCall('warn', stripAnsi(warning));
-  });
 }
 
 function handleErrors(errors) {
-  clearConsoleIfNeeded();
+  clearOutdatedErrors();
+  markCompilationStart();
+  hasCompileErrors = true;
 
-  state.isFirstCompilation = false;
-  state.hasCompileErrors = true;
+  const { errors: formattedErrors } = formatWebpackMessages({ errors, warnings: [] });
 
-  const formatted = formatWebpackMessages({
-    errors,
-    warnings: [],
-  });
-
-  ErrorOverlay.reportBuildError(formatted.errors[0]);
-
-  formatted.errors.forEach((error) => {
-    safeConsoleCall('error', stripAnsi(error));
-  });
+  ErrorOverlay.reportBuildError(formattedErrors[0]);
+  printFormattedMessages('errors', formattedErrors);
 }
+
+function printFormattedMessages(type, rawMessages) {
+  const logFn = type === 'errors' ? console.error : console.warn;
+  if (typeof logFn !== 'function') return;
+
+  const formatted = type === 'errors'
+    ? rawMessages
+    : formatWebpackMessages({ warnings: rawMessages, errors: [] }).warnings;
+
+  const limit = type === 'warnings' ? MAX_WARNINGS_SHOWN : formatted.length;
+
+  for (let i = 0; i < formatted.length; i++) {
+    if (i === limit) {
+      console.warn('There were more warnings in other files.\nYou can find a complete log in the terminal.');
+      break;
+    }
+    logFn(stripAnsi(formatted[i]));
+  }
+}
+
+// ─── Hash Handler ────────────────────────────────────────────────────────────
 
 function handleAvailableHash(hash) {
-  state.mostRecentCompilationHash = hash;
+  mostRecentCompilationHash = hash;
 }
 
+// ─── Message Dispatcher ──────────────────────────────────────────────────────
+
 const messageHandlers = {
-  hash: handleAvailableHash,
-  'still-ok': handleSuccess,
-  ok: handleSuccess,
+  hash: (data) => handleAvailableHash(data),
+  ok: () => handleSuccess(),
+  'still-ok': () => handleSuccess(),
   'content-changed': () => window.location.reload(),
-  warnings: handleWarnings,
-  errors: handleErrors,
+  warnings: (data) => handleWarnings(data),
+  errors: (data) => handleErrors(data),
 };
 
-connection.onmessage = (event) => {
-  const message = JSON.parse(event.data);
-  const handler = messageHandlers[message.type];
-  if (handler) {
-    handler(message.data);
-  }
+connection.onmessage = function (e) {
+  const { type, data } = JSON.parse(e.data);
+  messageHandlers[type]?.(data);
 };
 
-// ============================================================================
-// Hot Module Replacement
-// ============================================================================
+// ─── Hot Module Replacement ──────────────────────────────────────────────────
 
-function handleApplyUpdates(err, updatedModules, onHotUpdateSuccess) {
-  const haveErrors = err || state.hadRuntimeError;
-  const needsForcedReload = !err && !updatedModules;
+function isUpdateAvailable() {
+  /* globals __webpack_hash__ */
+  return mostRecentCompilationHash !== __webpack_hash__;
+}
 
-  if ((haveErrors && !canAcceptErrors()) || needsForcedReload) {
-    window.location.reload();
-    return;
-  }
+function canApplyUpdates() {
+  return module.hot.status() === 'idle';
+}
 
-  onHotUpdateSuccess?.();
-
-  if (isUpdateAvailable()) {
-    tryApplyUpdates(onHotUpdateSuccess);
-  }
+function canAcceptErrors() {
+  const hasReactRefresh = process.env.FAST_REFRESH;
+  const status = module.hot.status();
+  return hasReactRefresh && !['abort', 'fail'].includes(status);
 }
 
 function tryApplyUpdates(onHotUpdateSuccess) {
@@ -238,15 +189,28 @@ function tryApplyUpdates(onHotUpdateSuccess) {
     return;
   }
 
-  const result = module.hot.check(true, (err, updatedModules) => {
-    handleApplyUpdates(err, updatedModules, onHotUpdateSuccess);
-  });
+  function handleApplyUpdates(err, updatedModules) {
+    const haveErrors = err || hadRuntimeError;
+    const needsForcedReload = !err && !updatedModules;
 
-  // Handle webpack 2+ Promise-based API
+    if ((haveErrors && !canAcceptErrors()) || needsForcedReload) {
+      window.location.reload();
+      return;
+    }
+
+    onHotUpdateSuccess?.();
+
+    if (isUpdateAvailable()) {
+      tryApplyUpdates();
+    }
+  }
+
+  const result = module.hot.check(/* autoApply */ true, handleApplyUpdates);
+
   if (result?.then) {
     result.then(
-      (updatedModules) => handleApplyUpdates(null, updatedModules, onHotUpdateSuccess),
-      (err) => handleApplyUpdates(err, null, onHotUpdateSuccess)
+      (updatedModules) => handleApplyUpdates(null, updatedModules),
+      (err) => handleApplyUpdates(err, null)
     );
   }
 }
