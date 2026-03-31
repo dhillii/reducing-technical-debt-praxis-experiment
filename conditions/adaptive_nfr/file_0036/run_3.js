@@ -3,84 +3,49 @@ const {metaData, settingsCache, config, blogIcon, urlUtils, getFrontendKey, sett
 const {escapeExpression, SafeString} = require('../services/handlebars');
 const {generateCustomFontCss, isValidCustomFont, isValidCustomHeadingFont} = require('@tryghost/custom-fonts');
 const {cardAssets} = require('../services/assets-minification');
+
 const logging = require('@tryghost/logging');
 const _ = require('lodash');
 const debug = require('@tryghost/debug')('ghost_head');
 const templateStyles = require('./tpl/styles');
 const {getFrontendAppConfig, getDataAttributes} = require('../utils/frontend-apps');
 
+/**
+ * @typedef {import('@tryghost/custom-fonts').FontSelection} FontSelection
+ */
+
 const {get: getMetaData, getAssetUrl} = metaData;
 
-// ============================================================================
-// Meta Tag Builders
-// ============================================================================
+// ─── Meta Tag Helpers ────────────────────────────────────────────────────────
 
 function writeMetaTag(property, content, type) {
-    type = type || property.substring(0, 7) === 'twitter' ? 'name' : 'property';
-    return `<meta ${type}="${property}" content="${content}">`;
+    const resolvedType = type || (property.substring(0, 7) === 'twitter' ? 'name' : 'property');
+    return `<meta ${resolvedType}="${property}" content="${content}">`;
 }
 
-function buildStructuredDataTags(meta) {
-    const tags = [];
+function finaliseStructuredData(meta) {
+    const head = [];
 
     _.each(meta.structuredData, (content, property) => {
         if (property === 'article:tag') {
             _.each(meta.keywords, (keyword) => {
                 if (keyword !== '') {
-                    tags.push(writeMetaTag(property, escapeExpression(keyword)));
+                    head.push(writeMetaTag(property, escapeExpression(keyword)));
                 }
             });
-            tags.push('');
+            head.push('');
         } else if (content !== null && content !== undefined) {
-            tags.push(writeMetaTag(property, escapeExpression(content)));
+            head.push(writeMetaTag(property, escapeExpression(content)));
         }
     });
 
-    return tags;
+    return head;
 }
 
-// ============================================================================
-// Frontend App Helpers
-// ============================================================================
+// ─── Frontend App Helpers ────────────────────────────────────────────────────
 
-function buildPortalScript(data, frontendKey, excludeList) {
-    if (excludeList.has('portal')) {
-        return '';
-    }
-
-    const {scriptUrl} = getFrontendAppConfig('portal');
-    const colorString = (_.has(data, 'site._preview') && data.site.accent_color) ? data.site.accent_color : '';
-    
-    const attributes = {
-        i18n: true,
-        ghost: urlUtils.getSiteUrl(),
-        key: frontendKey,
-        api: urlUtils.urlFor('api', {type: 'content'}, true),
-        locale: settingsCache.get('locale') || 'en'
-    };
-    
-    if (colorString) {
-        attributes['accent-color'] = colorString;
-    }
-
-    const dataAttributes = getDataAttributes(attributes);
+function buildScriptTag(scriptUrl, dataAttributes) {
     return `<script defer src="${scriptUrl}" ${dataAttributes} crossorigin="anonymous"></script>`;
-}
-
-function buildMembersStyles(excludeList) {
-    if (excludeList.has('cta_styles')) {
-        return '';
-    }
-    return `<style id="gh-members-styles">${templateStyles}</style>`;
-}
-
-function buildStripeScript() {
-    if (!settingsCache.get('paid_members_enabled')) {
-        return '';
-    }
-
-    const isFraudSignalsEnabled = process.env.NODE_ENV === 'testing-browser' ? '?advancedFraudSignals=false' : '';
-    return `<script async src="https://js.stripe.com/v3/${isFraudSignalsEnabled}"></script>`;
 }
 
 function getMembersHelper(data, frontendKey, excludeList) {
@@ -92,23 +57,55 @@ function getMembersHelper(data, frontendKey, excludeList) {
         return '';
     }
 
-    const scripts = [
-        buildPortalScript(data, frontendKey, excludeList),
-        buildMembersStyles(excludeList),
-        buildStripeScript()
-    ];
+    const parts = [];
 
-    return scripts.filter(Boolean).join('');
+    if (!excludeList.has('portal')) {
+        parts.push(buildPortalScript(data, frontendKey));
+    }
+
+    if (!excludeList.has('cta_styles')) {
+        parts.push(`<style id="gh-members-styles">${templateStyles}</style>`);
+    }
+
+    if (settingsCache.get('paid_members_enabled')) {
+        parts.push(buildStripeScript());
+    }
+
+    return parts.join('');
+}
+
+function buildPortalScript(data, frontendKey) {
+    const {scriptUrl} = getFrontendAppConfig('portal');
+    const colorString = (_.has(data, 'site._preview') && data.site.accent_color) ? data.site.accent_color : '';
+
+    const attributes = {
+        i18n: true,
+        ghost: urlUtils.getSiteUrl(),
+        key: frontendKey,
+        api: urlUtils.urlFor('api', {type: 'content'}, true),
+        locale: settingsCache.get('locale') || 'en'
+    };
+
+    if (colorString) {
+        attributes['accent-color'] = colorString;
+    }
+
+    return buildScriptTag(scriptUrl, getDataAttributes(attributes));
+}
+
+function buildStripeScript() {
+    const isFraudSignalsEnabled = process.env.NODE_ENV === 'testing-browser' ? '?advancedFraudSignals=false' : '';
+    return `<script async src="https://js.stripe.com/v3/${isFraudSignalsEnabled}"></script>`;
 }
 
 function getSearchHelper(frontendKey) {
-    const adminUrl = urlUtils.getAdminUrl() || urlUtils.getSiteUrl();
     const {scriptUrl, stylesUrl} = getFrontendAppConfig('sodoSearch');
 
     if (!scriptUrl) {
         return '';
     }
 
+    const adminUrl = urlUtils.getAdminUrl() || urlUtils.getSiteUrl();
     const attrs = {
         key: frontendKey,
         styles: stylesUrl,
@@ -116,8 +113,7 @@ function getSearchHelper(frontendKey) {
         locale: settingsCache.get('locale') || 'en'
     };
 
-    const dataAttrs = getDataAttributes(attrs);
-    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+    return buildScriptTag(scriptUrl, getDataAttributes(attrs));
 }
 
 function getAnnouncementBarHelper(data) {
@@ -131,29 +127,37 @@ function getAnnouncementBarHelper(data) {
     const {scriptUrl} = getFrontendAppConfig('announcementBar');
     const siteUrl = urlUtils.getSiteUrl();
     const announcementUrl = new URL('members/api/announcement/', siteUrl);
-    
+
     const attrs = {
         'announcement-bar': siteUrl,
         'api-url': announcementUrl
     };
 
     if (preview) {
-        const searchParam = new URLSearchParams(preview);
-        const announcement = searchParam.get('announcement');
-        const announcementBackground = searchParam.has('announcement_bg') ? searchParam.get('announcement_bg') : '';
-        const announcementVisibility = searchParam.has('announcement_vis');
-
-        if (!announcement || !announcementVisibility) {
-            return '';
+        const previewAttrs = buildPreviewAnnouncementAttrs(preview);
+        if (!previewAttrs) {
+            return;
         }
-
-        attrs.announcement = escapeExpression(announcement);
-        attrs['announcement-background'] = escapeExpression(announcementBackground);
-        attrs.preview = true;
+        Object.assign(attrs, previewAttrs);
     }
 
-    const dataAttrs = getDataAttributes(attrs);
-    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+    return buildScriptTag(scriptUrl, getDataAttributes(attrs));
+}
+
+function buildPreviewAnnouncementAttrs(preview) {
+    const searchParam = new URLSearchParams(preview);
+    const announcement = searchParam.get('announcement');
+    const announcementVisibility = searchParam.has('announcement_vis');
+
+    if (!announcement || !announcementVisibility) {
+        return null;
+    }
+
+    return {
+        announcement: escapeExpression(announcement),
+        'announcement-background': escapeExpression(searchParam.has('announcement_bg') ? searchParam.get('announcement_bg') : ''),
+        preview: true
+    };
 }
 
 function getWebmentionDiscoveryLink() {
@@ -167,132 +171,178 @@ function getWebmentionDiscoveryLink() {
     }
 }
 
-// ============================================================================
-// Asset Helpers
-// ============================================================================
-
-function getCardAssetsScripts(excludeList) {
-    if (excludeList.has('card_assets')) {
-        return [];
-    }
-
-    const scripts = [];
-    if (cardAssets.hasFile('js')) {
-        scripts.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
-    }
-    if (cardAssets.hasFile('css')) {
-        scripts.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
-    }
-    return scripts;
-}
-
-function getCommentCountsScript(excludeList) {
-    if (excludeList.has('comment_counts') || settingsCache.get('comments_enabled') === 'off') {
-        return '';
-    }
-    return `<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`;
-}
-
-function getMemberAttributionScript() {
-    if (!settingsCache.get('members_enabled') || !settingsCache.get('members_track_sources')) {
-        return '';
-    }
-    return `<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`;
-}
+// ─── Analytics ───────────────────────────────────────────────────────────────
 
 function getTinybirdTrackerScript(dataRoot) {
-    const preview = dataRoot?.context?.includes('preview');
-    if (preview) {
+    if (dataRoot?.context?.includes('preview')) {
         return '';
     }
 
     const src = getAssetUrl('public/ghost-stats.min.js', false);
     const env = config.get('env');
+    const {endpoint, token, datasource} = resolveTinybirdConfig();
+    const tbParams = buildTinybirdParams(dataRoot);
+
+    return [
+        `<script defer src="${src}"`,
+        `data-stringify-payload="false"`,
+        datasource ? `data-datasource="${datasource}"` : '',
+        `data-storage="localStorage"`,
+        `data-host="${endpoint}"`,
+        (token && env !== 'production') ? `data-token="${token}"` : '',
+        tbParams,
+        `></script>`
+    ].filter(Boolean).join(' ');
+}
+
+function resolveTinybirdConfig() {
     const statsConfig = config.get('tinybird:tracker');
     const localConfig = config.get('tinybird:tracker:local');
     const localEnabled = localConfig?.enabled ?? false;
 
-    const endpoint = localEnabled ? localConfig.endpoint : statsConfig.endpoint;
-    const token = localEnabled ? localConfig.token : statsConfig.token;
-    const datasource = localEnabled ? localConfig.datasource : statsConfig.datasource;
+    return {
+        endpoint: localEnabled ? localConfig.endpoint : statsConfig.endpoint,
+        token: localEnabled ? localConfig.token : statsConfig.token,
+        datasource: localEnabled ? localConfig.datasource : statsConfig.datasource
+    };
+}
 
-    const tbParams = _.map({
+function buildTinybirdParams(dataRoot) {
+    const params = {
         site_uuid: settingsCache.get('site_uuid'),
         post_uuid: dataRoot.post?.uuid,
-        post_type: dataRoot.context?.includes('post') ? 'post' : dataRoot.context?.includes('page') ? 'page' : null,
+        post_type: resolvePostType(dataRoot.context),
         member_uuid: dataRoot.member?.uuid,
         member_status: dataRoot.member?.status
-    }, (value, key) => `tb_${key}="${value}"`).join(' ');
+    };
 
-    return `<script defer src="${src}" data-stringify-payload="false" ${datasource ? `data-datasource="${datasource}"` : ''} data-storage="localStorage" data-host="${endpoint}" ${token && env !== 'production' ? `data-token="${token}"` : ''} ${tbParams}></script>`;
+    return _.map(params, (value, key) => `tb_${key}="${value}"`).join(' ');
 }
 
-// ============================================================================
-// Metadata Builders
-// ============================================================================
+function resolvePostType(context) {
+    if (context?.includes('post')) {
+        return 'post';
+    }
+    if (context?.includes('page')) {
+        return 'page';
+    }
+    return null;
+}
 
-function buildBasicMetadata(meta, context, excludeList, safeVersion, favicon, iconType) {
+// ─── Head Assembly ───────────────────────────────────────────────────────────
+
+function buildBaseMetaTags(meta, context, safeVersion, referrerPolicy, favicon, iconType, excludeList) {
+    const head = [];
+
+    if (context) {
+        if (!excludeList.has('metadata')) {
+            head.push(...buildMetadataTags(meta, context, referrerPolicy, favicon, iconType));
+        }
+
+        if (meta.previousUrl) {
+            head.push(`<link rel="prev" href="${escapeExpression(meta.previousUrl)}">`);
+        }
+
+        if (meta.nextUrl) {
+            head.push(`<link rel="next" href="${escapeExpression(meta.nextUrl)}">`);
+        }
+
+        if (!_.includes(context, 'paged') && !config.isPrivacyDisabled('useStructuredData')) {
+            head.push(...buildStructuredDataTags(meta, excludeList));
+        }
+    }
+
+    head.push(`<meta name="generator" content="Ghost ${escapeExpression(safeVersion)}">`);
+    head.push(`<link rel="alternate" type="application/rss+xml" title="${escapeExpression(meta.site.title)}" href="${escapeExpression(meta.rssUrl)}">`);
+
+    return head;
+}
+
+function buildMetadataTags(meta, context, referrerPolicy, favicon, iconType) {
     const tags = [];
 
-    if (!excludeList.has('metadata')) {
-        if (meta.metaDescription && meta.metaDescription.length > 0) {
-            tags.push(`<meta name="description" content="${escapeExpression(meta.metaDescription)}">`);
-        }
+    if (meta.metaDescription && meta.metaDescription.length > 0) {
+        tags.push(`<meta name="description" content="${escapeExpression(meta.metaDescription)}">`);
+    }
 
-        if (settingsCache.get('icon')) {
-            tags.push(`<link rel="icon" href="${favicon}" type="image/${iconType}">`);
-        }
+    if (settingsCache.get('icon')) {
+        tags.push(`<link rel="icon" href="${favicon}" type="image/${iconType}">`);
+    }
 
-        tags.push(`<link rel="canonical" href="${escapeExpression(meta.canonicalUrl)}">`);
+    tags.push(`<link rel="canonical" href="${escapeExpression(meta.canonicalUrl)}">`);
 
-        if (_.includes(context, 'preview')) {
-            tags.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-            tags.push(writeMetaTag('referrer', 'same-origin', 'name'));
-        } else {
-            const referrerPolicy = config.get('referrerPolicy') || 'no-referrer-when-downgrade';
-            tags.push(writeMetaTag('referrer', referrerPolicy, 'name'));
-        }
+    if (_.includes(context, 'preview')) {
+        tags.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+        tags.push(writeMetaTag('referrer', 'same-origin', 'name'));
+    } else {
+        tags.push(writeMetaTag('referrer', referrerPolicy, 'name'));
     }
 
     return tags;
 }
 
-function buildPaginationMetadata(meta) {
+function buildStructuredDataTags(meta, excludeList) {
     const tags = [];
 
-    if (meta.previousUrl) {
-        tags.push(`<link rel="prev" href="${escapeExpression(meta.previousUrl)}">`);
+    if (!excludeList.has('social_data')) {
+        tags.push('');
+        tags.push(...finaliseStructuredData(meta));
+        tags.push('');
     }
 
-    if (meta.nextUrl) {
-        tags.push(`<link rel="next" href="${escapeExpression(meta.nextUrl)}">`);
+    if (!excludeList.has('schema') && meta.schema) {
+        tags.push(`<script type="application/ld+json">\n${JSON.stringify(meta.schema, null, '    ')}\n    </script>\n`);
     }
 
     return tags;
 }
 
-function buildStructuredDataMetadata(meta, context, excludeList) {
+function buildCardAssetTags(excludeList) {
+    if (excludeList.has('card_assets')) {
+        return [];
+    }
+
     const tags = [];
-    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
 
-    if (!_.includes(context, 'paged') && useStructuredData) {
-        if (!excludeList.has('social_data')) {
-            tags.push('');
-            tags.push(...buildStructuredDataTags(meta));
-            tags.push('');
-        }
+    if (cardAssets.hasFile('js')) {
+        tags.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+    }
 
-        if (!excludeList.has('schema') && meta.schema) {
-            tags.push(`<script type="application/ld+json">\n${JSON.stringify(meta.schema, null, '    ')}\n    </script>\n`);
-        }
+    if (cardAssets.hasFile('css')) {
+        tags.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
     }
 
     return tags;
 }
 
-function buildAccentColorStyle(accentColor, head) {
-    const escaped = escapeExpression(accentColor);
-    const styleTag = `<style>:root {--ghost-accent-color: ${escaped};}</style>`;
+function buildMemberTrackingTags(excludeList) {
+    const tags = [];
+
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        tags.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        tags.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+
+    return tags;
+}
+
+function buildAnalyticsTags(dataRoot) {
+    if (!settingsHelpers.isWebAnalyticsEnabled()) {
+        return [];
+    }
+
+    if (dataRoot._locals) {
+        dataRoot._locals.ghostAnalytics = true;
+    }
+
+    return [getTinybirdTrackerScript(dataRoot)];
+}
+
+function injectAccentColor(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${escapeExpression(accentColor)};}</style>`;
     const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
 
     if (existingScriptIndex !== -1) {
@@ -302,34 +352,44 @@ function buildAccentColorStyle(accentColor, head) {
     }
 }
 
-function buildCustomFontStyles(options) {
-    const isSitePreview = options.data?.site?._preview ?? false;
-    const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
-    const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
-
-    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
-        (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
-        
-        const fontSelection = {};
-        if (headingFont) {
-            fontSelection.heading = headingFont;
-        }
-        if (bodyFont) {
-            fontSelection.body = bodyFont;
-        }
-
-        const customCSS = generateCustomFontCss(fontSelection);
-        return new SafeString(customCSS);
-    }
-
-    return '';
+function buildCodeInjectionTags(globalCodeinjection, postCodeInjection, tagCodeInjection) {
+    return [globalCodeinjection, postCodeInjection, tagCodeInjection].filter(value => !_.isEmpty(value));
 }
 
-// ============================================================================
-// Main Helper
-// ============================================================================
+function buildCustomFontTag(isSitePreview, siteData) {
+    const headingFont = isSitePreview ? siteData?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? siteData?.body_font : settingsCache.get('body_font');
 
-module.exports = async function ghost_head(options) {
+    const hasValidHeadingFont = typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont);
+    const hasValidBodyFont = typeof bodyFont === 'string' && isValidCustomFont(bodyFont);
+
+    if (!hasValidHeadingFont && !hasValidBodyFont) {
+        return null;
+    }
+
+    /** @type FontSelection */
+    const fontSelection = {};
+
+    if (headingFont) {
+        fontSelection.heading = headingFont;
+    }
+    if (bodyFont) {
+        fontSelection.body = bodyFont;
+    }
+
+    return new SafeString(generateCustomFontCss(fontSelection));
+}
+
+// ─── Main Export ─────────────────────────────────────────────────────────────
+
+/**
+ * **NOTE**
+ * Express adds `_locals`, see https://github.com/expressjs/express/blob/4.15.4/lib/response.js#L962.
+ * But `options.data.root.context` is available next to `root._locals.context`, because
+ * Express creates a `renderOptions` object, see https://github.com/expressjs/express/blob/4.15.4/lib/application.js#L554
+ * and merges all locals to the root of the object. Very confusing, because the data is available in different layers.
+ */
+module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
     debug('begin');
 
     if (options.data.root.statusCode >= 500) {
@@ -339,68 +399,8 @@ module.exports = async function ghost_head(options) {
     const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
     const head = [];
     const dataRoot = options.data.root;
-    const context = dataRoot._locals.context || null;
+    const context = dataRoot._locals.context ?? null;
     const safeVersion = dataRoot._locals.safeVersion;
-    const postCodeInjection = dataRoot?.post?.codeinjection_head || null;
-    const tagCodeInjection = dataRoot?.tag?.codeinjection_head || null;
-    const globalCodeinjection = settingsCache.get('codeinjection_head');
-    const favicon = blogIcon.getIconUrl();
-    const iconType = blogIcon.getIconType(favicon);
-
-    debug('preparation complete, begin fetch');
-
-    try {
-        const meta = await getMetaData(dataRoot, dataRoot);
-        const frontendKey = await getFrontendKey();
-
-        debug('end fetch');
-
-        if (context) {
-            head.push(...buildBasicMetadata(meta, context, excludeList, safeVersion, favicon, iconType));
-            head.push(...buildPaginationMetadata(meta));
-            head.push(...buildStructuredDataMetadata(meta, context, excludeList));
-        }
-
-        head.push(`<meta name="generator" content="Ghost ${escapeExpression(safeVersion)}">`);
-        head.push(`<link rel="alternate" type="application/rss+xml" title="${escapeExpression(meta.site.title)}" href="${escapeExpression(meta.rssUrl)}">`);
-
-        head.push(getMembersHelper(options.data, frontendKey, excludeList));
-
-        if (!excludeList.has('search')) {
-            head.push(getSearchHelper(frontendKey));
-        }
-
-        if (!excludeList.has('announcement')) {
-            head.push(getAnnouncementBarHelper(options.data));
-        }
-
-        try {
-            head.push(getWebmentionDiscoveryLink());
-        } catch (err) {
-            logging.warn(err);
-        }
-
-        head.push(...getCardAssetsScripts(excludeList));
-        head.push(getCommentCountsScript(excludeList));
-        head.push(getMemberAttributionScript());
-
-        if (settingsHelpers.isWebAnalyticsEnabled()) {
-            head.push(getTinybirdTrackerScript(dataRoot));
-            if (dataRoot._locals) {
-                dataRoot._locals.ghostAnalytics = true;
-            }
-        }
-
-        if (options.data.site.accent_color) {
-            buildAccentColorStyle(options.data.site.accent_color, head);
-        }
-
-        if (!_.isEmpty(globalCodeinjection)) {
-            head.push(globalCodeinjection);
-        }
-
-        if (!_.isEmpty(postCodeInjection)) {
-            head.push(postCodeInjection);
-        }
-
-        if (!_.isEmpty(tagCodeInjection)) {
+    const postCodeInjection = dataRoot?.post?.codeinjection_head ?? null;
+    const tagCodeInjection = dataRoot?.tag?.codeinjection_head ?? null;
+    const globalCodeinjection = sett
