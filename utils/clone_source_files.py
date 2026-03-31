@@ -27,21 +27,29 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Project GitHub URLs (from dhillii organization forks)
+# Kept projects (original "latest" versions):
+# Ghost, create-react-app, eslint, keystone, laverna, mail, pm2
+# Resampled projects (pinned older versions, repos_cache dirs use versioned names):
+# Grunt-1.3.0, hapi-16.8.4, mocha-4.1.0, mongoose-5.13.22,
+# sequelize-4.44.4, strapi-3.6.11, webpack-2.7.0
+# express was REMOVED and replaced by Grunt.
 PROJECT_REPOS = {
-    "Ghost": "https://github.com/dhillii/Ghost.git",
+    # Kept projects (original versions)
+    "Ghost":            "https://github.com/dhillii/Ghost.git",
     "create-react-app": "https://github.com/dhillii/create-react-app.git",
-    "eslint": "https://github.com/dhillii/eslint.git",
-    "express": "https://github.com/dhillii/express.git",
-    "hapi": "https://github.com/dhillii/hapi.git",
-    "keystone": "https://github.com/dhillii/keystone.git",
-    "laverna": "https://github.com/dhillii/laverna.git",
-    "mail": "https://github.com/dhillii/Mail.git",
-    "mocha": "https://github.com/dhillii/mocha.git",
-    "mongoose": "https://github.com/dhillii/mongoose.git",
-    "pm2": "https://github.com/dhillii/pm2.git",
-    "sequelize": "https://github.com/dhillii/sequelize.git",
-    "strapi": "https://github.com/dhillii/strapi.git",
-    "webpack": "https://github.com/dhillii/webpack.git",
+    "eslint":           "https://github.com/dhillii/eslint.git",
+    "keystone":         "https://github.com/dhillii/keystone.git",
+    "laverna":          "https://github.com/dhillii/laverna.git",
+    "mail":             "https://github.com/dhillii/Mail.git",
+    "pm2":              "https://github.com/dhillii/pm2.git",
+    # Resampled projects (pinned older versions)
+    "Grunt-1.3.0":      "https://github.com/gruntjs/grunt.git",
+    "hapi-16.8.4":      "https://github.com/hapijs/hapi.git",
+    "mocha-4.1.0":      "https://github.com/mochajs/mocha.git",
+    "mongoose-5.13.22": "https://github.com/Automattic/mongoose.git",
+    "sequelize-4.44.4": "https://github.com/sequelize/sequelize.git",
+    "strapi-3.6.11":    "https://github.com/strapi/strapi.git",
+    "webpack-2.7.0":    "https://github.com/webpack/webpack.git",
 }
 
 
