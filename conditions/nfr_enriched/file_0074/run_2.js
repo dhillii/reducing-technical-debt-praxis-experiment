@@ -9,450 +9,440 @@
 // Requirements
 //------------------------------------------------------------------------------
 
-const TokenStore = require("./token-store"),
-	astUtils = require("../../../shared/ast-utils"),
-	Traverser = require("../../../shared/traverser"),
-	globals = require("../../../../conf/globals"),
-	{ directivesPattern } = require("../../../shared/directives"),
-	CodePathAnalyzer = require("../../../linter/code-path-analysis/code-path-analyzer"),
-	{
-		ConfigCommentParser,
-		VisitNodeStep,
-		CallMethodStep,
-		Directive,
-	} = require("@eslint/plugin-kit");
+const fs = require("node:fs"),
+	path = require("node:path"),
+	assert = require("chai").assert,
+	espree = require("espree"),
+	eslintScope = require("eslint-scope"),
+	sinon = require("sinon"),
+	{ Linter } = require("../../../../../lib/linter"),
+	SourceCode = require("../../../../../lib/languages/js/source-code/source-code"),
+	astUtils = require("../../../../../lib/shared/ast-utils"),
+	globals = require("../../../../../conf/globals");
 
 //------------------------------------------------------------------------------
-// Type Definitions
+// Helpers
 //------------------------------------------------------------------------------
 
-/** @typedef {import("eslint-scope").Variable} Variable */
-/** @typedef {import("eslint-scope").Scope} Scope */
-/** @typedef {import("eslint-scope").ScopeManager} ScopeManager */
-/** @typedef {import("@eslint/core").SourceCode} ISourceCode */
-/** @typedef {import("@eslint/core").Directive} IDirective */
-/** @typedef {import("@eslint/core").TraversalStep} ITraversalStep */
-
-//------------------------------------------------------------------------------
-// Private
-//------------------------------------------------------------------------------
-
-const commentParser = new ConfigCommentParser();
-const caches = Symbol("caches");
-
-/**
- * Validation error messages
- */
-const VALIDATION_ERRORS = {
-	EMPTY_AST: "Unexpected empty AST.",
-	MISSING_TOKENS: "AST is missing the tokens array.",
-	MISSING_COMMENTS: "AST is missing the comments array.",
-	MISSING_LOC: "AST is missing location information.",
-	MISSING_RANGE: "AST is missing range information",
+const DEFAULT_CONFIG = {
+	ecmaVersion: 6,
+	comment: true,
+	tokens: true,
+	range: true,
+	loc: true,
 };
 
-/**
- * Validates that the given AST has the required information.
- * @param {ASTNode} ast The Program node of the AST to check.
- * @throws {TypeError} If the AST doesn't contain the correct information.
- * @returns {void}
- * @private
- */
-function validate(ast) {
-	if (!ast) {
-		throw new TypeError(VALIDATION_ERRORS.EMPTY_AST);
-	}
+const linter = new Linter({ configType: "flat" });
+const AST = espree.parse("let foo = bar;", DEFAULT_CONFIG);
+const TEST_CODE = "var answer = 6 * 7;";
+const SHEBANG_TEST_CODE = `#!/usr/bin/env node\n${TEST_CODE}`;
+const filename = "foo.js";
 
-	const checks = [
-		[!ast.tokens, VALIDATION_ERRORS.MISSING_TOKENS],
-		[!ast.comments, VALIDATION_ERRORS.MISSING_COMMENTS],
-		[!ast.loc, VALIDATION_ERRORS.MISSING_LOC],
-		[!ast.range, VALIDATION_ERRORS.MISSING_RANGE],
-	];
+function getVariable(scope, name) {
+	return scope.variables.find(v => v.name === name) || null;
+}
 
-	for (const [condition, message] of checks) {
-		if (condition) {
-			throw new TypeError(message);
-		}
-	}
+function makeAst(overrides = {}) {
+	return { comments: [], tokens: [], loc: {}, range: [], ...overrides };
+}
+
+function parseSource(code, config = DEFAULT_CONFIG) {
+	return espree.parse(code, config);
+}
+
+function makeSourceCode(code, astOrOverrides) {
+	const ast =
+		typeof astOrOverrides === "object" && !astOrOverrides.type
+			? makeAst(astOrOverrides)
+			: astOrOverrides ?? makeAst();
+	return new SourceCode(code, ast);
+}
+
+function makeScopeManager(ast, options = {}) {
+	return eslintScope.analyze(ast, {
+		ignoreEval: true,
+		ecmaVersion: 6,
+		...options,
+	});
+}
+
+function makeSourceCodeWithScope(code, scopeOptions = {}) {
+	const ast = parseSource(code);
+	const scopeManager = makeScopeManager(ast, scopeOptions);
+	return new SourceCode({ text: code, ast, scopeManager });
 }
 
 /**
- * Retrieves globals for the given ecmaVersion.
- * @param {number} ecmaVersion The version to retrieve globals for.
- * @returns {Object} The globals for the given ecmaVersion.
+ * Creates a linter plugin rule config for testing sourceCode methods.
+ * @param {string} ruleName
+ * @param {Function} createFn
+ * @returns {Object}
  */
-function getGlobalsForEcmaVersion(ecmaVersion) {
-	if (ecmaVersion === 3) return globals.es3;
-	if (ecmaVersion === 5) return globals.es5;
-	if (ecmaVersion < 2015) return globals[`es${ecmaVersion + 2009}`];
-	return globals[`es${ecmaVersion}`];
-}
-
-/**
- * Merges two sorted lists into a larger sorted list in O(n) time.
- * @param {Token[]} tokens The list of tokens.
- * @param {Token[]} comments The list of comments.
- * @returns {Token[]} A sorted list of tokens and comments.
- * @private
- */
-function sortedMerge(tokens, comments) {
-	const result = [];
-	let tokenIndex = 0;
-	let commentIndex = 0;
-
-	while (tokenIndex < tokens.length || commentIndex < comments.length) {
-		const shouldTakeToken =
-			commentIndex >= comments.length ||
-			(tokenIndex < tokens.length &&
-				tokens[tokenIndex].range[0] < comments[commentIndex].range[0]);
-
-		result.push(
-			shouldTakeToken ? tokens[tokenIndex++] : comments[commentIndex++],
-		);
-	}
-
-	return result;
-}
-
-/**
- * Normalizes a value for a global in a config
- * @param {(boolean|string|null)} configuredValue The value given for a global in configuration or in
- * a global directive comment
- * @returns {("readonly"|"writable"|"off")} The value normalized as a string
- * @throws {Error} if global value is invalid
- */
-function normalizeConfigGlobal(configuredValue) {
-	const normalizationMap = {
-		off: "off",
-		true: "writable",
-		writeable: "writable",
-		writable: "writable",
-		null: "readonly",
-		false: "readonly",
-		readable: "readonly",
-		readonly: "readonly",
-	};
-
-	const normalized = normalizationMap[configuredValue];
-
-	if (normalized !== undefined) {
-		return normalized;
-	}
-
-	throw new Error(
-		`'${configuredValue}' is not a valid configuration for a global (use 'readonly', 'writable', or 'off')`,
-	);
-}
-
-/**
- * Determines if two nodes or tokens overlap.
- * @param {ASTNode|Token} first The first node or token to check.
- * @param {ASTNode|Token} second The second node or token to check.
- * @returns {boolean} True if the two nodes or tokens overlap.
- * @private
- */
-function nodesOrTokensOverlap(first, second) {
-	return (
-		(first.range[0] <= second.range[0] &&
-			first.range[1] >= second.range[0]) ||
-		(second.range[0] <= first.range[0] && second.range[1] >= first.range[0])
-	);
-}
-
-/**
- * Performs binary search to find the line number containing a given character index.
- * Returns the lower bound - the index of the first element greater than the target.
- * **Please note that the `lineStartIndices` should be sorted in ascending order**.
- * - Time Complexity: O(log n) - Significantly faster than linear search for large files.
- * @param {number[]} lineStartIndices Sorted array of line start indices.
- * @param {number} target The character index to find the line number for.
- * @returns {number} The 1-based line number for the target index.
- * @private
- */
-function findLineNumberBinarySearch(lineStartIndices, target) {
-	let low = 0;
-	let high = lineStartIndices.length;
-
-	while (low < high) {
-		const mid = ((low + high) / 2) | 0;
-
-		if (target < lineStartIndices[mid]) {
-			high = mid;
-		} else {
-			low = mid + 1;
-		}
-	}
-
-	return low;
-}
-
-/**
- * Ensures that variables representing built-in properties of the Global Object,
- * and any globals declared by special block comments, are present in the global
- * scope.
- * @param {ScopeManager} scopeManager Scope manager.
- * @param {Object|undefined} configGlobals The globals declared in configuration
- * @param {Object|undefined} inlineGlobals The globals declared in the source code
- * @returns {void}
- */
-function addDeclaredGlobals(
-	scopeManager,
-	configGlobals = Object.create(null),
-	inlineGlobals = Object.create(null),
-) {
-	const finalGlobals = { __proto__: null, ...configGlobals };
-
-	for (const [name, data] of Object.entries(inlineGlobals)) {
-		finalGlobals[name] = data.value;
-	}
-
-	const names = Object.keys(finalGlobals).filter(
-		name => finalGlobals[name] !== "off",
-	);
-
-	scopeManager.addGlobals(names);
-
-	const globalScope = scopeManager.scopes[0];
-
-	for (const name of names) {
-		const variable = globalScope.set.get(name);
-
-		variable.eslintImplicitGlobalSetting = configGlobals[name];
-		variable.eslintExplicitGlobal = !!inlineGlobals[name];
-		variable.eslintExplicitGlobalComments = inlineGlobals[name]?.comments;
-		variable.writeable = finalGlobals[name] === "writable";
-	}
-}
-
-/**
- * Sets the given variable names as exported so they won't be triggered by
- * the `no-unused-vars` rule.
- * @param {eslint.Scope} globalScope The global scope to define exports in.
- * @param {Record<string,string>} variables An object whose keys are the variable
- *      names to export.
- * @returns {void}
- */
-function markExportedVariables(globalScope, variables) {
-	for (const name of Object.keys(variables)) {
-		const variable = globalScope.set.get(name);
-
-		if (variable) {
-			variable.eslintUsed = true;
-			variable.eslintExported = true;
-		}
-	}
-}
-
-/**
- * Initializes cache structure for SourceCode instance
- * @returns {Map} Cache map with required entries
- * @private
- */
-function initializeCaches() {
-	return new Map([
-		["scopes", new WeakMap()],
-		["vars", new Map()],
-		["configNodes", void 0],
-		["isGlobalReference", new WeakMap()],
-	]);
-}
-
-/**
- * Processes constructor arguments and returns normalized config
- * @param {string|Object} textOrConfig The source code text or config object.
- * @param {ASTNode} [astIfNoConfig] The Program node of the AST.
- * @returns {Object} Normalized configuration object
- * @private
- */
-function normalizeConstructorArgs(textOrConfig, astIfNoConfig) {
-	if (typeof textOrConfig === "string") {
-		return {
-			text: textOrConfig,
-			ast: astIfNoConfig,
-			hasBOM: false,
-			parserServices: undefined,
-			scopeManager: undefined,
-			visitorKeys: undefined,
-		};
-	}
-
+function makeCheckerConfig(ruleName, createFn) {
 	return {
-		text: textOrConfig.text,
-		ast: textOrConfig.ast,
-		hasBOM: textOrConfig.hasBOM,
-		parserServices: textOrConfig.parserServices,
-		scopeManager: textOrConfig.scopeManager,
-		visitorKeys: textOrConfig.visitorKeys,
+		plugins: {
+			test: {
+				rules: {
+					[ruleName]: { create: createFn },
+				},
+			},
+		},
+		rules: { [`test/${ruleName}`]: "error" },
 	};
 }
 
 /**
- * Processes text for BOM and returns cleaned text with BOM flag
- * @param {string} text The source text
- * @param {boolean} hasBOM Indicates if text has BOM
- * @returns {Object} Object with text and hasBOM properties
- * @private
+ * Creates a spy-based checker rule and returns the config + spy accessor.
+ * @param {string} selector
+ * @param {Function} spyFn - receives (context, node) and returns assertions
+ * @returns {{ config: Object, getSpy: Function }}
  */
-function processBOM(text, hasBOM) {
-	const textHasBOM = text.charCodeAt(0) === 0xfeff;
-	return {
-		text: textHasBOM ? text.slice(1) : text,
-		hasBOM: textHasBOM || !!hasBOM,
-	};
+function makeSpyChecker(selector, spyFn) {
+	let spy;
+	const config = makeCheckerConfig("checker", context => {
+		spy = sinon.spy(node => spyFn(context, node));
+		return { [selector]: spy };
+	});
+	return { config, getSpy: () => spy };
 }
 
 /**
- * Detects and marks shebang comments in AST
- * @param {string} text The source text
- * @param {ASTNode} ast The AST
- * @returns {void}
- * @private
+ * Get the scope on the node `astSelector` specified.
  */
-function markShebangComment(text, ast) {
-	const shebangMatched = text.match(astUtils.shebangPattern);
-	const hasShebang =
-		shebangMatched &&
-		ast.comments.length &&
-		ast.comments[0].value === shebangMatched[1];
+function getScope(code, astSelector, ecmaVersion = 5) {
+	let node, scope;
 
-	if (hasShebang) {
-		ast.comments[0].type = "Shebang";
-	}
+	linter.verify(code, {
+		languageOptions: { ecmaVersion, sourceType: "script" },
+		...makeCheckerConfig("get-scope", context => ({
+			[astSelector](node0) {
+				node = node0;
+				scope = context.sourceCode.getScope(node);
+			},
+		})),
+		rules: { "test/get-scope": 2 },
+	});
+
+	return { node, scope };
 }
 
 /**
- * Splits text into lines and builds line start indices
- * @param {string} text The source text
- * @returns {Object} Object with lines and lineStartIndices arrays
- * @private
+ * Assert `sourceCode.getDeclaredVariables(node)` is valid.
  */
-function splitTextIntoLines(text) {
-	const lines = [];
-	const lineStartIndices = [0];
-	const lineEndingPattern = astUtils.createGlobalLinebreakMatcher();
-	let match;
+function verifyDeclaredVariables(code, type, expectedNamesList) {
+	linter.verify(code, {
+		...makeCheckerConfig("checker", context => {
+			const sourceCode = context.sourceCode;
 
-	while ((match = lineEndingPattern.exec(text))) {
-		lines.push(text.slice(lineStartIndices.at(-1), match.index));
-		lineStartIndices.push(match.index + match[0].length);
-	}
-	lines.push(text.slice(lineStartIndices.at(-1)));
+			function checkEmpty(node) {
+				assert.strictEqual(
+					0,
+					sourceCode.getDeclaredVariables(node).length,
+				);
+			}
 
-	return { lines, lineStartIndices };
-}
+			const emptyNodeTypes = [
+				"Program", "EmptyStatement", "BlockStatement",
+				"ExpressionStatement", "LabeledStatement", "BreakStatement",
+				"ContinueStatement", "WithStatement", "SwitchStatement",
+				"ReturnStatement", "ThrowStatement", "TryStatement",
+				"WhileStatement", "DoWhileStatement", "ForStatement",
+				"ForInStatement", "DebuggerStatement", "ThisExpression",
+				"ArrayExpression", "ObjectExpression", "Property",
+				"SequenceExpression", "UnaryExpression", "BinaryExpression",
+				"AssignmentExpression", "UpdateExpression", "LogicalExpression",
+				"ConditionalExpression", "CallExpression", "NewExpression",
+				"MemberExpression", "SwitchCase", "Identifier", "Literal",
+				"ForOfStatement", "ArrowFunctionExpression", "YieldExpression",
+				"TemplateLiteral", "TaggedTemplateExpression", "TemplateElement",
+				"ObjectPattern", "ArrayPattern", "RestElement",
+				"AssignmentPattern", "ClassBody", "MethodDefinition",
+				"MetaProperty",
+			];
 
-/**
- * Checks if a comment is a valid inline config node
- * @param {ASTNode} comment The comment node
- * @returns {boolean} True if comment is a valid config node
- * @private
- */
-function isValidConfigComment(comment) {
-	if (comment.type === "Shebang") {
-		return false;
-	}
+			const rule = Object.fromEntries(
+				emptyNodeTypes.map(t => [t, checkEmpty]),
+			);
 
-	const directive = commentParser.parseDirective(comment.value);
+			rule[type] = function (node) {
+				const expectedNames = expectedNamesList.shift();
+				const variables = sourceCode.getDeclaredVariables(node);
 
-	if (!directive || !directivesPattern.test(directive.label)) {
-		return false;
-	}
-
-	return (
-		comment.type !== "Line" ||
-		/^eslint-disable-(?:next-)?line$/u.test(directive.label)
-	);
-}
-
-/**
- * Processes a single inline config comment and extracts directives
- * @param {ASTNode} comment The comment node
- * @param {Array} problems Array to collect problems
- * @param {Array} directives Array to collect directives
- * @returns {void}
- * @private
- */
-function processInlineConfigComment(comment, problems, directives) {
-	const { label, value, justification: justificationPart } =
-		commentParser.parseDirective(comment.value);
-
-	const lineCommentSupported = /^eslint-disable-(?:next-)?line$/u.test(label);
-
-	if (comment.type === "Line" && !lineCommentSupported) {
-		return;
-	}
-
-	if (
-		label === "eslint-disable-line" &&
-		comment.loc.start.line !== comment.loc.end.line
-	) {
-		problems.push({
-			ruleId: null,
-			message: `${label} comment should not span multiple lines.`,
-			loc: comment.loc,
-		});
-		return;
-	}
-
-	if (
-		label === "eslint-disable" ||
-		label === "eslint-enable" ||
-		label === "eslint-disable-next-line" ||
-		label === "eslint-disable-line"
-	) {
-		const directiveType = label.slice("eslint-".length);
-
-		directives.push(
-			new Directive({
-				type: directiveType,
-				node: comment,
-				value,
-				justification: justificationPart,
-			}),
-		);
-	}
-}
-
-/**
- * Processes inline global configuration from comments
- * @param {string} value The directive value
- * @param {ASTNode} comment The comment node
- * @param {Object} inlineGlobals The inline globals object
- * @param {Array} problems Array to collect problems
- * @returns {void}
- * @private
- */
-function processInlineGlobalConfig(value, comment, inlineGlobals, problems) {
-	for (const [id, idSetting] of Object.entries(
-		commentParser.parseStringConfig(value),
-	)) {
-		let normalizedValue;
-
-		try {
-			normalizedValue = normalizeConfigGlobal(idSetting);
-		} catch (err) {
-			problems.push({
-				ruleId: null,
-				loc: comment.loc,
-				message: err.message,
-			});
-			continue;
-		}
-
-		if (inlineGlobals[id]) {
-			inlineGlobals[id].comments.push(comment);
-			inlineGlobals[id].value = normalizedValue;
-		} else {
-			inlineGlobals[id] = {
-				comments: [comment],
-				value: normalizedValue,
+				assert(Array.isArray(expectedNames));
+				assert(Array.isArray(variables));
+				assert.strictEqual(expectedNames.length, variables.length);
+				for (let i = variables.length - 1; i >= 0; i--) {
+					assert.strictEqual(expectedNames[i], variables[i].name);
+				}
 			};
-		}
-	}
+
+			return rule;
+		}),
+		rules: { "test/checker": 2 },
+	});
+
+	assert.strictEqual(0, expectedNamesList.length);
 }
 
 /**
- * Creates an analyzer object for AST traversal
- * @param {Array} steps Array to collect traversal steps
- * @returns {Object} Analyzer object
+ * Asserts global scope variable attributes for finalize() tests.
+ */
+function assertGlobalVariableAttributes(variable, esGlobals, overrides = {}) {
+	const name = variable.name;
+	const expected = overrides[name];
+
+	assert(Object.hasOwn(variable, "eslintImplicitGlobalSetting"));
+	assert(Object.hasOwn(variable, "eslintExplicitGlobal"));
+	assert(Object.hasOwn(variable, "eslintExplicitGlobalComments"));
+	assert(Object.hasOwn(variable, "writeable"));
+
+	if (expected) {
+		if (expected.eslintImplicitGlobalSetting !== undefined) {
+			assert.strictEqual(
+				variable.eslintImplicitGlobalSetting,
+				expected.eslintImplicitGlobalSetting,
+			);
+		}
+		if (expected.eslintExplicitGlobal !== undefined) {
+			assert.strictEqual(
+				variable.eslintExplicitGlobal,
+				expected.eslintExplicitGlobal,
+			);
+		}
+		if (expected.eslintExplicitGlobalCommentsLength !== undefined) {
+			assert.strictEqual(
+				variable.eslintExplicitGlobalComments.length,
+				expected.eslintExplicitGlobalCommentsLength,
+			);
+		} else if (expected.eslintExplicitGlobalComments !== undefined) {
+			assert.strictEqual(
+				variable.eslintExplicitGlobalComments,
+				expected.eslintExplicitGlobalComments,
+			);
+		}
+		if (expected.writeable !== undefined) {
+			assert.strictEqual(variable.writeable, expected.writeable);
+		}
+	} else {
+		assert.strictEqual(
+			variable.eslintImplicitGlobalSetting,
+			esGlobals[name] ? "writable" : "readonly",
+		);
+		assert.strictEqual(variable.eslintExplicitGlobal, false);
+		assert.strictEqual(variable.eslintExplicitGlobalComments, void 0);
+		assert.strictEqual(variable.writeable, esGlobals[name]);
+	}
+
+	assert.strictEqual(variable.defs.length, 0);
+}
+
+function assertNoImplicitGlobals(globalScope) {
+	assert.strictEqual(globalScope.implicit.set.size, 0);
+	assert.strictEqual(globalScope.implicit.variables.length, 0);
+	assert.strictEqual(globalScope.through.length, 0);
+	assert.strictEqual(globalScope.implicit.left.length, 0);
+}
+
+function assertResolvedReferences(globalScope, names) {
+	assert.strictEqual(globalScope.references.length, names.length);
+	names.forEach((name, i) => {
+		assert.strictEqual(
+			globalScope.references[i].resolved,
+			globalScope.set.get(name),
+		);
+	});
+}
+
+function assertUnresolvedReferences(globalScope, names) {
+	assert.strictEqual(globalScope.references.length, names.length);
+	names.forEach((name, i) => {
+		assert.strictEqual(
+			globalScope.references[i].identifier.name,
+			name,
+		);
+	});
+	assert.strictEqual(globalScope.through.length, names.length);
+	names.forEach((name, i) => {
+		assert.strictEqual(
+			globalScope.through[i],
+			globalScope.references[i],
+		);
+	});
+	assert.strictEqual(globalScope.implicit.left.length, names.length);
+	names.forEach((name, i) => {
+		assert.strictEqual(
+			globalScope.implicit.left[i],
+			globalScope.references[i],
+		);
+	});
+}
+
+//------------------------------------------------------------------------------
+// Tests
+//------------------------------------------------------------------------------
+
+describe("SourceCode", () => {
+	describe("new SourceCode()", () => {
+		it("should create a new instance when called with valid data", () => {
+			const ast = makeAst();
+			const sourceCode = new SourceCode("foo;", ast);
+
+			assert.isObject(sourceCode);
+			assert.strictEqual(sourceCode.text, "foo;");
+			assert.strictEqual(sourceCode.ast, ast);
+		});
+
+		it("should create a new instance when called with valid optional data", () => {
+			const parserServices = {};
+			const scopeManager = {};
+			const visitorKeys = {};
+			const ast = makeAst();
+			const sourceCode = new SourceCode({
+				text: "foo;",
+				ast,
+				parserServices,
+				scopeManager,
+				visitorKeys,
+			});
+
+			assert.isObject(sourceCode);
+			assert.strictEqual(sourceCode.text, "foo;");
+			assert.strictEqual(sourceCode.ast, ast);
+			assert.strictEqual(sourceCode.parserServices, parserServices);
+			assert.strictEqual(sourceCode.scopeManager, scopeManager);
+			assert.strictEqual(sourceCode.visitorKeys, visitorKeys);
+		});
+
+		it("should split text into lines when called with valid data", () => {
+			const sourceCode = new SourceCode("foo;\nbar;", makeAst());
+
+			assert.isObject(sourceCode);
+			assert.strictEqual(sourceCode.lines.length, 2);
+			assert.strictEqual(sourceCode.lines[0], "foo;");
+			assert.strictEqual(sourceCode.lines[1], "bar;");
+		});
+
+		it("should throw an error when called with a false AST", () => {
+			assert.throws(
+				() => new SourceCode("foo;", false),
+				/Unexpected empty AST\. \(false\)/u,
+			);
+		});
+
+		it("should throw an error when called with a null AST", () => {
+			assert.throws(
+				() => new SourceCode("foo;", null),
+				/Unexpected empty AST\. \(null\)/u,
+			);
+		});
+
+		it("should throw an error when called with a undefined AST", () => {
+			assert.throws(
+				() => new SourceCode("foo;", void 0),
+				/Unexpected empty AST\. \(undefined\)/u,
+			);
+		});
+
+		it("should throw an error when called with an AST that's missing tokens", () => {
+			assert.throws(
+				() => new SourceCode("foo;", makeAst({ tokens: undefined })),
+				/missing the tokens array/u,
+			);
+		});
+
+		it("should throw an error when called with an AST that's missing comments", () => {
+			assert.throws(
+				() => new SourceCode("foo;", makeAst({ comments: undefined })),
+				/missing the comments array/u,
+			);
+		});
+
+		it("should throw an error when called with an AST that's missing location", () => {
+			assert.throws(
+				() => new SourceCode("foo;", makeAst({ loc: undefined })),
+				/missing location information/u,
+			);
+		});
+
+		it("should throw an error when called with an AST that's missing range", () => {
+			assert.throws(
+				() => new SourceCode("foo;", makeAst({ range: undefined })),
+				/missing range information/u,
+			);
+		});
+
+		it("should store all tokens and comments sorted by range", () => {
+			const comments = [{ range: [0, 2] }, { range: [10, 12] }];
+			const tokens = [
+				{ range: [3, 8] },
+				{ range: [8, 10] },
+				{ range: [12, 20] },
+			];
+			const sourceCode = new SourceCode("", makeAst({ comments, tokens }));
+
+			assert.deepStrictEqual(sourceCode.tokensAndComments, [
+				comments[0],
+				tokens[0],
+				tokens[1],
+				comments[1],
+				tokens[2],
+			]);
+		});
+
+		describe("if a text has BOM,", () => {
+			let sourceCode;
+
+			beforeEach(() => {
+				sourceCode = new SourceCode("\uFEFFconsole.log('hello');", makeAst());
+			});
+
+			it("should has true at `hasBOM` property.", () => {
+				assert.strictEqual(sourceCode.hasBOM, true);
+			});
+
+			it("should not has BOM in `text` property.", () => {
+				assert.strictEqual(sourceCode.text, "console.log('hello');");
+			});
+		});
+
+		describe("if a text doesn't have BOM,", () => {
+			let sourceCode;
+
+			beforeEach(() => {
+				sourceCode = new SourceCode("console.log('hello');", makeAst());
+			});
+
+			it("should has false at `hasBOM` property.", () => {
+				assert.strictEqual(sourceCode.hasBOM, false);
+			});
+
+			it("should not has BOM in `text` property.", () => {
+				assert.strictEqual(sourceCode.text, "console.log('hello');");
+			});
+		});
+
+		describe("when a text has a shebang", () => {
+			let sourceCode;
+
+			beforeEach(() => {
+				sourceCode = new SourceCode(
+					SHEBANG_TEST_CODE,
+					makeAst({
+						comments: [
+							{
+								type: "Line",
+								value: "/usr/bin/env node",
+								range: [0, 19],
+							},
+						],
+					}),
+				);
+			});
+
+			it('should change the type of the first comment to "Shebang"', () => {
+				assert.strictEqual(sourceCode.getAllComments()[0].type, "Shebang");
+			});
+		});
+
+		describe("when a text does not have a shebang", () => {
+			it("should not change
