@@ -1,4 +1,4 @@
-```javascript
+```jsx
 import React from 'react';
 import ActionButton from '../common/action-button';
 import AppContext from '../../app-context';
@@ -350,6 +350,10 @@ html[dir=rtl] .gh-portal-signup-terms .checkbox:before {
     text-decoration: none;
 }
 
+@media (min-width: 480px) {
+
+}
+
 @media (max-width: 480px) {
     .gh-portal-signup-logo {
         width: 48px;
@@ -365,22 +369,67 @@ html[dir=rtl] .gh-portal-signup-terms .checkbox:before {
 }
 `;
 
-const INITIAL_STATE = {
-    name: '',
-    email: '',
-    plan: 'free',
-    showNewsletterSelection: false,
-    termsCheckboxChecked: false
-};
+// --- Stateless helper components ---
+
+function NotificationSection({className, testId, message, children}) {
+    return (
+        <section>
+            <div className='gh-portal-section'>
+                <p className={className} data-testid={testId}>{message}</p>
+                {children}
+            </div>
+        </section>
+    );
+}
+
+function FreeOnlyFormLayout({products, signupTerms, submitButton, loginMessage}) {
+    return (
+        <>
+            {products}
+            {signupTerms && (
+                <div className='gh-portal-signup-terms-wrapper free-only'>
+                    {signupTerms}
+                </div>
+            )}
+            <div className='gh-portal-btn-container'>
+                <div className='gh-portal-logged-out-form-container'>
+                    {submitButton}
+                    {loginMessage}
+                </div>
+            </div>
+        </>
+    );
+}
+
+function PaidFormLayout({products, signupTerms, loginMessage}) {
+    return (
+        <>
+            {signupTerms && (
+                <div className='gh-portal-signup-terms-wrapper'>
+                    {signupTerms}
+                </div>
+            )}
+            {products}
+            {loginMessage}
+        </>
+    );
+}
+
+// --- Main class component ---
 
 class SignupPage extends React.Component {
     static contextType = AppContext;
 
     constructor(props) {
         super(props);
-        this.state = {...INITIAL_STATE};
+        this.state = {
+            name: '',
+            email: '',
+            plan: 'free',
+            showNewsletterSelection: false,
+            termsCheckboxChecked: false
+        };
         this.termsRef = React.createRef();
-        this.timeoutId = null;
     }
 
     componentDidMount() {
@@ -403,40 +452,36 @@ class SignupPage extends React.Component {
         const {site, pageQuery} = this.context;
         const prices = getSitePrices({site, pageQuery});
         const selectedPriceId = this.getSelectedPriceId(prices, this.state.plan);
-
         if (selectedPriceId !== this.state.plan) {
             this.setState({plan: selectedPriceId});
         }
-    }
-
-    getFormErrors(state) {
-        const {site} = this.context;
-        const checkboxRequired = site.portal_signup_checkbox_required && site.portal_signup_terms_html;
-        const checkboxError = checkboxRequired && !state.termsCheckboxChecked;
-
-        return {
-            ...ValidateInputForm({fields: this.getInputFields({state})}),
-            checkbox: checkboxError
-        };
     }
 
     getSelectedPriceId(prices = [], selectedPriceId) {
         if (!prices?.length || selectedPriceId === 'free') {
             return 'free';
         }
-
         const hasSelectedPlan = prices.some(p => p.id === selectedPriceId);
-        return hasSelectedPlan ? selectedPriceId : (prices[0]?.id || 'free');
+        return hasSelectedPlan ? selectedPriceId : (prices[0].id || 'free');
     }
 
-    getInputFields({state, fieldNames}) {
+    getFormErrors(state) {
+        const {site} = this.context;
+        const checkboxRequired = site.portal_signup_checkbox_required && site.portal_signup_terms_html;
+        return {
+            ...ValidateInputForm({fields: this.getInputFields({state})}),
+            checkbox: checkboxRequired && !state.termsCheckboxChecked
+        };
+    }
+
+    getInputFields({state, fieldNames} = {}) {
         const {site: {portal_name: portalName}} = this.context;
-        const errors = state.errors || {};
+        const errors = state?.errors || {};
 
         const fields = [
             {
                 type: 'email',
-                value: state.email,
+                value: state?.email,
                 placeholder: t('jamie@example.com'),
                 label: t('Email'),
                 name: 'email',
@@ -446,7 +491,7 @@ class SignupPage extends React.Component {
             },
             {
                 type: 'text',
-                value: state.phonenumber,
+                value: state?.phonenumber,
                 placeholder: t('+1 (123) 456-7890'),
                 label: t('Phone number'),
                 name: 'phonenumber',
@@ -459,32 +504,3 @@ class SignupPage extends React.Component {
 
         if (portalName) {
             fields.unshift({
-                type: 'text',
-                value: state.name,
-                placeholder: t('Jamie Larson'),
-                label: t('Name'),
-                name: 'name',
-                required: true,
-                tabIndex: 1,
-                errorMessage: errors.name || ''
-            });
-        }
-
-        fields[0].autoFocus = true;
-
-        return fieldNames?.length ? fields.filter(f => fieldNames.includes(f.name)) : fields;
-    }
-
-    getClassNames() {
-        const {site, pageQuery} = this.context;
-        const plansData = getSitePrices({site, pageQuery});
-        const fields = this.getInputFields({state: this.state});
-        let sectionClass = '';
-        let footerClass = '';
-
-        const isSingleFreePlan = plansData.length === 1 && plansData[0].type === 'free';
-        const isInviteOnlyMode = isInviteOnly({site});
-
-        if (plansData.length <= 1 || isInviteOnlyMode) {
-            if (isSingleFreePlan || isInviteOnlyMode) {
-                sectionClass = freeHasBenefitsOrDescription({site}) ? 'singleplan' : 'no
