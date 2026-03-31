@@ -1,17 +1,31 @@
-```javascript
+```jsx
 import React, {useContext, useEffect, useState} from 'react';
 import {ReactComponent as LoaderIcon} from '../../images/icons/loader.svg';
 import {ReactComponent as CheckmarkIcon} from '../../images/icons/checkmark.svg';
 import {
-    getCurrencySymbol, getPriceString, getStripeAmount, getMemberActivePrice,
-    getProductFromPrice, getFreeTierTitle, getFreeTierDescription, getFreeProduct,
-    getFreeProductBenefits, getSupportAddress, formatNumber, isCookiesDisabled,
-    hasOnlyFreeProduct, isMemberActivePrice, hasFreeTrialTier, isComplimentaryMember
+    getCurrencySymbol,
+    getPriceString,
+    getStripeAmount,
+    getMemberActivePrice,
+    getProductFromPrice,
+    getFreeTierTitle,
+    getFreeTierDescription,
+    getFreeProduct,
+    getFreeProductBenefits,
+    getSupportAddress,
+    formatNumber,
+    isCookiesDisabled,
+    hasOnlyFreeProduct,
+    isMemberActivePrice,
+    hasFreeTrialTier,
+    isComplimentaryMember
 } from '../../utils/helpers';
 import AppContext from '../../app-context';
 import calculateDiscount from '../../utils/discount';
 import Interpolate from '@doist/react-interpolate';
 import {t} from '../../utils/i18n';
+
+// ─── Styles ──────────────────────────────────────────────────────────────────
 
 export const ProductsSectionStyles = () => `
     .gh-portal-products {
@@ -44,6 +58,7 @@ export const ProductsSectionStyles = () => `
         border-radius: 999px;
         transition: all 0.15s ease-in-out;
     }
+
     html[dir="rtl"] .gh-portal-products-pricetoggle:before {
         left: 4px;
         right: unset;
@@ -52,6 +67,7 @@ export const ProductsSectionStyles = () => `
     .gh-portal-products-pricetoggle.left:before {
         transform: translateX(calc(-100% + 8px));
     }
+
     html[dir="rtl"] .gh-portal-products-pricetoggle.left:before {
         transform: translateX(calc(100% - 8px));
     }
@@ -326,6 +342,7 @@ export const ProductsSectionStyles = () => `
         margin: 3px 10px 0 0;
         overflow: visible;
     }
+
     html[dir="rtl"] .gh-portal-benefit-checkmark {
         margin: 3px 0 0 10px;
     }
@@ -484,8 +501,4 @@ export const ProductsSectionStyles = () => `
         width: 100%;
     }
 
-    .gh-portal-upgrade-product .gh-portal-product-card .gh-portal-plan-current {
-        display: inline-block;
-        position: relative;
-        padding: 2px 8px;
-        font-size: 1.
+    .gh-portal-upgrade-product .gh
