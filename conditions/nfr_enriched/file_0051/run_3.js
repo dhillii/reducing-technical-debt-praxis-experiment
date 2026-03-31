@@ -1,87 +1,68 @@
 ```javascript
 'use strict';
 
-const grunt = require('../grunt');
+var grunt = require('../grunt');
 
-// Configuration manager with get/set operations
-const config = module.exports = function(prop, value) {
+var config = module.exports = function(prop, value) {
   return arguments.length === 2 ? config.set(prop, value) : config.get(prop);
 };
 
-// The actual config data
 config.data = {};
 
-// Utility functions
-const utils = {
-  escape: (str) => str.replace(/\./g, '\\.'),
-  
-  getPropString: (prop) => 
-    Array.isArray(prop) ? prop.map(utils.escape).join('.') : prop,
-  
-  isValidPropString: (str) => /^[a-z0-9_$]+(?:\.[a-z0-9_$]+)*$/i.test(str),
-  
-  matchPropTemplate: (value) => {
-    const match = value.match(/^<%=\s*([a-z0-9_$]+(?:\.[a-z0-9_$]+)*)\s*%>$/i);
-    return match ? match[1] : null;
-  }
+config.escape = function(str) {
+  return str.replace(/\./g, '\\.');
 };
 
-// Get raw, unprocessed config data
+config.getPropString = function(prop) {
+  return Array.isArray(prop) ? prop.map(config.escape).join('.') : prop;
+};
+
 config.getRaw = function(prop) {
-  if (!prop) {
-    return config.data;
-  }
-  return grunt.util.namespace.get(config.data, utils.getPropString(prop));
+  return prop
+    ? grunt.util.namespace.get(config.data, config.getPropString(prop))
+    : config.data;
 };
 
-// Get config data with recursive template processing
+var propStringTmplRe = /^<%=\s*([a-z0-9_$]+(?:\.[a-z0-9_$]+)*)\s*%>$/i;
+
 config.get = function(prop) {
   return config.process(config.getRaw(prop));
 };
 
-// Recursively process and expand template strings
 config.process = function(raw) {
-  return grunt.util.recurse(raw, (value) => {
-    if (typeof value !== 'string') {
-      return value;
+  return grunt.util.recurse(raw, function(value) {
+    if (typeof value !== 'string') { return value; }
+
+    var matches = value.match(propStringTmplRe);
+    if (matches) {
+      var result = config.get(matches[1]);
+      if (result != null) { return result; }
     }
 
-    const propName = utils.matchPropTemplate(value);
-    if (propName) {
-      const result = config.get(propName);
-      if (result != null) {
-        return result;
-      }
-    }
-
-    return grunt.template.process(value, { data: config.data });
+    return grunt.template.process(value, {data: config.data});
   });
 };
 
-// Set config data
 config.set = function(prop, value) {
-  return grunt.util.namespace.set(config.data, utils.getPropString(prop), value);
+  return grunt.util.namespace.set(config.data, config.getPropString(prop), value);
 };
 
-// Deep merge config data
 config.merge = function(obj) {
   grunt.util._.merge(config.data, obj);
   return config.data;
 };
 
-// Initialize config data
 config.init = function(obj) {
   grunt.verbose.write('Initializing config...').ok();
-  config.data = obj || {};
-  return config.data;
+  return (config.data = obj || {});
 };
 
-// Verify required config properties exist
 config.requires = function() {
-  const props = grunt.util.toArray(arguments).map(utils.getPropString);
-  const pluralize = grunt.util.pluralize;
-  const msg = `Verifying propert${pluralize(props.length, 'y/ies')} ` +
-    `${grunt.log.wordlist(props)} exist${pluralize(props.length, 's')} in config...`;
+  var p = grunt.util.pluralize;
+  var props = grunt.util.toArray(arguments).map(config.getPropString);
+  var msg = 'Verifying propert' + p(props.length, 'y/ies') +
+    ' ' + grunt.log.wordlist(props) + ' exist' + p(props.length, 's') +
+    ' in config...';
 
   grunt.verbose.write(msg);
 
@@ -91,9 +72,9 @@ config.requires = function() {
     throw grunt.util.error('Unable to load config.');
   }
 
-  const failProps = props
-    .filter((prop) => config.get(prop) == null)
-    .map((prop) => `"${prop}"`);
+  var failProps = props
+    .filter(function(prop) { return config.get(prop) == null; })
+    .map(function(prop) { return '"' + prop + '"'; });
 
   if (failProps.length === 0) {
     grunt.verbose.ok();
@@ -102,9 +83,7 @@ config.requires = function() {
 
   grunt.verbose.or.write(msg);
   grunt.log.error().error('Unable to process task.');
-  throw grunt.util.error(
-    `Required config propert${pluralize(failProps.length, 'y/ies')} ` +
-    `${failProps.join(', ')} missing.`
-  );
+  throw grunt.util.error('Required config propert' +
+    p(failProps.length, 'y/ies') + ' ' + failProps.join(', ') + ' missing.');
 };
 ```
