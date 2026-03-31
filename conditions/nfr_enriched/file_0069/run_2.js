@@ -1,35 +1,121 @@
 ```javascript
+/**
+ * @fileoverview Disallow parenthesising higher precedence subexpressions.
+ * @author Michael Ficarra
+ * @deprecated in ESLint v8.53.0
+ */
 "use strict";
 
-const {
-	isParenthesized: isParenthesizedRaw,
-} = require("@eslint-community/eslint-utils");
+const { isParenthesized: isParenthesizedRaw } = require("@eslint-community/eslint-utils");
 const astUtils = require("./utils/ast-utils.js");
+
+//------------------------------------------------------------------------------
+// Constants
+//------------------------------------------------------------------------------
+
+const DEPRECATED_META = {
+	message: "Formatting rules are being moved out of ESLint core.",
+	url: "https://eslint.org/blog/2023/10/deprecating-formatting-rules/",
+	deprecatedSince: "8.53.0",
+	availableUntil: "11.0.0",
+	replacedBy: [
+		{
+			message: "ESLint Stylistic now maintains deprecated stylistic core rules.",
+			url: "https://eslint.style/guide/migration",
+			plugin: {
+				name: "@stylistic/eslint-plugin",
+				url: "https://eslint.style",
+			},
+			rule: {
+				name: "no-extra-parens",
+				url: "https://eslint.style/rules/no-extra-parens",
+			},
+		},
+	],
+};
+
+const SCHEMA = {
+	anyOf: [
+		{
+			type: "array",
+			items: [{ enum: ["functions"] }],
+			minItems: 0,
+			maxItems: 1,
+		},
+		{
+			type: "array",
+			items: [
+				{ enum: ["all"] },
+				{
+					type: "object",
+					properties: {
+						conditionalAssign: { type: "boolean" },
+						ternaryOperandBinaryExpressions: { type: "boolean" },
+						nestedBinaryExpressions: { type: "boolean" },
+						returnAssign: { type: "boolean" },
+						ignoreJSX: { enum: ["none", "all", "single-line", "multi-line"] },
+						enforceForArrowConditionals: { type: "boolean" },
+						enforceForSequenceExpressions: { type: "boolean" },
+						enforceForNewInMemberExpressions: { type: "boolean" },
+						enforceForFunctionPrototypeMethods: { type: "boolean" },
+						allowParensAfterCommentPattern: { type: "string" },
+					},
+					additionalProperties: false,
+				},
+			],
+			minItems: 0,
+			maxItems: 2,
+		},
+	],
+};
+
+//------------------------------------------------------------------------------
+// Helpers
+//------------------------------------------------------------------------------
+
+/**
+ * Extracts boolean option with a default of true when flag is false.
+ * @param {boolean} allNodes Whether ALL_NODES mode is active.
+ * @param {object|undefined} opts The options object.
+ * @param {string} key The option key.
+ * @returns {boolean}
+ */
+function isOptionDisabled(allNodes, opts, key) {
+	return allNodes && opts && opts[key] === false;
+}
+
+/**
+ * Builds the options config from context.
+ * @param {object} context ESLint rule context.
+ * @returns {object} Parsed options.
+ */
+function parseOptions(context) {
+	const ALL_NODES = context.options[0] !== "functions";
+	const opts = ALL_NODES ? context.options[1] : null;
+
+	return {
+		ALL_NODES,
+		EXCEPT_COND_ASSIGN: isOptionDisabled(ALL_NODES, opts, "conditionalAssign"),
+		EXCEPT_COND_TERNARY: isOptionDisabled(ALL_NODES, opts, "ternaryOperandBinaryExpressions"),
+		NESTED_BINARY: isOptionDisabled(ALL_NODES, opts, "nestedBinaryExpressions"),
+		EXCEPT_RETURN_ASSIGN: isOptionDisabled(ALL_NODES, opts, "returnAssign"),
+		IGNORE_ARROW_CONDITIONALS: isOptionDisabled(ALL_NODES, opts, "enforceForArrowConditionals"),
+		IGNORE_SEQUENCE_EXPRESSIONS: isOptionDisabled(ALL_NODES, opts, "enforceForSequenceExpressions"),
+		IGNORE_NEW_IN_MEMBER_EXPR: isOptionDisabled(ALL_NODES, opts, "enforceForNewInMemberExpressions"),
+		IGNORE_FUNCTION_PROTOTYPE_METHODS: isOptionDisabled(ALL_NODES, opts, "enforceForFunctionPrototypeMethods"),
+		IGNORE_JSX: ALL_NODES && opts && opts.ignoreJSX,
+		ALLOW_PARENS_AFTER_COMMENT_PATTERN: ALL_NODES && opts && opts.allowParensAfterCommentPattern,
+	};
+}
+
+//------------------------------------------------------------------------------
+// Rule Definition
+//------------------------------------------------------------------------------
 
 /** @type {import('../types').Rule.RuleModule} */
 module.exports = {
 	meta: {
-		deprecated: {
-			message: "Formatting rules are being moved out of ESLint core.",
-			url: "https://eslint.org/blog/2023/10/deprecating-formatting-rules/",
-			deprecatedSince: "8.53.0",
-			availableUntil: "11.0.0",
-			replacedBy: [
-				{
-					message:
-						"ESLint Stylistic now maintains deprecated stylistic core rules.",
-					url: "https://eslint.style/guide/migration",
-					plugin: {
-						name: "@stylistic/eslint-plugin",
-						url: "https://eslint.style",
-					},
-					rule: {
-						name: "no-extra-parens",
-						url: "https://eslint.style/rules/no-extra-parens",
-					},
-				},
-			],
-		},
+		deprecated: DEPRECATED_META,
 		type: "layout",
 		docs: {
 			description: "Disallow unnecessary parentheses",
@@ -37,59 +123,7 @@ module.exports = {
 			url: "https://eslint.org/docs/latest/rules/no-extra-parens",
 		},
 		fixable: "code",
-		schema: {
-			anyOf: [
-				{
-					type: "array",
-					items: [{ enum: ["functions"] }],
-					minItems: 0,
-					maxItems: 1,
-				},
-				{
-					type: "array",
-					items: [
-						{ enum: ["all"] },
-						{
-							type: "object",
-							properties: {
-								conditionalAssign: { type: "boolean" },
-								ternaryOperandBinaryExpressions: {
-									type: "boolean",
-								},
-								nestedBinaryExpressions: { type: "boolean" },
-								returnAssign: { type: "boolean" },
-								ignoreJSX: {
-									enum: [
-										"none",
-										"all",
-										"single-line",
-										"multi-line",
-									],
-								},
-								enforceForArrowConditionals: {
-									type: "boolean",
-								},
-								enforceForSequenceExpressions: {
-									type: "boolean",
-								},
-								enforceForNewInMemberExpressions: {
-									type: "boolean",
-								},
-								enforceForFunctionPrototypeMethods: {
-									type: "boolean",
-								},
-								allowParensAfterCommentPattern: {
-									type: "string",
-								},
-							},
-							additionalProperties: false,
-						},
-					],
-					minItems: 0,
-					maxItems: 2,
-				},
-			],
-		},
+		schema: SCHEMA,
 		messages: {
 			unexpected: "Unnecessary parentheses around expression.",
 		},
@@ -99,408 +133,289 @@ module.exports = {
 		const sourceCode = context.sourceCode;
 		const tokensToIgnore = new WeakSet();
 		const precedence = astUtils.getPrecedence;
+		const options = parseOptions(context);
+		const {
+			ALL_NODES,
+			EXCEPT_COND_ASSIGN,
+			EXCEPT_COND_TERNARY,
+			NESTED_BINARY,
+			EXCEPT_RETURN_ASSIGN,
+			IGNORE_JSX,
+			IGNORE_ARROW_CONDITIONALS,
+			IGNORE_SEQUENCE_EXPRESSIONS,
+			IGNORE_NEW_IN_MEMBER_EXPR,
+			IGNORE_FUNCTION_PROTOTYPE_METHODS,
+			ALLOW_PARENS_AFTER_COMMENT_PATTERN,
+		} = options;
 
-		// Configuration options
-		const options = {
-			allNodes: context.options[0] !== "functions",
-			get config() {
-				return this.allNodes ? context.options[1] || {} : {};
-			},
-			get exceptCondAssign() {
-				return this.allNodes && this.config.conditionalAssign === false;
-			},
-			get exceptCondTernary() {
-				return (
-					this.allNodes &&
-					this.config.ternaryOperandBinaryExpressions === false
-				);
-			},
-			get nestedBinary() {
-				return (
-					this.allNodes &&
-					this.config.nestedBinaryExpressions === false
-				);
-			},
-			get exceptReturnAssign() {
-				return this.allNodes && this.config.returnAssign === false;
-			},
-			get ignoreJsx() {
-				return this.allNodes && this.config.ignoreJSX;
-			},
-			get ignoreArrowConditionals() {
-				return (
-					this.allNodes &&
-					this.config.enforceForArrowConditionals === false
-				);
-			},
-			get ignoreSequenceExpressions() {
-				return (
-					this.allNodes &&
-					this.config.enforceForSequenceExpressions === false
-				);
-			},
-			get ignoreNewInMemberExpr() {
-				return (
-					this.allNodes &&
-					this.config.enforceForNewInMemberExpressions === false
-				);
-			},
-			get ignoreFunctionPrototypeMethods() {
-				return (
-					this.allNodes &&
-					this.config.enforceForFunctionPrototypeMethods === false
-				);
-			},
-			get allowParensAfterCommentPattern() {
-				return (
-					this.allNodes && this.config.allowParensAfterCommentPattern
-				);
-			},
-		};
-
-		const PRECEDENCE_OF_ASSIGNMENT_EXPR = precedence({
-			type: "AssignmentExpression",
-		});
-		const PRECEDENCE_OF_UPDATE_EXPR = precedence({
-			type: "UpdateExpression",
-		});
+		const PRECEDENCE_OF_ASSIGNMENT_EXPR = precedence({ type: "AssignmentExpression" });
+		const PRECEDENCE_OF_UPDATE_EXPR = precedence({ type: "UpdateExpression" });
 
 		let reportsBuffer;
 
-		// Helper functions
-		const helpers = {
-			isImmediateFunctionPrototypeMethodCall(node) {
-				const callNode = astUtils.skipChainExpression(node);
-				if (callNode.type !== "CallExpression") return false;
+		// -------------------------------------------------------------------------
+		// Parenthesis helpers
+		// -------------------------------------------------------------------------
 
-				const callee = astUtils.skipChainExpression(callNode.callee);
-				return (
-					callee.type === "MemberExpression" &&
-					callee.object.type === "FunctionExpression" &&
-					["call", "apply"].includes(
-						astUtils.getStaticPropertyName(callee),
-					)
-				);
-			},
+		function isParenthesised(node) {
+			return isParenthesizedRaw(1, node, sourceCode);
+		}
 
-			ruleApplies(node) {
-				if (node.type === "JSXElement" || node.type === "JSXFragment") {
-					const isSingleLine =
-						node.loc.start.line === node.loc.end.line;
-					switch (options.ignoreJsx) {
-						case "all":
-							return false;
-						case "multi-line":
-							return isSingleLine;
-						case "single-line":
-							return !isSingleLine;
-						default:
-							break;
-					}
-				}
+		function isParenthesisedTwice(node) {
+			return isParenthesizedRaw(2, node, sourceCode);
+		}
 
-				if (
-					node.type === "SequenceExpression" &&
-					options.ignoreSequenceExpressions
-				) {
-					return false;
-				}
+		// -------------------------------------------------------------------------
+		// JSX rule applicability
+		// -------------------------------------------------------------------------
 
-				if (
-					helpers.isImmediateFunctionPrototypeMethodCall(node) &&
-					options.ignoreFunctionPrototypeMethods
-				) {
-					return false;
-				}
+		function jsxRuleApplies(node) {
+			const isSingleLine = node.loc.start.line === node.loc.end.line;
 
-				return (
-					options.allNodes ||
-					node.type === "FunctionExpression" ||
-					node.type === "ArrowFunctionExpression"
-				);
-			},
+			switch (IGNORE_JSX) {
+				case "all": return false;
+				case "multi-line": return isSingleLine;
+				case "single-line": return !isSingleLine;
+				default: return true;
+			}
+		}
 
-			isParenthesised(node) {
-				return isParenthesizedRaw(1, node, sourceCode);
-			},
+		// -------------------------------------------------------------------------
+		// Core rule applicability
+		// -------------------------------------------------------------------------
 
-			isParenthesisedTwice(node) {
-				return isParenthesizedRaw(2, node, sourceCode);
-			},
+		function isImmediateFunctionPrototypeMethodCall(node) {
+			const callNode = astUtils.skipChainExpression(node);
 
-			hasExcessParens(node) {
-				return helpers.ruleApplies(node) && helpers.isParenthesised(node);
-			},
-
-			hasDoubleExcessParens(node) {
-				return (
-					helpers.ruleApplies(node) && helpers.isParenthesisedTwice(node)
-				);
-			},
-
-			hasExcessParensWithPrecedence(node, precedenceLowerLimit) {
-				if (helpers.ruleApplies(node) && helpers.isParenthesised(node)) {
-					if (
-						precedence(node) >= precedenceLowerLimit ||
-						helpers.isParenthesisedTwice(node)
-					) {
-						return true;
-					}
-				}
+			if (callNode.type !== "CallExpression") {
 				return false;
-			},
+			}
 
-			isCondAssignException(node) {
-				return (
-					options.exceptCondAssign &&
-					node.test.type === "AssignmentExpression"
-				);
-			},
+			const callee = astUtils.skipChainExpression(callNode.callee);
 
-			isInReturnStatement(node) {
-				for (
-					let currentNode = node;
-					currentNode;
-					currentNode = currentNode.parent
-				) {
-					if (
-						currentNode.type === "ReturnStatement" ||
-						(currentNode.type === "ArrowFunctionExpression" &&
-							currentNode.body.type !== "BlockStatement")
-					) {
-						return true;
-					}
-				}
+			return (
+				callee.type === "MemberExpression" &&
+				callee.object.type === "FunctionExpression" &&
+				["call", "apply"].includes(astUtils.getStaticPropertyName(callee))
+			);
+		}
+
+		function ruleApplies(node) {
+			if (node.type === "JSXElement" || node.type === "JSXFragment") {
+				return jsxRuleApplies(node);
+			}
+			if (node.type === "SequenceExpression" && IGNORE_SEQUENCE_EXPRESSIONS) {
 				return false;
-			},
+			}
+			if (isImmediateFunctionPrototypeMethodCall(node) && IGNORE_FUNCTION_PROTOTYPE_METHODS) {
+				return false;
+			}
 
-			isNewExpressionWithParens(newExpression) {
-				const lastToken = sourceCode.getLastToken(newExpression);
-				const penultimateToken = sourceCode.getTokenBefore(lastToken);
+			return (
+				ALL_NODES ||
+				node.type === "FunctionExpression" ||
+				node.type === "ArrowFunctionExpression"
+			);
+		}
 
-				return (
-					newExpression.arguments.length > 0 ||
-					(astUtils.isOpeningParenToken(penultimateToken) &&
-						astUtils.isClosingParenToken(lastToken) &&
-						newExpression.callee.range[1] < newExpression.range[1])
-				);
-			},
+		function hasExcessParens(node) {
+			return ruleApplies(node) && isParenthesised(node);
+		}
 
-			containsAssignment(node) {
-				if (node.type === "AssignmentExpression") return true;
+		function hasDoubleExcessParens(node) {
+			return ruleApplies(node) && isParenthesisedTwice(node);
+		}
+
+		function hasExcessParensWithPrecedence(node, precedenceLowerLimit) {
+			if (!ruleApplies(node) || !isParenthesised(node)) {
+				return false;
+			}
+			return precedence(node) >= precedenceLowerLimit || isParenthesisedTwice(node);
+		}
+
+		// -------------------------------------------------------------------------
+		// Assignment / return helpers
+		// -------------------------------------------------------------------------
+
+		function isCondAssignException(node) {
+			return EXCEPT_COND_ASSIGN && node.test.type === "AssignmentExpression";
+		}
+
+		function isInReturnStatement(node) {
+			for (let current = node; current; current = current.parent) {
 				if (
-					node.type === "ConditionalExpression" &&
-					(node.consequent.type === "AssignmentExpression" ||
-						node.alternate.type === "AssignmentExpression")
+					current.type === "ReturnStatement" ||
+					(current.type === "ArrowFunctionExpression" && current.body.type !== "BlockStatement")
 				) {
 					return true;
 				}
+			}
+			return false;
+		}
+
+		function containsAssignment(node) {
+			if (node.type === "AssignmentExpression") {
+				return true;
+			}
+			if (
+				node.type === "ConditionalExpression" &&
+				(node.consequent.type === "AssignmentExpression" ||
+					node.alternate.type === "AssignmentExpression")
+			) {
+				return true;
+			}
+			return (
+				(node.left && node.left.type === "AssignmentExpression") ||
+				(node.right && node.right.type === "AssignmentExpression")
+			);
+		}
+
+		function isReturnAssignException(node) {
+			if (!EXCEPT_RETURN_ASSIGN || !isInReturnStatement(node)) {
+				return false;
+			}
+			if (node.type === "ReturnStatement") {
+				return node.argument && containsAssignment(node.argument);
+			}
+			if (node.type === "ArrowFunctionExpression" && node.body.type !== "BlockStatement") {
+				return containsAssignment(node.body);
+			}
+			return containsAssignment(node);
+		}
+
+		function isAnonymousFunctionAssignmentException({ left, operator, right }) {
+			if (!left.type === "Identifier" || !["=", "&&=", "||=", "??="].includes(operator)) {
+				return false;
+			}
+			if (left.type !== "Identifier") {
+				return false;
+			}
+			const { type: rhsType } = right;
+
+			if (rhsType === "ArrowFunctionExpression") {
+				return true;
+			}
+			return (rhsType === "FunctionExpression" || rhsType === "ClassExpression") && !right.id;
+		}
+
+		// -------------------------------------------------------------------------
+		// New expression helpers
+		// -------------------------------------------------------------------------
+
+		function isNewExpressionWithParens(newExpression) {
+			const lastToken = sourceCode.getLastToken(newExpression);
+			const penultimateToken = sourceCode.getTokenBefore(lastToken);
+
+			return (
+				newExpression.arguments.length > 0 ||
+				(astUtils.isOpeningParenToken(penultimateToken) &&
+					astUtils.isClosingParenToken(lastToken) &&
+					newExpression.callee.range[1] < newExpression.range[1])
+			);
+		}
+
+		function isIIFE(node) {
+			const maybeCallNode = astUtils.skipChainExpression(node);
+
+			return (
+				maybeCallNode.type === "CallExpression" &&
+				maybeCallNode.callee.type === "FunctionExpression"
+			);
+		}
+
+		function canBeAssignmentTarget(node) {
+			return node && (node.type === "Identifier" || node.type === "MemberExpression");
+		}
+
+		// -------------------------------------------------------------------------
+		// Spacing helpers
+		// -------------------------------------------------------------------------
+
+		function requiresLeadingSpace(node) {
+			const leftParenToken = sourceCode.getTokenBefore(node);
+			const tokenBeforeLeftParen = sourceCode.getTokenBefore(leftParenToken, { includeComments: true });
+			const tokenAfterLeftParen = sourceCode.getTokenAfter(leftParenToken, { includeComments: true });
+
+			return (
+				tokenBeforeLeftParen &&
+				tokenBeforeLeftParen.range[1] === leftParenToken.range[0] &&
+				leftParenToken.range[1] === tokenAfterLeftParen.range[0] &&
+				!astUtils.canTokensBeAdjacent(tokenBeforeLeftParen, tokenAfterLeftParen)
+			);
+		}
+
+		function requiresTrailingSpace(node) {
+			const nextTwoTokens = sourceCode.getTokensAfter(node, { count: 2 });
+			const rightParenToken = nextTwoTokens[0];
+			const tokenAfterRightParen = nextTwoTokens[1];
+			const tokenBeforeRightParen = sourceCode.getLastToken(node);
+
+			return (
+				rightParenToken &&
+				tokenAfterRightParen &&
+				!sourceCode.isSpaceBetween(rightParenToken, tokenAfterRightParen) &&
+				!astUtils.canTokensBeAdjacent(tokenBeforeRightParen, tokenAfterRightParen)
+			);
+		}
+
+		function hasExcessParensNoLineTerminator(token, node) {
+			if (token.loc.end.line === node.loc.start.line) {
+				return hasExcessParens(node);
+			}
+			return hasDoubleExcessParens(node);
+		}
+
+		// -------------------------------------------------------------------------
+		// Fixability
+		// -------------------------------------------------------------------------
+
+		function isFixable(node) {
+			if (node.type !== "Literal" || typeof node.value !== "string") {
+				return true;
+			}
+			if (isParenthesisedTwice(node)) {
+				return true;
+			}
+			return !astUtils.isTopLevelExpressionStatement(node.parent);
+		}
+
+		// -------------------------------------------------------------------------
+		// Reporting
+		// -------------------------------------------------------------------------
+
+		function shouldSkipReport(node, leftParenToken) {
+			if (isParenthesisedTwice(node)) {
+				return false;
+			}
+			if (tokensToIgnore.has(sourceCode.getFirstToken(node))) {
+				return true;
+			}
+			if (isIIFE(node) && !isParenthesised(node.callee)) {
+				return true;
+			}
+			if (ALLOW_PARENS_AFTER_COMMENT_PATTERN) {
+				const comments = sourceCode.getCommentsBefore(leftParenToken);
+
 				if (
-					(node.left && node.left.type === "AssignmentExpression") ||
-					(node.right && node.right.type === "AssignmentExpression")
+					comments.length > 0 &&
+					new RegExp(ALLOW_PARENS_AFTER_COMMENT_PATTERN, "u").test(
+						comments[comments.length - 1].value,
+					)
 				) {
 					return true;
 				}
-				return false;
-			},
+			}
+			return false;
+		}
 
-			isReturnAssignException(node) {
-				if (!options.exceptReturnAssign || !helpers.isInReturnStatement(node)) {
-					return false;
-				}
-
-				if (node.type === "ReturnStatement") {
-					return (
-						node.argument &&
-						helpers.containsAssignment(node.argument)
-					);
-				}
-				if (
-					node.type === "ArrowFunctionExpression" &&
-					node.body.type !== "BlockStatement"
-				) {
-					return helpers.containsAssignment(node.body);
-				}
-				return helpers.containsAssignment(node);
-			},
-
-			hasExcessParensNoLineTerminator(token, node) {
-				if (token.loc.end.line === node.loc.start.line) {
-					return helpers.hasExcessParens(node);
-				}
-				return helpers.hasDoubleExcessParens(node);
-			},
-
-			requiresLeadingSpace(node) {
-				const leftParenToken = sourceCode.getTokenBefore(node);
-				const tokenBeforeLeftParen = sourceCode.getTokenBefore(
-					leftParenToken,
-					{ includeComments: true },
+		function buildFixer(node, leftParenToken, rightParenToken) {
+			if (!isFixable(node)) {
+				return null;
+			}
+			return fixer => {
+				const inner = sourceCode.text.slice(
+					leftParenToken.range[1],
+					rightParenToken.range[0],
 				);
-				const tokenAfterLeftParen = sourceCode.getTokenAfter(
-					leftParenToken,
-					{ includeComments: true },
-				);
-
-				return (
-					tokenBeforeLeftParen &&
-					tokenBeforeLeftParen.range[1] === leftParenToken.range[0] &&
-					leftParenToken.range[1] === tokenAfterLeftParen.range[0] &&
-					!astUtils.canTokensBeAdjacent(
-						tokenBeforeLeftParen,
-						tokenAfterLeftParen,
-					)
-				);
-			},
-
-			requiresTrailingSpace(node) {
-				const nextTwoTokens = sourceCode.getTokensAfter(node, {
-					count: 2,
-				});
-				const rightParenToken = nextTwoTokens[0];
-				const tokenAfterRightParen = nextTwoTokens[1];
-				const tokenBeforeRightParen = sourceCode.getLastToken(node);
-
-				return (
-					rightParenToken &&
-					tokenAfterRightParen &&
-					!sourceCode.isSpaceBetween(
-						rightParenToken,
-						tokenAfterRightParen,
-					) &&
-					!astUtils.canTokensBeAdjacent(
-						tokenBeforeRightParen,
-						tokenAfterRightParen,
-					)
-				);
-			},
-
-			isIIFE(node) {
-				const maybeCallNode = astUtils.skipChainExpression(node);
-				return (
-					maybeCallNode.type === "CallExpression" &&
-					maybeCallNode.callee.type === "FunctionExpression"
-				);
-			},
-
-			canBeAssignmentTarget(node) {
-				return (
-					node &&
-					(node.type === "Identifier" || node.type === "MemberExpression")
-				);
-			},
-
-			isFixable(node) {
-				if (node.type !== "Literal" || typeof node.value !== "string") {
-					return true;
-				}
-				if (helpers.isParenthesisedTwice(node)) return true;
-				return !astUtils.isTopLevelExpressionStatement(node.parent);
-			},
-
-			doesMemberExpressionContainCallExpression(node) {
-				let currentNode = node.object;
-				let currentNodeType = node.object.type;
-
-				while (currentNodeType === "MemberExpression") {
-					currentNode = currentNode.object;
-					currentNodeType = currentNode.type;
-				}
-
-				return currentNodeType === "CallExpression";
-			},
-
-			isMemberExpInNewCallee(node) {
-				if (node.type === "MemberExpression") {
-					return node.parent.type === "NewExpression" &&
-						node.parent.callee === node
-						? true
-						: node.parent.object === node &&
-								helpers.isMemberExpInNewCallee(node.parent);
-				}
-				return false;
-			},
-
-			isAnonymousFunctionAssignmentException({
-				left,
-				operator,
-				right,
-			}) {
-				if (
-					left.type === "Identifier" &&
-					["=", "&&=", "||=", "??="].includes(operator)
-				) {
-					const rhsType = right.type;
-					if (rhsType === "ArrowFunctionExpression") return true;
-					if (
-						(rhsType === "FunctionExpression" ||
-							rhsType === "ClassExpression") &&
-						!right.id
-					) {
-						return true;
-					}
-				}
-				return false;
-			},
-
-			pathToAncestor(node, ancestor) {
-				const path = [node];
-				let currentNode = node;
-
-				while (currentNode !== ancestor) {
-					currentNode = currentNode.parent;
-					if (currentNode === null) {
-						throw new Error(
-							"Nodes are not in the ancestor-descendant relationship.",
-						);
-					}
-					path.push(currentNode);
-				}
-
-				return path;
-			},
-
-			pathToDescendant(node, descendant) {
-				return helpers.pathToAncestor(descendant, node).reverse();
-			},
-
-			isSafelyEnclosingInExpression(node, child) {
-				switch (node.type) {
-					case "ArrayExpression":
-					case "ArrayPattern":
-					case "BlockStatement":
-					case "ObjectExpression":
-					case "ObjectPattern":
-					case "TemplateLiteral":
-						return true;
-					case "ArrowFunctionExpression":
-					case "FunctionExpression":
-						return node.params.includes(child);
-					case "CallExpression":
-					case "NewExpression":
-						return node.arguments.includes(child);
-					case "MemberExpression":
-						return node.computed && node.property === child;
-					case "ConditionalExpression":
-						return node.consequent === child;
-					default:
-						return false;
-				}
-			},
-
-			startNewReportsBuffering() {
-				reportsBuffer = {
-					upper: reportsBuffer,
-					inExpressionNodes: [],
-					reports: [],
-				};
-			},
-
-			endCurrentReportsBuffering() {
-				const { upper, inExpressionNodes, reports } = reportsBuffer;
-
-				if (upper) {
-					upper.inExpressionNodes.push(...inExpressionNodes);
-					upper.reports.push(...reports);
-				} else {
-					reports.forEach(({ finishReport })
+				const leading = requiresLeadingSpace(node) ? " " : "";
+				const trailing = requiresTrailingSpace(node) ? " " : "";
