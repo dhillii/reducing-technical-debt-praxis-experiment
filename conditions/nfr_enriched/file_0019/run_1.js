@@ -1,4 +1,4 @@
-```javascript
+```jsx
 import React from 'react';
 import ActionButton from '../common/action-button';
 import AppContext from '../../app-context';
@@ -350,6 +350,10 @@ html[dir=rtl] .gh-portal-signup-terms .checkbox:before {
     text-decoration: none;
 }
 
+@media (min-width: 480px) {
+
+}
+
 @media (max-width: 480px) {
     .gh-portal-signup-logo {
         width: 48px;
@@ -373,8 +377,21 @@ const INITIAL_STATE = {
     termsCheckboxChecked: false
 };
 
-const ENTER_KEY_CODE = 13;
-const CHECKBOX_SYNC_DELAY = 5;
+const NotificationSection = ({className, testId, message, children}) => (
+    <section>
+        <div className='gh-portal-section'>
+            <p className={className} data-testid={testId}>{message}</p>
+            {children}
+        </div>
+    </section>
+);
+
+const SignupTermsContent = ({html}) => (
+    <div
+        className="gh-portal-signup-terms-content"
+        dangerouslySetInnerHTML={{__html: sanitizeHtml(html)}}
+    />
+);
 
 class SignupPage extends React.Component {
     static contextType = AppContext;
@@ -383,11 +400,14 @@ class SignupPage extends React.Component {
         super(props);
         this.state = {...INITIAL_STATE};
         this.termsRef = React.createRef();
-        this.timeoutId = null;
+        this.handleSelectPlan = this.handleSelectPlan.bind(this);
     }
 
     componentDidMount() {
-        this.redirectIfMemberExists();
+        const {member} = this.context;
+        if (member) {
+            this.context.doAction('switchPage', {page: 'accountHome'});
+        }
         this.syncSelectedPlan();
     }
 
@@ -396,16 +416,7 @@ class SignupPage extends React.Component {
     }
 
     componentWillUnmount() {
-        if (this.timeoutId) {
-            clearTimeout(this.timeoutId);
-        }
-    }
-
-    redirectIfMemberExists() {
-        const {member, doAction} = this.context;
-        if (member) {
-            doAction('switchPage', {page: 'accountHome'});
-        }
+        clearTimeout(this.timeoutId);
     }
 
     syncSelectedPlan() {
@@ -418,82 +429,68 @@ class SignupPage extends React.Component {
         }
     }
 
+    getSelectedPriceId(prices = [], selectedPriceId) {
+        if (!prices?.length || selectedPriceId === 'free') {
+            return 'free';
+        }
+
+        const hasSelectedPlan = prices.some(p => p.id === selectedPriceId);
+        return hasSelectedPlan ? selectedPriceId : (prices[0].id || 'free');
+    }
+
     getFormErrors(state) {
         const {site} = this.context;
         const checkboxRequired = site.portal_signup_checkbox_required && site.portal_signup_terms_html;
-        const checkboxError = checkboxRequired && !state.termsCheckboxChecked;
 
         return {
             ...ValidateInputForm({fields: this.getInputFields({state})}),
-            checkbox: checkboxError
+            checkbox: checkboxRequired && !state.termsCheckboxChecked
         };
     }
 
     hasFormErrors(errors) {
-        return errors && Object.values(errors).some(error => !!error);
+        return errors && Object.values(errors).some(Boolean);
     }
 
     hasOnlyCheckboxError(errors) {
-        if (!errors?.checkbox) return false;
-        const otherErrors = {...errors};
-        delete otherErrors.checkbox;
-        return Object.values(otherErrors).every(error => !error);
-    }
-
-    scrollCheckboxIntoView() {
-        if (this.termsRef.current) {
-            this.termsRef.current.scrollIntoView({behavior: 'smooth', block: 'center'});
-        }
-    }
-
-    proceedWithSignup(name, email, plan, phonenumber, token) {
-        const {site, doAction} = this.context;
-
-        if (hasMultipleNewsletters({site})) {
-            this.setState({
-                showNewsletterSelection: true,
-                pageData: {name, email, plan, phonenumber, token},
-                errors: {}
-            });
-        } else {
-            this.setState({errors: {}});
-            doAction('signup', {name, email, phonenumber, plan, token});
-        }
+        const {checkbox, ...otherErrors} = errors || {};
+        return checkbox && Object.values(otherErrors).every(e => !e);
     }
 
     doSignup() {
-        this.setState((state) => ({errors: this.getFormErrors(state)}), () => {
-            const {name, email, plan, phonenumber, token, errors} = this.state;
+        this.setState(
+            state => ({errors: this.getFormErrors(state)}),
+            () => {
+                const {site, doAction} = this.context;
+                const {name, email, plan, phonenumber, token, errors} = this.state;
 
-            if (this.hasOnlyCheckboxError(errors)) {
-                this.scrollCheckboxIntoView();
-            }
+                if (this.hasOnlyCheckboxError(errors) && this.termsRef.current) {
+                    this.termsRef.current.scrollIntoView({behavior: 'smooth', block: 'center'});
+                }
 
-            if (!this.hasFormErrors(errors)) {
-                this.proceedWithSignup(name, email, plan, phonenumber, token);
+                if (this.hasFormErrors(errors)) {
+                    return;
+                }
+
+                if (hasMultipleNewsletters({site})) {
+                    this.setState({
+                        showNewsletterSelection: true,
+                        pageData: {name, email, plan, phonenumber, token},
+                        errors: {}
+                    });
+                } else {
+                    this.setState({errors: {}});
+                    doAction('signup', {name, email, phonenumber, plan, token});
+                }
             }
-        });
+        );
     }
 
-    handleSignup = (e) => {
+    handleSignup(e) {
         e.preventDefault();
         this.doSignup();
-    };
+    }
 
-    handleChooseSignup = (e, plan) => {
+    handleChooseSignup(e, plan) {
         e.preventDefault();
-        this.setState({plan}, () => this.doSignup());
-    };
-
-    handleInputChange = (e, field) => {
-        this.setState({[field.name]: e.target.value});
-    };
-
-    handleSelectPlan = (e, priceId) => {
-        e?.preventDefault();
-        this.timeoutId = setTimeout(() => {
-            this.setState({plan: priceId});
-        }, CHECKBOX_SYNC_DELAY);
-    };
-
-    handleKeyDown
+        this.setState({plan}, () => this.do
