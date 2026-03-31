@@ -19,26 +19,30 @@ const DISPLAY_OPTIONS = [
 ];
 
 const ANIMATION_CONFIG = {
-    newNumber: {
+    new: {
         translateY: [10, 0],
         opacity: [0, 1],
         easing: 'easeOutElastic',
         elasticity: 650,
         duration: 1000,
-        delayBase: 100,
-        delayIncrement: 30
+        delay: (el, i) => 100 + 30 * i
     },
-    oldNumber: {
+    old: {
         translateY: [0, -10],
         opacity: [1, 0],
         easing: 'easeOutExpo',
         duration: 400,
-        delayBase: 100,
-        delayIncrement: 10
+        delay: (el, i) => 100 + 10 * i
     }
 };
 
-const SUCCESS_MESSAGE_DURATION = 2000;
+const STAT_CHANGE_MAP = [
+    {className: 'sent', getCurrent: (post) => post.email?.emailCount, getPrevious: (ctx) => ctx.previousSentCount},
+    {className: 'opened', getCurrent: (post) => post.email?.openedCount, getPrevious: (ctx) => ctx.previousOpenedCount},
+    {className: 'clicked', getCurrent: (post) => post.count.clicks, getPrevious: (ctx) => ctx.previousClickedCount},
+    {className: 'feedback', getCurrent: (post, ctx) => ctx.totalFeedback, getPrevious: (ctx) => ctx.previousFeedbackCount},
+    {className: 'conversions', getCurrent: (post) => post.count.conversions, getPrevious: (ctx) => ctx.previousConversionsCount}
+];
 
 export default class Analytics extends Component {
     @service ajax;
@@ -78,6 +82,8 @@ export default class Analytics extends Component {
         this.checkPublishFlowModal();
     }
 
+    // --- Getters ---
+
     get post() {
         return this._post ?? this.args.post;
     }
@@ -86,20 +92,37 @@ export default class Analytics extends Component {
         this._post = value;
     }
 
+    get totalFeedback() {
+        return this.post.count.positive_feedback + this.post.count.negative_feedback;
+    }
+
+    get feedbackChartData() {
+        const {id} = this.post;
+        return {
+            values: [this.post.count.positive_feedback, this.post.count.negative_feedback],
+            labels: ['More like this', 'Less like this'],
+            links: [
+                {filterParam: `(feedback.post_id:'${id}'+feedback.score:1)`},
+                {filterParam: `(feedback.post_id:'${id}'+feedback.score:0)`}
+            ],
+            colors: ['#F080B2', '#8452f633']
+        };
+    }
+
     get hasPaidConversionData() {
-        return this.sources?.some(sourceData => sourceData.paidConversions > 0) ?? false;
+        return this.sources.some(s => s.paidConversions > 0);
     }
 
     get hasFreeSignups() {
-        return this.sources?.some(sourceData => sourceData.signups > 0) ?? false;
+        return this.sources.some(s => s.signups > 0);
     }
 
     get allowedDisplayOptions() {
         if (!this.hasPaidConversionData) {
-            return this.filterDisplayOptions('signups');
+            return this.displayOptions.filter(d => d.value === 'signups');
         }
         if (!this.hasFreeSignups) {
-            return this.filterDisplayOptions('paid');
+            return this.displayOptions.filter(d => d.value === 'paid');
         }
         return this.displayOptions;
     }
@@ -109,27 +132,23 @@ export default class Analytics extends Component {
     }
 
     get selectedDisplayOption() {
-        const defaultValue = this.getDefaultSortValue();
-        return this.displayOptions.find(d => d.value === defaultValue) ?? this.displayOptions[0];
+        if (!this.hasPaidConversionData) {
+            return this.displayOptions.find(d => d.value === 'signups');
+        }
+        if (!this.hasFreeSignups) {
+            return this.displayOptions.find(d => d.value === 'paid');
+        }
+        return this.displayOptions.find(d => d.value === this.sortColumn) ?? this.displayOptions[0];
     }
 
     get selectedSortColumn() {
-        return this.getDefaultSortValue();
-    }
-
-    get totalFeedback() {
-        return (this.post.count?.positive_feedback ?? 0) + (this.post.count?.negative_feedback ?? 0);
-    }
-
-    get feedbackChartData() {
-        const values = [this.post.count.positive_feedback, this.post.count.negative_feedback];
-        const labels = ['More like this', 'Less like this'];
-        const links = [
-            {filterParam: `(feedback.post_id:'${this.post.id}'+feedback.score:1)`},
-            {filterParam: `(feedback.post_id:'${this.post.id}'+feedback.score:0)`}
-        ];
-        const colors = ['#F080B2', '#8452f633'];
-        return {values, labels, links, colors};
+        if (!this.hasPaidConversionData) {
+            return 'signups';
+        }
+        if (!this.hasFreeSignups) {
+            return 'paid';
+        }
+        return this.sortColumn;
     }
 
     get showLinks() {
@@ -148,36 +167,7 @@ export default class Analytics extends Component {
         return this.links !== null && this.sources !== null && this.mentions !== null;
     }
 
-    filterDisplayOptions(value) {
-        return this.displayOptions.filter(d => d.value === value);
-    }
-
-    getDefaultSortValue() {
-        if (!this.hasPaidConversionData) {
-            return 'signups';
-        }
-        if (!this.hasFreeSignups) {
-            return 'paid';
-        }
-        return this.sortColumn;
-    }
-
-    openPublishFlowModal() {
-        this.modals.open(PostSuccessModal, {
-            post: this.post,
-            postCount: this.postCount,
-            showPostCount: this.showPostCount
-        });
-    }
-
-    async checkPublishFlowModal() {
-        if (localStorage.getItem('ghost-last-published-post')) {
-            await this.fetchPostCountTask.perform();
-            this.showPostCount = true;
-            this.openPublishFlowModal();
-            localStorage.removeItem('ghost-last-published-post');
-        }
-    }
+    // --- Actions ---
 
     @action
     onDisplayChange(selected) {
@@ -199,22 +189,18 @@ export default class Analytics extends Component {
 
     @action
     loadData() {
+        this.sources = this.showSources ? undefined : [];
+        this.links = this.showLinks ? undefined : [];
+        this.mentions = this.showMentions ? undefined : [];
+
         if (this.showSources) {
             this.fetchReferrersStats();
-        } else {
-            this.sources = [];
         }
-
         if (this.showLinks) {
             this.fetchLinks();
-        } else {
-            this.links = [];
         }
-
         if (this.showMentions) {
             this.fetchMentions();
-        } else {
-            this.mentions = [];
         }
     }
 
@@ -226,75 +212,58 @@ export default class Analytics extends Component {
 
     @action
     confirmDeleteMember() {
-        this.modals.open(DeletePostModal, {
-            post: this.post
-        });
+        this.modals.open(DeletePostModal, {post: this.post});
     }
 
     @action
     applyClasses(element) {
-        if (!this.shouldAnimate || !this.hasChangedMetrics(element)) {
+        if (!this.shouldAnimate) {
             return;
         }
 
-        this.animateNewNumbers(element);
-        this.animateOldNumbers(element);
-    }
+        const hasChanged = STAT_CHANGE_MAP.some(({className, getCurrent, getPrevious}) => {
+            return element.classList.contains(className)
+                && getCurrent(this.post, this) !== getPrevious(this);
+        });
 
-    hasChangedMetrics(element) {
-        const checks = [
-            {class: 'sent', current: this.post.email?.emailCount, previous: this.previousSentCount},
-            {class: 'opened', current: this.post.email?.openedCount, previous: this.previousOpenedCount},
-            {class: 'clicked', current: this.post.count.clicks, previous: this.previousClickedCount},
-            {class: 'feedback', current: this.totalFeedback, previous: this.previousFeedbackCount},
-            {class: 'conversions', current: this.post.count.conversions, previous: this.previousConversionsCount}
-        ];
+        if (!hasChanged) {
+            return;
+        }
 
-        return checks.some(check => 
-            element.classList.contains(check.class) && check.current !== check.previous
-        );
-    }
+        const selector = Array.from(element.classList).map(c => `.${c}`).join('');
 
-    animateNewNumbers(element) {
-        const selector = this.buildAnimationSelector(element, '.new-number span');
         anime({
-            targets: selector,
-            translateY: ANIMATION_CONFIG.newNumber.translateY,
-            opacity: ANIMATION_CONFIG.newNumber.opacity,
-            easing: ANIMATION_CONFIG.newNumber.easing,
-            elasticity: ANIMATION_CONFIG.newNumber.elasticity,
-            duration: ANIMATION_CONFIG.newNumber.duration,
-            delay: (el, i) => ANIMATION_CONFIG.newNumber.delayBase + ANIMATION_CONFIG.newNumber.delayIncrement * i
+            targets: `${selector} .new-number span`,
+            ...ANIMATION_CONFIG.new
+        });
+
+        anime({
+            targets: `${selector} .old-number span`,
+            ...ANIMATION_CONFIG.old
         });
     }
 
-    animateOldNumbers(element) {
-        const selector = this.buildAnimationSelector(element, '.old-number span');
-        anime({
-            targets: selector,
-            translateY: ANIMATION_CONFIG.oldNumber.translateY,
-            opacity: ANIMATION_CONFIG.oldNumber.opacity,
-            easing: ANIMATION_CONFIG.oldNumber.easing,
-            duration: ANIMATION_CONFIG.oldNumber.duration,
-            delay: (el, i) => ANIMATION_CONFIG.oldNumber.delayBase + ANIMATION_CONFIG.oldNumber.delayIncrement * i
+    // --- Private Methods ---
+
+    openPublishFlowModal() {
+        this.modals.open(PostSuccessModal, {
+            post: this.post,
+            postCount: this.postCount,
+            showPostCount: this.showPostCount
         });
     }
 
-    buildAnimationSelector(element, suffix) {
-        const classNames = Array.from(element.classList)
-            .map(className => `.${className}`)
-            .join('');
-        return `${classNames} ${suffix}`;
+    async checkPublishFlowModal() {
+        if (localStorage.getItem('ghost-last-published-post')) {
+            await this.fetchPostCountTask.perform();
+            this.showPostCount = true;
+            this.openPublishFlowModal();
+            localStorage.removeItem('ghost-last-published-post');
+        }
     }
 
     updateLinkData(linksData) {
-        const cleanedLinks = linksData.map(link => this.cleanLinkData(link));
-        const groupedLinks = this.groupLinksByTitle(cleanedLinks);
-        this.links = this.sortLinksByClicks(groupedLinks);
-    }
-
-    cleanLinkData(link) {
-        return {
+        const cleanLink = (link) => ({
             ...link,
             link: {
                 ...link.link,
@@ -302,49 +271,42 @@ export default class Analytics extends Component {
                 to: this.utils.cleanTrackedUrl(link.link.to, false),
                 title: this.utils.cleanTrackedUrl(link.link.to, true)
             }
-        };
-    }
+        });
 
-    groupLinksByTitle(cleanedLinks) {
-        return cleanedLinks.reduce((acc, link) => {
-            const title = link.link.title;
+        const mergeByTitle = (acc, link) => {
+            const {title} = link.link;
             if (!acc[title]) {
                 acc[title] = link;
             } else {
-                acc[title].count = acc[title].count || {clicks: 0};
-                acc[title].count.clicks += link.count?.clicks ?? 0;
+                acc[title].count = acc[title].count ?? {clicks: 0};
+                acc[title].count.clicks = (acc[title].count.clicks ?? 0) + (link.count?.clicks ?? 0);
             }
             return acc;
-        }, {});
-    }
+        };
 
-    sortLinksByClicks(groupedLinks) {
-        return Object.values(groupedLinks).sort((a, b) => {
-            const aClicks = a.count?.clicks || 0;
-            const bClicks = b.count?.clicks || 0;
-            return bClicks - aClicks;
-        });
+        const byClicks = (a, b) => (b.count?.clicks || 0) - (a.count?.clicks || 0);
+
+        this.links = Object.values(linksData.map(cleanLink).reduce(mergeByTitle, {})).sort(byClicks);
     }
 
     async fetchReferrersStats() {
-        try {
-            if (this._fetchReferrersStats.isRunning) {
-                return this._fetchReferrersStats.last;
-            }
-            return this._fetchReferrersStats.perform();
-        } catch (e) {
-            if (!didCancel(e)) {
-                throw e;
-            }
-        }
+        return this._runTask(this._fetchReferrersStats);
     }
 
     async fetchLinks() {
+        return this._runTask(this._fetchLinks);
+    }
+
+    async fetchMentions() {
+        return this._runTask(this._fetchMentions);
+    }
+
+    async _runTask(taskInstance) {
         try {
-            if (this._fetchLinks.isRunning) {
-                return this._fetchLinks.last;
+            if (taskInstance.isRunning) {
+                return taskInstance.last;
             }
-            return this._fetchLinks.perform();
+            return taskInstance.perform();
         } catch (e) {
             if (!didCancel(e)) {
                 throw e;
@@ -352,49 +314,31 @@ export default class Analytics extends Component {
         }
     }
 
-    async fetchMentions() {
-        if (this._fetchMentions.isRunning) {
-            return this._fetchMentions.last;
-        }
-        return this._fetchMentions.perform();
-    }
+    // --- Tasks ---
 
     @task
     *_updateLinks(linkId, newLink) {
         this.updateLinkId = linkId;
-        const currentLink = this.updateLinksInMemory(linkId, newLink);
-        
-        yield this.updateLinksOnServer(currentLink, newLink);
-        yield this.refreshLinksData();
-        
-        this.showSuccess = this.updateLinkId;
-        setTimeout(() => {
-            this.showSuccess = null;
-        }, SUCCESS_MESSAGE_DURATION);
-    }
-
-    updateLinksInMemory(linkId, newLink) {
         let currentLink;
-        this.links = this.links?.map((link) => {
-            if (link.link.link_id === linkId) {
-                currentLink = new URL(link.link.originalTo);
-                return {
-                    ...link,
-                    link: {
-                        ...link.link,
-                        to: this.utils.cleanTrackedUrl(newLink, false),
-                        title: this.utils.cleanTrackedUrl(newLink, true)
-                    }
-                };
-            }
-            return link;
-        });
-        return currentLink;
-    }
 
-    *updateLinksOnServer(currentLink, newLink) {
+        this.links = this.links?.map((link) => {
+            if (link.link.link_id !== linkId) {
+                return link;
+            }
+            currentLink = new URL(link.link.originalTo);
+            return {
+                ...link,
+                link: {
+                    ...link.link,
+                    to: this.utils.cleanTrackedUrl(newLink, false),
+                    title: this.utils.cleanTrackedUrl(newLink, true)
+                }
+            };
+        });
+
         const filter = `post_id:'${this.post.id}'+to:'${currentLink}'`;
-        const bulkUpdateUrl = this.ghostPaths.url.api('links/bulk') + `?filter=${encodeURIComponent(filter)}`;
+        const bulkUpdateUrl = `${this.ghostPaths.url.api('links/bulk')}?filter=${encodeURIComponent(filter)}`;
+
         yield this.ajax.put(bulkUpdateUrl, {
             data: {
                 bulk: {
@@ -403,13 +347,16 @@ export default class Analytics extends Component {
                 }
             }
         });
-    }
 
-    *refreshLinksData() {
         const linksFilter = `post_id:'${this.post.id}'`;
-        const statsUrl = this.ghostPaths.url.api('links/') + `?filter=${encodeURIComponent(linksFilter)}`;
+        const statsUrl = `${this.ghostPaths.url.api('links/')}?filter=${encodeURIComponent(linksFilter)}`;
         const result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
+
+        this.showSuccess = this.updateLinkId;
+        setTimeout(() => {
+            this.showSuccess = null;
+        }, 2000);
     }
 
     @task
@@ -426,7 +373,7 @@ export default class Analytics extends Component {
     @task
     *_fetchLinks() {
         const filter = `post_id:'${this.post.id}'`;
-        const statsUrl = this.ghostPaths.url.api('links/') + `?filter=${encodeURIComponent(filter)}`;
+        const statsUrl = `${this.ghostPaths.url.api('links/')}?filter=${encodeURIComponent(filter)}`;
         const result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
     }
@@ -434,27 +381,27 @@ export default class Analytics extends Component {
     @task
     *_fetchMentions() {
         const filter = `resource_id:'${this.post.id}'+resource_type:post`;
-        this.mentions = yield this.store.query('mention', {
-            limit: 5,
-            order: 'created_at desc',
-            filter
-        });
+        this.mentions = yield this.store.query('mention', {limit: 5, order: 'created_at desc', filter});
     }
 
     @task
     *fetchPostCountTask() {
         if (!this.post.emailOnly) {
-            const result = yield this.store.query('post', {
-                filter: 'status:published',
-                limit: 1
-            });
+            const result = yield this.store.query('post', {filter: 'status:published', limit: 1});
             this.postCount = result.meta.pagination.total;
         }
     }
 
     @task
     *fetchPostTask() {
-        this.captureCurrentMetrics();
+        const snapshot = {
+            sentCount: this.post.email?.emailCount,
+            openedCount: this.post.email?.openedCount,
+            clickedCount: this.post.count.clicks,
+            feedbackCount: this.totalFeedback,
+            conversionsCount: this.post.count.conversions
+        };
+
         this.shouldAnimate = true;
 
         const result = yield this.store.query('post', {
@@ -462,9 +409,18 @@ export default class Analytics extends Component {
             include: 'email,count.clicks,count.conversions,count.positive_feedback,count.negative_feedback,sentiment',
             limit: 1
         });
+
         this.post = result.toArray()[0];
 
-        this.updatePreviousMetrics();
+        this.previousSentCount = snapshot.sentCount;
+        this.previousOpenedCount = snapshot.openedCount;
+        this.previousClickedCount = snapshot.clickedCount;
+        this.previousFeedbackCount = snapshot.feedbackCount;
+        this.previousConversionsCount = snapshot.conversionsCount;
+
         yield this.fetchLinks();
 
         return true;
+    }
+}
+```
