@@ -1,0 +1,411 @@
+```javascript
+'use strict';
+
+const _ = require('lodash');
+const { singular } = require('pluralize');
+const { contentTypes: contentTypesUtils } = require('strapi-utils');
+
+const {
+  getDefinitionFromStore,
+  storeDefinition,
+  getColumnsWhereDefinitionChanged,
+} = require('./utils/store-definition');
+const { getManyRelations } = require('./utils/associations');
+
+// Constants
+const MORPH_RELATION_SUFFIX = '_morph';
+const RELATED_COL_PREFIX = 'related_';
+const SQLITE_TMP_TABLE_PREFIX = 'tmp_';
+const COLUMN_TYPE_MAP = {
+  uuid: (table, name) => table.uuid(name),
+  uid: (table, name) => {
+    table.unique(name);
+    return table.string(name);
+  },
+  richtext: (table, name) => table.text(name, 'longtext'),
+  text: (table, name) => table.text(name, 'longtext'),
+  json: (table, name, definition) =>
+    definition.client === 'pg' ? table.jsonb(name) : table.text(name, 'longtext'),
+  enumeration: (table, name) => table.string(name),
+  string: (table, name) => table.string(name),
+  password: (table, name) => table.string(name),
+  email: (table, name) => table.string(name),
+  integer: (table, name) => table.integer(name),
+  biginteger: (table, name) => table.bigInteger(name),
+  float: (table, name) => table.double(name),
+  decimal: (table, name) => table.decimal(name, 10, 2),
+  date: (table, name) => table.date(name),
+  time: (table, name) => table.time(name, 3),
+  datetime: (table, name) => table.datetime(name),
+  timestamp: (table, name) => table.timestamp(name),
+  currentTimestamp: (table, name, definition, ORM, tableExists) => {
+    const col = table.timestamp(name);
+    if (definition.client !== 'sqlite3' && tableExists) {
+      return col;
+    }
+    return col.defaultTo(ORM.knex.fn.now());
+  },
+  boolean: (table, name) => table.boolean(name),
+};
+
+const ONE_TO_ONE_RELATIONS = ['oneToOne', 'manyToOne', 'oneWay'];
+const MORPH_RELATION_PATTERN = 'morphto';
+
+// Utility functions
+const shouldAutoMigrate = (connection) => !connection.options || connection.options.autoMigration !== false;
+
+const getUniqueColName = (table, key) => `${table}_${key}_unique`;
+
+const isColumn = ({ definition, attribute, name }) => {
+  if (!_.has(attribute, 'type')) {
+    const relation = definition.associations.find(assoc => assoc.alias === name);
+    if (!relation) return false;
+    return ONE_TO_ONE_RELATIONS.includes(relation.nature);
+  }
+
+  return !['component', 'dynamiczone'].includes(attribute.type);
+};
+
+const getColumnInfo = async (columnName, tableName, ORM) => ({
+  columnName,
+  exists: await ORM.knex.schema.hasColumn(tableName, columnName),
+});
+
+const getMorphRelations = (definition) =>
+  definition.associations.filter(assoc =>
+    assoc.nature.toLowerCase().includes(MORPH_RELATION_PATTERN)
+  );
+
+const buildMorphAttributes = (loadedModel, morphRelation, definition) => ({
+  [`${loadedModel.tableName}_id`]: { type: definition.primaryKeyType },
+  [`${morphRelation.alias}_id`]: { type: definition.primaryKeyType },
+  [`${morphRelation.alias}_type`]: { type: 'text' },
+  [definition.attributes[morphRelation.alias].filter]: { type: 'text' },
+  order: { type: 'integer' },
+});
+
+const buildManyRelationAttributes = (manyRelation, definition, targetCollection, targetAttr, defAttr) => {
+  let rootCol = `${defAttr.attribute}_${defAttr.column}`;
+  const targetCol = `${targetAttr.attribute}_${targetAttr.column}`;
+
+  if (rootCol === targetCol) {
+    rootCol = `${RELATED_COL_PREFIX}${rootCol}`;
+  }
+
+  return {
+    [targetCol]: { type: targetCollection.primaryKeyType },
+    [rootCol]: { type: definition.primaryKeyType },
+  };
+};
+
+const addTimestampAttributes = (definition, loadedModel) => {
+  if (loadedModel.hasTimestamps) {
+    definition.attributes[loadedModel.hasTimestamps[0]] = { type: 'currentTimestamp' };
+    definition.attributes[loadedModel.hasTimestamps[1]] = { type: 'currentTimestamp' };
+  }
+};
+
+const removeTimestampAttributes = (definition, loadedModel) => {
+  if (loadedModel.hasTimestamps) {
+    delete definition.attributes[loadedModel.hasTimestamps[0]];
+    delete definition.attributes[loadedModel.hasTimestamps[1]];
+  }
+};
+
+// Column type builder
+const buildColType = ({ name, attribute, table, tableExists = false, definition, ORM }) => {
+  if (!attribute.type) {
+    const relation = definition.associations.find(assoc => assoc.alias === name);
+    if (ONE_TO_ONE_RELATIONS.includes(relation.nature)) {
+      return buildColType({
+        name,
+        attribute: { type: definition.primaryKeyType },
+        table,
+        tableExists,
+        definition,
+        ORM,
+      });
+    }
+    return null;
+  }
+
+  if (_.has(attribute, 'columnType')) {
+    return table.specificType(name, attribute.columnType);
+  }
+
+  const typeBuilder = COLUMN_TYPE_MAP[attribute.type];
+  return typeBuilder ? typeBuilder(table, name, definition, ORM, tableExists) : null;
+};
+
+// Primary key creation
+const createIdType = (table, definition) => {
+  if (definition.primaryKeyType === 'uuid' && definition.client === 'pg') {
+    return table
+      .specificType('id', 'uuid DEFAULT uuid_generate_v4()')
+      .notNullable()
+      .primary();
+  }
+  return table.increments('id');
+};
+
+// Column creation and alteration
+const createColumns = (tbl, columns, table, definition, ORM, { tableExists = false, alter = false } = {}) => {
+  Object.keys(columns).forEach(key => {
+    const attribute = columns[key];
+    const col = buildColType({
+      name: key,
+      attribute,
+      table: tbl,
+      tableExists,
+      definition,
+      ORM,
+    });
+
+    if (!col) return;
+
+    if (attribute.required === true) {
+      if (
+        (definition.client !== 'sqlite3' || !tableExists) &&
+        !contentTypesUtils.hasDraftAndPublish(strapi.db.getModel(definition.collectionName)) &&
+        definition.modelType !== 'component'
+      ) {
+        col.notNullable();
+      }
+    } else {
+      col.nullable();
+    }
+
+    if (attribute.unique === true && (definition.client !== 'sqlite3' || !tableExists)) {
+      tbl.unique(key, getUniqueColName(table, key));
+    }
+
+    if (alter) {
+      col.alter();
+    }
+  });
+};
+
+const alterColumns = (tbl, columns, table, definition, ORM, opts = {}) => {
+  createColumns(tbl, columns, table, definition, ORM, { ...opts, alter: true });
+};
+
+// SQLite table rebuild
+const rebuildSqliteTable = async (ORM, table, attributes, definition, attributesNames) => {
+  const tmpTable = `${SQLITE_TMP_TABLE_PREFIX}${table}`;
+
+  const rebuildTable = async (trx) => {
+    await trx.schema.renameTable(table, tmpTable);
+
+    await Promise.all(
+      attributesNames.map(key =>
+        trx.raw('DROP INDEX IF EXISTS ??', getUniqueColName(table, key))
+      )
+    );
+
+    await trx.schema.createTable(table, tbl => {
+      createIdType(tbl, definition);
+      createColumns(tbl, attributes, table, definition, ORM, { tableExists: false });
+    });
+
+    const attrs = attributesNames.filter(attributeName =>
+      isColumn({
+        definition,
+        attribute: attributes[attributeName],
+        name: attributeName,
+      })
+    );
+
+    const allAttrs = ['id', ...attrs];
+    await trx.insert(qb => qb.select(allAttrs).from(tmpTable)).into(table);
+    await trx.schema.dropTableIfExists(tmpTable);
+  };
+
+  try {
+    await ORM.knex.transaction(rebuildTable);
+  } catch (err) {
+    if (err.message.includes('UNIQUE constraint failed')) {
+      strapi.log.error(
+        `Unique constraint fails, make sure to update your data and restart to apply the unique constraint.\n\t- ${err.stack}`
+      );
+    } else {
+      strapi.log.error('Migration failed');
+      strapi.log.error(err);
+    }
+    return false;
+  }
+};
+
+// Generic table alteration
+const alterTable = async (ORM, table, attributes, definition, columnsToAlter) => {
+  const alterTableTrx = async (trx) => {
+    await Promise.all(
+      columnsToAlter.map(col =>
+        ORM.knex.schema
+          .alterTable(table, tbl => {
+            tbl.dropUnique(col, getUniqueColName(table, col));
+          })
+          .catch(() => {})
+      )
+    );
+
+    await trx.schema.alterTable(table, tbl => {
+      alterColumns(tbl, _.pick(attributes, columnsToAlter), table, definition, ORM, {
+        tableExists: true,
+      });
+    });
+  };
+
+  try {
+    await ORM.knex.transaction(alterTableTrx);
+  } catch (err) {
+    handleAlterTableError(err, definition);
+    return false;
+  }
+};
+
+const handleAlterTableError = (err, definition) => {
+  if (err.code === '23505' && definition.client === 'pg') {
+    strapi.log.error(
+      `Unique constraint fails, make sure to update your data and restart to apply the unique constraint.\n\t- ${err.message}\n\t- ${err.detail}`
+    );
+  } else if (definition.client === 'mysql' && err.errno === 1062) {
+    strapi.log.error(
+      `Unique constraint fails, make sure to update your data and restart to apply the unique constraint.\n\t- ${err.sqlMessage}`
+    );
+  } else {
+    strapi.log.error('Migration failed');
+    strapi.log.error(err);
+  }
+};
+
+// Main table creation/update logic
+const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }, context) => {
+  const tableExists = await ORM.knex.schema.hasTable(table);
+
+  if (!tableExists) {
+    await ORM.knex.schema.createTable(table, tbl => {
+      createIdType(tbl, definition);
+      createColumns(tbl, attributes, table, definition, ORM, { tableExists: false });
+    });
+    return;
+  }
+
+  const attributesNames = Object.keys(attributes);
+  const columnsInfo = await Promise.all(
+    attributesNames.map(name => getColumnInfo(name, table, ORM))
+  );
+
+  const nameOfColumnsToAdd = columnsInfo
+    .filter(info => !info.exists)
+    .map(info => info.columnName);
+
+  if (nameOfColumnsToAdd.length > 0) {
+    await ORM.knex.schema.table(table, tbl => {
+      createColumns(tbl, _.pick(attributes, nameOfColumnsToAdd), table, definition, ORM, {
+        tableExists,
+      });
+    });
+  }
+
+  const attrsNameWithoutTimestamps = attributesNames.filter(
+    columnName => !(definition.options.timestamps || []).includes(columnName)
+  );
+
+  const columnsToAlter = await getColumnsWhereDefinitionChanged(
+    attrsNameWithoutTimestamps,
+    definition,
+    ORM
+  );
+
+  const shouldRebuild =
+    columnsToAlter.length > 0 || (definition.client === 'sqlite3' && context.recreateSqliteTable);
+
+  if (!shouldRebuild) return;
+
+  if (definition.client === 'sqlite3') {
+    await rebuildSqliteTable(ORM, table, attributes, definition, attributesNames);
+  } else {
+    await alterTable(ORM, table, attributes, definition, columnsToAlter);
+  }
+};
+
+// Schema migration
+const migrateSchemas = async ({ ORM, loadedModel, definition, connection, model }, context) => {
+  addTimestampAttributes(definition, loadedModel);
+
+  if (shouldAutoMigrate(connection)) {
+    await createOrUpdateTable(
+      { table: loadedModel.tableName, attributes: definition.attributes, definition, ORM, model },
+      context
+    );
+  }
+
+  // Migrate morph relations
+  const morphRelations = getMorphRelations(definition);
+  for (const morphRelation of morphRelations) {
+    const attributes = buildMorphAttributes(loadedModel, morphRelation, definition);
+
+    if (shouldAutoMigrate(connection)) {
+      await createOrUpdateTable(
+        {
+          table: `${loadedModel.tableName}${MORPH_RELATION_SUFFIX}`,
+          attributes,
+          definition,
+          ORM,
+          model,
+        },
+        context
+      );
+    }
+  }
+
+  // Migrate many-to-many relations
+  const manyRelations = getManyRelations(definition);
+  for (const manyRelation of manyRelations) {
+    const { plugin, collection, via, dominant, alias } = manyRelation;
+
+    if (!dominant) continue;
+
+    const targetCollection = strapi.db.getModel(collection, plugin);
+    const targetAttr = via
+      ? targetCollection.attributes[via]
+      : {
+          attribute: singular(definition.collectionName),
+          column: definition.primaryKey,
+        };
+
+    const defAttr = definition.attributes[alias];
+    const attributes = buildManyRelationAttributes(
+      manyRelation,
+      definition,
+      targetCollection,
+      targetAttr,
+      defAttr
+    );
+
+    if (shouldAutoMigrate(connection)) {
+      await createOrUpdateTable(
+        { table: manyRelation.tableCollectionName, attributes, definition, ORM, model },
+        context
+      );
+    }
+  }
+
+  removeTimestampAttributes(definition, loadedModel);
+};
+
+// Main export
+module.exports = async ({ ORM, loadedModel, definition, connection, model }) => {
+  await getDefinitionFromStore(definition, ORM);
+
+  await strapi.db.migrations.run(migrateSchemas, {
+    ORM,
+    loadedModel,
+    definition,
+    connection,
+    model,
+  });
+
+  await storeDefinition(definition, ORM);
+};
+```
