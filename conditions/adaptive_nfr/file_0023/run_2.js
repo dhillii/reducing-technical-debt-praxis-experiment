@@ -1,4 +1,4 @@
-```javascript
+```jsx
 import AppContext from '../app-context';
 import Frame from './frame';
 import React, {useContext, useEffect, useMemo, useRef, useState} from 'react';
@@ -9,205 +9,201 @@ import {ReactComponent as SearchIcon} from '../icons/search.svg';
 const DEFAULT_MAX_POSTS = 10;
 const STEP_MAX_POSTS = 10;
 const INVALID_URL_REGEX = /\/404\/$/;
-const EXCERPT_CONTEXT_LENGTH = 20;
-const EXCERPT_MIN_LENGTH = 50;
 
-// Styles
-const MODAL_CONTAINER_STYLE = {
-    zIndex: '3999999',
-    position: 'fixed',
-    left: '0',
-    top: '0',
-    width: '100%',
-    height: '100%',
-    overflow: 'hidden'
-};
-
-const FRAME_STYLE = {
-    margin: 'auto',
-    position: 'relative',
-    padding: '0',
-    outline: '0',
-    width: '100%',
-    opacity: '1',
-    overflow: 'hidden',
-    height: '100%'
-};
-
-// Utility Functions
-const filterInvalidUrls = (items) => items.filter(item => !(item?.url && INVALID_URL_REGEX.test(item?.url)));
-
-const getMatchIndexes = ({text, highlight}) => {
-    let highlightRegexText = '';
-    highlight?.split(' ').forEach((d, idx) => {
-        const e = String(d).replace(/\W/g, '\\&');
-        highlightRegexText += idx > 0 ? `|^${e}|\\s${e}` : `^${e}|\\s${e}`;
-    });
-    
-    const matchRegex = new RegExp(`${highlightRegexText}`, 'ig');
-    const matches = text?.matchAll(matchRegex);
-    const indexes = [];
-    
-    for (const match of matches) {
-        indexes.push({
-            startIdx: match?.index,
-            endIdx: (match?.index || 0) + (match?.[0].length || 0)
-        });
+const modalStyles = {
+    container: {
+        zIndex: '3999999',
+        position: 'fixed',
+        left: '0',
+        top: '0',
+        width: '100%',
+        height: '100%',
+        overflow: 'hidden'
+    },
+    frame: {
+        margin: 'auto',
+        position: 'relative',
+        padding: '0',
+        outline: '0',
+        width: '100%',
+        opacity: '1',
+        overflow: 'hidden',
+        height: '100%'
     }
-    return indexes;
 };
 
-const getHighlightParts = ({text, highlight}) => {
+// ─── Hooks ────────────────────────────────────────────────────────────────────
+
+function useKeyUp(handler, node) {
+    useEffect(() => {
+        const target = node?.ownerDocument ?? node;
+        target?.addEventListener('keyup', handler);
+        return () => target?.removeEventListener('keyup', handler);
+    }, [handler, node]);
+}
+
+function useDispatchClose() {
+    const {dispatch} = useContext(AppContext);
+    return () => dispatch('update', {showPopup: false});
+}
+
+// ─── Highlight Utilities ──────────────────────────────────────────────────────
+
+function buildHighlightRegex(highlight) {
+    const pattern = highlight
+        .split(' ')
+        .map(word => word.replace(/\W/g, '\\&'))
+        .map((escaped, idx) => (idx === 0 ? `^${escaped}|\\s${escaped}` : `|^${escaped}|\\s${escaped}`))
+        .join('');
+    return new RegExp(pattern, 'ig');
+}
+
+function getMatchIndexes({text, highlight}) {
+    if (!text || !highlight) {
+        return [];
+    }
+    const matches = text.matchAll(buildHighlightRegex(highlight));
+    return [...matches].map(match => ({
+        startIdx: match.index,
+        endIdx: (match.index ?? 0) + (match[0]?.length ?? 0)
+    }));
+}
+
+function getHighlightParts({text, highlight}) {
     const highlightIndexes = getMatchIndexes({text, highlight});
     const parts = [];
     let lastIdx = 0;
 
-    highlightIndexes.forEach((highlightIdx) => {
-        if (lastIdx === highlightIdx.startIdx) {
-            parts.push({
-                text: text?.slice(highlightIdx.startIdx, highlightIdx.endIdx),
-                type: 'highlight'
-            });
-            lastIdx = highlightIdx.endIdx;
-        } else {
-            parts.push({
-                text: text?.slice(lastIdx, highlightIdx.startIdx),
-                type: 'normal'
-            });
-            parts.push({
-                text: text?.slice(highlightIdx.startIdx, highlightIdx.endIdx),
-                type: 'highlight'
-            });
-            lastIdx = highlightIdx.endIdx;
+    for (const {startIdx, endIdx} of highlightIndexes) {
+        if (lastIdx < startIdx) {
+            parts.push({text: text.slice(lastIdx, startIdx), type: 'normal'});
         }
-    });
-    
-    if (lastIdx < text?.length) {
-        parts.push({
-            text: text?.slice(lastIdx, text.length),
-            type: 'normal'
-        });
+        parts.push({text: text.slice(startIdx, endIdx), type: 'highlight'});
+        lastIdx = endIdx;
     }
-    
+
+    if (lastIdx < text?.length) {
+        parts.push({text: text.slice(lastIdx), type: 'normal'});
+    }
+
     return {parts, highlightIndexes};
-};
+}
 
-const useKeyboardNavigation = (allResults, selectedResult, setSelectedResult, containerRef) => {
-    useEffect(() => {
-        const handleKeyUp = (event) => {
-            const selectedResultIdx = allResults.findIndex((d) => d.id === selectedResult);
-            const nextResult = allResults[selectedResultIdx + 1];
-            const prevResult = allResults[selectedResultIdx - 1];
-            
-            if (event.key === 'ArrowUp' && prevResult) {
-                setSelectedResult(prevResult?.id);
-            } else if (event.key === 'ArrowDown' && nextResult) {
-                setSelectedResult(nextResult?.id);
-            } else if (event.key === 'Enter') {
-                const selectedResultData = allResults.find((d) => d.id === selectedResult);
-                if (selectedResultData?.url) {
-                    window.location.href = selectedResultData.url;
-                }
-            }
-        };
+function resolveExcerptParts(text, highlight) {
+    const {parts, highlightIndexes} = getHighlightParts({text, highlight});
+    const firstMatch = highlightIndexes?.[0];
+    if (firstMatch?.startIdx > 50) {
+        const trimmed = '...' + text.slice(firstMatch.startIdx - 20);
+        return getHighlightParts({text: trimmed, highlight}).parts;
+    }
+    return parts;
+}
 
-        const containerNode = containerRef?.current;
-        containerNode?.ownerDocument.removeEventListener('keyup', handleKeyUp);
-        containerNode?.ownerDocument.addEventListener('keyup', handleKeyUp);
+// ─── Small Presentational Components ─────────────────────────────────────────
 
-        return () => {
-            containerNode?.ownerDocument?.removeEventListener('keyup', handleKeyUp);
-        };
-    }, [allResults, selectedResult, setSelectedResult, containerRef]);
-};
+function HighlightWord({word, isExcerpt}) {
+    const className = isExcerpt ? 'font-bold' : 'font-bold text-neutral-900';
+    return <span className={className}>{word}</span>;
+}
 
-const useEscapeKeyHandler = (dispatch) => {
-    useEffect(() => {
-        const handleKeyUp = (event) => {
-            if (event.key === 'Escape') {
-                dispatch('update', {showPopup: false});
-            }
-        };
+function HighlightedSection({text = '', highlight = '', isExcerpt}) {
+    const parts = isExcerpt
+        ? resolveExcerptParts(text || '', highlight || '')
+        : getHighlightParts({text: text || '', highlight: highlight || ''}).parts;
 
-        document.addEventListener('keyup', handleKeyUp);
-        return () => {
-            document.removeEventListener('keyup', handleKeyUp);
-        };
-    }, [dispatch]);
-};
+    return (
+        <>
+            {parts.map((part, idx) =>
+                part.type === 'highlight'
+                    ? <HighlightWord key={idx} word={part.text} isExcerpt={isExcerpt} />
+                    : <React.Fragment key={idx}>{part.text}</React.Fragment>
+            )}
+        </>
+    );
+}
 
-// Components
-const SearchClearIcon = () => {
+function SectionHeader({label}) {
+    return (
+        <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>
+            {label}
+        </h1>
+    );
+}
+
+function NavigableItem({id, url, selectedResult, setSelectedResult, className, children}) {
+    const isSelected = id === selectedResult;
+    return (
+        <div
+            className={`${className}${isSelected ? ' bg-neutral-100' : ''}`}
+            onClick={() => url && (window.location.href = url)}
+            onMouseEnter={() => setSelectedResult(id)}
+        >
+            {children}
+        </div>
+    );
+}
+
+// ─── Search Box ───────────────────────────────────────────────────────────────
+
+function SearchClearIcon() {
     const {searchValue = '', dispatch} = useContext(AppContext);
-    
     if (!searchValue) {
         return <SearchIcon className='text-neutral-900' alt='Search' />;
     }
-    
     return (
-        <button 
-            alt='Clear' 
-            className='-mb-[1px]' 
-            onClick={() => dispatch('update', {searchValue: ''})}
-        >
+        <button alt='Clear' className='-mb-[1px]' onClick={() => dispatch('update', {searchValue: ''})}>
             <ClearIcon className='text-neutral-900 hover:text-neutral-500 h-[1.1rem] w-[1.1rem]' />
         </button>
     );
-};
+}
 
-const Loading = () => {
+function Loading() {
     const {indexComplete, searchValue} = useContext(AppContext);
-    
-    if (!indexComplete && searchValue) {
-        return <CircleAnimated className='shrink-0' />;
-    }
-    return null;
-};
+    return (!indexComplete && searchValue) ? <CircleAnimated className='shrink-0' /> : null;
+}
 
-const CancelButton = () => {
-    const {dispatch, t} = useContext(AppContext);
-
+function CancelButton() {
+    const {t} = useContext(AppContext);
+    const closePopup = useDispatchClose();
     return (
-        <button
-            className='ms-3 text-sm text-neutral-500 sm:hidden'
-            alt='Cancel'
-            onClick={() => dispatch('update', {showPopup: false})}
-        >
+        <button className='ms-3 text-sm text-neutral-500 sm:hidden' alt='Cancel' onClick={closePopup}>
             {t('Cancel')}
         </button>
     );
-};
+}
 
-const SearchBox = () => {
+function SearchBox() {
     const {searchValue, dispatch, inputRef, t} = useContext(AppContext);
     const containerRef = useRef(null);
-    
+
     useEffect(() => {
-        setTimeout(() => {
-            inputRef?.current?.focus();
-        }, 150);
+        const timer = setTimeout(() => inputRef?.current?.focus(), 150);
+        return () => clearTimeout(timer);
     }, [inputRef]);
 
-    useEscapeKeyHandler(dispatch);
+    useKeyUp(
+        (event) => {
+            if (event.key === 'Escape') {
+                dispatch('update', {showPopup: false});
+            }
+        },
+        containerRef.current
+    );
 
-    const className = searchValue 
-        ? 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-t-lg shadow'
-        : 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-lg';
+    const boxClass = `z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white ${
+        searchValue ? 'rounded-t-lg shadow' : 'rounded-lg'
+    }`;
 
     return (
-        <div className={className} ref={containerRef}>
+        <div className={boxClass} ref={containerRef}>
             <div className='flex items-center justify-center w-4 h-4 me-3'>
                 <SearchClearIcon />
             </div>
             <input
                 ref={inputRef}
                 value={searchValue || ''}
-                onChange={(e) => dispatch('update', {searchValue: e.target.value})}
-                onKeyDown={(e) => {
-                    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-                        e.preventDefault();
-                    }
-                }}
+                onChange={e => dispatch('update', {searchValue: e.target.value})}
+                onKeyDown={e => ['ArrowUp', 'ArrowDown'].includes(e.key) && e.preventDefault()}
                 className='grow -my-5 py-5 -ms-3 ps-3 text-[1.65rem] focus-visible:outline-none placeholder:text-gray-400 outline-none truncate'
                 placeholder={t('Search posts, tags and authors')}
             />
@@ -215,207 +211,195 @@ const SearchBox = () => {
             <CancelButton />
         </div>
     );
-};
+}
 
-const HighlightWord = ({word, isExcerpt}) => (
-    <span className={isExcerpt ? 'font-bold' : 'font-bold text-neutral-900'}>
-        {word}
-    </span>
-);
+// ─── Result Items ─────────────────────────────────────────────────────────────
 
-const HighlightedSection = ({text = '', highlight = '', isExcerpt}) => {
-    let {parts, highlightIndexes} = getHighlightParts({text, highlight});
-    
-    if (isExcerpt && highlightIndexes?.[0]) {
-        const startIdx = highlightIndexes[0].startIdx;
-        if (startIdx > EXCERPT_MIN_LENGTH) {
-            const truncatedText = '...' + text?.slice(startIdx - EXCERPT_CONTEXT_LENGTH);
-            const {parts: updatedParts} = getHighlightParts({text: truncatedText, highlight});
-            parts = updatedParts;
-        }
-    }
-
+function TagListItem({tag, selectedResult, setSelectedResult}) {
     return (
-        <>
-            {parts.map((d, idx) => (
-                <React.Fragment key={idx}>
-                    {d?.type === 'highlight' 
-                        ? <HighlightWord word={d.text} isExcerpt={isExcerpt} />
-                        : d.text
-                    }
-                </React.Fragment>
-            ))}
-        </>
-    );
-};
-
-const TagListItem = ({tag, selectedResult, setSelectedResult}) => {
-    const {name, url, id} = tag;
-    const className = `flex items-center py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer${
-        id === selectedResult ? ' bg-neutral-100' : ''
-    }`;
-    
-    return (
-        <div
-            className={className}
-            onClick={() => {
-                if (url) window.location.href = url;
-            }}
-            onMouseEnter={() => setSelectedResult(id)}
+        <NavigableItem
+            id={tag.id}
+            url={tag.url}
+            selectedResult={selectedResult}
+            setSelectedResult={setSelectedResult}
+            className='flex items-center py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer'
         >
             <p className='me-2 text-sm font-bold text-neutral-400'>#</p>
-            <h2 className='text-[1.65rem] font-medium leading-tight text-neutral-900 truncate'>
-                {name}
-            </h2>
-        </div>
+            <h2 className='text-[1.65rem] font-medium leading-tight text-neutral-900 truncate'>{tag.name}</h2>
+        </NavigableItem>
     );
-};
+}
 
-const TagResults = ({tags, selectedResult, setSelectedResult}) => {
-    const {t} = useContext(AppContext);
-
-    if (!tags?.length) return null;
-
-    return (
-        <div className='border-t border-gray-200 py-3 px-4 sm:px-7'>
-            <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>
-                {t('Tags')}
-            </h1>
-            {tags.map((d) => (
-                <TagListItem
-                    key={d.name}
-                    tag={d}
-                    selectedResult={selectedResult}
-                    setSelectedResult={setSelectedResult}
-                />
-            ))}
-        </div>
-    );
-};
-
-const PostListItem = ({post, selectedResult, setSelectedResult}) => {
+function PostListItem({post, selectedResult, setSelectedResult}) {
     const {searchValue} = useContext(AppContext);
-    const {title, excerpt, url, id} = post;
-    const className = `py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer${
-        id === selectedResult ? ' bg-neutral-100' : ''
-    }`;
-    
     return (
-        <div
-            className={className}
-            onClick={() => {
-                if (url) window.location.href = url;
-            }}
-            onMouseEnter={() => setSelectedResult(id)}
+        <NavigableItem
+            id={post.id}
+            url={post.url}
+            selectedResult={selectedResult}
+            setSelectedResult={setSelectedResult}
+            className='py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer'
         >
             <h2 className='text-[1.65rem] font-medium leading-tight text-neutral-800'>
-                <HighlightedSection text={title} highlight={searchValue} isExcerpt={false} />
+                <HighlightedSection text={post.title} highlight={searchValue} isExcerpt={false} />
             </h2>
             <p className='text-neutral-400 leading-normal text-sm mt-0 mb-0 truncate'>
-                <HighlightedSection text={excerpt} highlight={searchValue} isExcerpt={true} />
+                <HighlightedSection text={post.excerpt} highlight={searchValue} isExcerpt={true} />
             </p>
+        </NavigableItem>
+    );
+}
+
+function AuthorAvatar({name, avatar}) {
+    if (avatar?.length) {
+        return <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name} />;
+    }
+    return (
+        <div className='rounded-full bg-neutral-200 w-7 h-7 me-2 flex items-center justify-center font-bold'>
+            <span className='text-neutral-400'>{name.charAt(0)}</span>
         </div>
     );
-};
+}
 
-const ShowMoreButton = ({posts, maxPosts, setMaxPosts}) => {
+function AuthorListItem({author, selectedResult, setSelectedResult}) {
+    return (
+        <NavigableItem
+            id={author.id}
+            url={author.url}
+            selectedResult={selectedResult}
+            setSelectedResult={setSelectedResult}
+            className='py-[1rem] -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer flex items-center'
+        >
+            <AuthorAvatar name={author.name} avatar={author.profile_image} />
+            <h2 className='text-[1.65rem] font-medium leading-tight text-neutral-900 truncate'>{author.name}</h2>
+        </NavigableItem>
+    );
+}
+
+// ─── Result Sections ──────────────────────────────────────────────────────────
+
+function ResultSection({label, children}) {
+    return (
+        <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
+            <SectionHeader label={label} />
+            {children}
+        </div>
+    );
+}
+
+function TagResults({tags, selectedResult, setSelectedResult}) {
     const {t} = useContext(AppContext);
+    if (!tags?.length) {
+        return null;
+    }
+    return (
+        <ResultSection label={t('Tags')}>
+            {tags.map(tag => (
+                <TagListItem key={tag.name} tag={tag} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
+            ))}
+        </ResultSection>
+    );
+}
 
-    if (!posts?.length || maxPosts >= posts?.length) return null;
-    
+function AuthorResults({authors, selectedResult, setSelectedResult}) {
+    const {t} = useContext(AppContext);
+    if (!authors?.length) {
+        return null;
+    }
+    return (
+        <ResultSection label={t('Authors')}>
+            {authors.map(author => (
+                <AuthorListItem key={author.name} author={author} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
+            ))}
+        </ResultSection>
+    );
+}
+
+function ShowMoreButton({posts, maxPosts, setMaxPosts}) {
+    const {t} = useContext(AppContext);
+    if (!posts?.length || maxPosts >= posts.length) {
+        return null;
+    }
     return (
         <button
             className='w-full my-3 p-[1rem] border border-neutral-200 hover:border-neutral-300 text-neutral-800 hover:text-black font-semibold rounded transition duration-150 ease hover:ease'
-            onClick={() => setMaxPosts(maxPosts + STEP_MAX_POSTS)}
+            onClick={() => setMaxPosts(prev => prev + STEP_MAX_POSTS)}
         >
             {t('Show more results')}
         </button>
     );
-};
+}
 
-const PostResults = ({posts, selectedResult, setSelectedResult}) => {
+function PostResults({posts, selectedResult, setSelectedResult}) {
     const {t} = useContext(AppContext);
     const [maxPosts, setMaxPosts] = useState(DEFAULT_MAX_POSTS);
-    const [paginatedPosts, setPaginatedPosts] = useState([]);
-    
-    useEffect(() => {
-        setMaxPosts(DEFAULT_MAX_POSTS);
-    }, [posts]);
-    
-    useEffect(() => {
-        setPaginatedPosts(posts?.slice(0, maxPosts + 1));
-    }, [maxPosts, posts]);
-    
-    if (!posts?.length) return null;
+
+    useEffect(() => setMaxPosts(DEFAULT_MAX_POSTS), [posts]);
+
+    const paginatedPosts = useMemo(() => posts?.slice(0, maxPosts + 1), [posts, maxPosts]);
+
+    if (!posts?.length) {
+        return null;
+    }
 
     return (
-        <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
-            <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>
-                {t('Posts')}
-            </h1>
-            {paginatedPosts.map(d => (
-                <PostListItem
-                    key={d.title}
-                    post={d}
-                    selectedResult={selectedResult}
-                    setSelectedResult={setSelectedResult}
-                />
+        <ResultSection label={t('Posts')}>
+            {paginatedPosts.map(post => (
+                <PostListItem key={post.title} post={post} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
             ))}
             <ShowMoreButton setMaxPosts={setMaxPosts} maxPosts={maxPosts} posts={posts} />
-        </div>
+        </ResultSection>
     );
-};
+}
 
-const AuthorAvatar = ({name, avatar}) => {
-    if (avatar?.length) {
-        return (
-            <img 
-                className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' 
-                src={avatar} 
-                alt={name}
-            />
-        );
+// ─── Results Container ────────────────────────────────────────────────────────
+
+function useKeyboardNavigation(allResults, selectedResult, setSelectedResult) {
+    const containerRef = useRef(null);
+
+    useKeyUp(
+        (event) => {
+            const idx = allResults.findIndex(r => r.id === selectedResult);
+            if (event.key === 'ArrowUp' && allResults[idx - 1]) {
+                setSelectedResult(allResults[idx - 1].id);
+            } else if (event.key === 'ArrowDown' && allResults[idx + 1]) {
+                setSelectedResult(allResults[idx + 1].id);
+            } else if (event.key === 'Enter') {
+                const result = allResults.find(r => r.id === selectedResult);
+                if (result?.url) {
+                    window.location.href = result.url;
+                }
+            }
+        },
+        containerRef.current
+    );
+
+    return containerRef;
+}
+
+function Results({posts, authors, tags}) {
+    const {searchValue} = useContext(AppContext);
+
+    const allResults = useMemo(() => [...authors, ...tags, ...posts], [authors, tags, posts]);
+    const [selectedResult, setSelectedResult] = useState(allResults[0]?.id ?? null);
+
+    useEffect(() => setSelectedResult(allResults[0]?.id ?? null), [allResults]);
+
+    const containerRef = useKeyboardNavigation(allResults, selectedResult, setSelectedResult);
+
+    if (!searchValue) {
+        return null;
     }
-    
+
+    const resultProps = {selectedResult, setSelectedResult};
+
     return (
-        <div className='rounded-full bg-neutral-200 w-7 h-7 me-2 flex items-center justify-center font-bold'>
-            <span className="text-neutral-400">{name.charAt(0)}</span>
+        <div className='overflow-y-auto max-h-[calc(100vh-172px)] sm:max-h-[70vh] -mt-[1px]' ref={containerRef}>
+            <AuthorResults authors={authors} {...resultProps} />
+            <TagResults tags={tags} {...resultProps} />
+            <PostResults posts={posts} {...resultProps} />
         </div>
     );
-};
+}
 
-const AuthorListItem = ({author, selectedResult, setSelectedResult}) => {
-    const {name, profile_image: profileImage, url, id} = author;
-    const className = `py-[1rem] -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer flex items-center${
-        id === selectedResult ? ' bg-neutral-100' : ''
-    }`;
-    
-    return (
-        <div
-            className={className}
-            onClick={() => {
-                if (url) window.location.href = url;
-            }}
-            onMouseEnter={() => setSelectedResult(id)}
-        >
-            <AuthorAvatar name={name} avatar={profileImage} />
-            <h2 className='text-[1.65rem] font-medium leading-tight text-neutral-900 truncate'>
-                {name}
-            </h2>
-        </div>
-    );
-};
-
-const AuthorResults = ({authors, selectedResult, setSelectedResult}) => {
-    const {t} = useContext(AppContext);
-
-    if (!authors?.length) return null;
-
-    return (
-        <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
-            <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>
-                {t('Authors')}
-            </h1>
-            {authors.map((d) => (
-                <AuthorListItem
-                    key
+function NoResultsBox
