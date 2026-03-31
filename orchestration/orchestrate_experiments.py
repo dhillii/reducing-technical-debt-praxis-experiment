@@ -35,6 +35,7 @@ from utils.config import (
 from utils.logger_config import setup_logging, get_logger
 from orchestration.state_manager import StateManager, ExperimentRun
 from orchestration.experiment_repo_manager import ExperimentRepoManager
+from orchestration.batch_run_orchestrator import BatchRunOrchestrator
 from api.claude_caller import ClaudeCaller
 from api.sonarcloud_poller import SonarCloudPoller
 from utils.local_metrics import (
@@ -967,6 +968,131 @@ def validate() -> None:
     """Run validation checks."""
     setup_logging()
     print(get_validation_report())
+
+
+# ─── Batch Processing Commands ────────────────────────────────────────────────
+
+@cli.command("batch-submit")
+@click.option(
+    "--batch-size",
+    type=int,
+    default=164,
+    help="Number of requests per batch (default: 164)"
+)
+@click.option(
+    "--status",
+    type=str,
+    default="PENDING",
+    help="Which runs to submit (PENDING, IN_PROGRESS, etc.)"
+)
+def batch_submit(batch_size: int, status: str) -> None:
+    """Submit all pending refactoring runs to Anthropic Batch API."""
+    setup_logging()
+    logger.info(f"Submitting {status} runs as batches (size: {batch_size})")
+
+    try:
+        orchestrator = BatchRunOrchestrator()
+        batch_ids = orchestrator.submit_batches(batch_size=batch_size, status_filter=status)
+
+        logger.info(f"✅ Successfully submitted {len(batch_ids)} batches:")
+        for batch_id in batch_ids:
+            logger.info(f"   {batch_id}")
+
+        logger.info("\nTo monitor progress, run:")
+        logger.info("  python orchestration/orchestrate_experiments.py batch-poll")
+        logger.info("\nTo stream results, run:")
+        logger.info("  python orchestration/orchestrate_experiments.py batch-stream")
+
+    except Exception as e:
+        logger.error(f"Batch submission failed: {e}")
+        sys.exit(1)
+
+
+@cli.command("batch-poll")
+def batch_poll() -> None:
+    """Poll status of submitted batches."""
+    setup_logging()
+
+    try:
+        orchestrator = BatchRunOrchestrator()
+        summary = orchestrator.poll_batches()
+
+        if not summary:
+            logger.warning("No batches to poll. Submit batches first with: batch-submit")
+            return
+
+        logger.info("\n" + "=" * 80)
+        logger.info("BATCH STATUS SUMMARY")
+        logger.info("=" * 80)
+
+        for batch_id, status in summary["batch_statuses"].items():
+            logger.info(f"\n{batch_id}:")
+            logger.info(f"  Status: {status['status']}")
+            logger.info(f"  Completed: {status['succeeded'] + status['errored'] + status.get('canceled', 0) + status.get('expired', 0)}/{status['total_requests']}")
+            logger.info(f"  Processing: {status['processing']}")
+            logger.info(f"  Progress: {status['completion_pct']}%")
+
+        logger.info("\n" + "-" * 80)
+        logger.info(f"OVERALL: {summary['total_completed']}/{summary['total_requests']} requests completed ({summary['completion_pct']}%)")
+        logger.info("=" * 80)
+
+    except Exception as e:
+        logger.error(f"Batch polling failed: {e}")
+        sys.exit(1)
+
+
+@cli.command("batch-stream")
+@click.option(
+    "--poll-interval",
+    type=int,
+    default=60,
+    help="Seconds between status polls (default: 60)"
+)
+@click.option(
+    "--max-hours",
+    type=int,
+    default=24,
+    help="Maximum hours to wait (default: 24)"
+)
+def batch_stream(poll_interval: int, max_hours: int) -> None:
+    """Stream results from batches as they complete."""
+    setup_logging()
+    logger.info("Starting batch result streaming...")
+    logger.info(f"Polling every {poll_interval} seconds, max wait {max_hours} hours")
+
+    try:
+        orchestrator = BatchRunOrchestrator()
+        summary = orchestrator.stream_batch_results(
+            poll_interval=poll_interval,
+            max_wait_hours=max_hours
+        )
+
+        logger.info("\n" + "=" * 80)
+        logger.info("STREAMING COMPLETE")
+        logger.info("=" * 80)
+        logger.info(f"Final status: {summary}")
+
+    except Exception as e:
+        logger.error(f"Batch streaming failed: {e}")
+        sys.exit(1)
+
+
+@cli.command("batch-retrieve")
+def batch_retrieve() -> None:
+    """Retrieve results from completed batches."""
+    setup_logging()
+    logger.info("Retrieving results from completed batches...")
+
+    try:
+        orchestrator = BatchRunOrchestrator()
+        count = orchestrator.retrieve_and_process_results(auto_update_csv=True)
+
+        logger.info(f"✅ Retrieved and processed {count} results")
+        logger.info("CSV has been updated with refactoring results")
+
+    except Exception as e:
+        logger.error(f"Result retrieval failed: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
