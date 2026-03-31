@@ -4,126 +4,110 @@ import {AdminApi} from './utils/admin-api';
 import {GhostApi} from './utils/api';
 import {Page} from './pages';
 
-// ============================================================================
-// Types and Interfaces
-// ============================================================================
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
-interface ActionContext {
-    state: EditableAppContext;
-    api: GhostApi;
-    adminApi?: AdminApi;
-    options?: CommentsOptions;
-    dispatchAction?: DispatchActionType;
+function isAdminContext(state: EditableAppContext): boolean {
+    return !!(state.admin && state.adminApi);
 }
 
-interface BrowseParams {
-    page: number;
-    postId: string;
-    order?: string;
-    memberUuid?: string;
+function dedupeById<T extends {id: string}>(items: T[]): T[] {
+    return items.filter((item, index, self) => self.findIndex(c => c.id === item.id) === index);
 }
 
-// ============================================================================
-// Utility Functions
-// ============================================================================
-
-function dedupeComments(comments: Comment[]): Comment[] {
-    return comments.filter((comment, index, self) => 
-        self.findIndex(c => c.id === comment.id) === index
-    );
-}
-
-function getNextPage(pagination?: {page?: number}): number {
-    return (pagination?.page ?? 0) + 1;
-}
-
-function shouldUseAdminApi(state: EditableAppContext, isReply?: boolean): boolean {
-    return !!(state.admin && state.adminApi && !isReply);
-}
-
-function findCommentById(comments: Comment[], id: string): Comment | undefined {
-    return comments.find(c => c.id === id);
-}
-
-function updateCommentInList(
+function updateCommentInTree(
     comments: Comment[],
-    commentId: string,
-    updater: (comment: Comment) => Comment
+    predicate: (c: Comment) => boolean,
+    updater: (c: Comment) => Comment | null
 ): Comment[] {
-    return comments.map(c => c.id === commentId ? updater(c) : c);
+    return comments
+        .map((c) => {
+            const updatedReplies = c.replies.map(r => (predicate(r) ? updater(r) : r)).filter(Boolean) as Comment[];
+            if (predicate(c)) {
+                return updater({...c, replies: updatedReplies});
+            }
+            return {...c, replies: updatedReplies};
+        })
+        .filter(Boolean) as Comment[];
 }
-
-function updateCommentAndReplies(
-    comments: Comment[],
-    commentId: string,
-    parentId: string | undefined,
-    updater: (comment: Comment) => Comment
-): Comment[] {
-    return comments.map(c => {
-        if (parentId && c.id === parentId) {
-            return {
-                ...c,
-                replies: c.replies.map(r => r.id === commentId ? updater(r) : r)
-            };
-        }
-        if (c.id === commentId) {
-            return updater(c);
-        }
-        return c;
-    });
-}
-
-// ============================================================================
-// API Fetch Helpers
-// ============================================================================
 
 async function browseComments(
-    context: ActionContext,
-    params: BrowseParams
-): Promise<any> {
-    if (shouldUseAdminApi(context.state)) {
-        return context.state.adminApi!.browse({
-            ...params,
-            memberUuid: context.state.member?.uuid
-        });
+    state: EditableAppContext,
+    api: GhostApi,
+    options: CommentsOptions,
+    page: number,
+    order?: string
+) {
+    const effectiveOrder = order ?? state.order;
+    if (isAdminContext(state)) {
+        return state.adminApi!.browse({page, postId: options.postId, order: effectiveOrder, memberUuid: state.member?.uuid});
     }
-    return context.api.comments.browse(params);
+    return api.comments.browse({page, postId: options.postId, order: effectiveOrder});
 }
 
-async function fetchReplies(
-    context: ActionContext,
+async function fetchRepliesPage(
+    state: EditableAppContext,
+    api: GhostApi,
     commentId: string,
     afterReplyId: string | undefined,
     limit: number,
     isReply: boolean
-): Promise<any> {
-    if (shouldUseAdminApi(context.state, isReply)) {
-        return context.state.adminApi!.replies({
-            commentId,
-            afterReplyId,
-            limit,
-            memberUuid: context.state.member?.uuid
-        });
+) {
+    if (isAdminContext(state) && !isReply) {
+        return state.adminApi!.replies({commentId, afterReplyId, limit, memberUuid: state.member?.uuid});
     }
-    return context.api.comments.replies({commentId, afterReplyId, limit});
+    return api.comments.replies({commentId, afterReplyId, limit});
 }
 
-// ============================================================================
-// Comment Actions
-// ============================================================================
+async function fetchAllReplies(
+    state: EditableAppContext,
+    api: GhostApi,
+    comment: Comment,
+    isReply: boolean
+): Promise<Comment[]> {
+    const allComments: Comment[] = [];
+    let afterReplyId = getLastReplyId(comment);
 
-async function loadMoreComments(
-    context: ActionContext & {data: CommentsOptions; order?: string}
-): Promise<Partial<EditableAppContext>> {
-    const page = getNextPage(context.state.pagination);
-    const data = await browseComments(context, {
-        page,
-        postId: context.data.postId,
-        order: context.order || context.state.order
-    });
+    while (true) {
+        const data = await fetchRepliesPage(state, api, comment.id, afterReplyId, 100, isReply);
+        allComments.push(...data.comments);
 
-    const updatedComments = [...context.state.comments, ...data.comments];
-    const dedupedComments = dedupeComments(updatedComments);
+        if (!data.meta.pagination.next || data.comments.length === 0) {
+            break;
+        }
+        afterReplyId = data.comments[data.comments.length - 1]?.id;
+    }
+
+    return allComments;
+}
+
+function getLastReplyId(comment: Comment): string | undefined {
+    return comment.replies?.length > 0 ? comment.replies[comment.replies.length - 1]?.id : undefined;
+}
+
+function appendRepliesToComment(comments: Comment[], targetComment: Comment, newReplies: Comment[]): Comment[] {
+    return comments.map(c =>
+        c.id === targetComment.id
+            ? {...targetComment, replies: [...targetComment.replies, ...newReplies]}
+            : c
+    );
+}
+
+// ─── Actions ────────────────────────────────────────────────────────────────
+
+async function loadMoreComments({
+    state,
+    api,
+    options,
+    order
+}: {
+    state: EditableAppContext;
+    api: GhostApi;
+    options: CommentsOptions;
+    order?: string;
+}): Promise<Partial<EditableAppContext>> {
+    const page = state.pagination?.page ? state.pagination.page + 1 : 1;
+    const data = await browseComments(state, api, options, page, order);
+    const dedupedComments = dedupeById([...state.comments, ...data.comments]);
 
     return {
         comments: dedupedComments,
@@ -131,356 +115,374 @@ async function loadMoreComments(
     };
 }
 
-async function setOrder(
-    context: ActionContext & {data: {order: string}}
-): Promise<Partial<EditableAppContext>> {
-    context.dispatchAction?.('setCommentsIsLoading', true);
+function setCommentsIsLoading({data: isLoading}: {data: boolean | null}) {
+    return {commentsIsLoading: isLoading};
+}
+
+async function setOrder({
+    state,
+    data: {order},
+    options,
+    api,
+    dispatchAction
+}: {
+    state: EditableAppContext;
+    data: {order: string};
+    options: CommentsOptions;
+    api: GhostApi;
+    dispatchAction: DispatchActionType;
+}) {
+    dispatchAction('setCommentsIsLoading', true);
 
     try {
-        const data = await browseComments(context, {
-            page: 1,
-            postId: context.options!.postId,
-            order: context.data.order
-        });
-
+        const data = await browseComments(state, api, options, 1, order);
         return {
-            comments: data.comments,
+            comments: [...data.comments],
             pagination: data.meta.pagination,
-            order: context.data.order,
+            order,
             commentsIsLoading: false
         };
     } catch (error) {
-        console.error('Failed to set order:', error);
+        console.error('Failed to set order:', error); // eslint-disable-line no-console
+        state.commentsIsLoading = false;
         throw error;
     }
 }
 
-async function addComment(
-    context: ActionContext & {data: AddComment}
-): Promise<Partial<EditableAppContext>> {
-    const result = await context.api.comments.add({comment: context.data});
-    const comment = result.comments[0];
+async function loadMoreReplies({
+    state,
+    api,
+    data: {comment, limit},
+    isReply
+}: {
+    state: EditableAppContext;
+    api: GhostApi;
+    data: {comment: Comment; limit?: number | 'all'};
+    isReply: boolean;
+}): Promise<Partial<EditableAppContext>> {
+    let newReplies: Comment[];
+
+    if (limit === 'all') {
+        newReplies = await fetchAllReplies(state, api, comment, isReply);
+    } else {
+        const data = await fetchRepliesPage(
+            state, api, comment.id, getLastReplyId(comment), (limit as number) || 100, isReply
+        );
+        newReplies = data.comments;
+    }
 
     return {
-        comments: [comment, ...context.state.comments],
-        commentCount: context.state.commentCount + 1
+        comments: appendRepliesToComment(state.comments, comment, newReplies)
     };
 }
 
-async function addReply(
-    context: ActionContext & {data: {reply: any; parent: any}}
-): Promise<Partial<EditableAppContext>> {
-    const {reply, parent} = context.data;
-    const comment = {...reply, parent_id: parent.id};
-
-    const result = await context.api.comments.add({comment});
-    const addedComment = result.comments[0];
+async function addComment({
+    state,
+    api,
+    data: comment
+}: {
+    state: EditableAppContext;
+    api: GhostApi;
+    data: AddComment;
+}) {
+    const data = await api.comments.add({comment});
+    const newComment = data.comments[0];
 
     return {
-        comments: updateCommentInList(context.state.comments, parent.id, c => ({
-            ...c,
-            replies: [...c.replies, addedComment],
-            count: {
-                ...c.count,
-                replies: c.count.replies + 1
-            }
-        })),
-        commentCount: context.state.commentCount + 1
+        comments: [newComment, ...state.comments],
+        commentCount: state.commentCount + 1
     };
 }
 
-async function editComment(
-    context: ActionContext & {data: {comment: Partial<Comment> & {id: string}; parent?: Comment}}
-): Promise<Partial<EditableAppContext>> {
-    const result = await context.api.comments.edit({comment: context.data.comment});
-    const updatedComment = result.comments[0];
-    const {parent} = context.data;
+async function addReply({
+    state,
+    api,
+    data: {reply, parent}
+}: {
+    state: EditableAppContext;
+    api: GhostApi;
+    data: {reply: any; parent: any};
+}) {
+    const commentWithParent = {...reply, parent_id: parent.id};
+    const data = await api.comments.add({comment: commentWithParent});
+    const newReply = data.comments[0];
 
     return {
-        comments: updateCommentAndReplies(
-            context.state.comments,
-            updatedComment.id,
-            parent?.id,
+        comments: state.comments.map(c =>
+            c.id === parent.id
+                ? {
+                    ...parent,
+                    replies: [...parent.replies, newReply],
+                    count: {...parent.count, replies: parent.count.replies + 1}
+                }
+                : c
+        ),
+        commentCount: state.commentCount + 1
+    };
+}
+
+async function hideComment({
+    state,
+    data: comment
+}: {
+    state: EditableAppContext;
+    adminApi: any;
+    data: {id: string};
+}) {
+    if (state.adminApi) {
+        await state.adminApi.hideComment(comment.id);
+    }
+
+    return {
+        comments: updateCommentInTree(
+            state.comments,
+            c => c.id === comment.id,
+            c => ({...c, status: 'hidden'})
+        ),
+        commentCount: state.commentCount - 1
+    };
+}
+
+async function showComment({
+    state,
+    api,
+    data: comment
+}: {
+    state: EditableAppContext;
+    api: GhostApi;
+    adminApi: any;
+    data: {id: string};
+}) {
+    if (state.adminApi) {
+        await state.adminApi.showComment({id: comment.id});
+    }
+
+    const data = isAdminContext(state)
+        ? await state.adminApi!.read({commentId: comment.id, memberUuid: state.member?.uuid})
+        : await api.comments.read(comment.id);
+
+    const updatedComment = data.comments[0];
+
+    return {
+        comments: updateCommentInTree(
+            state.comments,
+            c => c.id === comment.id,
             () => updatedComment
+        ),
+        commentCount: state.commentCount + 1
+    };
+}
+
+function buildLikeUpdate(comment: {id: string; liked: boolean}, current: Comment): Comment {
+    const delta = comment.liked ? 1 : -1;
+    return {
+        ...current,
+        liked: comment.liked,
+        count: {...current.count, likes: current.count.likes + delta}
+    };
+}
+
+async function updateCommentLikeState({
+    state,
+    data: comment
+}: {
+    state: EditableAppContext;
+    data: {id: string; liked: boolean};
+}) {
+    return {
+        comments: updateCommentInTree(
+            state.comments,
+            c => c.id === comment.id,
+            c => buildLikeUpdate(comment, c)
         )
     };
 }
 
-async function deleteComment(
-    context: ActionContext & {data: {id: string}}
-): Promise<Partial<EditableAppContext> | null> {
-    await context.api.comments.edit({
-        comment: {id: context.data.id, status: 'deleted'}
-    });
+async function likeComment({
+    api,
+    data: comment,
+    dispatchAction
+}: {
+    state: EditableAppContext;
+    api: GhostApi;
+    data: {id: string};
+    dispatchAction: DispatchActionType;
+}) {
+    dispatchAction('updateCommentLikeState', {id: comment.id, liked: true});
+    try {
+        await api.comments.like({comment});
+        return {};
+    } catch {
+        dispatchAction('updateCommentLikeState', {id: comment.id, liked: false});
+    }
+}
 
-    const commentToDelete = findCommentById(context.state.comments, context.data.id);
-    const hasNoReplies = !commentToDelete?.replies || commentToDelete.replies.length === 0;
+async function unlikeComment({
+    api,
+    data: comment,
+    dispatchAction
+}: {
+    state: EditableAppContext;
+    api: GhostApi;
+    data: {id: string};
+    dispatchAction: DispatchActionType;
+}) {
+    dispatchAction('updateCommentLikeState', {id: comment.id, liked: false});
+    try {
+        await api.comments.unlike({comment});
+        return {};
+    } catch {
+        dispatchAction('updateCommentLikeState', {id: comment.id, liked: true});
+    }
+}
 
-    if (commentToDelete && hasNoReplies) {
-        context.dispatchAction?.('setOrder', {order: context.state.order});
+async function reportComment({api, data: comment}: {api: GhostApi; data: {id: string}}) {
+    await api.comments.report({comment});
+    return {};
+}
+
+async function deleteComment({
+    state,
+    api,
+    data: comment,
+    dispatchAction
+}: {
+    state: EditableAppContext;
+    api: GhostApi;
+    data: {id: string};
+    dispatchAction: DispatchActionType;
+}) {
+    await api.comments.edit({comment: {id: comment.id, status: 'deleted'}});
+
+    const topLevelComment = state.comments.find(c => c.id === comment.id);
+    const isTopLevelWithNoReplies = topLevelComment && (!topLevelComment.replies?.length);
+
+    if (isTopLevelWithNoReplies) {
+        dispatchAction('setOrder', {order: state.order});
         return null;
     }
 
     return {
-        comments: context.state.comments
-            .map(topLevelComment => {
-                if (topLevelComment.id === context.data.id) {
-                    return topLevelComment.replies.length > 0
-                        ? {...topLevelComment, status: 'deleted'}
-                        : null;
+        comments: state.comments
+            .map((topLevel) => {
+                if (topLevel.id === comment.id) {
+                    return topLevel.replies.length > 0 ? {...topLevel, status: 'deleted'} : null;
                 }
 
-                const updatedReplies = topLevelComment.replies.filter(
-                    r => r.id !== context.data.id
-                );
-                const deletedReplyCount = topLevelComment.replies.length - updatedReplies.length;
+                const updatedReplies = topLevel.replies.filter(r => r.id !== comment.id);
+                const replyWasDeleted = updatedReplies.length !== topLevel.replies.length;
 
                 return {
-                    ...topLevelComment,
+                    ...topLevel,
                     replies: updatedReplies,
-                    count: deletedReplyCount > 0 && topLevelComment.count
-                        ? {...topLevelComment.count, replies: topLevelComment.count.replies - deletedReplyCount}
-                        : topLevelComment.count
+                    count: replyWasDeleted && topLevel.count?.replies
+                        ? {...topLevel.count, replies: topLevel.count.replies - 1}
+                        : topLevel.count
                 };
             })
-            .filter(Boolean) as Comment[],
-        commentCount: context.state.commentCount - 1
+            .filter(Boolean),
+        commentCount: state.commentCount - 1
     };
 }
 
-async function hideComment(
-    context: ActionContext & {data: {id: string}}
-): Promise<Partial<EditableAppContext>> {
-    await context.state.adminApi?.hideComment(context.data.id);
+async function editComment({
+    state,
+    api,
+    data: {comment, parent}
+}: {
+    state: EditableAppContext;
+    api: GhostApi;
+    data: {comment: Partial<Comment> & {id: string}; parent?: Comment};
+}) {
+    const data = await api.comments.edit({comment});
+    const updatedComment = data.comments[0];
 
     return {
-        comments: context.state.comments.map(c => ({
-            ...c,
-            status: c.id === context.data.id ? 'hidden' : c.status,
-            replies: c.replies.map(r => ({
-                ...r,
-                status: r.id === context.data.id ? 'hidden' : r.status
-            }))
-        })),
-        commentCount: context.state.commentCount - 1
-    };
-}
-
-async function showComment(
-    context: ActionContext & {data: {id: string}}
-): Promise<Partial<EditableAppContext>> {
-    await context.state.adminApi?.showComment({id: context.data.id});
-
-    const result = shouldUseAdminApi(context.state)
-        ? await context.state.adminApi!.read({
-            commentId: context.data.id,
-            memberUuid: context.state.member?.uuid
-        })
-        : await context.api.comments.read(context.data.id);
-
-    const updatedComment = result.comments[0];
-
-    return {
-        comments: context.state.comments.map(c => ({
-            ...c,
-            ...( c.id === context.data.id ? updatedComment : {}),
-            replies: c.replies.map(r => r.id === context.data.id ? updatedComment : r)
-        })),
-        commentCount: context.state.commentCount + 1
-    };
-}
-
-// ============================================================================
-// Reply Actions
-// ============================================================================
-
-async function loadMoreReplies(
-    context: ActionContext & {data: {comment: Comment; limit?: number | 'all'}; isReply: boolean}
-): Promise<Partial<EditableAppContext>> {
-    const {comment, limit} = context.data;
-    const allReplies: Comment[] = [];
-    let afterReplyId = comment.replies?.[comment.replies.length - 1]?.id;
-
-    if (limit === 'all') {
-        let hasMore = true;
-        while (hasMore) {
-            const data = await fetchReplies(
-                context,
-                comment.id,
-                afterReplyId,
-                100,
-                context.isReply
-            );
-            allReplies.push(...data.comments);
-            hasMore = !!data.meta.pagination.next && data.comments.length > 0;
-            if (data.comments.length > 0) {
-                afterReplyId = data.comments[data.comments.length - 1].id;
-            }
-        }
-    } else {
-        const data = await fetchReplies(
-            context,
-            comment.id,
-            afterReplyId,
-            (limit as number) || 100,
-            context.isReply
-        );
-        allReplies.push(...data.comments);
-    }
-
-    return {
-        comments: updateCommentInList(context.state.comments, comment.id, c => ({
-            ...c,
-            replies: [...c.replies, ...allReplies]
-        }))
-    };
-}
-
-// ============================================================================
-// Like/Reaction Actions
-// ============================================================================
-
-function updateCommentLikeState(
-    context: ActionContext & {data: {id: string; liked: boolean}}
-): Partial<EditableAppContext> {
-    const {id, liked} = context.data;
-
-    return {
-        comments: context.state.comments.map(c => {
-            const replies = c.replies.map(r => 
-                r.id === id
-                    ? {
-                        ...r,
-                        liked,
-                        count: {
-                            ...r.count,
-                            likes: liked ? r.count.likes + 1 : r.count.likes - 1
-                        }
-                    }
-                    : r
-            );
-
-            return c.id === id
-                ? {
+        comments: state.comments.map((c) => {
+            if (parent && parent.id === c.id) {
+                return {
                     ...c,
-                    liked,
-                    replies,
-                    count: {
-                        ...c.count,
-                        likes: liked ? c.count.likes + 1 : c.count.likes - 1
-                    }
-                }
-                : {...c, replies};
+                    replies: c.replies.map(r => (r.id === updatedComment.id ? updatedComment : r))
+                };
+            }
+            return c.id === updatedComment.id ? updatedComment : c;
         })
     };
 }
 
-async function likeComment(
-    context: ActionContext & {data: {id: string}}
-): Promise<Partial<EditableAppContext>> {
-    context.dispatchAction?.('updateCommentLikeState', {id: context.data.id, liked: true});
-    try {
-        await context.api.comments.like({comment: context.data});
-        return {};
-    } catch {
-        context.dispatchAction?.('updateCommentLikeState', {id: context.data.id, liked: false});
-    }
-    return {};
-}
-
-async function unlikeComment(
-    context: ActionContext & {data: {id: string}}
-): Promise<Partial<EditableAppContext>> {
-    context.dispatchAction?.('updateCommentLikeState', {id: context.data.id, liked: false});
-    try {
-        await context.api.comments.unlike({comment: context.data});
-        return {};
-    } catch {
-        context.dispatchAction?.('updateCommentLikeState', {id: context.data.id, liked: true});
-    }
-    return {};
-}
-
-async function reportComment(
-    context: ActionContext & {data: {id: string}}
-): Promise<Partial<EditableAppContext>> {
-    await context.api.comments.report({comment: context.data});
-    return {};
-}
-
-// ============================================================================
-// Member Actions
-// ============================================================================
-
-async function updateMember(
-    context: ActionContext & {data: {name: string; expertise: string}}
-): Promise<Partial<EditableAppContext> | null> {
-    const {name, expertise} = context.data;
+async function updateMember({
+    data,
+    state,
+    api
+}: {
+    data: {name: string; expertise: string};
+    state: EditableAppContext;
+    api: GhostApi;
+}) {
     const patchData: {name?: string; expertise?: string} = {};
 
-    if (name && context.state.member?.name !== name) {
-        patchData.name = name;
+    if (data.name && state.member?.name !== data.name) {
+        patchData.name = data.name;
+    }
+    if (data.expertise !== undefined && state.member?.expertise !== data.expertise) {
+        patchData.expertise = data.expertise;
     }
 
-    if (expertise !== undefined && context.state.member?.expertise !== expertise) {
-        patchData.expertise = expertise;
-    }
-
-    if (Object.keys(patchData).length === 0) {
+    if (!Object.keys(patchData).length) {
         return null;
     }
 
     try {
-        const member = await context.api.member.update(patchData);
+        const member = await api.member.update(patchData);
         if (!member) {
             throw new Error('Failed to update member');
         }
         return {member, success: true};
-    } catch (error) {
-        return {success: false, error};
+    } catch (err) {
+        return {success: false, error: err};
     }
 }
 
-// ============================================================================
-// UI Actions
-// ============================================================================
-
-function setCommentsIsLoading(
-    context: ActionContext & {data: boolean | null}
-): Partial<EditableAppContext> {
-    return {commentsIsLoading: context.data};
+function openPopup({data}: {data: Page}) {
+    return {popup: data};
 }
 
-function openPopup(
-    context: ActionContext & {data: Page}
-): Partial<EditableAppContext> {
-    return {popup: context.data};
-}
-
-function closePopup(): Partial<EditableAppContext> {
+function closePopup() {
     return {popup: null};
 }
 
-async function openCommentForm(
-    context: ActionContext & {data: OpenCommentForm}
-): Promise<Partial<EditableAppContext>> {
-    const newForm = context.data;
-    let otherStateChanges: Partial<EditableAppContext> = {};
+async function openCommentForm({
+    data: newForm,
+    api,
+    state
+}: {
+    data: OpenCommentForm;
+    api: GhostApi;
+    state: EditableAppContext;
+}) {
+    let otherStateChanges = {};
 
     const topLevelCommentId = newForm.parent_id || newForm.id;
-    const shouldLoadReplies = newForm.type === 'reply' &&
-        !context.state.openCommentForms.some(f => f.id === topLevelCommentId || f.parent_id === topLevelCommentId);
+    const isNewReplyThread =
+        newForm.type === 'reply' &&
+        !state.openCommentForms.some(
+            f => f.id === topLevelCommentId || f.parent_id === topLevelCommentId
+        );
 
-    if (shouldLoadReplies) {
-        const comment = findCommentById(context.state.comments, topLevelCommentId);
+    if (isNewReplyThread) {
+        const comment = state.comments.find(c => c.id === topLevelCommentId);
         if (comment) {
-            const newCommentsState = await loadMoreReplies({
-                ...context,
-                data: {comment, limit: 'all'},
-                isReply: true
-            });
-            otherStateChanges = newCommentsState;
+            const newCommentsState = await loadMoreReplies({state, api, data: {comment, limit: 'all'}, isReply: true});
+            otherStateChanges = {...otherStateChanges, ...newCommentsState};
         }
     }
 
-    const openFormsAfterAutoclose = context
+    const openFormsAfterAutoclose = state.openCommentForms.filter(f => f.hasUnsavedChanges);
+    const existingIndex = openFormsAfterAutoclose.findIndex(f => f.id === newForm.id);
+
+    if (existingIndex > -1) {
+        openFormsAfterAutoclose[existingIndex] = newForm;
+        return {openCommentForms: openFormsAfterAutoclose, ...otherStateChanges};
+    }
+
+    return {openCommentForms: [...openFormsAfterAutoclose,
