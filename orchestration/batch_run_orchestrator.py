@@ -70,12 +70,13 @@ class BatchRunOrchestrator:
         self.claude_caller = ClaudeCaller()
         self.model = CLAUDE_MODEL
         self.csv_df = pd.read_csv(CSV_INPUT_FILE, dtype={"record_id": str})
+        self._prompts: Dict[str, str] = self._load_prompts()
         self._git_lock = threading.Lock()
         self._csv_lock = threading.Lock()
         self._manifest_index: Optional[Dict[Tuple[str, str], int]] = None
         self._ensure_text_columns()
         self._ensure_local_metric_columns()
-        logger.info(f"Loaded CSV: {len(self.csv_df)} records")
+        logger.info(f"Loaded CSV: {len(self.csv_df)} records, {len(self._prompts)} prompts")
 
     # -------------------------------------------------------------------------
     # CSV column helpers
