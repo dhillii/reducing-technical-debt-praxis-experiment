@@ -5,22 +5,34 @@ import {htmlSafe} from '@ember/template';
 import {task} from 'ember-concurrency';
 import {tracked} from '@glimmer/tracking';
 
-const PUBLISH_TYPE = {
-    PUBLISH_AND_SEND: 'publish+send',
-    PUBLISH_ONLY: 'publish',
-    EMAIL_ONLY: 'send'
+const PUBLISH_TYPE_OPTIONS = [
+    {
+        value: 'publish+send',
+        label: 'Publish and email',
+        display: 'Publish and email',
+        hasEmailDependency: true
+    },
+    {
+        value: 'publish',
+        label: 'Publish only',
+        display: 'Publish',
+        hasEmailDependency: false
+    },
+    {
+        value: 'send',
+        label: 'Email only',
+        display: 'Email',
+        hasEmailDependency: true
+    }
+];
+
+const VISIBILITY_FILTER_MAP = {
+    public: 'status:free,status:-free',
+    members: 'status:free,status:-free',
+    paid: 'status:-free'
 };
 
-const SCHEDULE_BUFFER = {
-    MIN_SECONDS: 5,
-    DEFAULT_MINUTES: 10
-};
-
-const VISIBILITY_FILTER = {
-    PUBLIC: 'status:free,status:-free',
-    MEMBERS: 'status:free,status:-free',
-    PAID: 'status:-free'
-};
+const REVERTABLE_POST_PROPERTIES = ['status', 'publishedAtUTC', 'emailOnly'];
 
 export default class PublishOptions {
     config = null;
@@ -30,49 +42,37 @@ export default class PublishOptions {
     membersCountCache = null;
     post = null;
     user = null;
+    allNewsletters = [];
 
     @tracked publishDisabledError = null;
     @tracked totalMemberCount = 0;
     @tracked isScheduled = false;
     @tracked scheduledAtUTC = this.minScheduledAt;
-    @tracked publishType = PUBLISH_TYPE.PUBLISH_AND_SEND;
-    @tracked emailDisabledError = null;
+    @tracked publishType = 'publish+send';
+    @tracked emailDisabledError;
     @tracked newsletter = null;
     @tracked selectedRecipientFilter = undefined;
 
-    allNewsletters = [];
-
     constructor({config, limit, post, settings, store, user, membersCountCache} = {}) {
-        this.config = config;
-        this.limit = limit;
-        this.post = post;
-        this.settings = settings;
-        this.store = store;
-        this.user = user;
-        this.membersCountCache = membersCountCache;
+        Object.assign(this, {config, limit, post, settings, store, user, membersCountCache});
         this.allNewsletters = this.store.peekAll('newsletter');
         this.setupTask.perform();
     }
 
-    // ========== Loading State ==========
+    // Computed state ----------------------------------------------------------
 
     get isLoading() {
         return this.setupTask.isRunning;
     }
 
-    // ========== Publish Type Logic ==========
-
     get willEmail() {
-        const isDraftWithoutEmail = this.publishType !== PUBLISH_TYPE.EMAIL_ONLY
+        const isFailedEmail = this.post.isDraft && this.post.email?.status === 'failed';
+        const isNewEmail = this.publishType !== 'publish'
             && this.recipientFilter
             && this.post.isDraft
             && !this.post.email;
 
-        const isDraftWithFailedEmail = this.post.isDraft
-            && this.post.email
-            && this.post.email.status === 'failed';
-
-        return isDraftWithoutEmail || isDraftWithFailedEmail;
+        return isNewEmail || isFailedEmail;
     }
 
     get willEmailImmediately() {
@@ -80,57 +80,25 @@ export default class PublishOptions {
     }
 
     get willPublish() {
-        return this.publishType !== PUBLISH_TYPE.EMAIL_ONLY;
+        return this.publishType !== 'send';
     }
 
     get willOnlyEmail() {
-        return this.publishType === PUBLISH_TYPE.EMAIL_ONLY;
+        return this.publishType === 'send';
     }
 
-    get publishTypeOptions() {
-        return [
-            {
-                value: PUBLISH_TYPE.PUBLISH_AND_SEND,
-                label: 'Publish and email',
-                display: 'Publish and email',
-                disabled: this.emailDisabled
-            },
-            {
-                value: PUBLISH_TYPE.PUBLISH_ONLY,
-                label: 'Publish only',
-                display: 'Publish'
-            },
-            {
-                value: PUBLISH_TYPE.EMAIL_ONLY,
-                label: 'Email only',
-                display: 'Email',
-                disabled: this.emailDisabled
-            }
-        ];
-    }
-
-    get selectedPublishTypeOption() {
-        return this.publishTypeOptions.find(pto => pto.value === this.publishType);
-    }
-
-    @action
-    setPublishType(newValue) {
-        this.publishType = newValue;
-    }
-
-    // ========== Scheduling Logic ==========
+    // Scheduling --------------------------------------------------------------
 
     get minScheduledAt() {
-        return moment.utc().add(SCHEDULE_BUFFER.MIN_SECONDS, 'seconds').milliseconds(0);
+        return moment.utc().add(5, 'seconds').milliseconds(0);
     }
 
     get defaultScheduledAt() {
-        return moment.utc().add(SCHEDULE_BUFFER.DEFAULT_MINUTES, 'minutes').milliseconds(0);
+        return moment.utc().add(10, 'minutes').milliseconds(0);
     }
 
     @action
-    toggleScheduled(shouldSchedule) {
-        shouldSchedule = shouldSchedule ?? !this.isScheduled;
+    toggleScheduled(shouldSchedule = !this.isScheduled) {
         this.isScheduled = shouldSchedule;
 
         if (shouldSchedule && (!this.scheduledAtUTC || this.scheduledAtUTC.isBefore(this.defaultScheduledAt))) {
@@ -140,25 +108,30 @@ export default class PublishOptions {
 
     @action
     setScheduledAt(date) {
-        date = moment.utc(date).milliseconds(0);
-
-        if (date.isBefore(this.minScheduledAt)) {
-            this.scheduledAtUTC = this.minScheduledAt;
-            return;
-        }
-
-        this.scheduledAtUTC = date;
+        const normalized = moment.utc(date).milliseconds(0);
+        this.scheduledAtUTC = normalized.isBefore(this.minScheduledAt) ? this.minScheduledAt : normalized;
     }
 
     @action
     resetPastScheduledAt() {
         if (this.scheduledAtUTC.isBefore(this.minScheduledAt)) {
             this.isScheduled = false;
-            this.scheduledAtUTC = null;
+            this.scheduledAt = null;
         }
     }
 
-    // ========== Email Configuration Logic ==========
+    // Publish type ------------------------------------------------------------
+
+    get publishTypeOptions() {
+        return PUBLISH_TYPE_OPTIONS.map(option => ({
+            ...option,
+            disabled: option.hasEmailDependency ? this.emailDisabled : undefined
+        }));
+    }
+
+    get selectedPublishTypeOption() {
+        return this.publishTypeOptions.find(pto => pto.value === this.publishType);
+    }
 
     get emailDisabledInSettings() {
         return this.settings.editorDefaultEmailRecipients === 'disabled'
@@ -170,15 +143,19 @@ export default class PublishOptions {
     }
 
     get emailDisabled() {
-        const hasNoMembers = this.totalMemberCount === 0;
-        return !this.mailgunIsConfigured || hasNoMembers || this.emailDisabledError;
+        return !this.mailgunIsConfigured || this.totalMemberCount === 0 || this.emailDisabledError;
     }
 
     get mailgunIsConfigured() {
         return this.settings.mailgunIsConfigured || this.config.mailgunIsConfigured;
     }
 
-    // ========== Recipients Logic ==========
+    @action
+    setPublishType(newValue) {
+        this.publishType = newValue;
+    }
+
+    // Recipients --------------------------------------------------------------
 
     get newsletters() {
         return this.allNewsletters
@@ -195,20 +172,20 @@ export default class PublishOptions {
     }
 
     get recipientFilter() {
-        if (this.selectedRecipientFilter !== undefined) {
-            return this.selectedRecipientFilter;
+        if (this.selectedRecipientFilter === undefined) {
+            return (this.post.newsletter && this.post.emailSegment) || this.defaultRecipientFilter;
         }
-        return (this.post.newsletter && this.post.emailSegment) || this.defaultRecipientFilter;
+        return this.selectedRecipientFilter;
     }
 
     get defaultRecipientFilter() {
-        const recipients = this.settings.editorDefaultEmailRecipients;
-        const filter = this.settings.editorDefaultEmailRecipientsFilter;
-        const usuallyNobody = recipients === 'filter' && filter === null;
+        const {editorDefaultEmailRecipients: recipients, editorDefaultEmailRecipientsFilter: filter} = this.settings;
 
         if (recipients === 'disabled') {
             return null;
         }
+
+        const usuallyNobody = recipients === 'filter' && filter === null;
 
         if (recipients === 'visibility' || usuallyNobody) {
             return this._getVisibilityBasedFilter();
@@ -218,31 +195,18 @@ export default class PublishOptions {
     }
 
     _getVisibilityBasedFilter() {
-        const visibility = this.post.visibility;
-
-        if (visibility === 'public' || visibility === 'members') {
-            return VISIBILITY_FILTER.PUBLIC;
-        }
-
-        if (visibility === 'paid') {
-            return VISIBILITY_FILTER.PAID;
-        }
+        const {visibility} = this.post;
 
         if (visibility === 'tiers') {
             return this.post.visibilitySegment;
         }
 
-        return visibility;
+        return VISIBILITY_FILTER_MAP[visibility] ?? visibility;
     }
 
     get fullRecipientFilter() {
-        let filter = this.newsletter.recipientFilter;
-
-        if (this.recipientFilter) {
-            filter += `+(${this.recipientFilter})`;
-        }
-
-        return filter;
+        const filter = this.newsletter.recipientFilter;
+        return this.recipientFilter ? `${filter}+(${this.recipientFilter})` : filter;
     }
 
     @action
@@ -255,77 +219,66 @@ export default class PublishOptions {
         this.selectedRecipientFilter = newFilter;
     }
 
-    // ========== Setup Tasks ==========
+    // Setup -------------------------------------------------------------------
 
     @task
     *setupTask() {
         yield this.fetchRequiredDataTask.perform();
+
         this.newsletter = this.defaultNewsletter;
-        this._initializePublishType();
-    }
 
-    _initializePublishType() {
-        if (this.emailUnavailable || this.emailDisabled) {
-            this.publishType = PUBLISH_TYPE.PUBLISH_ONLY;
-            return;
-        }
-
-        const isUsuallyNobody = this.settings.editorDefaultEmailRecipients === 'filter'
-            && this.settings.editorDefaultEmailRecipientsFilter === null;
-
-        if (isUsuallyNobody) {
-            this.publishType = PUBLISH_TYPE.PUBLISH_ONLY;
-            return;
+        if (this._shouldDefaultToPublishOnly()) {
+            this.publishType = 'publish';
         }
 
         if (this.post.isSent) {
-            this.publishType = PUBLISH_TYPE.EMAIL_ONLY;
+            this.publishType = 'send';
         }
+    }
+
+    _shouldDefaultToPublishOnly() {
+        const isUsuallyNobody = this.settings.editorDefaultEmailRecipients === 'filter'
+            && this.settings.editorDefaultEmailRecipientsFilter === null;
+
+        return this.emailUnavailable || this.emailDisabled || isUsuallyNobody;
     }
 
     @task
     *fetchRequiredDataTask() {
-        const promises = [];
-
-        if (this.user.isAdmin) {
-            promises.push(
-                this.membersCountCache.count({}).then((res) => {
-                    this.totalMemberCount = res;
-                })
-            );
-        } else {
-            this.totalMemberCount = 1;
-        }
-
-        promises.push(this._checkSendingLimit());
-        promises.push(this._checkPublishingLimit());
+        const promises = [
+            this._fetchMemberCount(),
+            this._checkSendingLimit(),
+            this._checkPublishingLimit()
+        ];
 
         if (!this.user.isContributor) {
             promises.push(
-                this.store.query('newsletter', {
-                    status: 'active',
-                    limit: 'all',
-                    include: 'count.active_members'
-                })
+                this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})
             );
         }
 
         yield Promise.all(promises);
     }
 
-    // ========== Saving Tasks ==========
+    async _fetchMemberCount() {
+        if (this.user.isAdmin) {
+            this.totalMemberCount = await this.membersCountCache.count({});
+        } else {
+            this.totalMemberCount = 1;
+        }
+    }
+
+    // Saving ------------------------------------------------------------------
 
     @task({drop: true})
     *saveTask() {
         const willEmail = this.willEmail;
+
         this._applyModelChanges();
 
-        const adapterOptions = {};
-
-        if (willEmail) {
-            adapterOptions.newsletter = this.newsletter.slug;
-            adapterOptions.emailSegment = this.recipientFilter;
-        }
+        const adapterOptions = willEmail
+            ? {newsletter: this.newsletter.slug, emailSegment: this.recipientFilter}
+            : {};
 
         try {
             return yield this.post.save({adapterOptions});
@@ -356,19 +309,15 @@ export default class PublishOptions {
         }
     }
 
-    // ========== Model Changes ==========
-
     _applyModelChanges() {
         if (!this.post.isDraft) {
+            this._originalModelValues = {};
             return;
         }
 
-        const revertableProperties = ['status', 'publishedAtUTC', 'emailOnly'];
-        this._originalModelValues = {};
-
-        revertableProperties.forEach((property) => {
-            this._originalModelValues[property] = this.post[property];
-        });
+        this._originalModelValues = Object.fromEntries(
+            REVERTABLE_POST_PROPERTIES.map(prop => [prop, this.post[prop]])
+        );
 
         this.post.status = this.isScheduled ? 'scheduled' : 'published';
 
@@ -377,17 +326,13 @@ export default class PublishOptions {
         }
 
         if (this.willEmail) {
-            this.post.emailOnly = this.publishType === PUBLISH_TYPE.EMAIL_ONLY;
+            this.post.emailOnly = this.publishType === 'send';
         }
     }
 
     _revertModelChanges() {
-        Object.keys(this._originalModelValues).forEach((property) => {
-            this.post[property] = this._originalModelValues[property];
-        });
+        Object.assign(this.post, this._originalModelValues);
     }
-
-    // ========== Limit Checks ==========
 
     async _checkSendingLimit() {
         await this.settings.reload();
@@ -413,8 +358,9 @@ export default class PublishOptions {
                 await this.limit.limiter.errorIfIsOverLimit('members');
             }
         } catch (e) {
-            const linkedMessage = htmlSafe(e.message.replace(/please upgrade/i, '<a href="#/pro">$&</a>'));
-            this.publishDisabledError = linkedMessage;
+            this.publishDisabledError = htmlSafe(
+                e.message.replace(/please upgrade/i, '<a href="#/pro">$&</a>')
+            );
         }
     }
 }
