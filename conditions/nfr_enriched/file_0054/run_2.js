@@ -1,15 +1,11 @@
 ```javascript
 (function(exports) {
-
   'use strict';
 
   var grunt = require('../grunt');
 
-  // Constants
-  var PLACEHOLDER = {placeholder: true};
-  var MARKER = {marker: true};
-  var ESCAPED_COLON = '\uFFFE';
-  var ESCAPED_BACKSLASH = '\uFFFF';
+  var PLACEHOLDER = { placeholder: true };
+  var MARKER = { marker: true };
 
   function Task() {
     this.current = {};
@@ -23,16 +19,13 @@
   }
 
   exports.Task = Task;
-  exports.create = function() {
-    return new Task();
-  };
+  exports.create = function() { return new Task(); };
 
   Task.prototype._throwIfRunning = function(obj) {
     if (this._running || !this._options.error) {
       throw obj;
-    } else {
-      this._options.error.call({name: null}, obj);
     }
+    this._options.error.call({ name: null }, obj);
   };
 
   Task.prototype.registerTask = function(name, info, fn) {
@@ -45,15 +38,12 @@
       var tasks = this.parseArgs([fn]);
       fn = this.run.bind(this, fn);
       fn.alias = true;
-      if (!info) {
-        info = 'Alias for "' + tasks.join('", "') + '" task' +
-          (tasks.length === 1 ? '' : 's') + '.';
-      }
-    } else if (!info) {
-      info = 'Custom task.';
+      info = info || 'Alias for "' + tasks.join('", "') + '" task' + (tasks.length === 1 ? '' : 's') + '.';
+    } else {
+      info = info || 'Custom task.';
     }
 
-    this._tasks[name] = {name: name, info: info, fn: fn};
+    this._tasks[name] = { name: name, info: info, fn: fn };
     return this;
   };
 
@@ -69,8 +59,7 @@
     if (!this._tasks[oldname]) {
       throw new Error('Cannot rename missing "' + oldname + '" task.');
     }
-    this._tasks[newname] = this._tasks[oldname];
-    this._tasks[newname].name = newname;
+    this._tasks[newname] = Object.assign({}, this._tasks[oldname], { name: newname });
     delete this._tasks[oldname];
     return this;
   };
@@ -81,10 +70,13 @@
 
   Task.prototype.splitArgs = function(str) {
     if (!str) { return []; }
-    str = str.replace(/\\\\/g, ESCAPED_BACKSLASH).replace(/\\:/g, ESCAPED_COLON);
-    return str.split(':').map(function(s) {
-      return s.replace(/\uFFFE/g, ':').replace(/\uFFFF/g, '\\');
-    });
+    return str
+      .replace(/\\\\/g, '\uFFFF')
+      .replace(/\\:/g, '\uFFFE')
+      .split(':')
+      .map(function(s) {
+        return s.replace(/\uFFFE/g, ':').replace(/\uFFFF/g, '\\');
+      });
   };
 
   Task.prototype._taskPlusArgs = function(name) {
@@ -97,10 +89,12 @@
     } while (!task && --i > 0);
 
     var args = parts.slice(i);
-    var flags = {};
-    args.forEach(function(arg) { flags[arg] = true; });
+    var flags = args.reduce(function(acc, arg) {
+      acc[arg] = true;
+      return acc;
+    }, {});
 
-    return {task: task, nameArgs: name, args: args, flags: flags};
+    return { task: task, nameArgs: name, args: args, flags: flags };
   };
 
   Task.prototype._push = function(things) {
@@ -130,8 +124,10 @@
     return this;
   };
 
-  Task.prototype._createCompleteHandler = function(context, done, asyncDone) {
-    return function(success) {
+  Task.prototype.runTaskFn = function(context, fn, done, asyncDone) {
+    var async = false;
+
+    var complete = function(success) {
       var err = null;
 
       if (success === false) {
@@ -147,22 +143,15 @@
       this._success[context.nameArgs] = success;
 
       if (!success && this._options.error) {
-        this._options.error.call({name: context.name, nameArgs: context.nameArgs}, err);
+        this._options.error.call({ name: context.name, nameArgs: context.nameArgs }, err);
       }
 
       if (asyncDone) {
-        process.nextTick(function() {
-          done(err, success);
-        });
+        process.nextTick(function() { done(err, success); });
       } else {
         done(err, success);
       }
     }.bind(this);
-  };
-
-  Task.prototype.runTaskFn = function(context, fn, done, asyncDone) {
-    var async = false;
-    var complete = this._createCompleteHandler(context, done, asyncDone);
 
     context.async = function() {
       async = true;
@@ -175,58 +164,43 @@
 
     try {
       var success = fn.call(context);
-      if (!async) {
-        complete(success);
-      }
+      if (!async) { complete(success); }
     } catch (err) {
       complete(err);
     }
   };
 
-  Task.prototype._getNextQueueItem = function() {
+  Task.prototype._nextTask = function(opts) {
     var thing;
     do {
       thing = this._queue.shift();
     } while (thing === this._placeholder || thing === this._marker);
-    return thing;
-  };
 
-  Task.prototype._createTaskContext = function(thing) {
-    return {
+    if (!thing) {
+      this._running = false;
+      if (this._options.done) { this._options.done(); }
+      return;
+    }
+
+    this._queue.unshift(this._placeholder);
+
+    var context = {
       nameArgs: thing.nameArgs,
       name: thing.task.name,
       args: thing.args,
       flags: thing.flags
     };
+
+    this.runTaskFn(context, function() {
+      return thing.task.fn.apply(this, this.args);
+    }, this._nextTask.bind(this, opts), !!opts.asyncDone);
   };
 
   Task.prototype.start = function(opts) {
     opts = opts || {};
-
     if (this._running) { return false; }
-
-    var nextTask = function() {
-      var thing = this._getNextQueueItem();
-
-      if (!thing) {
-        this._running = false;
-        if (this._options.done) {
-          this._options.done();
-        }
-        return;
-      }
-
-      this._queue.unshift(this._placeholder);
-      var context = this._createTaskContext(thing);
-
-      this.runTaskFn(context, function() {
-        return thing.task.fn.apply(this, this.args);
-      }, nextTask, !!opts.asyncDone);
-
-    }.bind(this);
-
     this._running = true;
-    nextTask();
+    this._nextTask(opts);
   };
 
   Task.prototype.clearQueue = function(options) {
@@ -243,8 +217,7 @@
     this.parseArgs(arguments).forEach(function(name) {
       var success = this._success[name];
       if (!success) {
-        throw new Error('Required task "' + name +
-          '" ' + (success === false ? 'failed' : 'must be run first') + '.');
+        throw new Error('Required task "' + name + '" ' + (success === false ? 'failed' : 'must be run first') + '.');
       }
     }.bind(this));
   };
