@@ -4,69 +4,64 @@ import {getCheckoutSessionDataFromPlanAttribute, getUrlHistory} from './utils/he
 import {HumanReadableError, chooseBestErrorMessage} from './utils/errors';
 import {t} from './utils/i18n';
 
-// ============================================================================
-// Utility Functions
-// ============================================================================
+// ─── Utilities ───────────────────────────────────────────────────────────────
 
-function displayErrorIfElementExists(errorEl, message) {
+function setErrorMessage(errorEl, message) {
     if (errorEl) {
         errorEl.innerText = message;
     }
 }
 
-function clearError(errorEl) {
-    displayErrorIfElementExists(errorEl, '');
+function clearErrorMessage(errorEl) {
+    setErrorMessage(errorEl, '');
 }
 
-function setElementLoading(el, isLoading) {
-    if (isLoading) {
-        el.classList.add('loading');
-    } else {
-        el.classList.remove('loading');
-    }
+function setElementState(el, {add = [], remove = []} = {}) {
+    remove.forEach(cls => el.classList.remove(cls));
+    add.forEach(cls => el.classList.add(cls));
 }
 
-function setElementError(el, isError) {
-    if (isError) {
-        el.classList.add('error');
-    } else {
-        el.classList.remove('error');
-    }
+function resolveUrl(url) {
+    return url ? new URL(url, window.location.href).href : undefined;
 }
 
-function handleError(error, form, errorEl) {
-    form.classList.add('error');
-    const defaultMessage = t('There was an error sending the email, please try again');
-    displayErrorIfElementExists(errorEl, chooseBestErrorMessage(error, defaultMessage));
+function forEachElement(selector, callback) {
+    Array.prototype.forEach.call(document.querySelectorAll(selector), callback);
 }
 
-function normalizeUrl(url) {
-    if (!url) return null;
-    return (new URL(url, window.location.href)).href;
+async function fetchMemberSession(siteUrl) {
+    const res = await fetch(`${siteUrl}/members/api/session`, {credentials: 'same-origin'});
+    return res.ok ? res.text() : null;
 }
 
-function getFormInputValues(form) {
-    const emailInput = form.querySelector('input[data-members-email]');
-    const nameInput = form.querySelector('input[data-members-name]');
-    const labelInputs = form.querySelectorAll('input[data-members-label]');
-    const newsletterInputs = form.querySelectorAll(
-        'input[type=hidden][data-members-newsletter], input[type=checkbox][data-members-newsletter]:checked, input[type=radio][data-members-newsletter]:checked'
-    );
-
-    const labels = Array.from(labelInputs).map(input => input.value);
-    const newsletters = Array.from(newsletterInputs).map(input => ({name: input.value}));
-
-    return {
-        email: emailInput?.value,
-        name: (nameInput?.value || '').trim() || undefined,
-        labels,
-        newsletters,
-        newsletterInputs
-    };
+function handleElementError(el, clickHandler, errorEl, message) {
+    console.error(message);
+    el.addEventListener('click', clickHandler);
+    setElementState(el, {add: ['error'], remove: ['loading']});
+    setErrorMessage(errorEl, message instanceof Error ? message.message : message);
 }
 
-function buildFormRequestBody(formData, emailType, autoRedirect, wantsOTC, urlHistory, form) {
-    const {email, name, labels, newsletters, newsletterInputs} = formData;
+// ─── Form Submit Handler ──────────────────────────────────────────────────────
+
+function buildFormRequestBody(event, form) {
+    const emailInput = event.target.querySelector('input[data-members-email]');
+    const nameInput = event.target.querySelector('input[data-members-name]');
+    const autoRedirect = form?.dataset?.membersAutoredirect ?? 'true';
+    const email = emailInput?.value;
+    const name = (nameInput?.value || '').trim() || undefined;
+    const emailType = form.dataset.membersForm;
+
+    const labels = [...event.target.querySelectorAll('input[data-members-label]')]
+        .map(input => input.value);
+
+    const newsletterInputs = [
+        ...event.target.querySelectorAll(
+            'input[type=hidden][data-members-newsletter], ' +
+            'input[type=checkbox][data-members-newsletter]:checked, ' +
+            'input[type=radio][data-members-newsletter]:checked'
+        )
+    ];
+    const newsletters = newsletterInputs.map(input => ({name: input.value}));
 
     const reqBody = {
         email,
@@ -76,63 +71,55 @@ function buildFormRequestBody(formData, emailType, autoRedirect, wantsOTC, urlHi
         autoRedirect: autoRedirect === 'true'
     };
 
-    if (wantsOTC) {
-        reqBody.includeOTC = true;
-    }
-
-    if (urlHistory) {
-        reqBody.urlHistory = urlHistory;
-    }
-
     if (newsletterInputs.length > 0) {
         reqBody.newsletters = newsletters;
     } else {
-        const checkableNewsletterInputs = form.querySelectorAll('input[type=checkbox][data-members-newsletter]');
-        if (checkableNewsletterInputs.length > 0) {
+        const checkableInputs = event.target.querySelectorAll('input[type=checkbox][data-members-newsletter]');
+        if (checkableInputs.length > 0) {
             reqBody.newsletters = [];
         }
     }
 
-    return reqBody;
+    const urlHistory = getUrlHistory();
+    if (urlHistory) {
+        reqBody.urlHistory = urlHistory;
+    }
+
+    return {reqBody, email, emailType};
 }
 
-function handleOTCResponse(responseBody, email, doAction, captureException) {
+async function handleOtcResponse(responseBody, email, doAction, captureException) {
     const otcRef = responseBody?.otc_ref;
-    if (otcRef && typeof doAction === 'function') {
-        try {
-            doAction('startSigninOTCFromCustomForm', {
-                email: (email || '').trim(),
-                otcRef,
-                inboxLinks: responseBody?.inboxLinks
-            });
-        } catch (e) {
-            console.error(e);
-            captureException?.(e);
-        }
+    if (!otcRef || typeof doAction !== 'function') {
+        return;
+    }
+    try {
+        doAction('startSigninOTCFromCustomForm', {
+            email: (email || '').trim(),
+            otcRef,
+            inboxLinks: responseBody?.inboxLinks
+        });
+    } catch (e) {
+        console.error(e);
+        captureException?.(e);
     }
 }
 
-// ============================================================================
-// Form Submission Handler
-// ============================================================================
-
-export async function formSubmitHandler(
-    {event, form, errorEl, siteUrl, submitHandler, doAction, captureException}
-) {
+export async function formSubmitHandler({event, form, errorEl, siteUrl, submitHandler, doAction, captureException}) {
     form.removeEventListener('submit', submitHandler);
     event.preventDefault();
-    clearError(errorEl);
-    form.classList.remove('success', 'invalid', 'error');
 
-    const autoRedirect = form?.dataset?.membersAutoredirect || 'true';
-    const emailType = form.dataset.membersForm;
+    clearErrorMessage(errorEl);
+    setElementState(form, {remove: ['success', 'invalid', 'error']});
+
+    const {reqBody, email, emailType} = buildFormRequestBody(event, form);
     const wantsOTC = emailType === 'signin' && form?.dataset?.membersOtc === 'true';
 
-    const formData = getFormInputValues(form);
-    const urlHistory = getUrlHistory();
-    const reqBody = buildFormRequestBody(formData, emailType, autoRedirect, wantsOTC, urlHistory, form);
+    if (wantsOTC) {
+        reqBody.includeOTC = true;
+    }
 
-    form.classList.add('loading');
+    setElementState(form, {add: ['loading']});
 
     try {
         const integrityTokenRes = await fetch(`${siteUrl}/members/api/integrity-token/`, {method: 'GET'});
@@ -145,275 +132,277 @@ export async function formSubmitHandler(
         });
 
         form.addEventListener('submit', submitHandler);
-        form.classList.remove('loading');
+        setElementState(form, {remove: ['loading']});
 
         if (magicLinkRes.ok) {
-            form.classList.add('success');
+            setElementState(form, {add: ['success']});
 
             if (wantsOTC) {
+                let responseBody;
                 try {
-                    const responseBody = await magicLinkRes.clone().json();
-                    handleOTCResponse(responseBody, formData.email, doAction, captureException);
-                } catch (e) {
-                    // Response parsing failed, continue without OTC handling
+                    responseBody = await magicLinkRes.clone().json();
+                } catch {
+                    responseBody = undefined;
                 }
+                await handleOtcResponse(responseBody, email, doAction, captureException);
             }
         } else {
-            const e = await HumanReadableError.fromApiResponse(magicLinkRes);
-            const errorMessage = chooseBestErrorMessage(e, t('Failed to send magic link email'));
-            displayErrorIfElementExists(errorEl, errorMessage);
-            form.classList.add('error');
+            const error = await HumanReadableError.fromApiResponse(magicLinkRes);
+            setErrorMessage(errorEl, chooseBestErrorMessage(error, t('Failed to send magic link email')));
+            setElementState(form, {add: ['error']});
         }
     } catch (err) {
-        handleError(err, form, errorEl);
+        setElementState(form, {add: ['error']});
+        setErrorMessage(errorEl, chooseBestErrorMessage(err, t('There was an error sending the email, please try again')));
     }
 }
 
-// ============================================================================
-// Plan Click Handler
-// ============================================================================
+// ─── Stripe Helpers ───────────────────────────────────────────────────────────
+
+async function redirectToStripeCheckout(siteUrl, sessionData) {
+    const identity = await fetchMemberSession(siteUrl);
+
+    const res = await fetch(`${siteUrl}/members/api/create-stripe-checkout-session/`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({...sessionData, identity})
+    });
+
+    if (!res.ok) {
+        throw new Error(t('Could not create stripe checkout session'));
+    }
+
+    const responseBody = await res.json();
+
+    if (responseBody.url) {
+        return window.location.assign(responseBody.url);
+    }
+
+    const stripe = window.Stripe(responseBody.publicKey);
+    const redirectResult = await stripe.redirectToCheckout({sessionId: responseBody.sessionId});
+
+    if (redirectResult.error) {
+        throw new Error(redirectResult.error.message);
+    }
+}
+
+// ─── Plan Click Handler ───────────────────────────────────────────────────────
 
 export function planClickHandler({event, el, errorEl, siteUrl, site, member, clickHandler}) {
     el.removeEventListener('click', clickHandler);
     event.preventDefault();
+    clearErrorMessage(errorEl);
+    setElementState(el, {add: ['loading']});
 
     const plan = el.dataset.membersPlan;
     const requestData = getCheckoutSessionDataFromPlanAttribute(site, plan.toLowerCase());
-    const checkoutSuccessUrl = normalizeUrl(el.dataset.membersSuccess);
-    const checkoutCancelUrl = normalizeUrl(el.dataset.membersCancel);
-
-    clearError(errorEl);
-    setElementLoading(el, true);
-
-    const metadata = member ? {checkoutType: 'upgrade'} : {};
+    const successUrl = resolveUrl(el.dataset.membersSuccess);
+    const cancelUrl = resolveUrl(el.dataset.membersCancel);
     const urlHistory = getUrlHistory();
 
-    if (urlHistory) {
-        metadata.urlHistory = urlHistory;
-    }
-
-    return fetchSession(siteUrl)
-        .then(identity => createStripeCheckoutSession(siteUrl, requestData, identity, checkoutSuccessUrl, checkoutCancelUrl, metadata))
-        .then(responseBody => redirectToCheckout(responseBody))
-        .catch(err => handleCheckoutError(err, el, errorEl, clickHandler));
-}
-
-function fetchSession(siteUrl) {
-    return fetch(`${siteUrl}/members/api/session`, {credentials: 'same-origin'})
-        .then(res => res.ok ? res.text() : null);
-}
-
-function createStripeCheckoutSession(siteUrl, requestData, identity, successUrl, cancelUrl, metadata) {
-    return fetch(`${siteUrl}/members/api/create-stripe-checkout-session/`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({...requestData, identity, successUrl, cancelUrl, metadata})
-    }).then(res => {
-        if (!res.ok) {
-            throw new Error(t('Could not create stripe checkout session'));
-        }
-        return res.json();
-    });
-}
-
-function redirectToCheckout(responseBody) {
-    if (responseBody.url) {
-        return window.location.assign(responseBody.url);
-    }
-    const stripe = window.Stripe(responseBody.publicKey);
-    return stripe.redirectToCheckout({sessionId: responseBody.sessionId})
-        .then(redirectResult => {
-            if (redirectResult.error) {
-                throw new Error(redirectResult.error.message);
-            }
-        });
-}
-
-function handleCheckoutError(err, el, errorEl, clickHandler) {
-    console.error(err);
-    el.addEventListener('click', clickHandler);
-    setElementLoading(el, false);
-    displayErrorIfElementExists(errorEl, err.message);
-    setElementError(el, true);
-}
-
-// ============================================================================
-// Billing Portal Handlers
-// ============================================================================
-
-function createEditBillingClickHandler(el, errorEl, siteUrl, clickHandler) {
-    return function (event) {
-        el.removeEventListener('click', clickHandler);
-        event.preventDefault();
-        clearError(errorEl);
-        setElementLoading(el, true);
-
-        const successUrl = normalizeUrl(el.dataset.membersSuccess);
-        const cancelUrl = normalizeUrl(el.dataset.membersCancel);
-
-        return fetchSession(siteUrl)
-            .then(identity => createStripeUpdateSession(siteUrl, identity, successUrl, cancelUrl))
-            .then(result => redirectToStripeCheckout(result))
-            .catch(err => handleBillingError(err, el, errorEl, clickHandler));
+    const metadata = {
+        ...(member ? {checkoutType: 'upgrade'} : {}),
+        ...(urlHistory ? {urlHistory} : {})
     };
-}
 
-function createStripeUpdateSession(siteUrl, identity, successUrl, cancelUrl) {
-    return fetch(`${siteUrl}/members/api/create-stripe-update-session/`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({identity, successUrl, cancelUrl})
-    }).then(res => {
-        if (!res.ok) {
-            throw new Error(t('Could not create stripe checkout session'));
-        }
-        return res.json();
+    return redirectToStripeCheckout(siteUrl, {
+        ...requestData,
+        successUrl,
+        cancelUrl,
+        metadata
+    }).catch((err) => {
+        handleElementError(el, clickHandler, errorEl, err);
     });
 }
 
-function redirectToStripeCheckout(result) {
-    const stripe = window.Stripe(result.publicKey);
-    return stripe.redirectToCheckout({sessionId: result.sessionId})
-        .then(result => {
-            if (result.error) {
-                throw new Error(t(result.error.message));
-            }
-        });
-}
+// ─── Data Attribute Handlers ──────────────────────────────────────────────────
 
-function handleBillingError(err, el, errorEl, clickHandler) {
-    console.error(err);
-    el.addEventListener('click', clickHandler);
-    setElementLoading(el, false);
-    displayErrorIfElementExists(errorEl, err.message);
-    setElementError(el, true);
-}
-
-function createManageBillingClickHandler(el, errorEl, siteUrl, clickHandler) {
-    return function (event) {
-        el.removeEventListener('click', clickHandler);
-        event.preventDefault();
-        clearError(errorEl);
-        setElementLoading(el, true);
-
-        const returnUrl = normalizeUrl(el.dataset.membersReturn);
-
-        return fetchSession(siteUrl)
-            .then(identity => createBillingPortalSession(siteUrl, identity, returnUrl))
-            .then(result => window.location.assign(result.url))
-            .catch(err => handleBillingError(err, el, errorEl, clickHandler));
-    };
-}
-
-function createBillingPortalSession(siteUrl, identity, returnUrl) {
-    return fetch(`${siteUrl}/members/api/create-stripe-billing-portal-session/`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({identity, returnUrl})
-    }).then(res => {
-        if (!res.ok) {
-            throw new Error(t('Could not create Stripe billing portal session'));
+function setupFormHandlers(siteUrl, doAction, captureException) {
+    forEachElement('form[data-members-form]', (form) => {
+        const errorEl = form.querySelector('[data-members-error]');
+        function submitHandler(event) {
+            formSubmitHandler({event, errorEl, form, siteUrl, submitHandler, doAction, captureException});
         }
-        return res.json();
+        form.addEventListener('submit', submitHandler);
     });
 }
 
-// ============================================================================
-// Subscription Handlers
-// ============================================================================
-
-function createCancelSubscriptionClickHandler(el, errorEl, siteUrl, clickHandler, hasRetentionOffers, doAction) {
-    return function (event) {
-        event.preventDefault();
-        const subscriptionId = el.dataset.membersCancelSubscription;
-
-        if (hasRetentionOffers) {
-            doAction('openPopup', {
-                page: 'accountPlan',
-                pageData: {subscriptionId, action: 'cancel'}
-            });
-            return;
+function setupPlanHandlers(siteUrl, site, member) {
+    forEachElement('[data-members-plan]', (el) => {
+        const errorEl = el.querySelector('[data-members-error]');
+        function clickHandler(event) {
+            planClickHandler({el, event, errorEl, member, site, siteUrl, clickHandler});
         }
+        el.addEventListener('click', clickHandler);
+    });
+}
 
-        el.removeEventListener('click', clickHandler);
-        setElementError(el, false);
-        setElementLoading(el, true);
-        clearError(errorEl);
+function setupEditBillingHandlers(siteUrl) {
+    forEachElement('[data-members-edit-billing]', (el) => {
+        const errorEl = el.querySelector('[data-members-error]');
+        const successUrl = resolveUrl(el.dataset.membersSuccess);
+        const cancelUrl = resolveUrl(el.dataset.membersCancel);
 
-        return fetchSession(siteUrl)
-            .then(identity => updateSubscription(siteUrl, subscriptionId, identity, {smart_cancel: true}))
-            .then(res => {
-                if (res.ok) {
-                    window.location.reload();
-                } else {
-                    throw new Error(t('There was an error cancelling your subscription, please try again.'));
+        async function clickHandler(event) {
+            el.removeEventListener('click', clickHandler);
+            event.preventDefault();
+            clearErrorMessage(errorEl);
+            setElementState(el, {add: ['loading']});
+
+            try {
+                const identity = await fetchMemberSession(siteUrl);
+                const res = await fetch(`${siteUrl}/members/api/create-stripe-update-session/`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({identity, successUrl, cancelUrl})
+                });
+
+                if (!res.ok) {
+                    throw new Error(t('Could not create stripe checkout session'));
                 }
-            })
-            .catch(err => handleSubscriptionError(err, el, errorEl, clickHandler));
-    };
-}
 
-function createContinueSubscriptionClickHandler(el, errorEl, siteUrl, clickHandler) {
-    return function (event) {
-        el.removeEventListener('click', clickHandler);
-        event.preventDefault();
-        setElementError(el, false);
-        setElementLoading(el, true);
-        clearError(errorEl);
+                const result = await res.json();
+                const stripe = window.Stripe(result.publicKey);
+                const redirectResult = await stripe.redirectToCheckout({sessionId: result.sessionId});
 
-        const subscriptionId = el.dataset.membersContinueSubscription;
-
-        return fetchSession(siteUrl)
-            .then(identity => updateSubscription(siteUrl, subscriptionId, identity, {cancel_at_period_end: false}))
-            .then(res => {
-                if (res.ok) {
-                    window.location.reload();
-                } else {
-                    throw new Error(t('There was an error continuing your subscription, please try again.'));
+                if (redirectResult.error) {
+                    throw new Error(t(redirectResult.error.message));
                 }
-            })
-            .catch(err => handleSubscriptionError(err, el, errorEl, clickHandler));
-    };
-}
+            } catch (err) {
+                handleElementError(el, clickHandler, errorEl, err);
+            }
+        }
 
-function updateSubscription(siteUrl, subscriptionId, identity, updateData) {
-    return fetch(`${siteUrl}/members/api/subscriptions/${subscriptionId}/`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({identity, ...updateData})
+        el.addEventListener('click', clickHandler);
     });
 }
 
-function handleSubscriptionError(err, el, errorEl, clickHandler) {
-    el.addEventListener('click', clickHandler);
-    setElementLoading(el, false);
-    setElementError(el, true);
-    displayErrorIfElementExists(errorEl, err.message);
+function setupManageBillingHandlers(siteUrl) {
+    forEachElement('[data-members-manage-billing]', (el) => {
+        const errorEl = el.querySelector('[data-members-error]');
+        const returnUrl = resolveUrl(el.dataset.membersReturn);
+
+        async function clickHandler(event) {
+            el.removeEventListener('click', clickHandler);
+            event.preventDefault();
+            clearErrorMessage(errorEl);
+            setElementState(el, {add: ['loading']});
+
+            try {
+                const identity = await fetchMemberSession(siteUrl);
+                const res = await fetch(`${siteUrl}/members/api/create-stripe-billing-portal-session/`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({identity, returnUrl})
+                });
+
+                if (!res.ok) {
+                    throw new Error(t('Could not create Stripe billing portal session'));
+                }
+
+                const result = await res.json();
+                window.location.assign(result.url);
+            } catch (err) {
+                handleElementError(el, clickHandler, errorEl, err);
+            }
+        }
+
+        el.addEventListener('click', clickHandler);
+    });
 }
 
-function createSignoutClickHandler(el, siteUrl, clickHandler) {
-    return function (event) {
-        el.removeEventListener('click', clickHandler);
-        event.preventDefault();
-        setElementError(el, false);
-        setElementLoading(el, true);
+function setupSignOutHandlers(siteUrl) {
+    forEachElement('[data-members-signout]', (el) => {
+        function clickHandler(event) {
+            el.removeEventListener('click', clickHandler);
+            event.preventDefault();
+            setElementState(el, {add: ['loading'], remove: ['error']});
 
-        return fetch(`${siteUrl}/members/api/session`, {method: 'DELETE'})
-            .then(res => {
+            fetch(`${siteUrl}/members/api/session`, {method: 'DELETE'}).then((res) => {
                 if (res.ok) {
                     window.location.replace(siteUrl);
                 } else {
                     el.addEventListener('click', clickHandler);
-                    setElementLoading(el, false);
-                    setElementError(el, true);
+                    setElementState(el, {add: ['error'], remove: ['loading']});
                 }
             });
-    };
+        }
+        el.addEventListener('click', clickHandler);
+    });
 }
 
-// ============================================================================
-// Main Data Attributes Handler
-// ============================================================================
+function setupCancelSubscriptionHandlers(siteUrl, doAction, hasRetentionOffers) {
+    forEachElement('[data-members-cancel-subscription]', (el) => {
+        const errorEl = el.parentElement.querySelector('[data-members-error]');
+
+        function clickHandler(event) {
+            event.preventDefault();
+            const subscriptionId = el.dataset.membersCancelSubscription;
+
+            if (hasRetentionOffers) {
+                doAction('openPopup', {page: 'accountPlan', pageData: {subscriptionId, action: 'cancel'}});
+                return;
+            }
+
+            el.removeEventListener('click', clickHandler);
+            setElementState(el, {add: ['loading'], remove: ['error']});
+            clearErrorMessage(errorEl);
+
+            fetchMemberSession(siteUrl).then((identity) => {
+                return fetch(`${siteUrl}/members/api/subscriptions/${subscriptionId}/`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({identity, smart_cancel: true})
+                });
+            }).then((res) => {
+                if (res.ok) {
+                    window.location.reload();
+                } else {
+                    el.addEventListener('click', clickHandler);
+                    setElementState(el, {add: ['error'], remove: ['loading']});
+                    setErrorMessage(errorEl, t('There was an error cancelling your subscription, please try again.'));
+                }
+            });
+        }
+
+        el.addEventListener('click', clickHandler);
+    });
+}
+
+function setupContinueSubscriptionHandlers(siteUrl) {
+    forEachElement('[data-members-continue-subscription]', (el) => {
+        const errorEl = el.parentElement.querySelector('[data-members-error]');
+
+        function clickHandler(event) {
+            el.removeEventListener('click', clickHandler);
+            event.preventDefault();
+            setElementState(el, {add: ['loading'], remove: ['error']});
+            clearErrorMessage(errorEl);
+
+            const subscriptionId = el.dataset.membersContinueSubscription;
+
+            fetchMemberSession(siteUrl).then((identity) => {
+                return fetch(`${siteUrl}/members/api/subscriptions/${subscriptionId}/`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({identity, cancel_at_period_end: false})
+                });
+            }).then((res) => {
+                if (res.ok) {
+                    window.location.reload();
+                } else {
+                    el.addEventListener('click', clickHandler);
+                    setElementState(el, {add: ['error'], remove: ['loading']});
+                    setErrorMessage(errorEl, t('There was an error continuing your subscription, please try again.'));
+                }
+            });
+        }
+
+        el.addEventListener('click', clickHandler);
+    });
+}
+
+// ─── Main Entry Point ─────────────────────────────────────────────────────────
 
 export function handleDataAttributes({siteUrl, site = {}, member, offers = [], doAction, captureException} = {}) {
     if (!siteUrl) {
@@ -421,16 +410,6 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
     }
 
     siteUrl = siteUrl.replace(/\/$/, '');
-    const hasRetentionOffers = (offers || []).some(offer => offer.redemption_type === 'retention');
+    const hasRetentionOffers = offers.some(offer => offer.redemption_type === 'retention');
 
-    // Handle form submissions
-    document.querySelectorAll('form[data-members-form]').forEach(form => {
-        const errorEl = form.querySelector('[data-members-error]');
-        const submitHandler = (event) => {
-            formSubmitHandler({event, errorEl, form, siteUrl, submitHandler, doAction, captureException});
-        };
-        form.addEventListener('submit', submitHandler);
-    });
-
-    // Handle plan clicks
-    document.quer
+    setupFormHandlers(siteUrl,
