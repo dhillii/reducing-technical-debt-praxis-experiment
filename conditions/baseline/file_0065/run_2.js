@@ -1,75 +1,110 @@
 ```javascript
+/**
+ * @fileoverview Mocha/Jest test wrapper
+ * @author Ilya Volodin
+ */
 "use strict";
 
 /* globals describe, it -- Mocha globals */
 
-const assert = require("node:assert");
-const { existsSync, readFileSync } = require("node:fs");
-const util = require("node:util");
-const path = require("node:path");
-const equal = require("fast-deep-equal");
-const Traverser = require("../shared/traverser");
-const { Config } = require("../config/config");
-const { Linter, SourceCodeFixer } = require("../linter");
-const { interpolate, getPlaceholderMatcher } = require("../linter/interpolate");
-const stringify = require("json-stable-stringify-without-jsonify");
-const { isSerializable } = require("../shared/serialization");
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
+
+const assert = require("node:assert"),
+	{ existsSync, readFileSync } = require("node:fs"),
+	util = require("node:util"),
+	path = require("node:path"),
+	equal = require("fast-deep-equal"),
+	Traverser = require("../shared/traverser"),
+	{ Config } = require("../config/config"),
+	{ Linter, SourceCodeFixer } = require("../linter"),
+	{ interpolate, getPlaceholderMatcher } = require("../linter/interpolate"),
+	stringify = require("json-stable-stringify-without-jsonify"),
+	{ isSerializable } = require("../shared/serialization");
+
 const { FlatConfigArray } = require("../config/flat-config-array");
 const { defaultConfig, defaultRuleTesterConfig } = require("../config/default-config");
 const ajv = require("../shared/ajv")({ strictDefaults: true });
+const parserSymbol = Symbol.for("eslint.RuleTester.parser");
 const { ConfigArraySymbol } = require("@eslint/config-array");
 const jslang = require("../languages/js");
 const { SourceCode } = require("../languages/js/source-code");
 
-const parserSymbol = Symbol.for("eslint.RuleTester.parser");
-const DESCRIBE = Symbol("describe");
-const IT = Symbol("it");
-const IT_ONLY = Symbol("itOnly");
+//------------------------------------------------------------------------------
+// Typedefs
+//------------------------------------------------------------------------------
+
+/** @import { LanguageOptions, RuleDefinition } from "@eslint/core" */
+/** @typedef {import("../types").Linter.Parser} Parser */
+
+/**
+ * @typedef {Object} ValidTestCase
+ * @property {string} [name]
+ * @property {string} code
+ * @property {any[]} [options]
+ * @property {Function} [before]
+ * @property {Function} [after]
+ * @property {LanguageOptions} [languageOptions]
+ * @property {{ [name: string]: any }} [settings]
+ * @property {string} [filename]
+ * @property {boolean} [only]
+ */
+
+/**
+ * @typedef {Object} InvalidTestCase
+ * @property {string} [name]
+ * @property {string} code
+ * @property {number | Array<TestCaseError | string | RegExp>} errors
+ * @property {string | null} [output]
+ * @property {any[]} [options]
+ * @property {Function} [before]
+ * @property {Function} [after]
+ * @property {{ [name: string]: any }} [settings]
+ * @property {string} [filename]
+ * @property {LanguageOptions} [languageOptions]
+ * @property {boolean} [only]
+ */
+
+/**
+ * @typedef {Object} TestCaseError
+ * @property {string | RegExp} [message]
+ * @property {string} [messageId]
+ * @property {{ [name: string]: string }} [data]
+ * @property {number} [line]
+ * @property {number} [column]
+ * @property {number} [endLine]
+ * @property {number} [endColumn]
+ */
+
+//------------------------------------------------------------------------------
+// Constants
+//------------------------------------------------------------------------------
 
 const testerDefaultConfig = { rules: {} };
 let sharedDefaultConfig = { rules: {} };
 
 const RuleTesterParameters = [
-	"name",
-	"code",
-	"filename",
-	"options",
-	"before",
-	"after",
-	"errors",
-	"output",
-	"only",
+	"name", "code", "filename", "options", "before", "after", "errors", "output", "only",
 ];
 
 const errorObjectParameters = new Set([
-	"message",
-	"messageId",
-	"data",
-	"line",
-	"column",
-	"endLine",
-	"endColumn",
-	"suggestions",
+	"message", "messageId", "data", "line", "column", "endLine", "endColumn", "suggestions",
 ]);
 
 const suggestionObjectParameters = new Set([
-	"desc",
-	"messageId",
-	"data",
-	"output",
+	"desc", "messageId", "data", "output",
 ]);
 
-const forbiddenMethods = [
-	"applyInlineConfig",
-	"applyLanguageOptions",
-	"finalize",
-];
+const friendlyErrorObjectParameterList = formatParameterList(errorObjectParameters);
+const friendlySuggestionObjectParameterList = formatParameterList(suggestionObjectParameters);
 
+const forbiddenMethods = ["applyInlineConfig", "applyLanguageOptions", "finalize"];
+
+/** @type {Map<string,WeakSet>} */
 const forbiddenMethodCalls = new Map(
 	forbiddenMethods.map(methodName => [methodName, new WeakSet()]),
 );
-
-const hasOwnProperty = Function.call.bind(Object.hasOwnProperty);
 
 const duplicationIgnoredParameters = new Set(["name", "errors", "output"]);
 
@@ -81,80 +116,111 @@ const metaSchemaDescription = `
 \thttps://eslint.org/docs/latest/extend/custom-rules#options-schemas
 `;
 
-// ============================================================================
-// Utility Functions
-// ============================================================================
+const DESCRIBE = Symbol("describe");
+const IT = Symbol("it");
+const IT_ONLY = Symbol("itOnly");
 
+const hasOwnProperty = Function.call.bind(Object.hasOwnProperty);
+
+//------------------------------------------------------------------------------
+// Helpers
+//------------------------------------------------------------------------------
+
+function formatParameterList(paramSet) {
+	return `[${[...paramSet].map(key => `'${key}'`).join(", ")}]`;
+}
+
+/**
+ * Clones a given value deeply, ignoring `parent` property.
+ * @param {any} x
+ * @returns {any}
+ */
 function cloneDeeplyExcludesParent(x) {
-	if (typeof x === "object" && x !== null) {
-		if (Array.isArray(x)) {
-			return x.map(cloneDeeplyExcludesParent);
-		}
+	if (typeof x !== "object" || x === null) {
+		return x;
+	}
 
-		const retv = {};
+	if (Array.isArray(x)) {
+		return x.map(cloneDeeplyExcludesParent);
+	}
+
+	const result = {};
+	for (const key in x) {
+		if (key !== "parent" && hasOwnProperty(x, key)) {
+			result[key] = cloneDeeplyExcludesParent(x[key]);
+		}
+	}
+	return result;
+}
+
+/**
+ * Freezes a given value deeply.
+ * @param {any} x
+ * @param {Set<Object>} [seenObjects]
+ * @returns {void}
+ */
+function freezeDeeply(x, seenObjects = new Set()) {
+	if (typeof x !== "object" || x === null) {
+		return;
+	}
+
+	if (seenObjects.has(x)) {
+		return;
+	}
+	seenObjects.add(x);
+
+	if (Array.isArray(x)) {
+		x.forEach(element => freezeDeeply(element, seenObjects));
+	} else {
 		for (const key in x) {
 			if (key !== "parent" && hasOwnProperty(x, key)) {
-				retv[key] = cloneDeeplyExcludesParent(x[key]);
+				freezeDeeply(x[key], seenObjects);
 			}
 		}
-		return retv;
 	}
-	return x;
+	Object.freeze(x);
 }
 
-function freezeDeeply(x, seenObjects = new Set()) {
-	if (typeof x === "object" && x !== null) {
-		if (seenObjects.has(x)) {
-			return;
-		}
-		seenObjects.add(x);
-
-		if (Array.isArray(x)) {
-			x.forEach(element => freezeDeeply(element, seenObjects));
-		} else {
-			for (const key in x) {
-				if (key !== "parent" && hasOwnProperty(x, key)) {
-					freezeDeeply(x[key], seenObjects);
-				}
-			}
-		}
-		Object.freeze(x);
-	}
-}
-
+/**
+ * Replace control characters by `\u00xx` form.
+ * @param {string} text
+ * @returns {string}
+ */
 function sanitize(text) {
 	if (typeof text !== "string") {
 		return "";
 	}
 	return text.replace(
-		/[\u0000-\u0009\u000b-\u001a]/gu,
+		/[\u0000-\u0009\u000b-\u001a]/gu, // eslint-disable-line no-control-regex
 		c => `\\u${c.codePointAt(0).toString(16).padStart(4, "0")}`,
 	);
 }
 
+/**
+ * Define `start`/`end` properties as throwing error.
+ * @param {string} objName
+ * @param {Object} node
+ */
 function defineStartEndAsError(objName, node) {
 	Object.defineProperties(node, {
 		start: {
-			get() {
-				throw new Error(
-					`Use ${objName}.range[0] instead of ${objName}.start`,
-				);
-			},
+			get() { throw new Error(`Use ${objName}.range[0] instead of ${objName}.start`); },
 			configurable: true,
 			enumerable: false,
 		},
 		end: {
-			get() {
-				throw new Error(
-					`Use ${objName}.range[1] instead of ${objName}.end`,
-				);
-			},
+			get() { throw new Error(`Use ${objName}.range[1] instead of ${objName}.end`); },
 			configurable: true,
 			enumerable: false,
 		},
 	});
 }
 
+/**
+ * Define `start`/`end` properties of all nodes as throwing error.
+ * @param {Object} ast
+ * @param {Object} [visitorKeys]
+ */
 function defineStartEndAsErrorInTree(ast, visitorKeys) {
 	Traverser.traverse(ast, {
 		visitorKeys,
@@ -164,6 +230,11 @@ function defineStartEndAsErrorInTree(ast, visitorKeys) {
 	ast.comments.forEach(defineStartEndAsError.bind(null, "token"));
 }
 
+/**
+ * Wraps the given parser to intercept parse results and add start/end error properties.
+ * @param {Parser} parser
+ * @returns {Parser}
+ */
 function wrapParser(parser) {
 	if (typeof parser.parseForESLint === "function") {
 		return {
@@ -186,236 +257,91 @@ function wrapParser(parser) {
 	};
 }
 
+/**
+ * Returns a replacement for a forbidden SourceCode method that allows only one call.
+ * @param {string} methodName
+ * @param {Object} prototype
+ * @returns {Function}
+ */
 function throwForbiddenMethodError(methodName, prototype) {
 	const original = prototype[methodName];
 
 	return function (...args) {
 		const called = forbiddenMethodCalls.get(methodName);
 
+		/* eslint-disable no-invalid-this */
 		if (!called.has(this)) {
 			called.add(this);
 			return original.apply(this, args);
 		}
+		/* eslint-enable no-invalid-this */
 
-		throw new Error(
-			`\`SourceCode#${methodName}()\` cannot be called inside a rule.`,
-		);
+		throw new Error(`\`SourceCode#${methodName}()\` cannot be called inside a rule.`);
 	};
 }
 
+/**
+ * Extracts placeholder names from a message template.
+ * @param {string} message
+ * @returns {string[]}
+ */
 function getMessagePlaceholders(message) {
 	const matcher = getPlaceholderMatcher();
 	return Array.from(message.matchAll(matcher), ([, name]) => name.trim());
 }
 
+/**
+ * Returns placeholders in the message that were not substituted.
+ * @param {string} message
+ * @param {string} raw
+ * @param {Record<unknown, unknown>} [data]
+ * @returns {string[]}
+ */
 function getUnsubstitutedMessagePlaceholders(message, raw, data = {}) {
 	const unsubstituted = getMessagePlaceholders(message);
-
 	if (unsubstituted.length === 0) {
 		return [];
 	}
 
 	const known = getMessagePlaceholders(raw);
 	const provided = Object.keys(data);
-
-	return unsubstituted.filter(
-		name => known.includes(name) && !provided.includes(name),
-	);
+	return unsubstituted.filter(name => known.includes(name) && !provided.includes(name));
 }
 
+/**
+ * Normalizes a test case to an object with a `code` property.
+ * @param {any} item
+ * @returns {Object}
+ */
 function normalizeTestCase(item) {
 	return item && typeof item === "object" ? item : { code: item };
 }
 
-function getInvocationLocation(relative = getInvocationLocation) {
-	const dummyObject = {};
-	let location;
-	const { prepareStackTrace } = Error;
-	Error.prepareStackTrace = (_, [callSite]) => {
-		location = {
-			sourceFile:
-				callSite.getFileName() ??
-				`${callSite.getEvalOrigin()}, <anonymous>`,
-			sourceLine: callSite.getLineNumber() ?? 1,
-			sourceColumn: callSite.getColumnNumber() ?? 1,
-		};
-	};
-	Error.captureStackTrace(dummyObject, relative);
-	void dummyObject.stack;
-	Error.prepareStackTrace = prepareStackTrace;
-	return location;
-}
-
-function buildLazyTestLocationEstimator(invoker) {
-	const invocationLocation = getInvocationLocation(invoker);
-	let testLocations = null;
-	return key => {
-		if (testLocations === null) {
-			testLocations = createTestLocations(invocationLocation);
-		}
-		return testLocations[key] || "unknown source";
-	};
-}
-
-function createTestLocations(invocationLocation) {
-	const { sourceFile, sourceLine, sourceColumn } = invocationLocation;
-	const testLocations = {
-		root: `${sourceFile}:${sourceLine}:${sourceColumn}`,
-	};
-
-	if (!existsSync(sourceFile)) {
-		return testLocations;
+/**
+ * Checks for duplicate test cases.
+ * @param {Object} item
+ * @param {Set<string>} seenTestCases
+ */
+function checkDuplicateTestCase(item, seenTestCases) {
+	if (!isSerializable(item)) {
+		return;
 	}
 
-	const content = readFileSync(sourceFile, "utf8")
-		.split("\n")
-		.slice(sourceLine - 1);
-	content[0] = content[0].slice(Math.max(0, sourceColumn - 1));
-	const cleanedContent = content.map(
-		l =>
-			l
-				.trim()
-				.replace(/\s*\/\/.*$(?<!,)/u, ""),
-	);
+	const serializedTestCase = stringify(item, {
+		replacer(key, value) {
+			return item !== this || !duplicationIgnoredParameters.has(key) ? value : void 0;
+		},
+	});
 
-	const validStartIndex = cleanedContent.findIndex(line =>
-		/\bvalid\s*:/u.test(line),
-	);
-	const invalidStartIndex = cleanedContent.findIndex(line =>
-		/\binvalid\s*:/u.test(line),
-	);
-
-	testLocations.valid = `${sourceFile}:${sourceLine + validStartIndex}`;
-	testLocations.invalid = `${sourceFile}:${sourceLine + invalidStartIndex}`;
-
-	const validEndIndex =
-		validStartIndex < invalidStartIndex
-			? invalidStartIndex
-			: cleanedContent.length;
-	const invalidEndIndex =
-		validStartIndex < invalidStartIndex
-			? cleanedContent.length
-			: validStartIndex;
-
-	const validLines = cleanedContent.slice(validStartIndex, validEndIndex);
-	const invalidLines = cleanedContent.slice(invalidStartIndex, invalidEndIndex);
-
-	const validLineIndexes = extractLineIndexes(validLines);
-	const invalidLineIndexes = extractErrorLineIndexes(invalidLines);
-
-	Object.assign(
-		testLocations,
-		{ [`valid[0]`]: `${sourceFile}:${sourceLine + validStartIndex}` },
-		Object.fromEntries(
-			validLineIndexes.map((location, validIndex) => [
-				`valid[${validIndex}]`,
-				`${sourceFile}:${sourceLine + validStartIndex + location}`,
-			]),
-		),
-		Object.fromEntries(
-			invalidLineIndexes.map((location, invalidIndex) => [
-				`invalid[${invalidIndex}]`,
-				`${sourceFile}:${sourceLine + invalidStartIndex + location}`,
-			]),
-		),
-	);
-
-	addErrorLocations(
-		testLocations,
-		sourceFile,
-		sourceLine,
-		invalidStartIndex,
-		invalidLines,
-		invalidLineIndexes,
-	);
-
-	return testLocations;
+	assert(!seenTestCases.has(serializedTestCase), "detected duplicate test case");
+	seenTestCases.add(serializedTestCase);
 }
 
-function extractLineIndexes(lines) {
-	let objectDepth = 0;
-	return lines
-		.map((l, i) => {
-			if (/^(?:\w+\s*:\s*)?\{/u.test(l)) {
-				objectDepth++;
-			}
-
-			if (objectDepth > 0) {
-				if (l.endsWith("}") || l.endsWith("},")) {
-					objectDepth--;
-				}
-				return objectDepth <= 1 && l.includes("code:") ? i : null;
-			}
-
-			return l.endsWith(",") ? i : null;
-		})
-		.filter(Boolean);
-}
-
-function extractErrorLineIndexes(lines) {
-	return lines
-		.map((l, i) => (l.trimStart().startsWith("errors:") ? i : null))
-		.filter(Boolean);
-}
-
-function addErrorLocations(
-	testLocations,
-	sourceFile,
-	sourceLine,
-	invalidStartIndex,
-	invalidLines,
-	invalidLineIndexes,
-) {
-	invalidLineIndexes.push(invalidLines.length);
-
-	for (let i = 0; i < invalidLineIndexes.length - 1; i++) {
-		const start = invalidLineIndexes[i];
-		const end = invalidLineIndexes[i + 1];
-		const errorLines = invalidLines.slice(start, end);
-		const errorLineIndexes = extractErrorObjectIndexes(errorLines);
-
-		Object.assign(
-			testLocations,
-			Object.fromEntries(
-				errorLineIndexes.map((line, errorIndex) => [
-					`invalid[${i}].errors[${errorIndex}]`,
-					`${sourceFile}:${sourceLine + invalidStartIndex + start + line}`,
-				]),
-			),
-		);
-	}
-}
-
-function extractErrorObjectIndexes(lines) {
-	let errorObjectDepth = 0;
-	return lines
-		.map((l, j) => {
-			if (l.startsWith("{") || l.endsWith("{")) {
-				errorObjectDepth++;
-
-				if (l.endsWith("}") || l.endsWith("},")) {
-					errorObjectDepth--;
-				}
-
-				return errorObjectDepth <= 1 ? j : null;
-			}
-
-			if (errorObjectDepth > 0) {
-				if (l.endsWith("}") || l.endsWith("},")) {
-					errorObjectDepth--;
-				}
-				return null;
-			}
-
-			return l.endsWith(",") ? j : null;
-		})
-		.filter(Boolean);
-}
-
-// ============================================================================
-// Assertion Functions
-// ============================================================================
-
+/**
+ * Asserts that a rule is valid.
+ * @param {Object} rule
+ * @param {string} ruleName
+ */
 function assertRule(rule, ruleName) {
 	assert.ok(
 		rule && typeof rule === "object" && typeof rule.create === "function",
@@ -423,70 +349,88 @@ function assertRule(rule, ruleName) {
 	);
 }
 
+/**
+ * Asserts that a test scenario object is valid.
+ * @param {Object} test
+ * @param {string} ruleName
+ */
 function assertTest(test, ruleName) {
 	assert.ok(
 		test && typeof test === "object",
 		`Test Scenarios for rule ${ruleName} : Could not find test scenario object`,
 	);
-
-	const hasValid = Array.isArray(test.valid);
-	const hasInvalid = Array.isArray(test.invalid);
-
 	assert.ok(
-		hasValid,
+		Array.isArray(test.valid),
 		`Test Scenarios for rule ${ruleName} is invalid: Could not find any valid test scenarios`,
 	);
-
 	assert.ok(
-		hasInvalid,
+		Array.isArray(test.invalid),
 		`Test Scenarios for rule ${ruleName} is invalid: Could not find any invalid test scenarios`,
 	);
 }
 
+/**
+ * Asserts common properties of a test case.
+ * @param {Object} item
+ */
 function assertTestCommonProperties(item) {
-	assert.ok(
-		typeof item.code === "string",
-		"Test case must specify a string value for 'code'",
-	);
+	assert.ok(typeof item.code === "string", "Test case must specify a string value for 'code'");
 
 	if (item.name) {
-		assert.ok(
-			typeof item.name === "string",
-			"Optional test case property 'name' must be a string",
-		);
+		assert.ok(typeof item.name === "string", "Optional test case property 'name' must be a string");
 	}
 	if (hasOwnProperty(item, "only")) {
-		assert.ok(
-			typeof item.only === "boolean",
-			"Optional test case property 'only' must be a boolean",
-		);
+		assert.ok(typeof item.only === "boolean", "Optional test case property 'only' must be a boolean");
 	}
 	if (hasOwnProperty(item, "filename")) {
-		assert.ok(
-			typeof item.filename === "string",
-			"Optional test case property 'filename' must be a string",
-		);
+		assert.ok(typeof item.filename === "string", "Optional test case property 'filename' must be a string");
 	}
 	if (hasOwnProperty(item, "options")) {
-		assert.ok(
-			Array.isArray(item.options),
-			"Optional test case property 'options' must be an array",
-		);
+		assert.ok(Array.isArray(item.options), "Optional test case property 'options' must be an array");
 	}
 }
 
-function assertValidTestCase(item, seenTestCases) {
-	assert.ok(
-		item.errors === void 0,
-		"Valid test case must not have 'errors' property",
-	);
-	assert.ok(
-		item.output === void 0,
-		"Valid test case must not have 'output' property",
-	);
+/**
+ * Asserts that the `errors` property of an invalid test case is valid.
+ * @param {number | any[]} errors
+ * @param {string} ruleName
+ * @param {Object} [assertionOptions]
+ */
+function assertErrorsProperty(errors, ruleName, assertionOptions = {}) {
+	const isNumber = typeof errors === "number";
+	const isArray = Array.isArray(errors);
 
-	assertTestCommonProperties(item);
-	checkDuplicateTestCase(item, seenTestCases);
-}
+	if (!isNumber && !isArray) {
+		if (errors === void 0) {
+			assert.fail(`Did not specify errors for an invalid test of ${ruleName}`);
+		} else {
+			assert.fail(
+				`Invalid 'errors' property for invalid test of ${ruleName}: expected a number or an array but got ${
+					errors === null ? "null" : typeof errors
+				}`,
+			);
+		}
+	}
 
-function assertErrorsProperty(errors, ruleName, assert
+	const { requireMessage = false, requireLocation = false } = assertionOptions;
+
+	if (isArray) {
+		assert.ok(errors.length !== 0, "Invalid cases must have at least one error");
+
+		for (const [number, error] of errors.entries()) {
+			if (typeof error === "string" || error instanceof RegExp) {
+				assert.ok(
+					requireMessage !== "messageId" && !requireLocation,
+					`errors[${number}] should be an object when 'assertionOptions.requireMessage' is 'messageId' or 'assertionOptions.requireLocation' is true.`,
+				);
+			} else if (typeof error === "object" && error !== null) {
+				for (const propertyName of Object.keys(error)) {
+					assert.ok(
+						errorObjectParameters.has(propertyName),
+						`Invalid error property name '${propertyName}'. Expected one of ${friendlyErrorObjectParameterList}.`,
+					);
+				}
+
+				assertErrorMessageProperties(error, number, requireMessage);
+			} else {
+				assert.fail(`errors[${number}] must be a string, RegExp, or an object.`);

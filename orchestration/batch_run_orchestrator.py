@@ -542,39 +542,47 @@ class BatchRunOrchestrator:
                 logger.warning(f"Failed to load batch IDs: {e}")
         return []
 
-    def _build_prompt(self, condition: str, csv_row: Any, source_code: str) -> str:
-        """Build the refactoring prompt from CSV row and source code."""
-        prompt_col = f"prompt_{condition}"
-        if prompt_col in csv_row and pd.notna(csv_row[prompt_col]):
-            template = str(csv_row[prompt_col])
-            return template.format(code=source_code)
-        return (
-            "Refactor the following code to reduce complexity and improve maintainability. "
-            "Return only the refactored code without explanations:\n\n"
-            f"{source_code}"
-        )
+    def _load_prompts(self) -> Dict[str, str]:
+        """Load record_id -> active_prompt mapping from active_prompts_for_experiment.csv."""
+        if not ACTIVE_PROMPTS_FILE.exists():
+            raise FileNotFoundError(
+                f"Active prompts file not found: {ACTIVE_PROMPTS_FILE}\n"
+                "Copy active_prompts_for_experiment.csv to the data/ directory."
+            )
+        df = pd.read_csv(ACTIVE_PROMPTS_FILE, dtype={"record_id": str})
+        mapping = dict(zip(df["record_id"], df["active_prompt"]))
+        logger.info(f"Loaded {len(mapping)} prompts from {ACTIVE_PROMPTS_FILE.name}")
+        return mapping
+
+    def _build_prompt(self, record_id: str, source_code: str) -> str:
+        """Build the refactoring prompt by appending source code to the active prompt."""
+        active_prompt = self._prompts.get(record_id)
+        if not active_prompt or str(active_prompt) == "nan":
+            logger.warning(f"No active_prompt found for record_id={record_id}, using fallback")
+            return (
+                "Refactor the following code to reduce complexity and improve maintainability. "
+                "Return only the refactored code without explanations:\n\n"
+                f"{source_code}"
+            )
+        return f"{active_prompt}\n\nReturn only the refactored code without explanations:\n\n{source_code}"
 
     def _get_system_prompt(self, condition: str) -> str:
         """Get system prompt based on condition."""
         prompts = {
             "baseline": (
                 "You are an expert code refactoring specialist. "
-                "Refactor the given code to improve code quality and reduce complexity."
-            ),
-            "nfr_generic": (
-                "You are an expert code refactoring specialist. "
-                "Refactor the given code focusing on non-functional requirements: "
-                "maintainability, readability, and testability."
+                "Refactor the given code to improve code quality and reduce complexity. "
+                "Return only the refactored code without any explanation."
             ),
             "nfr_enriched": (
                 "You are an expert code refactoring specialist focused on non-functional requirements. "
-                "Refactor the code to reduce complexity while maintaining performance and readability. "
-                "Consider maintainability, testability, and scalability in your refactoring."
+                "Refactor the code to reduce complexity while satisfying the stated NFR constraints. "
+                "Return only the refactored code without any explanation."
             ),
             "adaptive_nfr": (
-                "You are an expert code refactoring specialist with adaptive NFR focus. "
-                "Analyze the code's specific complexity patterns and refactor to address them. "
-                "Prioritize the most impactful refactorings for the given code's characteristics."
+                "You are an expert code refactoring specialist. "
+                "Analyze the structural debt archetype described and refactor the code accordingly. "
+                "Return only the refactored code without any explanation."
             ),
         }
         return prompts.get(condition, prompts["baseline"])
