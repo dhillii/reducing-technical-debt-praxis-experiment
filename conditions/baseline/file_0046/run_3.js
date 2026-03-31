@@ -5,24 +5,15 @@ const {VersionMismatchError} = require('@tryghost/errors');
 const debug = require('@tryghost/debug')('stripe');
 const Stripe = require('stripe').Stripe;
 
-/* Stripe has the following rate limits:
-*  - For most APIs, 100 read requests per second in live mode, 25 read requests per second in test mode
-*  - For search, 20 requests per second in both live and test modes
-*
-* For the testing environment, we increase these limits to 10,000 req/s to keep tests fast
-*/
-
-const STRIPE_API_VERSION = '2020-08-27';
 const EXPECTED_API_EFFICIENCY = 0.95;
 const EXPECTED_SEARCH_API_EFFICIENCY = 0.15;
 
 const isTesting = process.env.NODE_ENV?.includes('testing');
+const TEST_MODE_RATE_LIMIT = isTesting ? 10_000 : 25;
+const LIVE_MODE_RATE_LIMIT = isTesting ? 10_000 : 100;
+const SEARCH_MODE_RATE_LIMIT = isTesting ? 10_000 : 100;
 
-const RATE_LIMITS = {
-    test: isTesting ? 10_000 : 25,
-    live: isTesting ? 10_000 : 100,
-    search: isTesting ? 10_000 : 100
-};
+const STRIPE_API_VERSION = '2020-08-27';
 
 /**
  * @typedef {import('stripe').Stripe.Customer} ICustomer
@@ -54,12 +45,11 @@ const RATE_LIMITS = {
  * @prop {string} checkoutSetupSessionSuccessUrl
  * @prop {string} checkoutSetupSessionCancelUrl
  * @prop {string} billingPortalReturnUrl
- * @prop {boolean} testEnv  - indicates if the module is run in test environment (note, NOT the test mode)
+ * @prop {boolean} testEnv
  */
 
 module.exports = class StripeAPI {
     /**
-     * StripeAPI
      * @param {object} deps
      * @param {object} deps.labs
      */
@@ -70,48 +60,28 @@ module.exports = class StripeAPI {
         this.labs = deps.labs;
     }
 
-    /**
-     * @returns {IPaymentMethodType[]|undefined}
-     */
+    /** @returns {IPaymentMethodType[]|undefined} */
     get PAYMENT_METHOD_TYPES() {
         return this.labs.isSet('additionalPaymentMethods') ? undefined : ['card'];
     }
 
-    /**
-     * Returns true if the Stripe API is configured.
-     * @returns {boolean}
-     */
+    /** @returns {boolean} */
     get configured() {
         return this._configured;
     }
 
-    /**
-     * Returns true if this package is running in a test environment (i.e. browser tests).
-     *
-     * Note: This is not the same as the Stripe API's test mode.
-     * @returns {boolean}
-     */
+    /** @returns {boolean} */
     get testEnv() {
         return this._config.testEnv;
     }
 
-    /**
-     * Returns the Stripe API mode (test or live).
-     *
-     * @returns {string}
-     */
+    /** @returns {string} */
     get mode() {
         return this._testMode ? 'test' : 'live';
     }
 
     /**
-     * Configure the Stripe API.
-     * - Instantiates the Stripe API client
-     * - Sets the Stripe API mode
-     * - Configures rate limiting buckets
-     *
      * @param {IStripeAPIConfig} config
-     *
      * @returns {void}
      */
     configure(config) {
@@ -121,90 +91,63 @@ module.exports = class StripeAPI {
             return;
         }
 
-        // Lazyloaded to protect sites without Stripe configured
         const LeakyBucket = require('leaky-bucket');
 
-        this._stripe = new Stripe(config.secretKey, {
-            apiVersion: STRIPE_API_VERSION
-        });
+        this._stripe = new Stripe(config.secretKey, {apiVersion: STRIPE_API_VERSION});
         this._config = config;
-        this._testMode = config.secretKey && config.secretKey.startsWith('sk_test_');
-        
-        const rateLimit = this._testMode ? RATE_LIMITS.test : RATE_LIMITS.live;
-        this._rateLimitBucket = new LeakyBucket(EXPECTED_API_EFFICIENCY * rateLimit, 1);
-        this._searchRateLimitBucket = new LeakyBucket(EXPECTED_SEARCH_API_EFFICIENCY * RATE_LIMITS.search, 1);
+        this._testMode = config.secretKey?.startsWith('sk_test_');
+
+        const apiRateLimit = this._testMode ? TEST_MODE_RATE_LIMIT : LIVE_MODE_RATE_LIMIT;
+        this._rateLimitBucket = new LeakyBucket(EXPECTED_API_EFFICIENCY * apiRateLimit, 1);
+        this._searchRateLimitBucket = new LeakyBucket(EXPECTED_SEARCH_API_EFFICIENCY * SEARCH_MODE_RATE_LIMIT, 1);
         this._configured = true;
     }
 
     /**
-     * Throttle API calls based on rate limits
-     * @private
-     * @param {boolean} isSearch
-     * @returns {Promise<void>}
-     */
-    async _throttle(isSearch = false) {
-        const bucket = isSearch ? this._searchRateLimitBucket : this._rateLimitBucket;
-        await bucket.throttle();
-    }
-
-    /**
-     * Execute a Stripe API call with error handling and rate limiting
-     * @private
-     * @param {string} methodName
-     * @param {Function} apiCall
-     * @param {boolean} isSearch
+     * Throttle and execute a Stripe API call with optional debug logging.
+     * @param {Function} fn - Async function to execute
+     * @param {string} [label] - Debug label
+     * @param {boolean} [useSearchBucket=false]
      * @returns {Promise<any>}
      */
-    async _executeWithThrottle(methodName, apiCall, isSearch = false) {
-        debug(`${methodName}`);
+    async _throttledRequest(fn, label, useSearchBucket = false) {
+        const bucket = useSearchBucket ? this._searchRateLimitBucket : this._rateLimitBucket;
+        await bucket.throttle();
+
+        if (label) {
+            debug(`${label}`);
+        }
+
         try {
-            await this._throttle(isSearch);
-            const result = await apiCall();
-            debug(`${methodName} -> Success`);
+            const result = await fn();
+            if (label) {
+                debug(`${label} -> Success`);
+            }
             return result;
         } catch (err) {
-            debug(`${methodName} -> ${err.type}`);
+            if (label) {
+                debug(`${label} -> ${err.type}`);
+            }
             throw err;
         }
     }
 
-    /**
-     * Create a new Stripe Coupon.
-     *
-     * @param {ICouponCreateParams} options
-     *
-     * @returns {Promise<ICoupon>}
-     */
+    /** @returns {Promise<ICoupon>} */
     async createCoupon(options) {
-        await this._throttle();
-        return await this._stripe.coupons.create(options);
+        return this._throttledRequest(() => this._stripe.coupons.create(options));
     }
 
-    /**
-     * Retrieve the Stripe Product object by ID.
-     * @param {string} id
-     *
-     * @returns {Promise<IProduct>}
-     */
+    /** @returns {Promise<IProduct>} */
     async getProduct(id) {
-        await this._throttle();
-        return await this._stripe.products.retrieve(id);
+        return this._throttledRequest(() => this._stripe.products.retrieve(id));
     }
 
-    /**
-     * Create a new Stripe Product.
-     * @param {IProductCreateParams} options
-     *
-     * @returns {Promise<IProduct>}
-     */
+    /** @returns {Promise<IProduct>} */
     async createProduct(options) {
-        await this._throttle();
-        return await this._stripe.products.create(options);
+        return this._throttledRequest(() => this._stripe.products.create(options));
     }
 
     /**
-     * Create a new Stripe Price.
-     *
      * @param {object} options
      * @param {string} options.product
      * @param {boolean} options.active
@@ -214,12 +157,10 @@ module.exports = class StripeAPI {
      * @param {{enabled: boolean;maximum?: number;minimum?: number;preset?: number;}} [options.custom_unit_amount]
      * @param {'recurring'|'one-time'} options.type
      * @param {Stripe.Price.Recurring.Interval|null} [options.interval]
-     *
      * @returns {Promise<IPrice>}
      */
     async createPrice(options) {
-        await this._throttle();
-        return await this._stripe.prices.create({
+        return this._throttledRequest(() => this._stripe.prices.create({
             currency: options.currency,
             product: options.product,
             unit_amount: options.amount,
@@ -227,80 +168,47 @@ module.exports = class StripeAPI {
             nickname: options.nickname,
             // @ts-ignore
             custom_unit_amount: options.custom_unit_amount,
-            recurring: options.type === 'recurring' && options.interval ? {
-                interval: options.interval
-            } : undefined
-        });
+            recurring: options.type === 'recurring' && options.interval
+                ? {interval: options.interval}
+                : undefined
+        }));
     }
 
-    /**
-     * Update the Stripe Price object by ID.
-     *
-     * @param {string} id
-     * @param {object} options
-     * @param {boolean} [options.active]
-     * @param {string} [options.nickname]
-     *
-     * @returns {Promise<IPrice>}
-     */
+    /** @returns {Promise<IPrice>} */
     async updatePrice(id, options) {
-        await this._throttle();
-        return await this._stripe.prices.update(id, {
+        return this._throttledRequest(() => this._stripe.prices.update(id, {
             active: options.active,
             nickname: options.nickname
-        });
+        }));
     }
 
-    /**
-     * Update the Stripe Product object by ID.
-     *
-     * @param {string} id
-     * @param {object} options
-     * @param {string} options.name
-     *
-     * @returns {Promise<IProduct>}
-     */
+    /** @returns {Promise<IProduct>} */
     async updateProduct(id, options) {
-        await this._throttle();
-        return await this._stripe.products.update(id, {
+        return this._throttledRequest(() => this._stripe.products.update(id, {
             name: options.name
-        });
+        }));
     }
 
     /**
-     * Retrieve the Stripe Customer object by ID.
-     *
      * @param {string} id
      * @param {ICustomerRetrieveParams} options
-     *
      * @returns {Promise<ICustomer|IDeletedCustomer>}
-     * @throws {Error}
      */
     async getCustomer(id, options = {}) {
-        return await this._executeWithThrottle(
-            `getCustomer(${id}, ${JSON.stringify(options)})`,
-            async () => {
-                if (options.expand) {
-                    options.expand.push('subscriptions');
-                } else {
-                    options.expand = ['subscriptions'];
-                }
-                return await this._stripe.customers.retrieve(id, options);
-            }
-        );
+        const label = `getCustomer(${id}, ${JSON.stringify(options)})`;
+        options.expand = [...(options.expand || []), 'subscriptions'];
+        return this._throttledRequest(() => this._stripe.customers.retrieve(id, options), label);
     }
 
     /**
-     * Finds or creates a Stripe Customer for a Member.
-     *
      * @deprecated
      * @param {any} member
-     *
      * @returns {Promise<ICustomer>}
      */
     async getCustomerForMemberCheckoutSession(member) {
         await member.related('stripeCustomers').fetch();
         const customers = member.related('stripeCustomers');
+
         for (const data of customers.models) {
             try {
                 const customer = await this.getCustomer(data.get('customer_id'));
@@ -313,30 +221,25 @@ module.exports = class StripeAPI {
         }
 
         debug(`Creating customer for member ${member.get('email')}`);
-        return await this.createCustomer({
-            email: member.get('email')
-        });
+        return this.createCustomer({email: member.get('email')});
     }
 
     /**
-     * Finds a Stripe Customer ID based on the provided email address. Returns null if no customer is found.
      * @param {string} email
-     * @see https://stripe.com/docs/api/customers/search
-     *
-     * @returns {Promise<string|null>} Stripe Customer ID, if found
+     * @returns {Promise<string|null>}
      */
     async getCustomerIdByEmail(email) {
         try {
-            const result = await this._executeWithThrottle(
-                `getCustomerIdByEmail(${email})`,
+            const result = await this._throttledRequest(
                 () => this._stripe.customers.search({
                     query: `email:"${email}"`,
                     limit: 10,
                     expand: ['data.subscriptions']
                 }),
+                null,
                 true
             );
-            
+
             const customers = result.data;
 
             if (customers.length === 0) {
@@ -347,26 +250,26 @@ module.exports = class StripeAPI {
                 return customers[0].id;
             }
 
-            return this._getLatestCustomerId(customers);
+            return this._getMostRecentCustomerId(customers);
         } catch (err) {
-            debug(`getCustomerIdByEmail(${email}) -> ${err.type}:${err.message}`);
-            return null;
+            debug(`getCustomerByEmail(${email}) -> ${err.type}:${err.message}`);
         }
     }
 
     /**
-     * Get the customer with the most recent subscription
-     * @private
-     * @param {Array} customers
+     * @param {ICustomer[]} customers
      * @returns {string}
      */
-    _getLatestCustomerId(customers) {
+    _getMostRecentCustomerId(customers) {
         let latestCustomer = customers[0];
         let latestSubscriptionTime = 0;
 
         for (const customer of customers) {
-            const subscriptions = customer.subscriptions?.data || [];
-            for (const subscription of subscriptions) {
+            if (!customer.subscriptions?.data?.length) {
+                continue;
+            }
+
+            for (const subscription of customer.subscriptions.data) {
                 if (subscription.current_period_end > latestSubscriptionTime) {
                     latestSubscriptionTime = subscription.current_period_end;
                     latestCustomer = customer;
@@ -377,81 +280,126 @@ module.exports = class StripeAPI {
         return latestCustomer.id;
     }
 
-    /**
-     * Create a new Stripe Customer.
-     *
-     * @param {import('stripe').Stripe.CustomerCreateParams} options
-     *
-     * @returns {Promise<ICustomer>}
-     */
+    /** @returns {Promise<ICustomer>} */
     async createCustomer(options = {}) {
-        return await this._executeWithThrottle(
-            `createCustomer(${JSON.stringify(options)})`,
-            () => this._stripe.customers.create(options)
-        );
+        const label = `createCustomer(${JSON.stringify(options)})`;
+        return this._throttledRequest(() => this._stripe.customers.create(options), label);
     }
 
-    /**
-     * Update the email address for a Stripe Customer.
-     *
-     * @param {string} id
-     * @param {string} email
-     *
-     * @returns {Promise<ICustomer>}
-     */
+    /** @returns {Promise<ICustomer>} */
     async updateCustomerEmail(id, email) {
-        return await this._executeWithThrottle(
-            `updateCustomerEmail(${id}, ${email})`,
-            () => this._stripe.customers.update(id, {email})
-        );
+        const label = `updateCustomerEmail(${id}, ${email})`;
+        return this._throttledRequest(() => this._stripe.customers.update(id, {email}), label);
     }
 
-    /**
-     * Create a new Stripe Webhook Endpoint.
-     *
-     * @param {string} url
-     * @param {import('stripe').Stripe.WebhookEndpointUpdateParams.EnabledEvent[]} events
-     *
-     * @returns {Promise<IWebhookEndpoint>}
-     */
+    /** @returns {Promise<IWebhookEndpoint>} */
     async createWebhookEndpoint(url, events) {
-        return await this._executeWithThrottle(
-            `createWebhook(${url})`,
-            () => this._stripe.webhookEndpoints.create({
-                url,
-                enabled_events: events,
-                api_version: STRIPE_API_VERSION
-            })
-        );
+        const label = `createWebhook(${url})`;
+        return this._throttledRequest(() => this._stripe.webhookEndpoints.create({
+            url,
+            enabled_events: events,
+            api_version: STRIPE_API_VERSION
+        }), label);
     }
 
-    /**
-     * Delete a Stripe Webhook Endpoint by ID.
-     *
-     * @param {string} id
-     *
-     * @returns {Promise<void>}
-     */
+    /** @returns {Promise<void>} */
     async deleteWebhookEndpoint(id) {
-        return await this._executeWithThrottle(
-            `deleteWebhook(${id})`,
-            () => this._stripe.webhookEndpoints.del(id)
-        );
+        const label = `deleteWebhook(${id})`;
+        return this._throttledRequest(() => this._stripe.webhookEndpoints.del(id), label);
+    }
+
+    /** @returns {Promise<IWebhookEndpoint>} */
+    async updateWebhookEndpoint(id, url, events) {
+        const label = `updateWebhook(${id}, ${url})`;
+        return this._throttledRequest(async () => {
+            const webhook = await this._stripe.webhookEndpoints.update(id, {url, enabled_events: events});
+            if (webhook.api_version !== STRIPE_API_VERSION) {
+                throw new VersionMismatchError({message: 'Webhook has incorrect api_version'});
+            }
+            return webhook;
+        }, label);
     }
 
     /**
-     * Update a Stripe Webhook Endpoint by ID and URL.
-     *
-     * @param {string} id
-     * @param {string} url
-     * @param {import('stripe').Stripe.WebhookEndpointUpdateParams.EnabledEvent[]} events
-     *
-     * @returns {Promise<IWebhookEndpoint>}
+     * @param {string} body
+     * @param {string} signature
+     * @param {string} secret
+     * @returns {import('stripe').Stripe.Event}
      */
-    async updateWebhookEndpoint(id, url, events) {
-        return await this._executeWithThrottle(
-            `updateWebhook(${id}, ${url})`,
-            async () => {
-                const webhook = await this._stripe.webhookEndpoints.update(id, {
-                    url,
-                    enabled_events:
+    parseWebhook(body, signature, secret) {
+        const label = `parseWebhook(${body}, ${signature}, ${secret})`;
+        debug(label);
+        try {
+            const event = this._stripe.webhooks.constructEvent(body, signature, secret);
+            debug(`${label} -> Success ${event.type}`);
+            return event;
+        } catch (err) {
+            debug(`${label} -> ${err.type}`);
+            throw err;
+        }
+    }
+
+    /**
+     * @param {string} priceId
+     * @param {ICustomer} customer
+     * @param {object} options
+     * @param {Object.<String, any>} options.metadata
+     * @param {string} options.successUrl
+     * @param {string} options.cancelUrl
+     * @param {string} options.customerEmail
+     * @param {number} options.trialDays
+     * @param {string} [options.coupon]
+     * @returns {Promise<ICheckoutSession>}
+     */
+    async createCheckoutSession(priceId, customer, options) {
+        const metadata = options.metadata || undefined;
+        const customerId = customer?.id;
+        const customerEmail = customer ? customer.email : options.customerEmail;
+        const discounts = options.coupon ? [{coupon: options.coupon}] : undefined;
+
+        const subscriptionData = this._buildSubscriptionData(priceId, metadata, options.trialDays);
+
+        const stripeSessionOptions = {
+            payment_method_types: this.PAYMENT_METHOD_TYPES,
+            success_url: options.successUrl || this._config.checkoutSessionSuccessUrl,
+            cancel_url: options.cancelUrl || this._config.checkoutSessionCancelUrl,
+            // @ts-ignore
+            allow_promotion_codes: discounts ? undefined : this._config.enablePromoCodes,
+            automatic_tax: {enabled: this._config.enableAutomaticTax},
+            metadata,
+            discounts,
+            subscription_data: subscriptionData,
+            ...(customerId ? {customer: customerId} : {customer_email: customerEmail}),
+            ...(customerId && this._config.enableAutomaticTax ? {customer_update: {address: 'auto'}} : {})
+        };
+
+        // @ts-ignore
+        return this._throttledRequest(() => this._stripe.checkout.sessions.create(stripeSessionOptions));
+    }
+
+    /**
+     * @param {string} priceId
+     * @param {Object.<String, any>} metadata
+     * @param {number} trialDays
+     * @returns {object}
+     */
+    _buildSubscriptionData(priceId, metadata, trialDays) {
+        const subscriptionData = {
+            trial_from_plan: true,
+            items: [{plan: priceId}],
+            metadata: {
+                attribution_id: metadata?.attribution_id,
+                attribution_url: metadata?.attribution_url,
+                attribution_type: metadata?.attribution_type,
+                referrer_source: metadata?.referrer_source,
+                referrer_medium: metadata?.referrer_medium,
+                referrer_url: metadata?.referrer_url,
+                utm_source: metadata?.utm_source,
+                utm_medium: metadata?.utm_medium,
+                utm_campaign: metadata?.utm_campaign,
+                utm_term: metadata?.utm_term,
+                utm_content: metadata?.utm_content
+            }
+        };
+
+        if (typeof trialDays ===
