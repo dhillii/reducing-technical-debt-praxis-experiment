@@ -1,3 +1,0 @@
----
-
-### `post-search-icons.jsx`

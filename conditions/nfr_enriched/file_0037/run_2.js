@@ -1,1 +1,0 @@
-Wait — the `reset` function needs special handling since `makeBruteFactory` closes over `instance`. Let me provide the clean final version:

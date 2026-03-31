@@ -1,1 +1,0 @@
-**`components/new-note-modal/types.ts`**

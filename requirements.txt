@@ -21,6 +21,9 @@ tqdm>=4.65.0                  # Progress bars
 # Document generation
 python-docx>=0.8.11           # Create Word documents
 
+# Code metrics & complexity analysis
+lizard>=2.1.0                 # Accurate cyclomatic complexity calculation for JS/TS
+
 # Data validation
 pydantic>=2.0.0               # Data validation
 

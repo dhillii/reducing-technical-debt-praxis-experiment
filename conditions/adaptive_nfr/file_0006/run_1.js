@@ -1,1 +1,0 @@
-### `use-user-detail-form.ts` (extracted hook)

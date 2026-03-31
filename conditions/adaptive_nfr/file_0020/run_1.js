@@ -1,3 +1,0 @@
----
-
-## Extracted `fillMissingDataPoints`

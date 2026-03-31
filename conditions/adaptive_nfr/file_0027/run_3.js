@@ -1,1 +1,0 @@
-## Published-At Mixin (post-model/published-at-mixin.js)
