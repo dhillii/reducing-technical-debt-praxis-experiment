@@ -12,99 +12,65 @@ import {on} from '@ember/object/evented';
 import {inject as service} from '@ember/service';
 
 const BLANK_LEXICAL = '{"root":{"children":[{"children":[],"direction":null,"format":"","indent":0,"type":"paragraph","version":1}],"direction":null,"format":"","indent":0,"type":"root","version":1}}';
+
 const {Comparable} = Ember;
 
-// Comparison utilities
-const ComparisonUtils = {
-    compareStatus(status1, status2) {
-        if (!status1 && !status2) return 0;
-        if (!status1) return -1;
-        if (!status2) return 1;
-
-        const SCHEDULED_PRIORITY = -1;
-        const OTHER_PRIORITY = 1;
-        const SCHEDULED = 'scheduled';
-        const DRAFT = 'draft';
-        const PUBLISHED = 'published';
-
-        if (status1 === SCHEDULED && (status2 === DRAFT || status2 === PUBLISHED)) {
-            return SCHEDULED_PRIORITY;
-        }
-        if (status2 === SCHEDULED && (status1 === DRAFT || status1 === PUBLISHED)) {
-            return OTHER_PRIORITY;
-        }
-
-        return compare(status1.valueOf(), status2.valueOf());
-    },
-
-    comparePublishedAt(published1, published2) {
-        if (!published1 && !published2) return 0;
-        if (!published1) return -1;
-        if (!published2) return 1;
-        return compare(published1.valueOf(), published2.valueOf());
-    },
-
-    compareUpdatedAt(updated1, updated2) {
-        return compare(updated1.valueOf(), updated2.valueOf()) * -1;
-    }
+const STATUS = {
+    SCHEDULED: 'scheduled',
+    DRAFT: 'draft',
+    PUBLISHED: 'published',
+    SENT: 'sent'
 };
 
-// Visibility segment builder
-const VisibilitySegmentBuilder = {
-    build(visibility, isPublic, tiers, defaultContentVisibility) {
-        if (isPublic) {
-            return defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
-        }
+function compareNullable(a, b) {
+    if (!a && !b) { return 0; }
+    if (!a) { return -1; }
+    if (!b) { return 1; }
+    return null;
+}
 
-        const visibilityMap = {
-            members: 'status:free,status:-free',
-            paid: 'status:-free'
-        };
+function statusCompare(postA, postB) {
+    const status1 = postA.get('status');
+    const status2 = postB.get('status');
 
-        if (visibilityMap[visibility]) {
-            return visibilityMap[visibility];
-        }
+    const nullResult = compareNullable(status1, status2);
+    if (nullResult !== null) { return nullResult; }
 
-        if (visibility === 'tiers' && tiers) {
-            return tiers.map(tier => `tier:${tier.slug}`).join(',');
-        }
+    const nonScheduled = [STATUS.DRAFT, STATUS.PUBLISHED];
+    if (status1 === STATUS.SCHEDULED && nonScheduled.includes(status2)) { return -1; }
+    if (status2 === STATUS.SCHEDULED && nonScheduled.includes(status1)) { return 1; }
 
-        return visibility;
-    }
-};
+    return compare(status1.valueOf(), status2.valueOf());
+}
 
-// Published date/time handler
-const PublishedDateHandler = {
-    getPublishedAtBlogTZ(publishedAtUTC, publishedAtBlogDate, publishedAtBlogTime, timezone) {
-        if (!publishedAtUTC && isBlank(publishedAtBlogDate) && isBlank(publishedAtBlogTime)) {
-            return null;
-        }
+function publishedAtCompare(postA, postB) {
+    const published1 = postA.get('publishedAtUTC');
+    const published2 = postB.get('publishedAtUTC');
 
-        if (publishedAtBlogDate && publishedAtBlogTime) {
-            const publishedAtBlog = moment.tz(`${publishedAtBlogDate} ${publishedAtBlogTime}`, timezone);
+    const nullResult = compareNullable(published1, published2);
+    if (nullResult !== null) { return nullResult; }
 
-            if (publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {
-                return publishedAtUTC;
-            }
+    return compare(published1.valueOf(), published2.valueOf());
+}
 
-            return publishedAtBlog;
-        }
+const SCRATCH_FIELDS = [
+    'canonicalUrl',
+    'customExcerpt',
+    'codeinjectionFoot',
+    'codeinjectionHead',
+    'metaDescription',
+    'metaTitle',
+    'ogDescription',
+    'ogTitle',
+    'twitterDescription',
+    'twitterTitle',
+    'emailSubject'
+];
 
-        return moment.tz(publishedAtUTC, timezone);
-    },
-
-    setPublishedAtBlogStrings(momentDate, timezone) {
-        if (momentDate) {
-            const publishedAtBlog = moment.tz(momentDate, timezone);
-            return {
-                date: publishedAtBlog.format('YYYY-MM-DD'),
-                time: publishedAtBlog.format('HH:mm')
-            };
-        }
-
-        return {date: '', time: ''};
-    }
-};
+const scratchProperties = SCRATCH_FIELDS.reduce((acc, field) => {
+    acc[`${field}Scratch`] = boundOneWay(field);
+    return acc;
+}, {});
 
 export default Model.extend(Comparable, ValidationEngine, {
     session: service(),
@@ -114,7 +80,6 @@ export default Model.extend(Comparable, ValidationEngine, {
     search: service(),
     settings: service(),
     membersUtils: service(),
-
     config: inject(),
 
     displayName: 'post',
@@ -147,7 +112,7 @@ export default Model.extend(Comparable, ValidationEngine, {
     plaintext: attr('string'),
     publishedAtUTC: attr('moment-utc'),
     slug: attr('string'),
-    status: attr('string', {defaultValue: 'draft'}),
+    status: attr('string', {defaultValue: STATUS.DRAFT}),
     title: attr('string', {defaultValue: ''}),
     updatedAtUTC: attr('moment-utc'),
     url: attr('string'),
@@ -168,11 +133,24 @@ export default Model.extend(Comparable, ValidationEngine, {
     tags: hasMany('tag', {embedded: 'always', async: false}),
     postRevisions: hasMany('post_revisions', {embedded: 'always', async: false}),
 
-    // Computed relationships
+    // Computed reads
     primaryAuthor: reads('authors.firstObject'),
     primaryTag: reads('tags.firstObject'),
+    isFeedbackEnabledForEmail: reads('email.feedbackEnabled'),
+
+    // Status flags
+    isPublished: equal('status', STATUS.PUBLISHED),
+    isDraft: equal('status', STATUS.DRAFT),
+    isScheduled: equal('status', STATUS.SCHEDULED),
+    isSent: equal('status', STATUS.SENT),
+    isPost: equal('displayName', 'post'),
+    isPage: equal('displayName', 'page'),
+    internalTags: filterBy('tags', 'isInternal', true),
 
     // Scratch properties
+    ...scratchProperties,
+
+    // Internal state
     scratch: null,
     lexicalScratch: null,
     titleScratch: null,
@@ -180,29 +158,12 @@ export default Model.extend(Comparable, ValidationEngine, {
     publishedAtBlogDate: '',
     publishedAtBlogTime: '',
 
-    // Bound one-way properties
-    canonicalUrlScratch: boundOneWay('canonicalUrl'),
-    customExcerptScratch: boundOneWay('customExcerpt'),
-    codeinjectionFootScratch: boundOneWay('codeinjectionFoot'),
-    codeinjectionHeadScratch: boundOneWay('codeinjectionHead'),
-    metaDescriptionScratch: boundOneWay('metaDescription'),
-    metaTitleScratch: boundOneWay('metaTitle'),
-    ogDescriptionScratch: boundOneWay('ogDescription'),
-    ogTitleScratch: boundOneWay('ogTitle'),
-    twitterDescriptionScratch: boundOneWay('twitterDescription'),
-    twitterTitleScratch: boundOneWay('twitterTitle'),
-    emailSubjectScratch: boundOneWay('emailSubject'),
+    showPaidAttributionAnalytics: computed.and('showAttributionAnalytics', 'membersUtils.paidMembersEnabled'),
 
-    // Status computed properties
-    isPublished: equal('status', 'published'),
-    isDraft: equal('status', 'draft'),
-    isScheduled: equal('status', 'scheduled'),
-    isSent: equal('status', 'sent'),
-    isPost: equal('displayName', 'post'),
-    isPage: equal('displayName', 'page'),
-    internalTags: filterBy('tags', 'isInternal', true),
+    isPublic: computed('visibility', function () {
+        return this.visibility === 'public';
+    }),
 
-    // Email computed properties
     hasEmail: computed('email', 'emailOnly', function () {
         return this.email !== null || this.emailOnly;
     }),
@@ -212,16 +173,18 @@ export default Model.extend(Comparable, ValidationEngine, {
     }),
 
     hasBeenEmailed: computed('isPost', 'isSent', 'isPublished', 'email', function () {
-        return this.isPost && (this.isSent || this.isPublished) && this.email && this.email.status !== 'failed';
+        return this.isPost
+            && (this.isSent || this.isPublished)
+            && this.email?.status !== 'failed'
+            && !!this.email;
     }),
 
     didEmailFail: computed('isPost', 'isSent', 'isPublished', 'email.status', function () {
-        return this.isPost && (this.isSent || this.isPublished) && this.email && this.email.status === 'failed';
+        return this.isPost
+            && (this.isSent || this.isPublished)
+            && this.email?.status === 'failed';
     }),
 
-    isFeedbackEnabledForEmail: computed.reads('email.feedbackEnabled'),
-
-    // Analytics computed properties
     showAudienceFeedback: computed('sentiment', function () {
         return this.feature.get('audienceFeedback') && this.sentiment !== undefined;
     }),
@@ -243,41 +206,58 @@ export default Model.extend(Comparable, ValidationEngine, {
             && this.settings.emailTrackClicks;
     }),
 
-    showAttributionAnalytics: computed('isPage', 'emailOnly', 'isPublished', 'membersUtils.isMembersInviteOnly', 'settings.membersTrackSources', function () {
-        return (this.isPage || !this.emailOnly)
-            && this.isPublished
-            && this.settings.membersTrackSources
-            && !this.membersUtils.isMembersInviteOnly
-            && !this.session.user.isContributor;
-    }),
+    showAttributionAnalytics: computed(
+        'isPage', 'emailOnly', 'isPublished',
+        'membersUtils.isMembersInviteOnly', 'settings.membersTrackSources',
+        function () {
+            return (this.isPage || !this.emailOnly)
+                && this.isPublished
+                && this.settings.membersTrackSources
+                && !this.membersUtils.isMembersInviteOnly
+                && !this.session.user.isContributor;
+        }
+    ),
 
-    showPaidAttributionAnalytics: computed.and('showAttributionAnalytics', 'membersUtils.paidMembersEnabled'),
+    hasAnalyticsPage: computed(
+        'isPost', 'showEmailOpenAnalytics',
+        'showEmailClickAnalytics', 'showAttributionAnalytics',
+        function () {
+            return this.isPost
+                && this.session.user.isAdmin
+                && (
+                    this.showEmailOpenAnalytics
+                    || this.showEmailClickAnalytics
+                    || this.showAttributionAnalytics
+                );
+        }
+    ),
 
-    hasAnalyticsPage: computed('isPost', 'showEmailOpenAnalytics', 'showEmailClickAnalytics', 'showAttributionAnalytics', function () {
-        return this.isPost
-            && this.session.user.isAdmin
-            && (this.showEmailOpenAnalytics || this.showEmailClickAnalytics || this.showAttributionAnalytics);
-    }),
-
-    // Visibility and preview
-    isPublic: computed('visibility', function () {
-        return this.visibility === 'public';
+    previewUrl: computed('uuid', 'ghostPaths.url', 'config.blogUrl', function () {
+        if (!this.uuid) { return ''; }
+        return this.get('ghostPaths.url').join(this.config.blogUrl, 'p', this.uuid);
     }),
 
     visibilitySegment: computed('visibility', 'isPublic', 'tiers', function () {
-        return VisibilitySegmentBuilder.build(
-            this.visibility,
-            this.isPublic,
-            this.tiers,
-            this.settings.defaultContentVisibility
-        );
-    }),
-
-    previewUrl: computed('uuid', 'ghostPaths.url', 'config.blogUrl', function () {
-        if (!this.uuid) {
-            return '';
+        if (this.isPublic) {
+            return this.settings.defaultContentVisibility === 'paid'
+                ? 'status:-free'
+                : 'status:free,status:-free';
         }
-        return this.get('ghostPaths.url').join(this.config.blogUrl, 'p', this.uuid);
+
+        const visibilityMap = {
+            members: 'status:free,status:-free',
+            paid: 'status:-free'
+        };
+
+        if (visibilityMap[this.visibility]) {
+            return visibilityMap[this.visibility];
+        }
+
+        if (this.visibility === 'tiers' && this.tiers) {
+            return this.tiers.map(tier => `tier:${tier.slug}`).join(',');
+        }
+
+        return this.visibility;
     }),
 
     fullRecipientFilter: computed('newsletter.recipientFilter', 'emailSegment', function () {
@@ -287,36 +267,25 @@ export default Model.extend(Comparable, ValidationEngine, {
         return `${this.newsletter.recipientFilter}+(${this.emailSegment})`;
     }),
 
-    // Scheduling
     pastScheduledTime: computed('isScheduled', 'publishedAtUTC', 'clock.second', function () {
-        if (!this.isScheduled) {
-            return false;
-        }
+        if (!this.isScheduled) { return false; }
 
         const now = moment.utc();
         const publishedAtUTC = this.publishedAtUTC || now;
-        const pastScheduledTime = publishedAtUTC.diff(now, 'hours', true) < 0;
 
+        // Access clock.second to force recompute each second
         this.get('clock.second');
-        return pastScheduledTime;
+
+        return publishedAtUTC.diff(now, 'hours', true) < 0;
     }),
 
-    // Published date/time
     publishedAtBlogTZ: computed('publishedAtBlogDate', 'publishedAtBlogTime', 'settings.timezone', {
         get() {
-            return PublishedDateHandler.getPublishedAtBlogTZ(
-                this.publishedAtUTC,
-                this.publishedAtBlogDate,
-                this.publishedAtBlogTime,
-                this.settings.timezone
-            );
+            return this._getPublishedAtBlogTZ();
         },
         set(key, value) {
-            const momentValue = value ? moment(value) : null;
-            const {date, time} = PublishedDateHandler.setPublishedAtBlogStrings(momentValue, this.settings.timezone);
-            this.set('publishedAtBlogDate', date);
-            this.set('publishedAtBlogTime', time);
-            return this.get('publishedAtBlogTZ');
+            this._setPublishedAtBlogStrings(value ? moment(value) : null);
+            return this._getPublishedAtBlogTZ();
         }
     }),
 
@@ -327,48 +296,82 @@ export default Model.extend(Comparable, ValidationEngine, {
         return Math.round(this.count.clicks / this.email.emailCount * 100);
     }),
 
-    // Observers
+    _getPublishedAtBlogTZ() {
+        const {publishedAtUTC, publishedAtBlogDate, publishedAtBlogTime} = this;
+        const blogTimezone = this.settings.timezone;
+
+        if (!publishedAtUTC && isBlank(publishedAtBlogDate) && isBlank(publishedAtBlogTime)) {
+            return null;
+        }
+
+        if (publishedAtBlogDate && publishedAtBlogTime) {
+            const publishedAtBlog = moment.tz(`${publishedAtBlogDate} ${publishedAtBlogTime}`, blogTimezone);
+
+            // Preserve original seconds if the time hasn't changed
+            // See https://github.com/TryGhost/Ghost/issues/8603#issuecomment-309538395
+            if (publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {
+                return publishedAtUTC;
+            }
+
+            return publishedAtBlog;
+        }
+
+        return moment.tz(this.publishedAtUTC, blogTimezone);
+    },
+
+    // eslint-disable-next-line ghost/ember/no-observers
     _setPublishedAtBlogTZ: on('init', observer('publishedAtUTC', 'settings.timezone', function () {
-        const {date, time} = PublishedDateHandler.setPublishedAtBlogStrings(
-            this.publishedAtUTC,
-            this.settings.timezone
-        );
-        this.set('publishedAtBlogDate', date);
-        this.set('publishedAtBlogTime', time);
+        this._setPublishedAtBlogStrings(this.publishedAtUTC);
     })),
 
-    // Methods
+    _setPublishedAtBlogStrings(momentDate) {
+        if (momentDate) {
+            const publishedAtBlog = moment.tz(momentDate, this.settings.timezone);
+            this.set('publishedAtBlogDate', publishedAtBlog.format('YYYY-MM-DD'));
+            this.set('publishedAtBlogTime', publishedAtBlog.format('HH:mm'));
+        } else {
+            this.set('publishedAtBlogDate', '');
+            this.set('publishedAtBlogTime', '');
+        }
+    },
+
+    // Remove client-generated tags (id: null) since Ember Data won't
+    // recognize/update them automatically when returned from server with ids.
+    // https://github.com/emberjs/data/issues/1829
     updateTags() {
         const tags = this.tags;
-        const oldTags = tags.filterBy('id', null);
-        tags.removeObjects(oldTags);
-        oldTags.invoke('deleteRecord');
+        const clientTags = tags.filterBy('id', null);
+        tags.removeObjects(clientTags);
+        clientTags.invoke('deleteRecord');
     },
 
     isAuthoredByUser(user) {
         return this.authors.includes(user);
     },
 
+    // Sort order mirrors server: status (scheduled > draft > published),
+    // then publishedAt DESC, updatedAt DESC, id DESC
     compare(postA, postB) {
         const updated1 = postA.get('updatedAtUTC');
         const updated2 = postB.get('updatedAtUTC');
 
-        if (postA.get('isNew') || !updated1) {
-            return -1;
-        }
-        if (postB.get('isNew') || !updated2) {
-            return 1;
-        }
+        // Models still being written from server response
+        if (postA.get('isNew') || !updated1) { return -1; }
+        if (postB.get('isNew') || !updated2) { return 1; }
 
-        const statusResult = ComparisonUtils.compareStatus(postA.get('status'), postB.get('status'));
-        if (statusResult !== 0) {
-            return statusResult;
-        }
+        const statusResult = statusCompare(postA, postB);
+        if (statusResult !== 0) { return statusResult; }
 
-        const publishedAtResult = ComparisonUtils.comparePublishedAt(postA.get('publishedAtUTC'), postB.get('publishedAtUTC'));
-        if (publishedAtResult !== 0) {
-            return publishedAtResult * -1;
-        }
+        const publishedAtResult = publishedAtCompare(postA, postB);
+        if (publishedAtResult !== 0) { return publishedAtResult * -1; }
 
-        const updatedAtResult = ComparisonUtils.compareUpdatedAt(updated1, updated2);
-        if (updated
+        const updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
+        if (updatedAtResult !== 0) { return updatedAtResult * -1; }
+
+        // TODO: revisit ID sorting since IDs are no longer auto-incrementing
+        return compare(postA.get('id'), postB.get('id')) * -1;
+    },
+
+    // ValidationEngine hook: called after successful validation, before save().
+    // Converts publishedAtBlogTZ strings to UTC for persistence.
+    beforeSave() {
