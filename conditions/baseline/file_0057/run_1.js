@@ -1,161 +1,111 @@
 ```javascript
-/**
- * Copyright (c) 2015-present, Facebook, Inc.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
 'use strict';
 
-const stripAnsi = require('strip-ansi');
-const url = require('url');
-const launchEditorEndpoint = require('./launchEditorEndpoint');
-const formatWebpackMessages = require('./formatWebpackMessages');
-const ErrorOverlay = require('react-error-overlay');
+var stripAnsi = require('strip-ansi');
+var url = require('url');
+var launchEditorEndpoint = require('./launchEditorEndpoint');
+var formatWebpackMessages = require('./formatWebpackMessages');
+var ErrorOverlay = require('react-error-overlay');
 
-// ============================================================================
-// Configuration & Constants
-// ============================================================================
+// ─── Constants ───────────────────────────────────────────────────────────────
 
-const BUNDLE_PATH = '/static/js/bundle.js';
-const MAX_WARNINGS_TO_DISPLAY = 5;
-const WARNING_LIMIT_MESSAGE =
-  'There were more warnings in other files.\nYou can find a complete log in the terminal.';
+const BUNDLE_FILE = '/static/js/bundle.js';
+const MAX_WARNINGS_SHOWN = 5;
 
-// ============================================================================
-// State Management
-// ============================================================================
+// ─── State ────────────────────────────────────────────────────────────────────
 
-const state = {
-  hadRuntimeError: false,
-  isFirstCompilation: true,
-  mostRecentCompilationHash: null,
-  hasCompileErrors: false,
-};
+var hadRuntimeError = false;
+var isFirstCompilation = true;
+var mostRecentCompilationHash = null;
+var hasCompileErrors = false;
 
-// ============================================================================
-// Error Overlay Setup
-// ============================================================================
+// ─── Editor Handler ───────────────────────────────────────────────────────────
 
-function setupErrorOverlay() {
-  ErrorOverlay.setEditorHandler(handleEditorRequest);
-  ErrorOverlay.startReportingRuntimeErrors({
-    onError: () => {
-      state.hadRuntimeError = true;
-    },
-    filename: BUNDLE_PATH,
-  });
-
-  if (module.hot && typeof module.hot.dispose === 'function') {
-    module.hot.dispose(() => {
-      ErrorOverlay.stopReportingRuntimeErrors();
-    });
-  }
-}
-
-function handleEditorRequest(errorLocation) {
+ErrorOverlay.setEditorHandler(function editorHandler({ fileName, lineNumber, colNumber }) {
   const params = new URLSearchParams({
-    fileName: errorLocation.fileName,
-    lineNumber: errorLocation.lineNumber || 1,
-    colNumber: errorLocation.colNumber || 1,
+    fileName,
+    lineNumber: lineNumber || 1,
+    colNumber: colNumber || 1,
   });
   fetch(`${launchEditorEndpoint}?${params}`);
+});
+
+// ─── Runtime Error Reporting ──────────────────────────────────────────────────
+
+ErrorOverlay.startReportingRuntimeErrors({
+  onError: () => { hadRuntimeError = true; },
+  filename: BUNDLE_FILE,
+});
+
+if (module.hot && typeof module.hot.dispose === 'function') {
+  module.hot.dispose(() => ErrorOverlay.stopReportingRuntimeErrors());
 }
 
-// ============================================================================
-// WebSocket Connection
-// ============================================================================
+// ─── WebSocket Connection ─────────────────────────────────────────────────────
 
-function createWebSocketConnection() {
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const hostname = process.env.WDS_SOCKET_HOST || window.location.hostname;
-  const port = process.env.WDS_SOCKET_PORT || window.location.port;
-  const pathname = process.env.WDS_SOCKET_PATH || '/ws';
-
-  return new WebSocket(
-    url.format({
-      protocol,
-      hostname,
-      port,
-      pathname,
-      slashes: true,
-    })
-  );
+function createWebSocketUrl() {
+  return url.format({
+    protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
+    hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
+    port: process.env.WDS_SOCKET_PORT || window.location.port,
+    pathname: process.env.WDS_SOCKET_PATH || '/ws',
+    slashes: true,
+  });
 }
 
-function setupWebSocketConnection(connection) {
-  connection.onmessage = handleWebSocketMessage;
-  connection.onclose = handleWebSocketClose;
-}
+var connection = new WebSocket(createWebSocketUrl());
 
-function handleWebSocketClose() {
-  if (typeof console !== 'undefined' && typeof console.info === 'function') {
-    console.info(
-      'The development server has disconnected.\nRefresh the page if necessary.'
-    );
-  }
-}
-
-// ============================================================================
-// Message Handlers
-// ============================================================================
-
-const messageHandlers = {
-  hash: (data) => {
-    state.mostRecentCompilationHash = data;
-  },
-  'still-ok': handleSuccess,
-  ok: handleSuccess,
-  'content-changed': () => {
-    window.location.reload();
-  },
-  warnings: handleWarnings,
-  errors: handleErrors,
+connection.onclose = function () {
+  console.info?.('The development server has disconnected.\nRefresh the page if necessary.');
 };
 
-function handleWebSocketMessage(event) {
-  const message = JSON.parse(event.data);
-  const handler = messageHandlers[message.type];
-  if (handler) {
-    handler(message.data);
+// ─── Compilation Handlers ─────────────────────────────────────────────────────
+
+function clearOutdatedErrors() {
+  if (hasCompileErrors) {
+    console.clear?.();
   }
 }
 
-// ============================================================================
-// Compilation State Handlers
-// ============================================================================
+function markCompilationStart(hasErrors = false) {
+  const isHotUpdate = !isFirstCompilation;
+  isFirstCompilation = false;
+  hasCompileErrors = hasErrors;
+  return isHotUpdate;
+}
 
-function clearOutdatedErrors() {
-  if (
-    state.hasCompileErrors &&
-    typeof console !== 'undefined' &&
-    typeof console.clear === 'function'
-  ) {
-    console.clear();
+function tryDismissErrorOverlay() {
+  if (!hasCompileErrors) {
+    ErrorOverlay.dismissBuildError();
   }
 }
 
 function handleSuccess() {
   clearOutdatedErrors();
-
-  const isHotUpdate = !state.isFirstCompilation;
-  state.isFirstCompilation = false;
-  state.hasCompileErrors = false;
+  const isHotUpdate = markCompilationStart();
 
   if (isHotUpdate) {
     tryApplyUpdates(tryDismissErrorOverlay);
   }
 }
 
+function printWarningsToConsole(warnings) {
+  const { warnings: formatted } = formatWebpackMessages({ warnings, errors: [] });
+
+  formatted.slice(0, MAX_WARNINGS_SHOWN).forEach(warning => {
+    console.warn?.(stripAnsi(warning));
+  });
+
+  if (formatted.length > MAX_WARNINGS_SHOWN) {
+    console.warn?.('There were more warnings in other files.\nYou can find a complete log in the terminal.');
+  }
+}
+
 function handleWarnings(warnings) {
   clearOutdatedErrors();
+  const isHotUpdate = markCompilationStart();
 
-  const isHotUpdate = !state.isFirstCompilation;
-  state.isFirstCompilation = false;
-  state.hasCompileErrors = false;
-
-  printWarnings(warnings);
+  printWarningsToConsole(warnings);
 
   if (isHotUpdate) {
     tryApplyUpdates(tryDismissErrorOverlay);
@@ -164,61 +114,40 @@ function handleWarnings(warnings) {
 
 function handleErrors(errors) {
   clearOutdatedErrors();
+  markCompilationStart(true);
 
-  state.isFirstCompilation = false;
-  state.hasCompileErrors = true;
+  const { errors: formatted } = formatWebpackMessages({ errors, warnings: [] });
 
-  const formatted = formatWebpackMessages({
-    errors,
-    warnings: [],
-  });
-
-  ErrorOverlay.reportBuildError(formatted.errors[0]);
-  logErrorsToConsole(formatted.errors);
+  ErrorOverlay.reportBuildError(formatted[0]);
+  formatted.forEach(error => console.error?.(stripAnsi(error)));
 }
 
-// ============================================================================
-// Console Output Utilities
-// ============================================================================
-
-function printWarnings(warnings) {
-  const formatted = formatWebpackMessages({
-    warnings,
-    errors: [],
-  });
-
-  if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-    formatted.warnings.forEach((warning, index) => {
-      if (index === MAX_WARNINGS_TO_DISPLAY) {
-        console.warn(WARNING_LIMIT_MESSAGE);
-        return;
-      }
-      console.warn(stripAnsi(warning));
-    });
-  }
+function handleAvailableHash(hash) {
+  mostRecentCompilationHash = hash;
 }
 
-function logErrorsToConsole(errors) {
-  if (typeof console !== 'undefined' && typeof console.error === 'function') {
-    errors.forEach((error) => {
-      console.error(stripAnsi(error));
-    });
-  }
-}
+// ─── Message Handler ──────────────────────────────────────────────────────────
 
-function tryDismissErrorOverlay() {
-  if (!state.hasCompileErrors) {
-    ErrorOverlay.dismissBuildError();
-  }
-}
+const messageHandlers = {
+  hash: ({ data }) => handleAvailableHash(data),
+  ok: () => handleSuccess(),
+  'still-ok': () => handleSuccess(),
+  'content-changed': () => window.location.reload(),
+  warnings: ({ data }) => handleWarnings(data),
+  errors: ({ data }) => handleErrors(data),
+};
 
-// ============================================================================
-// Hot Module Replacement Logic
-// ============================================================================
+connection.onmessage = function (e) {
+  const message = JSON.parse(e.data);
+  const handler = messageHandlers[message.type];
+  if (handler) handler(message);
+};
+
+// ─── Hot Module Replacement ───────────────────────────────────────────────────
 
 function isUpdateAvailable() {
   /* globals __webpack_hash__ */
-  return state.mostRecentCompilationHash !== __webpack_hash__;
+  return mostRecentCompilationHash !== __webpack_hash__;
 }
 
 function canApplyUpdates() {
@@ -231,6 +160,24 @@ function canAcceptErrors() {
   return hasReactRefresh && !['abort', 'fail'].includes(status);
 }
 
+function handleApplyUpdates(onHotUpdateSuccess, err, updatedModules) {
+  const needsForcedReload = !err && !updatedModules;
+  const hasErrors = err || hadRuntimeError;
+
+  if (needsForcedReload || (hasErrors && !canAcceptErrors())) {
+    window.location.reload();
+    return;
+  }
+
+  if (typeof onHotUpdateSuccess === 'function') {
+    onHotUpdateSuccess();
+  }
+
+  if (isUpdateAvailable()) {
+    tryApplyUpdates();
+  }
+}
+
 function tryApplyUpdates(onHotUpdateSuccess) {
   if (!module.hot) {
     window.location.reload();
@@ -241,39 +188,14 @@ function tryApplyUpdates(onHotUpdateSuccess) {
     return;
   }
 
-  const result = module.hot.check(true, handleApplyUpdates);
+  const callback = handleApplyUpdates.bind(null, onHotUpdateSuccess);
+  const result = module.hot.check(/* autoApply */ true, callback);
 
-  if (result && typeof result.then === 'function') {
+  if (result && result.then) {
     result.then(
-      (updatedModules) => handleApplyUpdates(null, updatedModules),
-      (err) => handleApplyUpdates(err, null)
+      updatedModules => callback(null, updatedModules),
+      err => callback(err, null)
     );
   }
-
-  function handleApplyUpdates(err, updatedModules) {
-    const haveErrors = err || state.hadRuntimeError;
-    const needsForcedReload = !err && !updatedModules;
-
-    if ((haveErrors && !canAcceptErrors()) || needsForcedReload) {
-      window.location.reload();
-      return;
-    }
-
-    if (typeof onHotUpdateSuccess === 'function') {
-      onHotUpdateSuccess();
-    }
-
-    if (isUpdateAvailable()) {
-      tryApplyUpdates(onHotUpdateSuccess);
-    }
-  }
 }
-
-// ============================================================================
-// Initialization
-// ============================================================================
-
-setupErrorOverlay();
-const connection = createWebSocketConnection();
-setupWebSocketConnection(connection);
 ```
