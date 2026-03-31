@@ -2,112 +2,112 @@
 'use strict';
 
 const path = require('path');
-const util = require('grunt-legacy-util');
-const { Log } = require('grunt-legacy-log');
 
-// CoffeeScript registration
-const COFFEE_EXTENSIONS = ['.coffee', '.litcoffee', '.coffee.md'];
-
-function registerCoffeeScriptLoader() {
+// Register CoffeeScript support if available, otherwise provide helpful error handlers
+function registerCoffeeScript() {
   try {
     require('coffeescript/register');
   } catch (e) {
-    if (require.extensions) {
-      const errorMessage = 
+    if (!require.extensions) { return; }
+    const COFFEE_EXTENSIONS = ['.coffee', '.litcoffee', '.coffee.md'];
+    const coffeeErrorHandler = () => {
+      throw new Error(
         'Grunt attempted to load a .coffee file but CoffeeScript was not installed.\n' +
-        'Please run `npm install --dev coffeescript` to enable loading CoffeeScript.';
-      
-      COFFEE_EXTENSIONS.forEach(ext => {
-        require.extensions[ext] = () => {
-          throw new Error(errorMessage);
-        };
-      });
-    }
+        'Please run `npm install --dev coffeescript` to enable loading CoffeeScript.'
+      );
+    };
+    COFFEE_EXTENSIONS.forEach(ext => { require.extensions[ext] = coffeeErrorHandler; });
   }
 }
 
-// Module initialization
+registerCoffeeScript();
+
 const grunt = module.exports = {};
 
-// Lazy-load internal grunt modules
+// Expose internal grunt libs
 function gRequire(name) {
-  return (grunt[name] = require(`./grunt/${name}`));
+  return grunt[name] = require(`./grunt/${name}`);
 }
 
-function gExpose(obj, methodName, newMethodName) {
-  grunt[newMethodName || methodName] = obj[methodName].bind(obj);
+// Expose a method from an object onto grunt
+function gExpose(obj, methodName, alias = methodName) {
+  grunt[alias] = obj[methodName].bind(obj);
 }
 
-// Initialize core modules
-function initializeGrunt() {
+function initGruntLibs() {
+  const util = require('grunt-legacy-util');
   grunt.util = util;
   grunt.util.task = require('./util/task');
 
-  const log = new Log({ grunt });
-  grunt.log = log;
-  grunt.verbose = log.verbose;
+  const { Log } = require('grunt-legacy-log');
+  grunt.log = new Log({ grunt });
 
-  // Load internal modules
   gRequire('template');
   gRequire('event');
-  const fail = gRequire('fail');
   gRequire('file');
+  gRequire('cli');
+
+  const fail = gRequire('fail');
   const option = gRequire('option');
   const config = gRequire('config');
   const task = gRequire('task');
   const help = gRequire('help');
-  gRequire('cli');
 
-  // Expose metadata
+  grunt.verbose = grunt.log.verbose;
   grunt.package = require('../package.json');
   grunt.version = grunt.package.version;
 
-  // Expose task methods
-  ['registerTask', 'registerMultiTask', 'registerInitTask', 'renameTask', 'loadTasks', 'loadNpmTasks']
-    .forEach(method => gExpose(task, method));
+  return { util, fail, option, config, task, help };
+}
 
-  // Expose config and fail methods
+const { util, fail, option, config, task, help } = initGruntLibs();
+
+function exposeTaskMethods() {
+  const taskMethods = [
+    'registerTask',
+    'registerMultiTask',
+    'registerInitTask',
+    'renameTask',
+    'loadTasks',
+    'loadNpmTasks',
+  ];
+  taskMethods.forEach(method => gExpose(task, method));
   gExpose(config, 'init', 'initConfig');
   gExpose(fail, 'warn');
   gExpose(fail, 'fatal');
-
-  return { task, option, config, fail, help, log };
 }
 
-const { task, option, config, fail, help, log } = initializeGrunt();
+exposeTaskMethods();
 
-// Version and help display
-function handleVersionOption() {
+function displayVersionInfo() {
+  const { log, verbose } = grunt;
   log.writeln(`grunt v${grunt.version}`);
 
-  if (!option('verbose')) return;
+  if (!option('verbose')) { return; }
 
-  grunt.verbose.writeln(`Install path: ${path.resolve(__dirname, '..')}`);
-  
+  verbose.writeln(`Install path: ${path.resolve(__dirname, '..')}`);
   grunt.log.muted = true;
   grunt.task.init([], { help: true });
   grunt.log.muted = false;
 
-  const tasks = Object.keys(grunt.task._tasks).sort();
-  grunt.verbose.writeln(`Available tasks: ${tasks.join(' ')}`);
+  const availableTasks = Object.keys(grunt.task._tasks).sort();
+  verbose.writeln(`Available tasks: ${availableTasks.join(' ')}`);
 
-  const options = [];
-  Object.keys(grunt.cli.optlist).forEach(long => {
-    const o = grunt.cli.optlist[long];
-    options.push(`--${o.negate ? 'no-' : ''}${long}`);
-    if (o.short) options.push(`-${o.short}`);
+  const availableOptions = Object.entries(grunt.cli.optlist).flatMap(([long, o]) => {
+    const longFlag = `--${o.negate ? 'no-' : ''}${long}`;
+    return o.short ? [longFlag, `-${o.short}`] : [longFlag];
   });
-  grunt.verbose.writeln(`Available options: ${options.join(' ')}`);
+  verbose.writeln(`Available options: ${availableOptions.join(' ')}`);
 }
 
-function setupTaskHandlers(tasks, done) {
-  const uncaughtHandler = (e) => fail.fatal(e, fail.code.TASK_FAILURE);
-  
+function setupTaskErrorHandling(uncaughtHandler) {
   process.on('uncaughtException', uncaughtHandler);
 
   task.options({
-    error: (e) => fail.warn(e, fail.code.TASK_FAILURE),
-    done: () => {
+    error(e) {
+      fail.warn(e, fail.code.TASK_FAILURE);
+    },
+    done() {
       process.removeListener('uncaughtException', uncaughtHandler);
       fail.report();
 
@@ -116,46 +116,42 @@ function setupTaskHandlers(tasks, done) {
       } else {
         util.exit(0);
       }
-    }
+    },
   });
 }
 
-function logTaskInitialization(tasksSpecified, tasks) {
-  grunt.verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
-
-  if (!tasksSpecified) {
-    grunt.verbose.writeln('No tasks specified, running default tasks.');
-  }
-  grunt.verbose.writeflags(tasks, 'Running tasks');
-}
-
-// Main task execution interface
 grunt.tasks = function(tasks, options, done) {
   option.init(options);
 
   if (option('version')) {
-    handleVersionOption();
+    displayVersionInfo();
     return;
   }
 
-  log.initColors();
+  grunt.log.initColors();
 
   if (option('help')) {
     help.display();
     return;
   }
 
+  grunt.verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
+
   const tasksSpecified = tasks && tasks.length > 0;
-  const parsedTasks = task.parseArgs(tasksSpecified ? tasks : 'default');
+  tasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
 
-  task.init(parsedTasks, options);
-  logTaskInitialization(tasksSpecified, parsedTasks);
+  task.init(tasks, options);
 
-  setupTaskHandlers(parsedTasks, done);
+  grunt.verbose.writeln();
+  if (!tasksSpecified) {
+    grunt.verbose.writeln('No tasks specified, running default tasks.');
+  }
+  grunt.verbose.writeflags(tasks, 'Running tasks');
 
-  parsedTasks.forEach(name => task.run(name));
+  const uncaughtHandler = e => fail.fatal(e, fail.code.TASK_FAILURE);
+  setupTaskErrorHandling(uncaughtHandler);
+
+  tasks.forEach(name => task.run(name));
   task.start({ asyncDone: true });
 };
-
-registerCoffeeScriptLoader();
 ```
