@@ -1,4 +1,4 @@
-```javascript
+```jsx
 import React from 'react';
 import ActionButton from '../common/action-button';
 import AppContext from '../../app-context';
@@ -350,6 +350,10 @@ html[dir=rtl] .gh-portal-signup-terms .checkbox:before {
     text-decoration: none;
 }
 
+@media (min-width: 480px) {
+
+}
+
 @media (max-width: 480px) {
     .gh-portal-signup-logo {
         width: 48px;
@@ -365,19 +369,38 @@ html[dir=rtl] .gh-portal-signup-terms .checkbox:before {
 }
 `;
 
+const INITIAL_STATE = {
+    name: '',
+    email: '',
+    plan: 'free',
+    showNewsletterSelection: false,
+    termsCheckboxChecked: false
+};
+
+const NOTIFICATION_CONFIGS = {
+    inviteOnly: {
+        className: 'gh-portal-invite-only-notification',
+        testId: 'invite-only-notification-text',
+        message: t('This site is invite-only, contact the owner for access.')
+    },
+    paidMembersOnly: {
+        className: 'gh-portal-paid-members-only-notification',
+        testId: 'paid-members-only-notification-text',
+        message: t('This site only accepts paid members.')
+    },
+    membersDisabled: {
+        className: 'gh-portal-members-disabled-notification',
+        testId: 'members-disabled-notification-text',
+        message: t('Memberships unavailable, contact the owner for access.')
+    }
+};
+
 class SignupPage extends React.Component {
     static contextType = AppContext;
 
     constructor(props) {
         super(props);
-        this.state = {
-            name: '',
-            email: '',
-            plan: 'free',
-            showNewsletterSelection: false,
-            termsCheckboxChecked: false
-        };
-
+        this.state = {...INITIAL_STATE};
         this.termsRef = React.createRef();
     }
 
@@ -407,86 +430,71 @@ class SignupPage extends React.Component {
         }
     }
 
-    getFormErrors(state) {
-        const {site} = this.context;
-        const checkboxRequired = site.portal_signup_checkbox_required && site.portal_signup_terms_html;
-        const checkboxError = checkboxRequired && !state.termsCheckboxChecked;
-
-        return {
-            ...ValidateInputForm({fields: this.getInputFields({state})}),
-            checkbox: checkboxError
-        };
-    }
-
-    doSignup() {
-        this.setState((state) => ({errors: this.getFormErrors(state)}), () => {
-            const {site, doAction} = this.context;
-            const {name, email, plan, phonenumber, token, errors} = this.state;
-            const hasFormErrors = Object.values(errors || {}).some(error => !!error);
-
-            if (this.shouldScrollToCheckbox(errors)) {
-                this.termsRef.current?.scrollIntoView({behavior: 'smooth', block: 'center'});
-            }
-
-            if (!hasFormErrors) {
-                if (hasMultipleNewsletters({site})) {
-                    this.setState({
-                        showNewsletterSelection: true,
-                        pageData: {name, email, plan, phonenumber, token},
-                        errors: {}
-                    });
-                } else {
-                    this.setState({errors: {}});
-                    doAction('signup', {name, email, phonenumber, plan, token});
-                }
-            }
-        });
-    }
-
-    shouldScrollToCheckbox(errors) {
-        if (!errors?.checkbox || !this.termsRef.current) {
-            return false;
-        }
-        const otherErrors = {...errors};
-        delete otherErrors.checkbox;
-        return Object.values(otherErrors).every(error => !error);
-    }
-
-    handleSignup = (e) => {
-        e.preventDefault();
-        this.doSignup();
-    };
-
-    handleChooseSignup = (e, plan) => {
-        e.preventDefault();
-        this.setState({plan}, () => this.doSignup());
-    };
-
-    handleInputChange = (e, field) => {
-        this.setState({[field.name]: e.target.value});
-    };
-
-    handleSelectPlan = (e, priceId) => {
-        e?.preventDefault();
-        this.timeoutId = setTimeout(() => {
-            this.setState({plan: priceId});
-        }, 5);
-    };
-
-    onKeyDown = (e) => {
-        if (e.keyCode === 13) {
-            this.handleSignup(e);
-        }
-    };
-
     getSelectedPriceId(prices = [], selectedPriceId) {
         if (!prices?.length || selectedPriceId === 'free') {
             return 'free';
         }
 
-        const hasSelectedPlan = prices.some((p) => p.id === selectedPriceId);
-        return hasSelectedPlan ? selectedPriceId : (prices[0]?.id || 'free');
+        const hasSelectedPlan = prices.some(p => p.id === selectedPriceId);
+        return hasSelectedPlan ? selectedPriceId : (prices[0].id || 'free');
     }
 
-    getInputFields({state, fieldNames}) {
-        const {site: {portal_name: portalName}} = this.
+    getFormErrors(state) {
+        const {site} = this.context;
+        const checkboxRequired = site.portal_signup_checkbox_required && site.portal_signup_terms_html;
+
+        return {
+            ...ValidateInputForm({fields: this.getInputFields({state})}),
+            checkbox: checkboxRequired && !state.termsCheckboxChecked
+        };
+    }
+
+    getInputFields({state, fieldNames} = {}) {
+        const {site: {portal_name: portalName}} = this.context;
+        const errors = state?.errors || {};
+
+        const fields = [
+            {
+                type: 'email',
+                value: state?.email,
+                placeholder: t('jamie@example.com'),
+                label: t('Email'),
+                name: 'email',
+                required: true,
+                tabIndex: 2,
+                errorMessage: errors.email || ''
+            },
+            {
+                type: 'text',
+                value: state?.phonenumber,
+                placeholder: t('+1 (123) 456-7890'),
+                label: t('Phone number'),
+                name: 'phonenumber',
+                required: false,
+                tabIndex: -1,
+                autoComplete: 'off',
+                hidden: true
+            }
+        ];
+
+        if (portalName) {
+            fields.unshift({
+                type: 'text',
+                value: state?.name,
+                placeholder: t('Jamie Larson'),
+                label: t('Name'),
+                name: 'name',
+                required: true,
+                tabIndex: 1,
+                errorMessage: errors.name || ''
+            });
+        }
+
+        fields[0].autoFocus = true;
+
+        return fieldNames?.length
+            ? fields.filter(f => fieldNames.includes(f.name))
+            : fields;
+    }
+
+    getClass
