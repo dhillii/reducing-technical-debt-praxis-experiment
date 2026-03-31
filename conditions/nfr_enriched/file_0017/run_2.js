@@ -1,12 +1,30 @@
-```javascript
-import React, {useContext, useState} from 'react';
+```jsx
+import React, {useContext, useState, useEffect, useCallback, useRef} from 'react';
 import AppContext from '../../app-context';
 import ActionButton from '../common/action-button';
 import CloseButton from '../common/close-button';
 import BackButton from '../common/back-button';
 import {MultipleProductsPlansSection} from '../common/plans-section';
 import {getDateString} from '../../utils/date-time';
-import {formatNumber, getAvailablePrices, getCurrencySymbol, getFilteredPrices, getMemberActivePrice, getMemberActiveProduct, getMemberSubscription, getOfferOffAmount, getPriceFromSubscription, getProductFromId, getProductFromPrice, getSubscriptionFromId, getUpdatedOfferPrice, getUpgradeProducts, hasMultipleProductsFeature, isComplimentaryMember, isPaidMember} from '../../utils/helpers';
+import {
+    formatNumber,
+    getAvailablePrices,
+    getCurrencySymbol,
+    getFilteredPrices,
+    getMemberActivePrice,
+    getMemberActiveProduct,
+    getMemberSubscription,
+    getOfferOffAmount,
+    getPriceFromSubscription,
+    getProductFromId,
+    getProductFromPrice,
+    getSubscriptionFromId,
+    getUpdatedOfferPrice,
+    getUpgradeProducts,
+    hasMultipleProductsFeature,
+    isComplimentaryMember,
+    isPaidMember
+} from '../../utils/helpers';
 import Interpolate from '@doist/react-interpolate';
 import {t} from '../../utils/i18n';
 
@@ -52,69 +70,74 @@ export const AccountPlanPageStyles = `
     }
 `;
 
-// Constants
-const CONFIRMATION_TYPES = {
-    CHANGE_PLAN: 'changePlan',
-    CANCEL: 'cancel',
-    SUBSCRIBE: 'subscribe',
-    OFFER_RETENTION: 'offerRetention'
-};
+// ─── Constants ───────────────────────────────────────────────────────────────
 
 const CONFIRMATION_TITLES = {
-    [CONFIRMATION_TYPES.CHANGE_PLAN]: () => t('Confirm subscription'),
-    [CONFIRMATION_TYPES.CANCEL]: () => t('Cancel subscription'),
-    [CONFIRMATION_TYPES.SUBSCRIBE]: () => t('Subscribe'),
-    [CONFIRMATION_TYPES.OFFER_RETENTION]: () => 'Before you go'
+    changePlan: () => t('Confirm subscription'),
+    cancel: () => t('Cancel subscription'),
+    subscribe: () => t('Subscribe'),
+    offerRetention: () => 'Before you go'
 };
 
 const RUNNING_ACTIONS = {
-    CANCEL_SUBSCRIPTION: 'cancelSubscription:running',
-    UPDATE_SUBSCRIPTION: 'updateSubscription:running',
-    CHECKOUT_PLAN: 'checkoutPlan:running',
-    APPLY_OFFER: 'applyOffer:running'
+    update: ['updateSubscription:running', 'checkoutPlan:running', 'cancelSubscription:running'],
+    cancel: ['cancelSubscription:running']
 };
 
-// Utility functions
-const getConfirmationPageTitle = (confirmationType) => {
-    const titleFn = CONFIRMATION_TITLES[confirmationType];
-    return titleFn ? titleFn() : '';
-};
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const isActionRunning = (action, actionType) => action === actionType;
+function getConfirmationPageTitle({confirmationType}) {
+    return CONFIRMATION_TITLES[confirmationType]?.() ?? '';
+}
 
-const getOfferMessage = (offer, originalPrice, currency, amountOff) => {
-    if (offer.type === 'free_months') {
-        const months = offer.amount;
-        const monthLabel = months === 1 ? '1 month' : `${months} months`;
-        const dayLabel = months * 30;
-        return `Enjoy ${monthLabel} on us. Your next billing date will be pushed back by ${dayLabel} days.`;
+function getOfferMessage(offer, originalPrice, currency, amountOff) {
+    const {type, duration, duration_in_months: durationMonths, amount, cadence} = offer;
+
+    if (type === 'free_months') {
+        const monthLabel = amount === 1 ? '1 month' : `${amount} months`;
+        return `Enjoy ${monthLabel} on us. Your next billing date will be pushed back by ${amount * 30} days.`;
     }
 
-    if (offer.duration === 'forever') {
+    const nextCycleText = `Then ${currency}${originalPrice}/${cadence}.`;
+
+    if (duration === 'forever') {
         return `Enjoy ${amountOff} off forever.`;
     }
 
-    if (offer.duration === 'once') {
-        return `Save ${amountOff} on your next billing cycle. Then ${currency}${originalPrice}/${offer.cadence}.`;
+    if (duration === 'once' || (duration === 'repeating' && durationMonths === 1)) {
+        return `Save ${amountOff} on your next billing cycle. ${nextCycleText}`;
     }
 
-    if (offer.duration === 'repeating' && offer.duration_in_months === 1) {
-        return `Save ${amountOff} on your next billing cycle. Then ${currency}${originalPrice}/${offer.cadence}.`;
-    }
-
-    if (offer.duration === 'repeating' && offer.duration_in_months > 1) {
-        return `Save ${amountOff} on your next ${offer.duration_in_months} billing cycles. Then ${currency}${originalPrice}/${offer.cadence}.`;
+    if (duration === 'repeating' && durationMonths > 1) {
+        return `Save ${amountOff} on your next ${durationMonths} billing cycles. ${nextCycleText}`;
     }
 
     return '';
-};
+}
 
-// Components
+function useInitialPrices(member, site) {
+    const prices = getAvailablePrices({site});
+    const activePrice = getMemberActivePrice({member});
+    const filteredPrices = activePrice
+        ? getFilteredPrices({prices, currency: activePrice.currency})
+        : prices;
+
+    const selectedPrice = activePrice
+        ? filteredPrices.find(d => d.id === activePrice.id) ?? null
+        : (!isPaidMember({member}) && filteredPrices.length > 0 ? filteredPrices[0] : null);
+
+    return {
+        prices: filteredPrices,
+        selectedPriceId: selectedPrice?.id ?? null
+    };
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
 const Header = ({showConfirmation, confirmationType}) => {
     const {member} = useContext(AppContext);
-    const title = showConfirmation
-        ? getConfirmationPageTitle(confirmationType)
-        : (isPaidMember({member}) ? t('Change plan') : t('Choose a plan'));
+    const defaultTitle = isPaidMember({member}) ? t('Change plan') : t('Choose a plan');
+    const title = showConfirmation ? getConfirmationPageTitle({confirmationType}) : defaultTitle;
 
     return (
         <header className='gh-portal-detail-header'>
@@ -125,29 +148,24 @@ const Header = ({showConfirmation, confirmationType}) => {
 
 const CancelSubscriptionButton = ({member, onCancelSubscription, action, brandColor}) => {
     const {site} = useContext(AppContext);
-
-    if (!member.paid) {
-        return null;
-    }
-
     const subscription = getMemberSubscription({member});
-    if (!subscription || subscription.cancel_at_period_end) {
+
+    if (!member.paid || !subscription || subscription.cancel_at_period_end) {
         return null;
     }
 
-    const isRunning = isActionRunning(action, RUNNING_ACTIONS.CANCEL_SUBSCRIPTION);
-    const buttonClasses = hasMultipleProductsFeature({site}) ? 'gh-portal-btn-text mt2 mb4' : '';
+    const isRunning = RUNNING_ACTIONS.cancel.includes(action);
 
     return (
         <div className="gh-portal-expire-container">
             <ActionButton
-                dataTestId={'cancel-subscription'}
+                dataTestId='cancel-subscription'
                 onClick={() => onCancelSubscription({subscriptionId: subscription.id, cancelAtPeriodEnd: true})}
                 isRunning={isRunning}
                 disabled={isRunning}
-                isPrimary={false}
-                isDestructive={true}
-                classes={buttonClasses}
+                isPrimary={!!subscription.cancel_at_period_end}
+                isDestructive={!subscription.cancelAtPeriodEnd}
+                classes={hasMultipleProductsFeature({site}) ? 'gh-portal-btn-text mt2 mb4' : ''}
                 brandColor={brandColor}
                 label={t('Cancel subscription')}
                 style={{width: '100%'}}
@@ -156,65 +174,45 @@ const CancelSubscriptionButton = ({member, onCancelSubscription, action, brandCo
     );
 };
 
-const ChangePlanPriceDisplay = ({plan, subscription, member, site}) => {
-    const currentActivePlan = getMemberActivePrice({member});
-    const planStartDate = getDateString(subscription.current_period_end);
-    const planStartingMessage = currentActivePlan.id !== plan.id
-        ? t('Starting today')
-        : t('Starting {startDate}', {startDate: planStartDate});
-
-    const priceString = formatNumber(plan.price);
-    const planStartMessage = `${plan.currency_symbol}${priceString}/${t(plan.interval)} – ${planStartingMessage}`;
-    const product = getProductFromPrice({site, priceId: plan?.id});
-    const priceLabel = hasMultipleProductsFeature({site}) ? product?.name : t('Price');
-
-    return (
-        <section>
-            <div className='gh-portal-list-detail'>
-                <h3>{priceLabel}</h3>
-                <p>{planStartMessage}</p>
-            </div>
-        </section>
-    );
-};
-
-const PlanConfirmationSection = ({plan, type, onConfirm}) => {
-    const {site, action, member, brandColor} = useContext(AppContext);
-    const [reason, setReason] = useState('');
-    const subscription = getMemberSubscription({member});
-    const isRunning = [RUNNING_ACTIONS.UPDATE_SUBSCRIPTION, RUNNING_ACTIONS.CHECKOUT_PLAN, RUNNING_ACTIONS.CANCEL_SUBSCRIPTION].includes(action);
-
-    if (type === CONFIRMATION_TYPES.CHANGE_PLAN) {
-        return (
-            <div className='gh-portal-logged-out-form-container'>
-                <div className='gh-portal-list mb6'>
-                    <section>
-                        <div className='gh-portal-list-detail'>
-                            <h3>{t('Account')}</h3>
-                            <p>{member.email}</p>
-                        </div>
-                    </section>
-                    <ChangePlanPriceDisplay {...{plan, subscription, member, site}} />
+const ChangePlanConfirmation = ({plan, onConfirm, isRunning, member, brandColor, priceLabel, planStartMessage}) => (
+    <div className='gh-portal-logged-out-form-container'>
+        <div className='gh-portal-list mb6'>
+            <section>
+                <div className='gh-portal-list-detail'>
+                    <h3>{t('Account')}</h3>
+                    <p>{member.email}</p>
                 </div>
-                <ActionButton
-                    dataTestId={'confirm-action'}
-                    onClick={e => onConfirm(e, plan)}
-                    isRunning={isRunning}
-                    isPrimary={true}
-                    brandColor={brandColor}
-                    label={t('Confirm')}
-                    style={{width: '100%', height: '40px'}}
-                />
-            </div>
-        );
-    }
+            </section>
+            <section>
+                <div className='gh-portal-list-detail'>
+                    <h3>{priceLabel}</h3>
+                    <p>{planStartMessage}</p>
+                </div>
+            </section>
+        </div>
+        <ActionButton
+            dataTestId='confirm-action'
+            onClick={e => onConfirm(e, plan)}
+            isRunning={isRunning}
+            isPrimary={true}
+            brandColor={brandColor}
+            label={t('Confirm')}
+            style={{width: '100%', height: '40px'}}
+        />
+    </div>
+);
+
+const CancelConfirmation = ({subscription, onConfirm, isRunning, brandColor}) => {
+    const [reason, setReason] = useState('');
 
     return (
         <div className="gh-portal-logged-out-form-container gh-portal-cancellation-form">
             <p>
                 <Interpolate
-                    string={t(`If you cancel your subscription now, you will continue to have access until {periodEnd}.`)}
-                    mapping={{periodEnd: <strong>{getDateString(subscription.current_period_end)}</strong>}}
+                    string={t('If you cancel your subscription now, you will continue to have access until {periodEnd}.')}
+                    mapping={{
+                        periodEnd: <strong>{getDateString(subscription.current_period_end)}</strong>
+                    }}
                 />
             </p>
             <section className='gh-portal-input-section'>
@@ -236,7 +234,7 @@ const PlanConfirmationSection = ({plan, type, onConfirm}) => {
                 />
             </section>
             <ActionButton
-                dataTestId={'confirm-cancel-subscription'}
+                dataTestId='confirm-cancel-subscription'
                 onClick={e => onConfirm(e, reason)}
                 isRunning={isRunning}
                 isPrimary={true}
@@ -247,6 +245,63 @@ const PlanConfirmationSection = ({plan, type, onConfirm}) => {
         </div>
     );
 };
+
+const PlanConfirmationSection = ({plan, type, onConfirm}) => {
+    const {site, action, member, brandColor} = useContext(AppContext);
+    const subscription = getMemberSubscription({member});
+    const isRunning = RUNNING_ACTIONS.update.includes(action);
+
+    if (type === 'changePlan') {
+        const planStartDate = getDateString(subscription.current_period_end);
+        const currentActivePlan = getMemberActivePrice({member});
+        const planStartingMessage = currentActivePlan.id !== plan.id ? t('Starting today') : t('Starting {startDate}', {startDate: planStartDate});
+        const priceString = formatNumber(plan.price);
+        const planStartMessage = `${plan.currency_symbol}${priceString}/${t(plan.interval)} – ${planStartingMessage}`;
+        const product = getProductFromPrice({site, priceId: plan?.id});
+        const priceLabel = hasMultipleProductsFeature({site}) ? product?.name : t('Price');
+
+        return (
+            <ChangePlanConfirmation
+                plan={plan}
+                onConfirm={onConfirm}
+                isRunning={isRunning}
+                member={member}
+                brandColor={brandColor}
+                priceLabel={priceLabel}
+                planStartMessage={planStartMessage}
+            />
+        );
+    }
+
+    return (
+        <CancelConfirmation
+            subscription={subscription}
+            onConfirm={onConfirm}
+            isRunning={isRunning}
+            brandColor={brandColor}
+        />
+    );
+};
+
+function PlansOrProductSection({selectedPlan, onPlanSelect, onPlanCheckout, changePlan = false}) {
+    const {site, member} = useContext(AppContext);
+    const products = getUpgradeProducts({site, member});
+    const isComplimentary = isComplimentaryMember({member});
+    const activeProduct = getMemberActiveProduct({member, site});
+    const displayProducts = products.length > 0 || isComplimentary || !activeProduct
+        ? products
+        : [activeProduct];
+
+    return (
+        <MultipleProductsPlansSection
+            products={displayProducts}
+            selectedPlan={selectedPlan}
+            changePlan={changePlan}
+            onPlanSelect={onPlanSelect}
+            onPlanCheckout={onPlanCheckout}
+        />
+    );
+}
 
 const ChangePlanSection = ({plans, selectedPlan, onPlanSelect, onCancelSubscription}) => {
     const {member, action, brandColor} = useContext(AppContext);
@@ -264,95 +319,6 @@ const ChangePlanSection = ({plans, selectedPlan, onPlanSelect, onCancelSubscript
             </div>
             <CancelSubscriptionButton {...{member, onCancelSubscription, action, brandColor}} />
         </section>
-    );
-};
-
-const PlansOrProductSection = ({selectedPlan, onPlanSelect, onPlanCheckout, changePlan = false}) => {
-    const {site, member} = useContext(AppContext);
-    const products = getUpgradeProducts({site, member});
-    const isComplimentary = isComplimentaryMember({member});
-    const activeProduct = getMemberActiveProduct({member, site});
-
-    return (
-        <MultipleProductsPlansSection
-            products={products.length > 0 || isComplimentary || !activeProduct ? products : [activeProduct]}
-            selectedPlan={selectedPlan}
-            changePlan={changePlan}
-            onPlanSelect={onPlanSelect}
-            onPlanCheckout={onPlanCheckout}
-        />
-    );
-};
-
-const OfferPriceDisplay = ({offer, price, currency, originalPrice, discountedPrice}) => {
-    if (offer.type === 'free_months') {
-        return null;
-    }
-
-    return (
-        <div className="gh-portal-retention-offer-price">
-            <div className="gh-portal-product-price">
-                <span className="currency-sign">{currency}</span>
-                <span className="amount">{discountedPrice}</span>
-            </div>
-            <div className="gh-portal-offer-oldprice">
-                {currency}{originalPrice}
-            </div>
-        </div>
-    );
-};
-
-const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineOffer}) => {
-    const {brandColor, action} = useContext(AppContext);
-    const isAcceptingOffer = isActionRunning(action, RUNNING_ACTIONS.APPLY_OFFER);
-
-    const originalPrice = formatNumber(price.amount / 100);
-    const currency = getCurrencySymbol(price.currency);
-    const discountedPrice = formatNumber(getUpdatedOfferPrice({offer, price}));
-    const amountOff = getOfferOffAmount({offer});
-    const discountText = offer.type === 'free_months' ? `${amountOff} free` : `${amountOff} off`;
-    const offerMessage = getOfferMessage(offer, originalPrice, currency, amountOff);
-
-    return (
-        <div className="gh-portal-logged-out-form-container gh-portal-offer gh-portal-retention-offer">
-            <p className="gh-portal-text-center">
-                {'We\'d hate to see you go! How about a special offer to stay?'}
-            </p>
-
-            <div className="gh-portal-offer-bar">
-                <div className="gh-portal-offer-title">
-                    <h4>{product.name} - {offer.cadence === 'month' ? 'Monthly' : 'Yearly'}</h4>
-                    <h5 className="gh-portal-discount-label">{discountText}</h5>
-                </div>
-
-                <div className="gh-portal-offer-details">
-                    <OfferPriceDisplay {...{offer, price, currency, originalPrice, discountedPrice}} />
-                    <p className="footnote">{offerMessage}</p>
-                </div>
-
-                <ActionButton
-                    dataTestId={'accept-retention-offer'}
-                    onClick={onAcceptOffer}
-                    isRunning={isAcceptingOffer}
-                    disabled={isAcceptingOffer}
-                    isPrimary={true}
-                    brandColor={brandColor}
-                    label="Accept offer"
-                    style={{width: '100%', height: '40px', marginTop: '28px'}}
-                />
-            </div>
-
-            <ActionButton
-                dataTestId={'decline-retention-offer'}
-                onClick={onDeclineOffer}
-                isPrimary={false}
-                isDestructive={true}
-                classes={'gh-portal-btn-text'}
-                brandColor={brandColor}
-                label="No thanks, I want to cancel"
-                style={{width: '100%', marginTop: '32px', marginBottom: '24px'}}
-            />
-        </div>
     );
 };
 
@@ -374,12 +340,65 @@ const UpgradePlanSection = ({plans, selectedPlan, onPlanSelect, onPlanCheckout})
     );
 };
 
-const PlansContainer = ({
-    plans, selectedPlan, confirmationPlan, confirmationType, showConfirmation = false,
-    pendingOffer, onPlanSelect, onPlanCheckout, onConfirm, onCancelSubscription,
-    onAcceptRetentionOffer, onDeclineRetentionOffer
-}) => {
-    const {member, site} = useContext(AppContext);
+const RetentionOfferPriceDisplay = ({offer, currency, discountedPrice, originalPrice}) => {
+    if (offer.type === 'free_months') {
+        return null;
+    }
 
-    // Upgrade flow for free or complimentary members
-    if (!isPaidMember({member
+    return (
+        <div className="gh-portal-retention-offer-price">
+            <div className="gh-portal-product-price">
+                <span className="currency-sign">{currency}</span>
+                <span className="amount">{discountedPrice}</span>
+            </div>
+            <div className="gh-portal-offer-oldprice">
+                {currency}{originalPrice}
+            </div>
+        </div>
+    );
+};
+
+const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineOffer}) => {
+    const {brandColor, action} = useContext(AppContext);
+    const isAcceptingOffer = action === 'applyOffer:running';
+
+    const originalPrice = formatNumber(price.amount / 100);
+    const currency = getCurrencySymbol(price.currency);
+    const discountedPrice = formatNumber(getUpdatedOfferPrice({offer, price}));
+    const amountOff = getOfferOffAmount({offer});
+    const discountText = offer.type === 'free_months' ? `${amountOff} free` : `${amountOff} off`;
+    const offerMessage = getOfferMessage(offer, originalPrice, currency, amountOff);
+    const cadenceLabel = offer.cadence === 'month' ? 'Monthly' : 'Yearly';
+
+    return (
+        <div className="gh-portal-logged-out-form-container gh-portal-offer gh-portal-retention-offer">
+            <p className="gh-portal-text-center">
+                {'We\'d hate to see you go! How about a special offer to stay?'}
+            </p>
+            <div className="gh-portal-offer-bar">
+                <div className="gh-portal-offer-title">
+                    <h4>{product.name} - {cadenceLabel}</h4>
+                    <h5 className="gh-portal-discount-label">{discountText}</h5>
+                </div>
+                <div className="gh-portal-offer-details">
+                    <RetentionOfferPriceDisplay
+                        offer={offer}
+                        currency={currency}
+                        discountedPrice={discountedPrice}
+                        originalPrice={originalPrice}
+                    />
+                    <p className="footnote">{offerMessage}</p>
+                </div>
+                <ActionButton
+                    dataTestId='accept-retention-offer'
+                    onClick={onAcceptOffer}
+                    isRunning={isAcceptingOffer}
+                    disabled={isAcceptingOffer}
+                    isPrimary={true}
+                    brandColor={brandColor}
+                    label="Accept offer"
+                    style={{width: '100%', height: '40px', marginTop: '28px'}}
+                />
+            </div>
+            <ActionButton
+                dataTestId='decline-retention
