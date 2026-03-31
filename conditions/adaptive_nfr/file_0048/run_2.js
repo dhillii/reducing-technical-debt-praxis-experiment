@@ -8,134 +8,174 @@ const TierCreatedEvent = require('./tier-created-event');
 const TierNameChangeEvent = require('./tier-name-change-event');
 const TierPriceChangeEvent = require('./tier-price-change-event');
 
-const VALIDATION_RULES = {
-    slug: {maxLength: 191, required: true},
-    name: {maxLength: 191, required: true},
-    description: {maxLength: 191, required: false},
-    welcomePageURL: {required: false},
-    status: {enum: ['active', 'archived'], default: 'active'},
-    visibility: {enum: ['public', 'none'], default: 'public'},
-    type: {enum: ['paid', 'free'], default: 'paid'},
-    currency: {length: 3, required: false},
-    trialDays: {min: 0, required: false},
-    monthlyPrice: {min: 0, max: 9999999999, default: 500},
-    yearlyPrice: {min: 0, max: 9999999999, default: 5000},
-    benefits: {required: false}
-};
+// --- Validation Helpers ---
 
-const EVENT_MAP = {
-    active: TierActivatedEvent,
-    archived: TierArchivedEvent
-};
+function validationError(message) {
+    return new ValidationError({message});
+}
 
-class Validator {
-    static validateString(value, {maxLength, required = false} = {}) {
-        if (!value && !required) {
-            return null;
-        }
-        if (typeof value !== 'string') {
-            throw new ValidationError({message: 'Value must be a string'});
-        }
-        if (maxLength && value.length > maxLength) {
-            throw new ValidationError({message: `Value must not exceed ${maxLength} characters`});
-        }
+function validateEnum(value, allowed, label) {
+    if (!allowed.includes(value)) {
+        throw validationError(`Tier ${label} must be either ${allowed.map(v => `"${v}"`).join(' or ')}`);
+    }
+    return value;
+}
+
+function validateMaxLengthString(value, label, maxLength = 191, allowNull = false) {
+    if (allowNull && !value) {
+        return null;
+    }
+    if (typeof value !== 'string') {
+        throw validationError(`Tier ${label} must be a string with a maximum of ${maxLength} characters`);
+    }
+    if (value.length > maxLength) {
+        throw validationError(`Tier ${label} must be a string with a maximum of ${maxLength} characters`);
+    }
+    return value;
+}
+
+function validateSlug(value) {
+    if (!value || typeof value !== 'string' || value.length > 191) {
+        throw validationError('Tier slug must be a string with a maximum of 191 characters');
+    }
+    return value;
+}
+
+function validateName(value) {
+    return validateMaxLengthString(value, 'name');
+}
+
+function validateDescription(value) {
+    return validateMaxLengthString(value, 'description', 191, true);
+}
+
+function validateWelcomePageURL(value) {
+    if (!value) {
+        return null;
+    }
+    if (typeof value === 'string') {
         return value;
     }
+    throw validationError('Tier Welcome Page URL must be a string');
+}
 
-    static validateEnum(value, enumValues, {default: defaultValue} = {}) {
-        if (!value && defaultValue !== undefined) {
-            return defaultValue;
-        }
-        if (!enumValues.includes(value)) {
-            throw new ValidationError({message: `Value must be one of: ${enumValues.join(', ')}`});
-        }
-        return value;
-    }
+function validateStatus(value) {
+    return validateEnum(value, ['active', 'archived'], 'status');
+}
 
-    static validateNumber(value, {min, max, default: defaultValue} = {}) {
-        if (!value && defaultValue !== undefined) {
-            return defaultValue;
-        }
-        if (!Number.isSafeInteger(value)) {
-            throw new ValidationError({message: 'Value must be an integer'});
-        }
-        if (min !== undefined && value < min) {
-            throw new ValidationError({message: `Value must be at least ${min}`});
-        }
-        if (max !== undefined && value > max) {
-            throw new ValidationError({message: `Value must not exceed ${max}`});
-        }
-        return value;
-    }
+function validateVisibility(value) {
+    return validateEnum(value, ['public', 'none'], 'visibility');
+}
 
-    static validateArray(value, itemType = 'string') {
-        if (!value) {
-            return [];
-        }
-        if (!Array.isArray(value) || !value.every(item => typeof item === itemType)) {
-            throw new ValidationError({message: `Value must be an array of ${itemType}s`});
-        }
-        return value;
-    }
+function validateType(value) {
+    return validateEnum(value, ['paid', 'free'], 'type');
+}
 
-    static validateDate(value, {required = false} = {}) {
-        if (!value && !required) {
-            return null;
-        }
-        if (!(value instanceof Date)) {
-            throw new ValidationError({message: 'Value must be a date'});
-        }
-        return value;
-    }
-
-    static validateObjectID(value) {
-        if (!value) {
-            return new ObjectID();
-        }
-        if (typeof value === 'string') {
-            return ObjectID.createFromHexString(value);
-        }
-        if (value instanceof ObjectID) {
-            return value;
-        }
-        throw new ValidationError({message: 'Invalid ID provided for Tier'});
-    }
-
-    static validateCurrency(value, type) {
-        if (type === 'free') {
-            if (value !== null) {
-                throw new ValidationError({message: 'Free Tiers cannot have a currency'});
-            }
-            return null;
-        }
-        const validated = this.validateString(value, {required: true});
-        if (validated.length !== 3) {
-            throw new ValidationError({message: 'Tier currency must be a 3 letter ISO currency code'});
-        }
-        return validated.toUpperCase();
-    }
-
-    static validatePrice(value, type, priceType) {
-        if (type === 'free') {
-            if (value !== null) {
-                throw new ValidationError({message: `Free Tiers cannot have a ${priceType} price`});
-            }
-            return null;
-        }
-        const defaultPrice = priceType === 'monthly' ? 500 : 5000;
-        return this.validateNumber(value, {min: 0, max: 9999999999, default: defaultPrice});
-    }
-
-    static validateTrialDays(value, type) {
-        if (type === 'free') {
-            if (value) {
-                throw new ValidationError({message: 'Free Tiers cannot have a trial'});
-            }
-            return 0;
-        }
-        return this.validateNumber(value, {min: 0, default: 0});
+function validateFreeTypeField(value, fieldName) {
+    if (value !== null && value !== 0 && value) {
+        throw validationError(`Free Tiers cannot have a ${fieldName}`);
     }
 }
+
+function validateTrialDays(value, type) {
+    if (type === 'free') {
+        validateFreeTypeField(value, 'trial');
+        return 0;
+    }
+    if (!value) {
+        return 0;
+    }
+    if (!Number.isSafeInteger(value) || value < 0) {
+        throw validationError('Tier trials must be an integer greater than 0');
+    }
+    return value;
+}
+
+function validateCurrency(value, type) {
+    if (type === 'free') {
+        if (value !== null) {
+            throw validationError('Free Tiers cannot have a currency');
+        }
+        return null;
+    }
+    if (typeof value !== 'string' || value.length !== 3) {
+        throw validationError('Tier currency must be a 3 letter ISO currency code');
+    }
+    return value.toUpperCase();
+}
+
+function validatePrice(value, type, fieldName, defaultValue) {
+    if (type === 'free') {
+        if (value !== null) {
+            throw validationError(`Free Tiers cannot have a ${fieldName}`);
+        }
+        return null;
+    }
+    if (!value) {
+        return defaultValue;
+    }
+    if (!Number.isSafeInteger(value)) {
+        throw validationError('Tier prices must be an integer.');
+    }
+    if (value < 0) {
+        throw validationError('Tier prices must not be negative');
+    }
+    if (value > 9999999999) {
+        throw validationError('Tier prices may not exceed 999999.99');
+    }
+    return value;
+}
+
+function validateMonthlyPrice(value, type) {
+    return validatePrice(value, type, 'monthly price', 500);
+}
+
+function validateYearlyPrice(value, type) {
+    return validatePrice(value, type, 'yearly price', 5000);
+}
+
+function validateDate(value, fieldName, defaultValue = null) {
+    if (!value) {
+        return defaultValue;
+    }
+    if (value instanceof Date) {
+        return value;
+    }
+    throw validationError(`Tier ${fieldName} must be a date`);
+}
+
+function validateCreatedAt(value) {
+    return validateDate(value, 'created_at', new Date());
+}
+
+function validateUpdatedAt(value) {
+    return validateDate(value, 'updated_at', null);
+}
+
+function validateBenefits(value) {
+    if (!value) {
+        return [];
+    }
+    if (!Array.isArray(value) || !value.every(item => typeof item === 'string')) {
+        throw validationError('Tier benefits must be a list of strings');
+    }
+    return value;
+}
+
+function resolveObjectID(id) {
+    if (!id) {
+        return {id: new ObjectID(), isNew: true};
+    }
+    if (typeof id === 'string') {
+        return {id: ObjectID.createFromHexString(id), isNew: false};
+    }
+    if (id instanceof ObjectID) {
+        return {id, isNew: false};
+    }
+    throw validationError('Invalid ID provided for Tier');
+}
+
+// --- Tier Class ---
 
 module.exports = class Tier {
     /** @type {BaseEvent[]} */
@@ -157,20 +197,23 @@ module.exports = class Tier {
     #createdAt;
     #updatedAt;
 
-    get id() {
-        return this.#id;
-    }
+    get id() { return this.#id; }
+    get slug() { return this.#slug; }
+    get benefits() { return this.#benefits; }
+    get description() { return this.#description; }
+    get welcomePageURL() { return this.#welcomePageURL; }
+    get visibility() { return this.#visibility; }
+    get type() { return this.#type; }
+    get trialDays() { return this.#trialDays; }
+    get currency() { return this.#currency; }
+    get monthlyPrice() { return this.#monthlyPrice; }
+    get yearlyPrice() { return this.#yearlyPrice; }
+    get createdAt() { return this.#createdAt; }
+    get updatedAt() { return this.#updatedAt; }
 
-    get slug() {
-        return this.#slug;
-    }
-
-    get name() {
-        return this.#name;
-    }
-
+    get name() { return this.#name; }
     set name(value) {
-        const newName = Validator.validateString(value, {maxLength: 191, required: true});
+        const newName = validateName(value);
         if (newName === this.#name) {
             return;
         }
@@ -178,120 +221,60 @@ module.exports = class Tier {
         this.#name = newName;
     }
 
-    get benefits() {
-        return this.#benefits;
-    }
-
-    set benefits(value) {
-        this.#benefits = Validator.validateArray(value, 'string');
-    }
-
-    get description() {
-        return this.#description;
-    }
-
-    set description(value) {
-        this.#description = Validator.validateString(value, {maxLength: 191});
-    }
-
-    get welcomePageURL() {
-        return this.#welcomePageURL;
-    }
-
-    set welcomePageURL(value) {
-        this.#welcomePageURL = Validator.validateString(value);
-    }
-
-    get status() {
-        return this.#status;
-    }
-
+    get status() { return this.#status; }
     set status(value) {
-        const newStatus = Validator.validateEnum(value, ['active', 'archived']);
+        const newStatus = validateStatus(value);
         if (newStatus === this.#status) {
             return;
         }
-        const EventClass = EVENT_MAP[newStatus];
-        this.events.push(EventClass.create({tier: this}));
+        const event = newStatus === 'active'
+            ? TierActivatedEvent.create({tier: this})
+            : TierArchivedEvent.create({tier: this});
+        this.events.push(event);
         this.#status = newStatus;
     }
 
-    get visibility() {
-        return this.#visibility;
-    }
+    set benefits(value) { this.#benefits = validateBenefits(value); }
+    set description(value) { this.#description = validateDescription(value); }
+    set welcomePageURL(value) { this.#welcomePageURL = validateWelcomePageURL(value); }
+    set visibility(value) { this.#visibility = validateVisibility(value); }
+    set trialDays(value) { this.#trialDays = validateTrialDays(value, this.#type); }
+    set currency(value) { this.#currency = validateCurrency(value, this.#type); }
+    set monthlyPrice(value) { this.#monthlyPrice = validateMonthlyPrice(value, this.#type); }
+    set yearlyPrice(value) { this.#yearlyPrice = validateYearlyPrice(value, this.#type); }
 
-    set visibility(value) {
-        this.#visibility = Validator.validateEnum(value, ['public', 'none']);
-    }
-
-    get type() {
-        return this.#type;
-    }
-
-    get trialDays() {
-        return this.#trialDays;
-    }
-
-    set trialDays(value) {
-        this.#trialDays = Validator.validateTrialDays(value, this.#type);
-    }
-
-    get currency() {
-        return this.#currency;
-    }
-
-    set currency(value) {
-        this.#currency = Validator.validateCurrency(value, this.#type);
-    }
-
-    get monthlyPrice() {
-        return this.#monthlyPrice;
-    }
-
-    set monthlyPrice(value) {
-        this.#monthlyPrice = Validator.validatePrice(value, this.#type, 'monthly');
-    }
-
-    get yearlyPrice() {
-        return this.#yearlyPrice;
-    }
-
-    set yearlyPrice(value) {
-        this.#yearlyPrice = Validator.validatePrice(value, this.#type, 'yearly');
-    }
-
-    get createdAt() {
-        return this.#createdAt;
-    }
-
-    get updatedAt() {
-        return this.#updatedAt;
-    }
-
+    /**
+     * @param {'month'|'year'} cadence
+     */
     getPrice(cadence) {
         const priceMap = {month: this.monthlyPrice, year: this.yearlyPrice};
-        if (!(cadence in priceMap)) {
-            throw new ValidationError({message: 'Invalid cadence'});
+        if (cadence in priceMap) {
+            return priceMap[cadence];
         }
-        return priceMap[cadence];
+        throw validationError('Invalid cadence');
     }
 
     updatePricing({currency, monthlyPrice, yearlyPrice}) {
         if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
-            throw new ValidationError({message: 'Cannot set pricing for free tiers'});
+            throw validationError('Cannot set pricing for free tiers');
         }
 
-        const newCurrency = Validator.validateCurrency(currency, this.#type);
-        const newMonthlyPrice = Validator.validatePrice(monthlyPrice, this.#type, 'monthly');
-        const newYearlyPrice = Validator.validatePrice(yearlyPrice, this.#type, 'yearly');
+        const newCurrency = validateCurrency(currency, this.#type);
+        const newMonthlyPrice = validateMonthlyPrice(monthlyPrice, this.#type);
+        const newYearlyPrice = validateYearlyPrice(yearlyPrice, this.#type);
 
-        if (newCurrency === this.#currency && newMonthlyPrice === this.#monthlyPrice && newYearlyPrice === this.#yearlyPrice) {
+        const unchanged = newCurrency === this.#currency
+            && newMonthlyPrice === this.#monthlyPrice
+            && newYearlyPrice === this.#yearlyPrice;
+
+        if (unchanged) {
             return;
         }
 
         this.#currency = newCurrency;
         this.#monthlyPrice = newMonthlyPrice;
         this.#yearlyPrice = newYearlyPrice;
+
         this.events.push(TierPriceChangeEvent.create({tier: this}));
     }
 
@@ -315,6 +298,7 @@ module.exports = class Tier {
         };
     }
 
+    /** @private */
     constructor(data) {
         this.#id = data.id;
         this.#slug = data.slug;
@@ -333,30 +317,33 @@ module.exports = class Tier {
         this.#benefits = data.benefits;
     }
 
+    /**
+     * @param {any} data
+     * @returns {Promise<Tier>}
+     */
     static async create(data) {
-        const id = Validator.validateObjectID(data.id);
-        const isNew = !data.id;
+        const {id, isNew} = resolveObjectID(data.id);
+        const type = validateType(data.type || 'paid');
 
-        const validatedData = {
+        const tierData = {
             id,
-            slug: Validator.validateString(data.slug, {maxLength: 191, required: true}),
-            name: Validator.validateString(data.name, {maxLength: 191, required: true}),
-            description: Validator.validateString(data.description, {maxLength: 191}),
-            welcome_page_url: Validator.validateString(data.welcomePageURL),
-            status: Validator.validateEnum(data.status || 'active', ['active', 'archived']),
-            visibility: Validator.validateEnum(data.visibility || 'public', ['public', 'none']),
-            type: Validator.validateEnum(data.type || 'paid', ['paid', 'free']),
-            trial_days: Validator.validateTrialDays(data.trialDays || 0, data.type || 'paid'),
-            benefits: Validator.validateArray(data.benefits, 'string'),
-            created_at: Validator.validateDate(data.createdAt, {required: true}),
-            updated_at: Validator.validateDate(data.updatedAt)
+            slug: validateSlug(data.slug),
+            name: validateName(data.name),
+            description: validateDescription(data.description),
+            welcome_page_url: validateWelcomePageURL(data.welcomePageURL),
+            status: validateStatus(data.status || 'active'),
+            visibility: validateVisibility(data.visibility || 'public'),
+            type,
+            trial_days: validateTrialDays(data.trialDays || 0, type),
+            currency: validateCurrency(data.currency || null, type),
+            monthly_price: validateMonthlyPrice(data.monthlyPrice || null, type),
+            yearly_price: validateYearlyPrice(data.yearlyPrice || null, type),
+            created_at: validateCreatedAt(data.createdAt),
+            updated_at: validateUpdatedAt(data.updatedAt),
+            benefits: validateBenefits(data.benefits)
         };
 
-        validatedData.currency = Validator.validateCurrency(data.currency || null, validatedData.type);
-        validatedData.monthly_price = Validator.validatePrice(data.monthlyPrice || null, validatedData.type, 'monthly');
-        validatedData.yearly_price = Validator.validatePrice(data.yearlyPrice || null, validatedData.type, 'yearly');
-
-        const tier = new Tier(validatedData);
+        const tier = new Tier(tierData);
 
         if (isNew) {
             tier.events.push(TierCreatedEvent.create({tier}));
