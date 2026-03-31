@@ -1,4 +1,4 @@
-```javascript
+```jsx
 import React from 'react';
 import ActionButton from '../common/action-button';
 import AppContext from '../../app-context';
@@ -350,6 +350,10 @@ html[dir=rtl] .gh-portal-signup-terms .checkbox:before {
     text-decoration: none;
 }
 
+@media (min-width: 480px) {
+
+}
+
 @media (max-width: 480px) {
     .gh-portal-signup-logo {
         width: 48px;
@@ -373,18 +377,18 @@ const INITIAL_STATE = {
     termsCheckboxChecked: false
 };
 
+const SUBMIT_BUTTON_LABELS = {
+    default: 'Continue',
+    freeOnly: 'Sign up',
+    running: 'Sending...',
+    failed: 'Retry'
+};
+
 const NOTIFICATION_MESSAGES = {
-    INVITE_ONLY: t('This site is invite-only, contact the owner for access.'),
-    PAID_MEMBERS_ONLY: t('This site only accepts paid members.'),
-    MEMBERS_DISABLED: t('Memberships unavailable, contact the owner for access.'),
-    ALREADY_MEMBER: t('Already a member?'),
-    SIGN_IN: t('Sign in'),
-    CONTINUE: t('Continue'),
-    SIGN_UP: t('Sign up'),
-    SENDING: t('Sending...'),
-    RETRY: t('Retry'),
-    FREE_TRIAL_MESSAGE: t('After a free trial ends, you will be charged the regular price for the tier you\'ve chosen. You can always cancel before then.'),
-    FILL_REQUIRED_FIELDS: t('Please fill in required fields')
+    inviteOnly: 'This site is invite-only, contact the owner for access.',
+    paidMembersOnly: 'This site only accepts paid members.',
+    membersDisabled: 'Memberships unavailable, contact the owner for access.',
+    freeTrial: "After a free trial ends, you will be charged the regular price for the tier you've chosen. You can always cancel before then."
 };
 
 class SignupPage extends React.Component {
@@ -394,7 +398,6 @@ class SignupPage extends React.Component {
         super(props);
         this.state = {...INITIAL_STATE};
         this.termsRef = React.createRef();
-        this.timeoutId = null;
     }
 
     componentDidMount() {
@@ -402,20 +405,18 @@ class SignupPage extends React.Component {
         if (member) {
             this.context.doAction('switchPage', {page: 'accountHome'});
         }
-        this.syncSelectedPlan();
+        this.handleSelectedPlan();
     }
 
     componentDidUpdate() {
-        this.syncSelectedPlan();
+        this.handleSelectedPlan();
     }
 
     componentWillUnmount() {
-        if (this.timeoutId) {
-            clearTimeout(this.timeoutId);
-        }
+        clearTimeout(this.timeoutId);
     }
 
-    syncSelectedPlan() {
+    handleSelectedPlan() {
         const {site, pageQuery} = this.context;
         const prices = getSitePrices({site, pageQuery});
         const selectedPriceId = this.getSelectedPriceId(prices, this.state.plan);
@@ -431,28 +432,27 @@ class SignupPage extends React.Component {
         }
 
         const hasSelectedPlan = prices.some(p => p.id === selectedPriceId);
-        return hasSelectedPlan ? selectedPriceId : (prices[0]?.id || 'free');
+        return hasSelectedPlan ? selectedPriceId : (prices[0].id || 'free');
     }
 
     getFormErrors(state) {
         const {site} = this.context;
         const checkboxRequired = site.portal_signup_checkbox_required && site.portal_signup_terms_html;
-        const checkboxError = checkboxRequired && !state.termsCheckboxChecked;
 
         return {
             ...ValidateInputForm({fields: this.getInputFields({state})}),
-            checkbox: checkboxError
+            checkbox: checkboxRequired && !state.termsCheckboxChecked
         };
     }
 
-    getInputFields({state, fieldNames}) {
+    getInputFields({state, fieldNames} = {}) {
         const {site: {portal_name: portalName}} = this.context;
-        const errors = state.errors || {};
+        const errors = state?.errors || {};
 
-        const fields = [
+        const baseFields = [
             {
                 type: 'email',
-                value: state.email,
+                value: state?.email,
                 placeholder: t('jamie@example.com'),
                 label: t('Email'),
                 name: 'email',
@@ -462,7 +462,7 @@ class SignupPage extends React.Component {
             },
             {
                 type: 'text',
-                value: state.phonenumber,
+                value: state?.phonenumber,
                 placeholder: t('+1 (123) 456-7890'),
                 label: t('Phone number'),
                 name: 'phonenumber',
@@ -474,9 +474,9 @@ class SignupPage extends React.Component {
         ];
 
         if (portalName) {
-            fields.unshift({
+            baseFields.unshift({
                 type: 'text',
-                value: state.name,
+                value: state?.name,
                 placeholder: t('Jamie Larson'),
                 label: t('Name'),
                 name: 'name',
@@ -486,6 +486,13 @@ class SignupPage extends React.Component {
             });
         }
 
-        fields[0].autoFocus = true;
+        baseFields[0].autoFocus = true;
 
-        return field
+        return fieldNames?.length
+            ? baseFields.filter(f => fieldNames.includes(f.name))
+            : baseFields;
+    }
+
+    getClassNames() {
+        const {site, pageQuery} = this.context;
+        const plansData = getSitePrices({
