@@ -2,31 +2,60 @@
 const nql = require('@tryghost/nql');
 const logging = require('@tryghost/logging');
 
+const POST_STATUS_MAP = {
+    draft: 'draft',
+    scheduled: 'scheduled',
+    sent: 'emailed only'
+};
+
+const VISIBILITY_MAP = {
+    public: 'Public',
+    members: 'Members-only',
+    paid: 'Paid members-only'
+};
+
+const STATUS_FILTER_MAP = {
+    free: 'Free subscribers',
+    paid: 'Paid subscribers',
+    comped: 'Complimentary subscribers'
+};
+
+const STATUS_NEGATION_MAP = {
+    free: 'Paid subscribers',
+    paid: 'Free subscribers'
+};
+
+const DEFAULT_POST_FILTER = 'status:published,status:sent';
+
+const POST_RELATIONS = [
+    'tiers',
+    'tags',
+    'authors',
+    'count.signups',
+    'count.paid_conversions',
+    'count.clicks',
+    'count.positive_feedback',
+    'count.negative_feedback',
+    'email'
+];
+
 class PostsExporter {
     #models;
     #getPostUrl;
     #settingsCache;
     #settingsHelpers;
 
-    #statusMap = {
-        draft: 'draft',
-        scheduled: 'scheduled',
-        sent: 'emailed only',
-        published: 'published'
-    };
-
-    #visibilityMap = {
-        public: 'Public',
-        members: 'Members-only',
-        paid: 'Paid members-only'
-    };
-
-    #filterKeyHandlers = {
-        label: (filter, allLabels) => this.#handleLabelFilter(filter, allLabels),
-        tier: (filter, allTiers) => this.#handleTierFilter(filter, allTiers),
-        status: (filter) => this.#handleStatusFilter(filter)
-    };
-
+    /**
+     * @param {Object} dependencies
+     * @param {Object} dependencies.models
+     * @param {Object} dependencies.models.Post
+     * @param {Object} dependencies.models.Newsletter
+     * @param {Object} dependencies.models.Label
+     * @param {Object} dependencies.models.Product
+     * @param {Function} dependencies.getPostUrl
+     * @param {Object} dependencies.settingsCache
+     * @param {Object} dependencies.settingsHelpers
+     */
     constructor({models, getPostUrl, settingsCache, settingsHelpers}) {
         this.#models = models;
         this.#getPostUrl = getPostUrl;
@@ -34,186 +63,167 @@ class PostsExporter {
         this.#settingsHelpers = settingsHelpers;
     }
 
+    /**
+     * @param {object} options
+     * @param {string} [options.filter]
+     * @param {string} [options.order]
+     * @param {string|number} [options.limit]
+     */
     async export({filter, order, limit}) {
-        const posts = await this.#models.Post.findPage({
-            filter: filter ?? 'status:published,status:sent',
-            order,
-            limit,
-            withRelated: [
-                'tiers',
-                'tags',
-                'authors',
-                'count.signups',
-                'count.paid_conversions',
-                'count.clicks',
-                'count.positive_feedback',
-                'count.negative_feedback',
-                'email'
-            ]
-        });
-
-        const [newsletters, labels, tiers] = await Promise.all([
-            this.#models.Newsletter.findAll(),
-            this.#models.Label.findAll(),
-            this.#models.Product.findAll()
+        const [posts, newsletters, labels, tiers] = await Promise.all([
+            this.#models.Post.findPage({
+                filter: filter ?? DEFAULT_POST_FILTER,
+                order,
+                limit,
+                withRelated: POST_RELATIONS
+            }),
+            this.#models.Newsletter.findAll().then(r => r.models),
+            this.#models.Label.findAll().then(r => r.models),
+            this.#models.Product.findAll().then(r => r.models)
         ]);
 
-        const settings = this.#buildSettings(newsletters.models);
-        const mapped = posts.data.map(post => this.#mapPost(post, newsletters.models, labels.models, tiers.models, settings));
+        const settings = this.#resolveSettings(newsletters);
+        const mapped = posts.data.map(post => this.#mapPost(post, newsletters, labels, tiers, settings));
 
-        return this.#removeDisabledColumns(mapped, settings);
+        if (mapped.length) {
+            const columnsToRemove = this.#resolveRemovableColumns(newsletters, settings);
+            this.#removeColumns(mapped, columnsToRemove);
+        }
+
+        return mapped;
     }
 
-    #buildSettings(newsletters) {
+    #resolveSettings(newsletters) {
         const membersEnabled = this.#settingsHelpers.isMembersEnabled();
-        const paidMembersEnabled = membersEnabled && this.#settingsHelpers.arePaidMembersEnabled();
-        const membersTrackSources = membersEnabled && this.#settingsCache.get('members_track_sources');
-
         return {
             membersEnabled,
-            paidMembersEnabled,
-            membersTrackSources,
+            membersTrackSources: membersEnabled && this.#settingsCache.get('members_track_sources'),
+            paidMembersEnabled: membersEnabled && this.#settingsHelpers.arePaidMembersEnabled(),
             trackOpens: this.#settingsCache.get('email_track_opens'),
             trackClicks: this.#settingsCache.get('email_track_clicks'),
-            hasNewslettersWithFeedback: newsletters.some(n => n.get('feedback_enabled')),
-            multipleNewsletters: newsletters.length > 1
+            hasNewslettersWithFeedback: newsletters.some(n => n.get('feedback_enabled'))
         };
     }
 
+    #resolveEmail(post) {
+        const email = post.related('email');
+        const isPublishable = !['draft', 'scheduled'].includes(post.get('status'));
+        return (isPublishable && email?.id) ? email : null;
+    }
+
     #mapPost(post, newsletters, labels, tiers, settings) {
-        const email = this.#getPostEmail(post);
-        const published = post.get('status') === 'published' || post.get('status') === 'sent';
+        const email = this.#resolveEmail(post);
+        const status = post.get('status');
+        const published = !['draft', 'scheduled'].includes(status);
+        const {membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback} = settings;
+
+        const feedbackEnabled = email && email.get('feedback_enabled') && hasNewslettersWithFeedback;
+        const showEmailClickAnalytics = trackClicks && email?.get('track_clicks');
+        const newsletterName = this.#resolveNewsletterName(post, newsletters, email);
 
         return {
             id: post.get('id'),
             title: post.get('title'),
             url: this.#getPostUrl(post),
             author: post.related('authors').map(a => a.get('name')).join(', '),
-            status: this.#mapPostStatus(post.get('status'), !!email),
+            status: this.mapPostStatus(status, !!email),
             created_at: post.get('created_at'),
             updated_at: post.get('updated_at'),
             published_at: published ? post.get('published_at') : null,
             featured: post.get('featured'),
             tags: post.related('tags').map(t => t.get('name')).join(', '),
-            post_access: this.#mapPostAccess(post),
-            email_recipients: email ? this.#humanReadableEmailRecipientFilter(email.get('recipient_filter'), labels, tiers) : null,
-            newsletter_name: this.#getNewsletterName(post, newsletters, email, settings),
+            post_access: this.postAccessToString(post),
+            email_recipients: email ? this.humanReadableEmailRecipientFilter(email.get('recipient_filter'), labels, tiers) : null,
+            newsletter_name: newsletterName,
             sends: email?.get('email_count') ?? null,
-            opens: settings.trackOpens ? (email?.get('opened_count') ?? null) : null,
-            clicks: this.#shouldShowClickAnalytics(email, settings) ? (post.get('count__clicks') ?? 0) : null,
-            signups: settings.membersTrackSources && published ? (post.get('count__signups') ?? 0) : null,
-            paid_conversions: settings.membersTrackSources && settings.paidMembersEnabled && published ? (post.get('count__paid_conversions') ?? 0) : null,
-            feedback_more_like_this: this.#shouldShowFeedback(email, settings) ? (post.get('count__positive_feedback') ?? 0) : null,
-            feedback_less_like_this: this.#shouldShowFeedback(email, settings) ? (post.get('count__negative_feedback') ?? 0) : null
+            opens: trackOpens ? (email?.get('opened_count') ?? null) : null,
+            clicks: showEmailClickAnalytics ? (post.get('count__clicks') ?? 0) : null,
+            signups: membersTrackSources && published ? (post.get('count__signups') ?? 0) : null,
+            paid_conversions: membersTrackSources && paidMembersEnabled && published ? (post.get('count__paid_conversions') ?? 0) : null,
+            feedback_more_like_this: feedbackEnabled ? (post.get('count__positive_feedback') ?? 0) : null,
+            feedback_less_like_this: feedbackEnabled ? (post.get('count__negative_feedback') ?? 0) : null
         };
     }
 
-    #getPostEmail(post) {
-        let email = post.related('email');
-        if (!email.id) {
-            return null;
-        }
-
-        if (post.get('status') === 'draft' || post.get('status') === 'scheduled') {
-            return null;
-        }
-
-        return email;
-    }
-
-    #getNewsletterName(post, newsletters, email, settings) {
-        if (!settings.multipleNewsletters || !post.get('newsletter_id') || !email) {
+    #resolveNewsletterName(post, newsletters, email) {
+        if (newsletters.length <= 1 || !post.get('newsletter_id') || !email) {
             return null;
         }
         return newsletters.find(n => n.get('id') === post.get('newsletter_id'))?.get('name') ?? null;
     }
 
-    #shouldShowClickAnalytics(email, settings) {
-        return settings.trackClicks && email && email.get('track_clicks');
-    }
-
-    #shouldShowFeedback(email, settings) {
-        return email && email.get('feedback_enabled') && settings.hasNewslettersWithFeedback;
-    }
-
-    #mapPostStatus(status, hasEmail) {
-        if (status === 'published') {
-            return hasEmail ? 'published and emailed' : 'published only';
-        }
-        return this.#statusMap[status] ?? status;
-    }
-
-    #mapPostAccess(post) {
-        const visibility = post.get('visibility');
-
-        if (this.#visibilityMap[visibility]) {
-            return this.#visibilityMap[visibility];
-        }
-
-        if (visibility === 'tiers') {
-            const tiers = post.related('tiers');
-            const tierNames = tiers.length > 0 ? tiers.map(t => t.get('name')).join(', ') : 'none';
-            return `Specific tiers: ${tierNames}`;
-        }
-
-        return visibility;
-    }
-
-    #removeDisabledColumns(mapped, settings) {
-        if (mapped.length === 0) {
-            return mapped;
-        }
-
-        const removeableColumns = this.#determineRemoveableColumns(settings);
-
-        for (const column of removeableColumns) {
-            for (const row of mapped) {
-                delete row[column];
-            }
-        }
-
-        return mapped;
-    }
-
-    #determineRemoveableColumns(settings) {
+    #resolveRemovableColumns(newsletters, {membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback}) {
         const columns = [];
 
-        if (!settings.multipleNewsletters) {
+        if (newsletters.length <= 1) {
             columns.push('newsletter_name');
         }
 
-        if (!settings.membersEnabled) {
+        if (!membersEnabled) {
             columns.push('email_recipients', 'sends', 'opens', 'clicks', 'feedback_more_like_this', 'feedback_less_like_this');
         } else {
-            if (!settings.hasNewslettersWithFeedback) {
+            if (!hasNewslettersWithFeedback) {
                 columns.push('feedback_more_like_this', 'feedback_less_like_this');
             }
-            if (!settings.trackClicks) {
+            if (!trackClicks) {
                 columns.push('clicks');
             }
-            if (!settings.trackOpens) {
+            if (!trackOpens) {
                 columns.push('opens');
             }
         }
 
-        if (!settings.membersTrackSources || !settings.membersEnabled) {
+        if (!membersTrackSources || !membersEnabled) {
             columns.push('signups', 'paid_conversions');
-        } else if (!settings.paidMembersEnabled) {
+        } else if (!paidMembersEnabled) {
             columns.push('paid_conversions');
         }
 
         return columns;
     }
 
-    #humanReadableEmailRecipientFilter(recipientFilter, allLabels, allTiers) {
+    #removeColumns(rows, columns) {
+        for (const column of columns) {
+            for (const row of rows) {
+                delete row[column];
+            }
+        }
+    }
+
+    mapPostStatus(status, hasEmail) {
+        if (status in POST_STATUS_MAP) {
+            return POST_STATUS_MAP[status];
+        }
+        if (status === 'published') {
+            return hasEmail ? 'published and emailed' : 'published only';
+        }
+        return status;
+    }
+
+    postAccessToString(post) {
+        const visibility = post.get('visibility');
+
+        if (visibility in VISIBILITY_MAP) {
+            return VISIBILITY_MAP[visibility];
+        }
+
+        if (visibility === 'tiers') {
+            const tiers = post.related('tiers');
+            const tierNames = tiers.map(t => t.get('name')).join(', ');
+            return tiers.length === 0 ? 'Specific tiers: none' : `Specific tiers: ${tierNames}`;
+        }
+
+        return visibility;
+    }
+
+    humanReadableEmailRecipientFilter(recipientFilter, allLabels, allTiers) {
         if (recipientFilter === 'all') {
             return 'All subscribers';
         }
 
         try {
             const parsed = nql(recipientFilter).parse();
-            const strings = this.#filterToString(parsed, allLabels, allTiers);
-            return strings.join(', ');
+            return this.#filterToString(parsed, allLabels, allTiers).join(', ');
         } catch (e) {
             logging.error(e);
             return recipientFilter;
@@ -221,62 +231,47 @@ class PostsExporter {
     }
 
     #filterToString(filter, allLabels, allTiers) {
-        const strings = [];
-
         if (filter.$or) {
-            for (const subfilter of filter.$or) {
-                strings.push(...this.#filterToString(subfilter, allLabels, allTiers));
-            }
-            return strings;
+            return filter.$or.flatMap(sub => this.#filterToString(sub, allLabels, allTiers));
         }
 
-        for (const key of Object.keys(filter)) {
-            const handler = this.#filterKeyHandlers[key];
-            if (handler) {
-                const result = handler.call(this, filter, key === 'tier' ? allTiers : allLabels);
-                if (result) {
-                    strings.push(result);
-                }
-            }
+        if (filter.$and) {
+            return [];
         }
 
-        return strings;
+        return Object.keys(filter).flatMap(key => this.#filterKeyToString(key, filter[key], allLabels, allTiers));
     }
 
-    #handleLabelFilter(filter, allLabels) {
-        if (typeof filter.label !== 'string') {
-            return null;
+    #filterKeyToString(key, value, allLabels, allTiers) {
+        if (key === 'label' && typeof value === 'string') {
+            return [this.#resolveModelName(value, allLabels)];
         }
-        const label = allLabels.find(l => l.get('slug') === filter.label);
-        return label?.get('name') ?? filter.label;
+
+        if (key === 'tier' && typeof value === 'string') {
+            return [this.#resolveModelName(value, allTiers)];
+        }
+
+        if (key === 'status') {
+            return this.#statusFilterToString(value);
+        }
+
+        return [];
     }
 
-    #handleTierFilter(filter, allTiers) {
-        if (typeof filter.tier !== 'string') {
-            return null;
-        }
-        const tier = allTiers.find(t => t.get('slug') === filter.tier);
-        return tier?.get('name') ?? filter.tier;
+    #resolveModelName(slug, models) {
+        return models.find(m => m.get('slug') === slug)?.get('name') ?? slug;
     }
 
-    #handleStatusFilter(filter) {
-        if (typeof filter.status === 'string') {
-            const statusMap = {
-                free: 'Free subscribers',
-                paid: 'Paid subscribers',
-                comped: 'Complimentary subscribers'
-            };
-            return statusMap[filter.status] ?? null;
+    #statusFilterToString(value) {
+        if (typeof value === 'string') {
+            return value in STATUS_FILTER_MAP ? [STATUS_FILTER_MAP[value]] : [];
         }
 
-        if (filter.status.$ne === 'free') {
-            return 'Paid subscribers';
-        }
-        if (filter.status.$ne === 'paid') {
-            return 'Free subscribers';
+        if (value.$ne && value.$ne in STATUS_NEGATION_MAP) {
+            return [STATUS_NEGATION_MAP[value.$ne]];
         }
 
-        return null;
+        return [];
     }
 }
 
