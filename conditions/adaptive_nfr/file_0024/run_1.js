@@ -7,227 +7,175 @@ import {useMemo} from 'react';
 
 export type DiffDirection = 'up' | 'down' | 'same';
 
-interface TotalsData {
+type PercentChangeKey = 'total' | 'free' | 'paid' | 'mrr';
+
+interface ChangeMetrics {
+    percentChanges: Record<PercentChangeKey, string>;
+    directions: Record<PercentChangeKey, DiffDirection>;
+}
+
+interface TotalsResult extends ChangeMetrics {
     totalMembers: number;
     freeMembers: number;
     paidMembers: number;
     mrr: number;
-    percentChanges: Record<string, string>;
-    directions: Record<string, DiffDirection>;
 }
 
-interface ChartDataPoint {
-    date: string;
-    value: number;
-    free: number;
-    paid: number;
-    comped: number;
-    mrr: number;
-    paid_subscribed: number;
-    paid_canceled: number;
-    formattedValue: string;
-    label: string;
-}
+const EMPTY_CHANGE_METRICS: ChangeMetrics = {
+    percentChanges: {total: '0%', free: '0%', paid: '0%', mrr: '0%'},
+    directions: {total: 'same', free: 'same', paid: 'same', mrr: 'same'}
+};
 
-interface SubscriptionDataPoint {
-    date: string;
-    signups: number;
-    cancellations: number;
-}
+const getDirection = (change: number): DiffDirection =>
+    change > 0 ? 'up' : change < 0 ? 'down' : 'same';
 
-// Helper: Calculate percentage change and direction
-const calculateChange = (current: number, previous: number): {percentage: string; direction: DiffDirection} => {
+const calcPercentChange = (current: number, previous: number): number => {
     if (previous === 0) {
+        return current > 0 ? 100 : 0;
+    }
+    return ((current - previous) / previous) * 100;
+};
+
+const applyChange = (
+    metrics: ChangeMetrics,
+    key: PercentChangeKey,
+    current: number,
+    previous: number
+): void => {
+    if (previous < 0) {
+        return;
+    }
+    const change = calcPercentChange(current, previous);
+    metrics.percentChanges[key] = formatPercentage(change / 100);
+    metrics.directions[key] = getDirection(change);
+};
+
+const calcMemberChanges = (
+    memberData: MemberStatusItem[],
+    totalMembers: number,
+    latestFree: number,
+    latestPaidTotal: number
+): ChangeMetrics => {
+    const metrics: ChangeMetrics = {
+        percentChanges: {...EMPTY_CHANGE_METRICS.percentChanges},
+        directions: {...EMPTY_CHANGE_METRICS.directions}
+    };
+
+    if (memberData.length <= 1) {
+        return metrics;
+    }
+
+    const first = memberData[0];
+    const firstTotal = first.free + first.paid + first.comped;
+    const firstPaidTotal = first.paid + first.comped;
+
+    applyChange(metrics, 'total', totalMembers, firstTotal);
+    applyChange(metrics, 'free', latestFree, first.free);
+    applyChange(metrics, 'paid', latestPaidTotal, firstPaidTotal);
+
+    return metrics;
+};
+
+const resolveMrrStartValue = (
+    mrrData: MrrHistoryItem[],
+    dateFrom: string,
+    currentMrr: number
+): number => {
+    const actualStartDate = moment(dateFrom).format('YYYY-MM-DD');
+    const firstActualPoint = mrrData.find(p => moment(p.date).isSameOrAfter(actualStartDate));
+
+    const isFromBeginningRange =
+        moment(dateFrom).isSame(moment().startOf('year'), 'day') ||
+        moment(dateFrom).year() < moment().year();
+
+    if (!firstActualPoint) {
+        return isFromBeginningRange ? 0 : currentMrr;
+    }
+
+    if (moment(firstActualPoint.date).isSame(actualStartDate, 'day')) {
+        return firstActualPoint.mrr;
+    }
+
+    return isFromBeginningRange ? 0 : currentMrr;
+};
+
+const calcMrrChange = (
+    mrrData: MrrHistoryItem[],
+    dateFrom: string,
+    currentMrr: number,
+    metrics: ChangeMetrics
+): void => {
+    if (mrrData.length <= 1) {
+        return;
+    }
+
+    const firstMrr = resolveMrrStartValue(mrrData, dateFrom, currentMrr);
+    applyChange(metrics, 'mrr', currentMrr, firstMrr);
+};
+
+const calculateTotals = (
+    memberData: MemberStatusItem[],
+    mrrData: MrrHistoryItem[],
+    dateFrom: string,
+    memberCountTotals?: {paid: number; free: number; comped: number}
+): TotalsResult => {
+    if (!memberData.length) {
         return {
-            percentage: formatPercentage(current > 0 ? 1 : 0),
-            direction: current > 0 ? 'up' : current < 0 ? 'down' : 'same'
+            totalMembers: 0,
+            freeMembers: 0,
+            paidMembers: 0,
+            mrr: 0,
+            ...EMPTY_CHANGE_METRICS
         };
     }
 
-    const change = ((current - previous) / previous) * 100;
+    const currentTotals = memberCountTotals ?? memberData[memberData.length - 1];
+    const latest = memberData[memberData.length - 1];
+    const totalMrr = mrrData.length > 0 ? mrrData[mrrData.length - 1].mrr : 0;
+    const totalMembers = currentTotals.free + currentTotals.paid + currentTotals.comped;
+    const latestPaidTotal = latest.paid + latest.comped;
+
+    const metrics = calcMemberChanges(memberData, totalMembers, latest.free, latestPaidTotal);
+    calcMrrChange(mrrData, dateFrom, totalMrr, metrics);
+
     return {
-        percentage: formatPercentage(change / 100),
-        direction: change > 0 ? 'up' : change < 0 ? 'down' : 'same'
+        totalMembers,
+        freeMembers: currentTotals.free,
+        paidMembers: currentTotals.paid + currentTotals.comped,
+        mrr: totalMrr,
+        ...metrics
     };
 };
 
-// Helper: Get initial totals structure
-const getEmptyTotals = (): TotalsData => ({
-    totalMembers: 0,
-    freeMembers: 0,
-    paidMembers: 0,
-    mrr: 0,
-    percentChanges: {total: '0%', free: '0%', paid: '0%', mrr: '0%'},
-    directions: {total: 'same', free: 'same', paid: 'same', mrr: 'same'}
-});
+const sortByDate = <T extends {date: string}>(items: T[]): T[] =>
+    [...items].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-// Helper: Calculate MRR change with range awareness
-const calculateMrrChange = (mrrData: MrrHistoryItem[], dateFrom: string): {percentage: string; direction: DiffDirection} => {
-    if (mrrData.length <= 1) {
-        return {percentage: '0%', direction: 'same'};
-    }
-
-    const totalMrr = mrrData[mrrData.length - 1].mrr;
-    const actualStartDate = moment(dateFrom).format('YYYY-MM-DD');
-    const firstActualPoint = mrrData.find(point => moment(point.date).isSameOrAfter(actualStartDate));
-    const isFromBeginningRange = moment(dateFrom).isSame(moment().startOf('year'), 'day') || moment(dateFrom).year() < moment().year();
-
-    let firstMrr = 0;
-
-    if (firstActualPoint) {
-        if (moment(firstActualPoint.date).isSame(actualStartDate, 'day')) {
-            firstMrr = firstActualPoint.mrr;
-        } else if (!isFromBeginningRange) {
-            firstMrr = totalMrr;
-        }
-    } else if (!isFromBeginningRange) {
-        firstMrr = totalMrr;
-    }
-
-    return calculateChange(totalMrr, firstMrr);
+const buildDateUnion = (memberData: MemberStatusItem[], mrrData: MrrHistoryItem[]): string[] => {
+    const allDates = new Set([...memberData.map(d => d.date), ...mrrData.map(d => d.date)]);
+    return sortByDate([...allDates].map(date => ({date}))).map(d => d.date);
 };
 
-// Helper: Extract member data from response
-const extractMemberData = (response: any): MemberStatusItem[] => {
-    if (response?.stats) {
-        return response.stats;
-    }
-    return Array.isArray(response) ? response : [];
-};
+const formatChartData = (memberData: MemberStatusItem[], mrrData: MrrHistoryItem[]) => {
+    const sortedMembers = sortByDate(memberData);
+    const sortedMrr = sortByDate(mrrData);
+    const allDates = buildDateUnion(sortedMembers, sortedMrr);
 
-// Helper: Process member data for single day range
-const processMemberDataForRange = (rawData: MemberStatusItem[], range: number, dateFrom: string): MemberStatusItem[] => {
-    if (range !== 1 || rawData.length < 2) {
-        return rawData;
-    }
+    const memberMap = new Map(sortedMembers.map(item => [item.date, item]));
+    const mrrMap = new Map(sortedMrr.map(item => [item.date, item]));
 
-    const yesterdayData = rawData[rawData.length - 2];
-    const todayData = rawData[rawData.length - 1];
-    const startOfToday = moment(dateFrom).format('YYYY-MM-DD');
-    const startOfTomorrow = moment(dateFrom).add(1, 'day').format('YYYY-MM-DD');
-
-    return [
-        {...yesterdayData, date: startOfToday},
-        {...todayData, date: startOfTomorrow}
-    ];
-};
-
-// Helper: Select currency with highest MRR
-const selectHighestMrrCurrency = (totals: any[]): string => {
-    if (!totals?.length) return 'usd';
-    return totals.reduce((max, current) => current.mrr > max.mrr ? current : max).currency;
-};
-
-// Helper: Ensure start and end points in MRR data
-const ensureMrrBoundaryPoints = (data: MrrHistoryItem[], dateFromMoment: moment.Moment, range: number): MrrHistoryItem[] => {
-    const result = [...data];
-    const dateToMoment = range === 1 ? moment().startOf('day') : moment().endOf('day');
-
-    const hasStartPoint = result.some(item => moment(item.date).isSame(dateFromMoment, 'day'));
-    if (!hasStartPoint && result.length > 0) {
-        const sortedByDate = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        const earliestInRange = sortedByDate[0];
-        result.unshift({...earliestInRange, date: dateFromMoment.format('YYYY-MM-DD')});
-    }
-
-    const hasEndPoint = result.some(item => moment(item.date).isSame(dateToMoment, 'day'));
-    if (!hasEndPoint && result.length > 0) {
-        const sortedByDate = [...result].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        const mostRecentValue = sortedByDate[0];
-        result.push({...mostRecentValue, date: dateToMoment.format('YYYY-MM-DD')});
-    }
-
-    return result.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-};
-
-// Helper: Filter and process MRR data
-const processMrrData = (response: any, dateFrom: string, range: number): {data: MrrHistoryItem[]; currency: string} => {
-    if (!response?.stats || !response?.meta?.totals) {
-        return {data: [], currency: 'usd'};
-    }
-
-    const selectedCurrency = selectHighestMrrCurrency(response.meta.totals);
-    const dateFromMoment = moment(dateFrom);
-    const currencyFilteredData = response.stats.filter((d: MrrHistoryItem) => d.currency === selectedCurrency);
-    const filteredData = currencyFilteredData.filter((item: MrrHistoryItem) => moment(item.date).isSameOrAfter(dateFromMoment));
-
-    const result = ensureMrrBoundaryPoints(filteredData, dateFromMoment, range);
-    return {data: result, currency: selectedCurrency};
-};
-
-const calculateTotals = (memberData: MemberStatusItem[], mrrData: MrrHistoryItem[], dateFrom: string, memberCountTotals?: any): TotalsData => {
-    if (!memberData.length) {
-        return getEmptyTotals();
-    }
-
-    const currentTotals = memberCountTotals || memberData[memberData.length - 1];
-    const latest = memberData[memberData.length - 1];
-    const latestMrr = mrrData.length > 0 ? mrrData[mrrData.length - 1].mrr : 0;
-    const totalMembers = currentTotals.free + currentTotals.paid + currentTotals.comped;
-
-    const totals = getEmptyTotals();
-    totals.totalMembers = totalMembers;
-    totals.freeMembers = currentTotals.free;
-    totals.paidMembers = currentTotals.paid + currentTotals.comped;
-    totals.mrr = latestMrr;
-
-    if (memberData.length > 1) {
-        const first = memberData[0];
-        const firstTotal = first.free + first.paid + first.comped;
-
-        if (firstTotal > 0) {
-            const change = calculateChange(totalMembers, firstTotal);
-            totals.percentChanges.total = change.percentage;
-            totals.directions.total = change.direction;
-        }
-
-        if (first.free > 0) {
-            const change = calculateChange(latest.free, first.free);
-            totals.percentChanges.free = change.percentage;
-            totals.directions.free = change.direction;
-        }
-
-        const firstPaidTotal = first.paid + first.comped;
-        const latestPaidTotal = latest.paid + latest.comped;
-
-        if (firstPaidTotal > 0) {
-            const change = calculateChange(latestPaidTotal, firstPaidTotal);
-            totals.percentChanges.paid = change.percentage;
-            totals.directions.paid = change.direction;
-        }
-    }
-
-    if (mrrData.length > 1) {
-        const mrrChange = calculateMrrChange(mrrData, dateFrom);
-        totals.percentChanges.mrr = mrrChange.percentage;
-        totals.directions.mrr = mrrChange.direction;
-    }
-
-    return totals;
-};
-
-const formatChartData = (memberData: MemberStatusItem[], mrrData: MrrHistoryItem[]): ChartDataPoint[] => {
-    const sortedMemberData = [...memberData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    const sortedMrrData = [...mrrData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-    const allDates = [...new Set([...sortedMemberData.map(d => d.date), ...sortedMrrData.map(d => d.date)])]
-        .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-
-    const memberMap = new Map(sortedMemberData.map(item => [item.date, item]));
-    const mrrMap = new Map(sortedMrrData.map(item => [item.date, item]));
-
-    let lastMemberItem: MemberStatusItem | null = null;
-    let lastMrrItem: MrrHistoryItem | null = null;
+    let lastMember: MemberStatusItem | null = null;
+    let lastMrr: MrrHistoryItem | null = null;
 
     return allDates.map((date) => {
-        lastMemberItem = memberMap.get(date) || lastMemberItem;
-        lastMrrItem = mrrMap.get(date) || lastMrrItem;
+        lastMember = memberMap.get(date) ?? lastMember;
+        lastMrr = mrrMap.get(date) ?? lastMrr;
 
-        const free = lastMemberItem?.free ?? 0;
-        const paid = lastMemberItem?.paid ?? 0;
-        const comped = lastMemberItem?.comped ?? 0;
+        const free = lastMember?.free ?? 0;
+        const paid = lastMember?.paid ?? 0;
+        const comped = lastMember?.comped ?? 0;
         const paidTotal = paid + comped;
         const value = free + paidTotal;
+        const mrr = lastMrr?.mrr ?? 0;
 
         return {
             date,
@@ -235,44 +183,138 @@ const formatChartData = (memberData: MemberStatusItem[], mrrData: MrrHistoryItem
             free,
             paid: paidTotal,
             comped,
-            mrr: lastMrrItem?.mrr ?? 0,
-            paid_subscribed: lastMemberItem?.paid_subscribed ?? 0,
-            paid_canceled: lastMemberItem?.paid_canceled ?? 0,
+            mrr,
+            paid_subscribed: lastMember?.paid_subscribed ?? 0,
+            paid_canceled: lastMember?.paid_canceled ?? 0,
             formattedValue: formatNumber(value),
             label: 'Total members'
         };
     });
 };
 
-const processSubscriptionData = (response: any, dateFrom: string, endDate: string): SubscriptionDataPoint[] => {
-    if (!response?.stats) {
-        return [];
+const buildTodayMemberData = (
+    rawData: MemberStatusItem[],
+    dateFrom: string
+): MemberStatusItem[] => {
+    if (rawData.length < 2) {
+        return rawData;
     }
 
-    const mergedByDate = response.stats.reduce((acc: Record<string, SubscriptionDataPoint>, current: any) => {
-        const dateKey = current.date;
-        if (!acc[dateKey]) {
-            acc[dateKey] = {date: dateKey, signups: 0, cancellations: 0};
+    const yesterday = rawData[rawData.length - 2];
+    const today = rawData[rawData.length - 1];
+
+    return [
+        {...yesterday, date: moment(dateFrom).format('YYYY-MM-DD')},
+        {...today, date: moment(dateFrom).add(1, 'day').format('YYYY-MM-DD')}
+    ];
+};
+
+const extractMemberData = (
+    response: {stats?: MemberStatusItem[]} | MemberStatusItem[] | undefined
+): MemberStatusItem[] => {
+    if (!response) {
+        return [];
+    }
+    if (Array.isArray(response)) {
+        return response;
+    }
+    return response.stats ?? [];
+};
+
+const selectDominantCurrency = (
+    totals: {currency: string; mrr: number}[]
+): string => {
+    if (!totals.length) {
+        return 'usd';
+    }
+    return totals.reduce((max, t) => (t.mrr > max.mrr ? t : max), totals[0]).currency;
+};
+
+const ensureBoundaryPoint = (
+    result: MrrHistoryItem[],
+    targetDate: moment.Moment,
+    allDataDesc: MrrHistoryItem[],
+    position: 'start' | 'end'
+): void => {
+    const hasPoint = result.some(item => moment(item.date).isSame(targetDate, 'day'));
+    if (hasPoint || result.length === 0) {
+        return;
+    }
+
+    const dateStr = targetDate.format('YYYY-MM-DD');
+
+    if (position === 'start') {
+        const reference =
+            allDataDesc.find(item => moment(item.date).isBefore(targetDate)) ??
+            sortByDate(result)[0];
+
+        if (reference) {
+            result.unshift({...reference, date: dateStr});
         }
-        acc[dateKey].signups += current.signups;
-        acc[dateKey].cancellations += current.cancellations;
-        return acc;
-    }, {});
+    } else {
+        const sortedDesc = [...result].sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+        );
+        result.push({...sortedDesc[0], date: dateStr});
+    }
+};
 
-    const subscriptionArray = Object.values(mergedByDate).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+const processMrrData = (
+    response: {stats?: MrrHistoryItem[]; meta?: {totals?: {currency: string; mrr: number}[]}} | undefined,
+    dateFrom: string,
+    range: number
+): {mrrData: MrrHistoryItem[]; selectedCurrency: string} => {
+    if (!response?.stats || !response?.meta?.totals) {
+        return {mrrData: [], selectedCurrency: 'usd'};
+    }
+
+    const totals = response.meta.totals;
+    if (!totals.length) {
+        return {mrrData: [], selectedCurrency: 'usd'};
+    }
+
+    const selectedCurrency = selectDominantCurrency(totals);
     const dateFromMoment = moment(dateFrom);
-    const dateToMoment = moment(endDate);
+    const endMoment = range === 1 ? moment().startOf('day') : moment().startOf('day');
 
-    return subscriptionArray.filter((item) => {
-        const itemDate = moment(item.date);
-        return itemDate.isSameOrAfter(dateFromMoment) && itemDate.isSameOrBefore(dateToMoment);
-    });
+    const currencyData = response.stats.filter(d => d.currency === selectedCurrency);
+    const allDataDesc = [...currencyData].sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+
+    const result = currencyData.filter(item => moment(item.date).isSameOrAfter(dateFromMoment));
+
+    ensureBoundaryPoint(result, dateFromMoment, allDataDesc, 'start');
+    ensureBoundaryPoint(result, endMoment, allDataDesc, 'end');
+
+    return {
+        mrrData: sortByDate(result),
+        selectedCurrency
+    };
+};
+
+const mergeSubscriptionsByDate = (
+    stats: {date: string; signups: number; cancellations: number}[]
+): {date: string; signups: number; cancellations: number}[] => {
+    const merged = stats.reduce((acc, current) => {
+        if (!acc[current.date]) {
+            acc[current.date] = {date: current.date, signups: 0, cancellations: 0};
+        }
+        acc[current.date].signups += current.signups;
+        acc[current.date].cancellations += current.cancellations;
+        return acc;
+    }, {} as Record<string, {date: string; signups: number; cancellations: number}>);
+
+    return sortByDate(Object.values(merged));
 };
 
 export const useGrowthStats = (range: number) => {
     const {startDate, endDate} = useMemo(() => getRangeDates(range), [range]);
     const dateFrom = formatQueryDate(startDate);
-    const memberDataStartDate = range === 1 ? moment(dateFrom).subtract(1, 'day').format('YYYY-MM-DD') : dateFrom;
+
+    const memberDataStartDate = range === 1
+        ? moment(dateFrom).subtract(1, 'day').format('YYYY-MM-DD')
+        : dateFrom;
 
     const {data: memberCountResponse, isLoading: isMemberCountLoading} = useMemberCountHistory({
         searchParams: {date_from: memberDataStartDate}
@@ -285,24 +327,43 @@ export const useGrowthStats = (range: number) => {
     const {data: subscriptionStatsResponse, isLoading: isSubscriptionLoading} = useSubscriptionStats();
 
     const memberData = useMemo(() => {
-        const rawData = extractMemberData(memberCountResponse);
-        return processMemberDataForRange(rawData, range, dateFrom);
+        const rawData = extractMemberData(memberCountResponse as Parameters<typeof extractMemberData>[0]);
+        return range === 1 ? buildTodayMemberData(rawData, dateFrom) : rawData;
     }, [memberCountResponse, range, dateFrom]);
 
-    const {mrrData, selectedCurrency} = useMemo(() => {
-        const {data, currency} = processMrrData(mrrHistoryResponse, dateFrom, range);
-        return {mrrData: data, selectedCurrency: currency};
-    }, [mrrHistoryResponse, dateFrom, range]);
+    const {mrrData, selectedCurrency} = useMemo(
+        () => processMrrData(mrrHistoryResponse, dateFrom, range),
+        [mrrHistoryResponse, dateFrom, range]
+    );
 
-    const totalsData = useMemo(() => calculateTotals(memberData, mrrData, dateFrom, memberCountResponse?.meta?.totals), [memberData, mrrData, dateFrom, memberCountResponse?.meta?.totals]);
+    const totals = useMemo(
+        () => calculateTotals(memberData, mrrData, dateFrom, memberCountResponse?.meta?.totals),
+        [memberData, mrrData, dateFrom, memberCountResponse?.meta?.totals]
+    );
 
-    const chartData = useMemo(() => formatChartData(memberData, mrrData), [memberData, mrrData]);
+    const chartData = useMemo(
+        () => formatChartData(memberData, mrrData),
+        [memberData, mrrData]
+    );
 
     const currencySymbol = useMemo(() => getSymbol(selectedCurrency), [selectedCurrency]);
 
-    const isLoading = useMemo(() => isMemberCountLoading || isMrrLoading || isSubscriptionLoading, [isMemberCountLoading, isMrrLoading, isSubscriptionLoading]);
+    const isLoading = isMemberCountLoading || isMrrLoading || isSubscriptionLoading;
 
-    const subscriptionData = useMemo(() => processSubscriptionData(subscriptionStatsResponse, dateFrom, endDate), [subscriptionStatsResponse, dateFrom, endDate]);
+    const subscriptionData = useMemo(() => {
+        if (!subscriptionStatsResponse?.stats) {
+            return [];
+        }
+
+        const merged = mergeSubscriptionsByDate(subscriptionStatsResponse.stats);
+        const dateFromMoment = moment(dateFrom);
+        const dateToMoment = moment(endDate);
+
+        return merged.filter(item =>
+            moment(item.date).isSameOrAfter(dateFromMoment) &&
+            moment(item.date).isSameOrBefore(dateToMoment)
+        );
+    }, [subscriptionStatsResponse, dateFrom, endDate]);
 
     return {
         isLoading,
@@ -310,7 +371,7 @@ export const useGrowthStats = (range: number) => {
         mrrData,
         dateFrom,
         endDate,
-        totals: totalsData,
+        totals,
         chartData,
         subscriptionData,
         selectedCurrency,
