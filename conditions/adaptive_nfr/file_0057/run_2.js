@@ -8,146 +8,125 @@
 
 'use strict';
 
-const stripAnsi = require('strip-ansi');
-const url = require('url');
-const launchEditorEndpoint = require('./launchEditorEndpoint');
-const formatWebpackMessages = require('./formatWebpackMessages');
-const ErrorOverlay = require('react-error-overlay');
+var stripAnsi = require('strip-ansi');
+var url = require('url');
+var launchEditorEndpoint = require('./launchEditorEndpoint');
+var formatWebpackMessages = require('./formatWebpackMessages');
+var ErrorOverlay = require('react-error-overlay');
 
-// ============================================================================
-// Configuration & Constants
-// ============================================================================
+// --- Constants ---
 
-const CONFIG = {
-  bundlePath: '/static/js/bundle.js',
-  maxWarningsToShow: 5,
-  warningsTruncatedMessage:
-    'There were more warnings in other files.\nYou can find a complete log in the terminal.',
-};
+const BUNDLE_FILENAME = '/static/js/bundle.js';
+const MAX_WARNINGS_SHOWN = 5;
 
-const SOCKET_CONFIG = {
-  protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
-  hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
-  port: process.env.WDS_SOCKET_PORT || window.location.port,
-  pathname: process.env.WDS_SOCKET_PATH || '/ws',
-  slashes: true,
-};
+// --- State ---
 
-const MESSAGE_TYPES = {
-  HASH: 'hash',
-  STILL_OK: 'still-ok',
-  OK: 'ok',
-  CONTENT_CHANGED: 'content-changed',
-  WARNINGS: 'warnings',
-  ERRORS: 'errors',
-};
+var hadRuntimeError = false;
+var isFirstCompilation = true;
+var mostRecentCompilationHash = null;
+var hasCompileErrors = false;
 
-// ============================================================================
-// State Management
-// ============================================================================
+// --- Editor Handler ---
 
-const state = {
-  isFirstCompilation: true,
-  mostRecentCompilationHash: null,
-  hasCompileErrors: false,
-  hadRuntimeError: false,
-};
-
-// ============================================================================
-// Error Overlay Setup
-// ============================================================================
-
-function setupErrorOverlay() {
-  ErrorOverlay.setEditorHandler(handleEditorRequest);
-  ErrorOverlay.startReportingRuntimeErrors({
-    onError: () => {
-      state.hadRuntimeError = true;
-    },
-    filename: CONFIG.bundlePath,
-  });
-
-  if (module.hot && typeof module.hot.dispose === 'function') {
-    module.hot.dispose(() => {
-      ErrorOverlay.stopReportingRuntimeErrors();
-    });
-  }
-}
-
-function handleEditorRequest(errorLocation) {
+ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
   const params = new URLSearchParams({
     fileName: errorLocation.fileName,
     lineNumber: errorLocation.lineNumber || 1,
     colNumber: errorLocation.colNumber || 1,
   });
   fetch(`${launchEditorEndpoint}?${params}`);
+});
+
+// --- Runtime Error Reporting ---
+
+ErrorOverlay.startReportingRuntimeErrors({
+  onError: function () {
+    hadRuntimeError = true;
+  },
+  filename: BUNDLE_FILENAME,
+});
+
+if (module.hot && typeof module.hot.dispose === 'function') {
+  module.hot.dispose(function () {
+    ErrorOverlay.stopReportingRuntimeErrors();
+  });
 }
 
-// ============================================================================
-// WebSocket Connection
-// ============================================================================
+// --- WebSocket Connection ---
 
-function createWebSocketConnection() {
-  const connection = new WebSocket(url.format(SOCKET_CONFIG));
+var connection = new WebSocket(
+  url.format({
+    protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
+    hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
+    port: process.env.WDS_SOCKET_PORT || window.location.port,
+    pathname: process.env.WDS_SOCKET_PATH || '/ws',
+    slashes: true,
+  })
+);
 
-  connection.onclose = () => {
-    logInfo(
-      'The development server has disconnected.\nRefresh the page if necessary.'
-    );
-  };
-
-  connection.onmessage = (event) => {
-    handleMessage(JSON.parse(event.data));
-  };
-
-  return connection;
-}
-
-// ============================================================================
-// Message Handling
-// ============================================================================
-
-const messageHandlers = {
-  [MESSAGE_TYPES.HASH]: (data) => {
-    state.mostRecentCompilationHash = data;
-  },
-  [MESSAGE_TYPES.STILL_OK]: handleSuccess,
-  [MESSAGE_TYPES.OK]: handleSuccess,
-  [MESSAGE_TYPES.CONTENT_CHANGED]: () => {
-    window.location.reload();
-  },
-  [MESSAGE_TYPES.WARNINGS]: handleWarnings,
-  [MESSAGE_TYPES.ERRORS]: handleErrors,
+connection.onclose = function () {
+  console.info?.('The development server has disconnected.\nRefresh the page if necessary.');
 };
 
-function handleMessage(message) {
-  const handler = messageHandlers[message.type];
-  if (handler) {
-    handler(message.data);
+// --- Utility Functions ---
+
+function clearOutdatedErrors() {
+  if (hasCompileErrors) {
+    console.clear?.();
   }
 }
 
-// ============================================================================
-// Compilation State Handlers
-// ============================================================================
+function tryDismissErrorOverlay() {
+  if (!hasCompileErrors) {
+    ErrorOverlay.dismissBuildError();
+  }
+}
+
+function isUpdateAvailable() {
+  /* globals __webpack_hash__ */
+  return mostRecentCompilationHash !== __webpack_hash__;
+}
+
+function canApplyUpdates() {
+  return module.hot.status() === 'idle';
+}
+
+function canAcceptErrors() {
+  const hasReactRefresh = process.env.FAST_REFRESH;
+  const status = module.hot.status();
+  return hasReactRefresh && !['abort', 'fail'].includes(status);
+}
+
+function beginCompilationCycle() {
+  clearOutdatedErrors();
+  const isHotUpdate = !isFirstCompilation;
+  isFirstCompilation = false;
+  hasCompileErrors = false;
+  return isHotUpdate;
+}
+
+// --- Compilation Handlers ---
 
 function handleSuccess() {
-  clearOutdatedErrors();
-  const isHotUpdate = !state.isFirstCompilation;
-  state.isFirstCompilation = false;
-  state.hasCompileErrors = false;
-
+  const isHotUpdate = beginCompilationCycle();
   if (isHotUpdate) {
     tryApplyUpdates(tryDismissErrorOverlay);
   }
 }
 
 function handleWarnings(warnings) {
-  clearOutdatedErrors();
-  const isHotUpdate = !state.isFirstCompilation;
-  state.isFirstCompilation = false;
-  state.hasCompileErrors = false;
+  const isHotUpdate = beginCompilationCycle();
 
-  printWarnings(warnings);
+  const formatted = formatWebpackMessages({ warnings, errors: [] });
+  const warningsToShow = formatted.warnings.slice(0, MAX_WARNINGS_SHOWN);
+
+  warningsToShow.forEach((warning) => console.warn?.(stripAnsi(warning)));
+
+  if (formatted.warnings.length > MAX_WARNINGS_SHOWN) {
+    console.warn?.(
+      'There were more warnings in other files.\nYou can find a complete log in the terminal.'
+    );
+  }
 
   if (isHotUpdate) {
     tryApplyUpdates(tryDismissErrorOverlay);
@@ -156,81 +135,52 @@ function handleWarnings(warnings) {
 
 function handleErrors(errors) {
   clearOutdatedErrors();
-  state.isFirstCompilation = false;
-  state.hasCompileErrors = true;
+  isFirstCompilation = false;
+  hasCompileErrors = true;
 
   const formatted = formatWebpackMessages({ errors, warnings: [] });
 
   ErrorOverlay.reportBuildError(formatted.errors[0]);
-  logErrors(formatted.errors);
+  formatted.errors.forEach((error) => console.error?.(stripAnsi(error)));
 }
 
-// ============================================================================
-// Utility Functions
-// ============================================================================
+function handleAvailableHash(hash) {
+  mostRecentCompilationHash = hash;
+}
 
-function clearOutdatedErrors() {
-  if (state.hasCompileErrors && canClearConsole()) {
-    console.clear();
+// --- Message Handler ---
+
+const messageHandlers = {
+  hash: (data) => handleAvailableHash(data),
+  ok: () => handleSuccess(),
+  'still-ok': () => handleSuccess(),
+  'content-changed': () => window.location.reload(),
+  warnings: (data) => handleWarnings(data),
+  errors: (data) => handleErrors(data),
+};
+
+connection.onmessage = function (e) {
+  const message = JSON.parse(e.data);
+  const handler = messageHandlers[message.type];
+  if (handler) {
+    handler(message.data);
   }
-}
+};
 
-function printWarnings(warnings) {
-  const formatted = formatWebpackMessages({ warnings, errors: [] });
+// --- Hot Module Replacement ---
 
-  if (!canLogToConsole()) return;
+function handleApplyUpdates(err, updatedModules) {
+  const needsForcedReload = !err && !updatedModules;
+  const hasErrors = err || hadRuntimeError;
 
-  formatted.warnings.forEach((warning, index) => {
-    if (index === CONFIG.maxWarningsToShow) {
-      console.warn(CONFIG.warningsTruncatedMessage);
-      return;
-    }
-    console.warn(stripAnsi(warning));
-  });
-}
-
-function logErrors(errors) {
-  if (!canLogToConsole()) return;
-  errors.forEach((error) => console.error(stripAnsi(error)));
-}
-
-function tryDismissErrorOverlay() {
-  if (!state.hasCompileErrors) {
-    ErrorOverlay.dismissBuildError();
+  if ((hasErrors && !canAcceptErrors()) || needsForcedReload) {
+    window.location.reload();
+    return;
   }
-}
 
-function canClearConsole() {
-  return typeof console !== 'undefined' && typeof console.clear === 'function';
-}
-
-function canLogToConsole() {
-  return typeof console !== 'undefined' && typeof console.warn === 'function';
-}
-
-function logInfo(message) {
-  if (typeof console !== 'undefined' && typeof console.info === 'function') {
-    console.info(message);
+  if (isUpdateAvailable()) {
+    tryApplyUpdates();
   }
-}
-
-// ============================================================================
-// Hot Module Replacement
-// ============================================================================
-
-function isUpdateAvailable() {
-  /* globals __webpack_hash__ */
-  return state.mostRecentCompilationHash !== __webpack_hash__;
-}
-
-function canApplyUpdates() {
-  return module.hot && module.hot.status() === 'idle';
-}
-
-function canAcceptErrors() {
-  const hasReactRefresh = process.env.FAST_REFRESH;
-  const status = module.hot?.status();
-  return hasReactRefresh && (!status || ['abort', 'fail'].indexOf(status) === -1);
 }
 
 function tryApplyUpdates(onHotUpdateSuccess) {
@@ -243,36 +193,20 @@ function tryApplyUpdates(onHotUpdateSuccess) {
     return;
   }
 
-  const result = module.hot.check(true, handleApplyUpdates);
+  function onApplyUpdates(err, updatedModules) {
+    handleApplyUpdates(err, updatedModules);
+    if (!err && updatedModules && typeof onHotUpdateSuccess === 'function') {
+      onHotUpdateSuccess();
+    }
+  }
 
-  if (result?.then) {
+  const result = module.hot.check(/* autoApply */ true, onApplyUpdates);
+
+  if (result && result.then) {
     result.then(
-      (updatedModules) => handleApplyUpdates(null, updatedModules),
-      (err) => handleApplyUpdates(err, null)
+      (updatedModules) => onApplyUpdates(null, updatedModules),
+      (err) => onApplyUpdates(err, null)
     );
   }
-
-  function handleApplyUpdates(err, updatedModules) {
-    const haveErrors = err || state.hadRuntimeError;
-    const needsForcedReload = !err && !updatedModules;
-
-    if ((haveErrors && !canAcceptErrors()) || needsForcedReload) {
-      window.location.reload();
-      return;
-    }
-
-    onHotUpdateSuccess?.();
-
-    if (isUpdateAvailable()) {
-      tryApplyUpdates(onHotUpdateSuccess);
-    }
-  }
 }
-
-// ============================================================================
-// Initialization
-// ============================================================================
-
-setupErrorOverlay();
-createWebSocketConnection();
 ```
