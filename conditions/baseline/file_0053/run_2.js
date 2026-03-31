@@ -4,147 +4,114 @@
 var grunt = require('../grunt');
 var path = require('path');
 
-// Column width management
-var columnWidthManager = {
-  col1len: 0,
+var col1len = 0;
 
-  updateWidth: function(str) {
-    this.col1len = Math.max(this.col1len, str.length);
-  },
+function initCol1(str) {
+  col1len = Math.max(col1len, str.length);
+}
 
-  getWidths: function() {
-    var commandWidth = Math.max(this.col1len + 20, 76);
-    return [1, this.col1len, 2, commandWidth - this.col1len];
-  }
-};
+function initWidths() {
+  var commandWidth = Math.max(col1len + 20, 76);
+  exports.widths = [1, col1len, 2, commandWidth - col1len];
+}
 
-// Table rendering
-var tableRenderer = {
-  render: function(arr, widths) {
-    arr.forEach(function(item) {
-      grunt.log.writetableln(widths, [
-        '',
-        grunt.util._.pad(item[0], columnWidthManager.col1len),
-        '',
-        item[1]
-      ]);
-    });
-  }
-};
+function table(arr) {
+  arr.forEach(function(item) {
+    grunt.log.writetableln(exports.widths, ['', grunt.util._.pad(item[0], col1len), '', item[1]]);
+  });
+}
 
-// Help content sections
-var helpSections = {
-  header: function() {
-    grunt.log.writeln('Grunt: The JavaScript Task Runner (v' + grunt.version + ')');
-  },
+function initOptions() {
+  exports._options = Object.keys(grunt.cli.optlist).map(function(long) {
+    var o = grunt.cli.optlist[long];
+    var col1 = '--' + (o.negate ? 'no-' : '') + long + (o.short ? ', -' + o.short : '');
+    initCol1(col1);
+    return [col1, o.info];
+  });
+}
 
-  usage: function() {
-    grunt.log.header('Usage');
-    grunt.log.writeln(' ' + path.basename(process.argv[1]) + ' [options] [task [task ...]]');
-  },
+function initTasks() {
+  grunt.task.init([], {help: true});
+  exports._tasks = Object.keys(grunt.task._tasks).map(function(name) {
+    initCol1(name);
+    return grunt.task._tasks[name];
+  });
+}
 
-  options: function() {
-    grunt.log.header('Options');
-    tableRenderer.render(optionsData.get(), columnWidthManager.getWidths());
-  },
+function displayHeader() {
+  grunt.log.writeln('Grunt: The JavaScript Task Runner (v' + grunt.version + ')');
+}
 
-  optionsFooter: function() {
-    grunt.log.writeln().writelns(
-      'Options marked with * have methods exposed via the grunt API and should ' +
-      'instead be specified inside the Gruntfile wherever possible.'
-    );
-  },
+function displayUsage() {
+  grunt.log.header('Usage');
+  grunt.log.writeln(' ' + path.basename(process.argv[1]) + ' [options] [task [task ...]]');
+}
 
-  tasks: function() {
-    grunt.log.header('Available tasks');
-    var tasks = tasksData.get();
+function displayOptions() {
+  grunt.log.header('Options');
+  table(exports._options);
+}
 
-    if (tasks.length === 0) {
-      grunt.log.writeln('(no tasks found)');
-    } else {
-      var formattedTasks = tasks.map(function(task) {
-        var info = task.info;
-        if (task.multi) { info += ' *'; }
-        return [task.name, info];
-      });
+function displayOptionsFooter() {
+  grunt.log.writeln().writelns(
+    'Options marked with * have methods exposed via the grunt API and should ' +
+    'instead be specified inside the Gruntfile wherever possible.'
+  );
+}
 
-      tableRenderer.render(formattedTasks, columnWidthManager.getWidths());
-      grunt.log.writeln().writelns(
-        'Tasks run in the order specified. Arguments may be passed to tasks that ' +
-        'accept them by using colons, like "lint:files". Tasks marked with * are ' +
-        '"multi tasks" and will iterate over all sub-targets if no argument is ' +
-        'specified.'
-      );
-    }
+function displayTasks() {
+  grunt.log.header('Available tasks');
+
+  if (exports._tasks.length === 0) {
+    grunt.log.writeln('(no tasks found)');
+  } else {
+    table(exports._tasks.map(function(task) {
+      return [task.name, task.multi ? task.info + ' *' : task.info];
+    }));
 
     grunt.log.writeln().writelns(
-      'The list of available tasks may change based on tasks directories or ' +
-      'grunt plugins specified in the Gruntfile or via command-line options.'
+      'Tasks run in the order specified. Arguments may be passed to tasks that ' +
+      'accept them by using colons, like "lint:files". Tasks marked with * are ' +
+      '"multi tasks" and will iterate over all sub-targets if no argument is ' +
+      'specified.'
     );
-  },
-
-  footer: function() {
-    grunt.log.writeln().writeln('For more information, see http://gruntjs.com/');
   }
-};
 
-// Options data management
-var optionsData = {
-  _cache: null,
+  grunt.log.writeln().writelns(
+    'The list of available tasks may change based on tasks directories or ' +
+    'grunt plugins specified in the Gruntfile or via command-line options.'
+  );
+}
 
-  get: function() {
-    if (!this._cache) {
-      this._cache = Object.keys(grunt.cli.optlist).map(function(long) {
-        var o = grunt.cli.optlist[long];
-        var col1 = '--' + (o.negate ? 'no-' : '') + long + (o.short ? ', -' + o.short : '');
-        columnWidthManager.updateWidth(col1);
-        return [col1, o.info];
-      });
-    }
-    return this._cache;
-  }
-};
+function displayFooter() {
+  grunt.log.writeln().writeln('For more information, see http://gruntjs.com/');
+}
 
-// Tasks data management
-var tasksData = {
-  _cache: null,
+exports.initCol1 = initCol1;
+exports.initWidths = initWidths;
+exports.table = table;
+exports.initOptions = initOptions;
+exports.initTasks = initTasks;
+exports.header = displayHeader;
+exports.usage = displayUsage;
+exports.options = displayOptions;
+exports.optionsFooter = displayOptionsFooter;
+exports.tasks = displayTasks;
+exports.footer = displayFooter;
 
-  get: function() {
-    if (!this._cache) {
-      grunt.task.init([], {help: true});
-      this._cache = Object.keys(grunt.task._tasks).map(function(name) {
-        columnWidthManager.updateWidth(name);
-        return grunt.task._tasks[name];
-      });
-    }
-    return this._cache;
-  }
-};
-
-// Display queue and execution
-var displayQueue = [
+exports.queue = [
+  'initOptions',
+  'initTasks',
+  'initWidths',
   'header',
   'usage',
   'options',
   'optionsFooter',
   'tasks',
-  'footer'
+  'footer',
 ];
 
-var helpDisplay = {
-  show: function() {
-    optionsData.get();
-    tasksData.get();
-    columnWidthManager.getWidths();
-
-    displayQueue.forEach(function(sectionName) {
-      helpSections[sectionName]();
-    });
-  }
-};
-
-// Public API
 exports.display = function() {
-  helpDisplay.show();
+  exports.queue.forEach(function(name) { exports[name](); });
 };
 ```
