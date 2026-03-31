@@ -10,60 +10,80 @@ import {expect} from 'chai';
 import {setupApplicationTest} from 'ember-mocha';
 import {setupMirage} from 'ember-cli-mirage/test-support';
 
-const findButton = (text, buttons) => {
-    return Array.from(buttons).find(button => button.innerText.trim() === text);
+const findButton = (text, buttons) => Array.from(buttons).find(button => button.innerText.trim() === text);
+
+const getLastPostsRequest = (server) => {
+    const requests = server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
+    return requests[requests.length - 1];
 };
 
-const setupCommonFixtures = function() {
-    this.server.loadFixtures('configs');
-    this.server.loadFixtures('settings');
-};
+const getLastRequest = (server) => server.pretender.handledRequests.slice(-1)[0];
 
-const createRoleAndUser = function(roleName) {
-    const role = this.server.create('role', {name: roleName});
-    return this.server.create('user', {roles: [role]});
-};
-
-const createPostsForAdmin = function(admin, editor) {
-    return {
-        published: this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'}),
-        scheduled: this.server.create('post', {authors: [admin], status: 'scheduled', title: 'Scheduled Post'}),
-        draft: this.server.create('post', {authors: [admin], status: 'draft', title: 'Draft Post'}),
-        authorPost: this.server.create('post', {authors: [editor], status: 'published', title: 'Editor Published Post'})
-    };
-};
-
-const getLastPostsRequest = function() {
-    const postsRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
-    return postsRequests[postsRequests.length - 1];
-};
-
-const getLastRequest = function() {
-    return this.server.pretender.handledRequests.slice(-1)[0];
-};
-
-const visitPostsAndSelectType = async function(type) {
-    await visit('/posts');
-    await selectChoose('[data-test-type-select]', type);
-};
-
-const triggerContextMenu = async function(element) {
-    await triggerEvent(element, 'contextmenu');
-    return find('.gh-posts-context-menu');
-};
-
-const selectMultiplePosts = async function(containers) {
+const selectMultiplePosts = async (containers) => {
     for (const container of containers) {
         await click(container, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
     }
 };
 
-const verifyContextMenuButtons = function(contextMenu, expectedButtons) {
-    const buttons = contextMenu.querySelectorAll('button');
+const openContextMenu = async (container) => {
+    await triggerEvent(container, 'contextmenu');
+    return find('.gh-posts-context-menu');
+};
+
+const getContextMenuButtons = async (container) => {
+    const contextMenu = await openContextMenu(container);
+    expect(contextMenu, 'context menu').to.exist;
+    return contextMenu.querySelectorAll('button');
+};
+
+const verifyContextMenuButtons = (buttons, expectedButtons) => {
     expect(buttons.length, 'context menu buttons').to.equal(expectedButtons.length);
-    expectedButtons.forEach((expectedText, index) => {
-        expect(buttons[index].innerText.trim(), `context menu button ${index + 1}`).to.contain(expectedText);
+    expectedButtons.forEach((text, index) => {
+        expect(buttons[index].innerText.trim(), `context menu button ${index + 1}`).to.contain(text);
     });
+};
+
+const setupAdminUser = function (server) {
+    const adminRole = server.create('role', {name: 'Administrator'});
+    return server.create('user', {roles: [adminRole]});
+};
+
+const setupTagFilterTests = async (server, route) => {
+    server.create('tag', {name: 'B - Second', slug: 'second'});
+    server.create('tag', {name: 'Z - Last', slug: 'last'});
+    server.create('tag', {name: 'A - First', slug: 'first'});
+
+    await visit(`/${route}`);
+    await clickTrigger('[data-test-tag-select]');
+
+    const options = findAll('.ember-power-select-option');
+    expect(options.length, 'options count').to.equal(4);
+    expect(options[0].textContent.trim()).to.equal('All tags');
+
+    await selectSearch('[data-test-tag-select]', 's');
+
+    const searchedOptions = findAll('.ember-power-select-option');
+    expect(searchedOptions[0].textContent.trim()).to.equal('A - First');
+    expect(searchedOptions[1].textContent.trim()).to.equal('B - Second');
+    expect(searchedOptions[2].textContent.trim()).to.equal('Z - Last');
+
+    await selectChoose('[data-test-tag-select]', 'B - Second');
+    return server.pretender.handledRequests.slice(-1)[0];
+};
+
+const setupTagServerSideSearchTests = async (server, route) => {
+    server.createList('tag', 120);
+    server.create('tag', {name: 'Z - Last', slug: 'last'});
+
+    await visit(`/${route}`);
+    await selectSearch('[data-test-tag-select]', 'Last');
+
+    const options = findAll('.ember-power-select-option');
+    expect(options.length, 'options count').to.equal(1);
+    expect(options[0].textContent.trim()).to.equal('Z - Last');
+
+    await selectChoose('[data-test-tag-select]', 'Z - Last');
+    return server.pretender.handledRequests.slice(-1)[0];
 };
 
 describe('Acceptance: Posts / Pages', function () {
@@ -71,7 +91,8 @@ describe('Acceptance: Posts / Pages', function () {
     setupMirage(hooks);
 
     beforeEach(async function () {
-        setupCommonFixtures.call(this);
+        this.server.loadFixtures('configs');
+        this.server.loadFixtures('settings');
     });
 
     this.afterEach(function () {
@@ -87,7 +108,8 @@ describe('Acceptance: Posts / Pages', function () {
 
         describe('as contributor', function () {
             beforeEach(async function () {
-                createRoleAndUser.call(this, 'Contributor');
+                const contributorRole = this.server.create('role', {name: 'Contributor'});
+                this.server.create('user', {roles: [contributorRole]});
                 await authenticateSession();
             });
 
@@ -123,8 +145,8 @@ describe('Acceptance: Posts / Pages', function () {
                     const post = find(`[data-test-post-id="${publishedPost.id}"]`);
                     expect(post, 'post').to.exist;
 
-                    const contextMenu = await triggerContextMenu(post);
-                    expect(contextMenu, 'context menu').to.not.be.visible;
+                    await triggerEvent(post, 'contextmenu');
+                    expect(find('.gh-posts-context-menu'), 'context menu').to.not.be.visible;
                 });
             });
         });
@@ -148,8 +170,8 @@ describe('Acceptance: Posts / Pages', function () {
                 await visit('/posts');
                 await selectChoose('[data-test-type-select]', 'Published posts');
 
-                const lastPostsRequest = getLastPostsRequest.call(this);
-                expect(lastPostsRequest.queryParams.filter).to.have.string(`authors:${author.slug}`);
+                const lastRequest = getLastPostsRequest(this.server);
+                expect(lastRequest.queryParams.filter).to.have.string(`authors:${author.slug}`);
 
                 expect(findAll('[data-test-post-id]').length, 'post count').to.equal(1);
                 expect(find(`[data-test-post-id="${authorPost.id}"]`), 'author post').to.exist;
@@ -162,19 +184,19 @@ describe('Acceptance: Posts / Pages', function () {
                     const post = find(`[data-test-post-id="${authorPost.id}"]`);
                     expect(post, 'post').to.exist;
 
-                    const contextMenu = await triggerContextMenu(post);
-                    expect(contextMenu, 'context menu').to.not.be.visible;
+                    await triggerEvent(post, 'contextmenu');
+                    expect(find('.gh-posts-context-menu'), 'context menu').to.not.be.visible;
                 });
             });
         });
 
         describe('as editor', function () {
-            let editor, editorPost;
+            let editorPost;
 
             beforeEach(async function () {
-                editor = createRoleAndUser.call(this, 'Editor');
+                const editorRole = this.server.create('role', {name: 'Editor'});
+                const editor = this.server.create('user', {roles: [editorRole]});
                 editorPost = this.server.create('post', {authors: [editor], status: 'published', title: 'Editor Post'});
-
                 await authenticateSession();
             });
 
@@ -185,10 +207,8 @@ describe('Acceptance: Posts / Pages', function () {
                     const post = find(`[data-test-post-id="${editorPost.id}"]`);
                     expect(post, 'post').to.exist;
 
-                    const contextMenu = await triggerContextMenu(post);
-                    expect(contextMenu, 'context menu').to.exist;
-
-                    verifyContextMenuButtons(contextMenu, [
+                    const buttons = await getContextMenuButtons(post);
+                    verifyContextMenuButtons(buttons, [
                         'Copy link to post',
                         'Unpublish',
                         'Feature',
@@ -200,15 +220,20 @@ describe('Acceptance: Posts / Pages', function () {
         });
 
         describe('as admin', function () {
-            let admin, editor, posts;
+            let admin, editor, publishedPost, scheduledPost, draftPost, authorPost;
 
             beforeEach(async function () {
                 this.server.loadFixtures('tiers');
 
-                admin = createRoleAndUser.call(this, 'Administrator');
-                editor = createRoleAndUser.call(this, 'Editor');
+                const adminRole = this.server.create('role', {name: 'Administrator'});
+                admin = this.server.create('user', {roles: [adminRole]});
+                const editorRole = this.server.create('role', {name: 'Editor'});
+                editor = this.server.create('user', {roles: [editorRole]});
 
-                posts = createPostsForAdmin.call(this, admin, editor);
+                publishedPost = this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
+                scheduledPost = this.server.create('post', {authors: [admin], status: 'scheduled', title: 'Scheduled Post'});
+                draftPost = this.server.create('post', {authors: [admin], status: 'draft', title: 'Draft Post'});
+                authorPost = this.server.create('post', {authors: [editor], status: 'published', title: 'Editor Published Post'});
 
                 this.server.create('page', {authors: [admin], status: 'published', title: 'Published Page'});
 
@@ -219,49 +244,50 @@ describe('Acceptance: Posts / Pages', function () {
                 it('displays posts', async function () {
                     await visit('/posts');
 
-                    const postElements = findAll('[data-test-post-id]');
-                    expect(postElements.length, 'all posts count').to.equal(4);
+                    const posts = findAll('[data-test-post-id]');
+                    expect(posts.length, 'all posts count').to.equal(4);
 
-                    expect(postElements[0].querySelector('.gh-content-entry-title').textContent, 'post 1 title').to.contain('Scheduled Post');
-                    expect(postElements[1].querySelector('.gh-content-entry-title').textContent, 'post 2 title').to.contain('Draft Post');
-                    expect(postElements[2].querySelector('.gh-content-entry-title').textContent, 'post 3 title').to.contain('Published Post');
-                    expect(postElements[3].querySelector('.gh-content-entry-title').textContent, 'post 4 title').to.contain('Editor Published Post');
+                    expect(posts[0].querySelector('.gh-content-entry-title').textContent, 'post 1 title').to.contain('Scheduled Post');
+                    expect(posts[1].querySelector('.gh-content-entry-title').textContent, 'post 2 title').to.contain('Draft Post');
+                    expect(posts[2].querySelector('.gh-content-entry-title').textContent, 'post 3 title').to.contain('Published Post');
+                    expect(posts[3].querySelector('.gh-content-entry-title').textContent, 'post 4 title').to.contain('Editor Published Post');
 
-                    const lastRequests = this.server.pretender.handledRequests.filter(request => request.url.includes('/posts/'));
+                    const lastRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/'));
                     expect(lastRequests[0].queryParams.filter, 'scheduled request filter').to.have.string('status:scheduled');
                     expect(lastRequests[1].queryParams.filter, 'drafts request filter').to.have.string('status:draft');
                     expect(lastRequests[2].queryParams.filter, 'published request filter').to.have.string('status:[published,sent]');
                 });
 
                 it('can filter by status', async function () {
-                    await visitPostsAndSelectType.call(this, 'Draft posts');
+                    await visit('/posts');
 
-                    let lastPostsRequest = getLastPostsRequest.call(this);
-                    expect(lastPostsRequest.queryParams.filter, '"drafts" request status filter').to.have.string('status:draft');
+                    await selectChoose('[data-test-type-select]', 'Draft posts');
+                    let lastRequest = getLastPostsRequest(this.server);
+                    expect(lastRequest.queryParams.filter, '"drafts" request status filter').to.have.string('status:draft');
                     expect(findAll('[data-test-post-id]').length, 'drafts count').to.equal(1);
-                    expect(find(`[data-test-post-id="${posts.draft.id}"]`), 'draft post').to.exist;
+                    expect(find(`[data-test-post-id="${draftPost.id}"]`), 'draft post').to.exist;
 
-                    await visitPostsAndSelectType.call(this, 'Published posts');
-                    lastPostsRequest = getLastPostsRequest.call(this);
-                    expect(lastPostsRequest.queryParams.filter, '"published" request status filter').to.have.string('status:published');
+                    await selectChoose('[data-test-type-select]', 'Published posts');
+                    lastRequest = getLastPostsRequest(this.server);
+                    expect(lastRequest.queryParams.filter, '"published" request status filter').to.have.string('status:published');
                     expect(findAll('[data-test-post-id]').length, 'published count').to.equal(2);
+                    expect(find(`[data-test-post-id="${publishedPost.id}"]`), 'admin published post').to.exist;
+                    expect(find(`[data-test-post-id="${authorPost.id}"]`), 'author published post').to.exist;
 
-                    await visitPostsAndSelectType.call(this, 'Scheduled posts');
-                    lastPostsRequest = getLastPostsRequest.call(this);
-                    expect(lastPostsRequest.queryParams.filter, '"scheduled" request status filter').to.have.string('status:scheduled');
+                    await selectChoose('[data-test-type-select]', 'Scheduled posts');
+                    lastRequest = getLastPostsRequest(this.server);
+                    expect(lastRequest.queryParams.filter, '"scheduled" request status filter').to.have.string('status:scheduled');
                     expect(findAll('[data-test-post-id]').length, 'scheduled count').to.equal(1);
+                    expect(find(`[data-test-post-id="${scheduledPost.id}"]`), 'scheduled post').to.exist;
                 });
 
                 it('can filter by author', async function () {
                     await visit('/posts');
                     await selectChoose('[data-test-author-select]', editor.name);
 
-                    const lastPostsRequest = getLastPostsRequest.call(this);
-                    expect(lastPostsRequest.queryParams.allFilter, '"editor" request status filter')
-                        .to.have.string('status:[draft,scheduled,published,sent]');
-                    expect(lastPostsRequest.queryParams.allFilter, '"editor" request filter param')
-                        .to.have.string(`authors:${editor.slug}`);
-
+                    const lastRequest = getLastPostsRequest(this.server);
+                    expect(lastRequest.queryParams.allFilter, '"editor" request status filter').to.have.string('status:[draft,scheduled,published,sent]');
+                    expect(lastRequest.queryParams.allFilter, '"editor" request filter param').to.have.string(`authors:${editor.slug}`);
                     expect(findAll('[data-test-post-id]').length, 'editor count').to.equal(1);
                 });
 
@@ -269,59 +295,16 @@ describe('Acceptance: Posts / Pages', function () {
                     await visit('/posts');
 
                     await selectChoose('[data-test-visibility-select]', 'Paid members-only');
-                    let lastPostsRequest = getLastPostsRequest.call(this);
-                    expect(lastPostsRequest.queryParams.allFilter, '"visibility" request filter param')
-                        .to.have.string('visibility:[paid,tiers]');
+                    let lastRequest = getLastPostsRequest(this.server);
+                    expect(lastRequest.queryParams.allFilter, '"visibility" request filter param').to.have.string('visibility:[paid,tiers]');
                     expect(findAll('[data-test-post-id]').length, 'all posts count').to.equal(1);
 
                     await selectChoose('[data-test-visibility-select]', 'Public');
-                    lastPostsRequest = getLastPostsRequest.call(this);
-                    expect(lastPostsRequest.queryParams.allFilter, '"visibility" request filter param')
-                        .to.have.string('visibility:public');
+                    lastRequest = getLastPostsRequest(this.server);
+                    expect(lastRequest.queryParams.allFilter, '"visibility" request filter param').to.have.string('visibility:public');
                     expect(findAll('[data-test-post-id]').length, 'all posts count').to.equal(3);
                 });
 
                 it('can filter by tag', async function () {
-                    this.server.create('tag', {name: 'B - Second', slug: 'second'});
-                    this.server.create('tag', {name: 'Z - Last', slug: 'last'});
-                    this.server.create('tag', {name: 'A - First', slug: 'first'});
-
-                    await visit('/posts');
-                    await clickTrigger('[data-test-tag-select]');
-
-                    let options = findAll('.ember-power-select-option');
-                    expect(options.length, 'options count').to.equal(4);
-                    expect(options[0].textContent.trim()).to.equal('All tags');
-
-                    await selectSearch('[data-test-tag-select]', 's');
-
-                    options = findAll('.ember-power-select-option');
-                    expect(options[0].textContent.trim()).to.equal('A - First');
-                    expect(options[1].textContent.trim()).to.equal('B - Second');
-                    expect(options[2].textContent.trim()).to.equal('Z - Last');
-
-                    await selectChoose('[data-test-tag-select]', 'B - Second');
-                    const lastRequest = getLastRequest.call(this);
+                    const lastRequest = await setupTagFilterTests(this.server, 'posts');
                     expect(lastRequest.queryParams.allFilter, '"posts" request filter param').to.have.string('tag:second');
-                });
-
-                it('can filter by tag with server-side search', async function () {
-                    this.server.createList('tag', 120);
-                    this.server.create('tag', {name: 'Z - Last', slug: 'last'});
-
-                    await visit('/posts');
-                    await selectSearch('[data-test-tag-select]', 'Last');
-
-                    const options = findAll('.ember-power-select-option');
-                    expect(options.length, 'options count').to.equal(1);
-                    expect(options[0].textContent.trim()).to.equal('Z - Last');
-
-                    await selectChoose('[data-test-tag-select]', 'Z - Last');
-
-                    const lastRequest = getLastRequest.call(this);
-                    expect(lastRequest.queryParams.allFilter, '"posts" request filter param').to.have.string('tag:last');
-                });
-
-                it('can open with a filtered tag', async function () {
-                    const tag = this.server.create('tag', {name: 'B - Second', slug: 'second'});
-                    this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post with Second tag', tags: [tag
