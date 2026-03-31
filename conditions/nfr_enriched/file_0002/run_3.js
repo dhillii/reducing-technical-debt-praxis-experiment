@@ -12,12 +12,23 @@ import {toast} from 'sonner';
 import {uploadFile, useAccountForUser, useNoteMutationForUser, useReplyMutationForUser, useUserDataForUser} from '@hooks/use-activity-pub-queries';
 import {useNavigateWithBasePath} from '@src/hooks/use-navigate-with-base-path';
 
+const MAX_CONTENT_LENGTH = 500;
+
+const IMAGE_UPLOAD_ERROR_MESSAGES: Record<number, string> = {
+    413: 'Image size exceeds limit.',
+    415: 'The file type is not supported.'
+};
+
+const DEFAULT_IMAGE_UPLOAD_ERROR = 'Failed to upload image. Try again.';
+
+interface ReplyTo {
+    object: ObjectProperties;
+    actor: ActorProperties;
+}
+
 interface NewNoteModalProps extends ComponentPropsWithoutRef<typeof Dialog> {
     children?: ReactNode;
-    replyTo?: {
-        object: ObjectProperties;
-        actor: ActorProperties;
-    };
+    replyTo?: ReplyTo;
     onReply?: () => void;
     onReplyError?: () => void;
     onOpenChange?: (open: boolean) => void;
@@ -25,103 +36,284 @@ interface NewNoteModalProps extends ComponentPropsWithoutRef<typeof Dialog> {
 
 interface ImageState {
     preview: string | null;
-    url: string | null;
+    uploadedUrl: string | null;
     altText: string;
     showAltInput: boolean;
     isUploading: boolean;
 }
 
-const MAX_CONTENT_LENGTH = 500;
-const FOCUS_DELAY = 100;
-const STICKY_DELAY = 300;
+const INITIAL_IMAGE_STATE: ImageState = {
+    preview: null,
+    uploadedUrl: null,
+    altText: '',
+    showAltInput: false,
+    isUploading: false
+};
 
-const NewNoteModal: React.FC<NewNoteModalProps> = ({
-    children,
-    replyTo,
-    onReply,
-    onReplyError,
-    onOpenChange,
-    ...props
-}) => {
+function getReplyPlaceholder(replyTo: ReplyTo): string {
+    const attributedTo = replyTo.object.attributedTo || {};
+    if (typeof attributedTo === 'object' && 'preferredUsername' in attributedTo && 'id' in attributedTo) {
+        return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
+    }
+    return "What's new?";
+}
+
+function getImageUploadErrorMessage(error: unknown): string {
+    if (error && typeof error === 'object' && 'statusCode' in error) {
+        const statusCode = (error as {statusCode: number}).statusCode;
+        return IMAGE_UPLOAD_ERROR_MESSAGES[statusCode] ?? DEFAULT_IMAGE_UPLOAD_ERROR;
+    }
+    return DEFAULT_IMAGE_UPLOAD_ERROR;
+}
+
+function getCharCountColor(length: number): string {
+    if (length >= MAX_CONTENT_LENGTH) {
+        return 'text-red-500';
+    }
+    if (length >= MAX_CONTENT_LENGTH * 0.9) {
+        return 'text-yellow-600';
+    }
+    return 'text-gray-500';
+}
+
+function useModalOpenState(externalOpen?: boolean) {
+    const [isOpen, setIsOpen] = useState(false);
+
+    useEffect(() => {
+        if (externalOpen !== undefined) {
+            setIsOpen(externalOpen);
+        }
+    }, [externalOpen]);
+
+    const resolvedOpen = externalOpen !== undefined ? externalOpen : isOpen;
+
+    return {isOpen, setIsOpen, resolvedOpen};
+}
+
+function useAutoFocus(ref: React.RefObject<HTMLElement>, condition: boolean, delay = 100) {
+    useEffect(() => {
+        if (!condition) {
+            return;
+        }
+        const timeoutId = setTimeout(() => ref.current?.focus(), delay);
+        return () => clearTimeout(timeoutId);
+    }, [condition, ref, delay]);
+}
+
+function useAutoResizeTextarea(ref: React.RefObject<HTMLTextAreaElement>, content: string) {
+    useEffect(() => {
+        if (ref.current) {
+            ref.current.style.height = 'auto';
+            ref.current.style.height = `${ref.current.scrollHeight}px`;
+        }
+    }, [content, ref]);
+}
+
+function useStickyFooter(isOpen: boolean, delay = 300) {
+    const [isSticky, setIsSticky] = useState(false);
+
+    useEffect(() => {
+        if (!isOpen) {
+            setIsSticky(false);
+            return;
+        }
+        const timer = setTimeout(() => setIsSticky(true), delay);
+        return () => clearTimeout(timer);
+    }, [isOpen, delay]);
+
+    return isSticky;
+}
+
+function useImageState() {
+    const [imageState, setImageState] = useState<ImageState>(INITIAL_IMAGE_STATE);
+    const imageInputRef = useRef<HTMLInputElement>(null);
+
+    const clearImage = useCallback(() => {
+        if (imageState.preview) {
+            URL.revokeObjectURL(imageState.preview);
+        }
+        setImageState(INITIAL_IMAGE_STATE);
+        if (imageInputRef.current) {
+            imageInputRef.current.value = '';
+        }
+    }, [imageState.preview]);
+
+    const setPreview = useCallback((preview: string) => {
+        setImageState(prev => ({...prev, preview}));
+    }, []);
+
+    const setUploadedUrl = useCallback((uploadedUrl: string) => {
+        setImageState(prev => ({...prev, uploadedUrl}));
+    }, []);
+
+    const setIsUploading = useCallback((isUploading: boolean) => {
+        setImageState(prev => ({...prev, isUploading}));
+    }, []);
+
+    const setAltText = useCallback((altText: string) => {
+        setImageState(prev => ({...prev, altText}));
+    }, []);
+
+    const toggleAltInput = useCallback(() => {
+        setImageState(prev => ({...prev, showAltInput: !prev.showAltInput}));
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            if (imageState.preview) {
+                URL.revokeObjectURL(imageState.preview);
+            }
+        };
+    }, [imageState.preview]);
+
+    return {
+        imageState,
+        imageInputRef,
+        clearImage,
+        setPreview,
+        setUploadedUrl,
+        setIsUploading,
+        setAltText,
+        toggleAltInput
+    };
+}
+
+interface ImagePreviewProps {
+    preview: string;
+    isUploading: boolean;
+    showAltInput: boolean;
+    onClear: (e: React.MouseEvent) => void;
+    onToggleAlt: (e: React.MouseEvent) => void;
+}
+
+const ImagePreview: React.FC<ImagePreviewProps> = ({preview, isUploading, showAltInput, onClear, onToggleAlt}) => (
+    <div className='group relative mt-6 flex min-h-[200px] w-full items-center justify-center'>
+        <img
+            alt='Image attachment preview'
+            className={`max-h-[320px] w-full rounded-sm object-cover outline outline-1 -outline-offset-1 outline-black/10 ${isUploading ? 'opacity-10' : ''}`}
+            src={preview}
+        />
+        {isUploading && (
+            <div className='absolute leading-[0]'>
+                <LoadingIndicator size='md' />
+            </div>
+        )}
+        <Button
+            className='absolute right-3 top-3 size-8 bg-black/60 text-white opacity-0 hover:bg-black/80 group-hover:opacity-100'
+            onClick={onClear}
+        >
+            <LucideIcon.Trash2 />
+        </Button>
+        {!isUploading && (
+            <Button
+                className={`absolute bottom-3 left-3 h-6 px-2 py-0 text-white ${showAltInput ? 'bg-green-500 hover:bg-green-500' : 'bg-black/60 hover:bg-black/80'}`}
+                onClick={onToggleAlt}
+            >
+                Alt
+            </Button>
+        )}
+    </div>
+);
+
+interface CharCounterProps {
+    length: number;
+    max: number;
+}
+
+const CharCounter: React.FC<CharCounterProps> = ({length, max}) => (
+    <div className={`text-sm ${getCharCountColor(length)}`}>
+        {length}/{max}
+    </div>
+);
+
+const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, onReplyError, onOpenChange, ...props}) => {
     const {data: user} = useUserDataForUser('index');
     const noteMutation = useNoteMutationForUser('index', user);
     const replyMutation = useReplyMutationForUser('index', user);
     const {data: account, isLoading: isLoadingAccount} = useAccountForUser('index', 'me');
-    const navigate = useNavigateWithBasePath();
 
-    const [isOpen, setIsOpen] = useState(false);
-    const [content, setContent] = useState('');
-    const [isPosting, setIsPosting] = useState(false);
-    const [isSticky, setIsSticky] = useState(false);
-    const [imageState, setImageState] = useState<ImageState>({
-        preview: null,
-        url: null,
-        altText: '',
-        showAltInput: false,
-        isUploading: false
-    });
+    const {isOpen, setIsOpen, resolvedOpen} = useModalOpenState(props.open);
+    const isSticky = useStickyFooter(resolvedOpen);
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const altTextInputRef = useRef<HTMLInputElement>(null);
-    const imageInputRef = useRef<HTMLInputElement>(null);
 
-    const isModalOpen = props.open !== undefined ? props.open : isOpen;
+    const [content, setContent] = useState('');
+    const [isPosting, setIsPosting] = useState(false);
+
+    const {
+        imageState,
+        imageInputRef,
+        clearImage,
+        setPreview,
+        setUploadedUrl,
+        setIsUploading,
+        setAltText,
+        toggleAltInput
+    } = useImageState();
+
+    const navigate = useNavigateWithBasePath();
+
+    useAutoFocus(textareaRef, resolvedOpen);
+    useAutoFocus(altTextInputRef, imageState.showAltInput);
+    useAutoResizeTextarea(textareaRef, content);
+
     const isDisabled = !content.trim() || !user || isPosting || content.length > MAX_CONTENT_LENGTH;
 
-    // Sync external open prop with internal state
-    useEffect(() => {
-        if (props.open !== undefined) {
-            setIsOpen(props.open);
+    const handleImageUpload = useCallback(async (file: File) => {
+        try {
+            setIsUploading(true);
+            const imageUrl = await uploadFile(file);
+            setUploadedUrl(imageUrl);
+        } catch (error) {
+            setPreview('');
+            toast.error(getImageUploadErrorMessage(error));
+        } finally {
+            setIsUploading(false);
         }
-    }, [props.open]);
+    }, [setIsUploading, setUploadedUrl, setPreview]);
 
-    // Handle sticky footer timing
-    useEffect(() => {
-        if (!isModalOpen) {
-            setIsSticky(false);
+    const handlePost = useCallback(async () => {
+        const trimmedContent = content.trim();
+        if (!trimmedContent || !user) {
             return;
         }
 
-        const timer = setTimeout(() => {
-            setIsSticky(true);
-        }, STICKY_DELAY);
+        try {
+            setIsPosting(true);
+            const imagePayload = {
+                imageUrl: imageState.uploadedUrl || undefined,
+                altText: imageState.altText || undefined
+            };
 
-        return () => clearTimeout(timer);
-    }, [isModalOpen]);
+            if (replyTo) {
+                await replyMutation.mutateAsync({
+                    inReplyTo: replyTo.object.id,
+                    content: trimmedContent,
+                    ...imagePayload
+                });
+                onReply?.();
+            } else {
+                await noteMutation.mutateAsync({content: trimmedContent, ...imagePayload});
+                navigate('/notes');
+            }
 
-    // Auto-resize textarea
-    useEffect(() => {
-        if (textareaRef.current) {
-            textareaRef.current.style.height = 'auto';
-            textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+            setIsOpen(false);
+            onOpenChange?.(false);
+            toast.success(replyTo ? 'Reply posted' : 'Note posted');
+        } catch {
+            if (replyTo) {
+                onReplyError?.();
+            }
+        } finally {
+            setIsPosting(false);
         }
-    }, [content]);
+    }, [content, user, replyTo, replyMutation, noteMutation, imageState.uploadedUrl, imageState.altText, onReply, onReplyError, setIsOpen, navigate, onOpenChange]);
 
-    // Focus textarea when modal opens
     useEffect(() => {
-        if (!isModalOpen || !textareaRef.current) return;
-
-        const timeoutId = setTimeout(() => {
-            textareaRef.current?.focus();
-        }, FOCUS_DELAY);
-
-        return () => clearTimeout(timeoutId);
-    }, [isModalOpen]);
-
-    // Focus alt text input when it becomes visible
-    useEffect(() => {
-        if (!imageState.showAltInput || !altTextInputRef.current) return;
-
-        const timeoutId = setTimeout(() => {
-            altTextInputRef.current?.focus();
-        }, FOCUS_DELAY);
-
-        return () => clearTimeout(timeoutId);
-    }, [imageState.showAltInput]);
-
-    // Keyboard shortcut handler
-    useEffect(() => {
-        if (!isModalOpen) return;
+        if (!resolvedOpen) {
+            return;
+        }
 
         const handleKeyDown = (e: KeyboardEvent) => {
             if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -134,32 +326,13 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
 
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [isModalOpen, isDisabled, imageState.isUploading]);
+    }, [resolvedOpen, isDisabled, imageState.isUploading, handlePost]);
 
-    // Paste handler
-    useEffect(() => {
-        if (!isModalOpen) return;
-
-        const handlePaste = async (e: ClipboardEvent) => {
-            await processPastedImage(e);
-        };
-
-        document.addEventListener('paste', handlePaste);
-        return () => document.removeEventListener('paste', handlePaste);
-    }, [isModalOpen]);
-
-    // Cleanup object URLs on unmount
-    useEffect(() => {
-        return () => {
-            if (imageState.preview) {
-                URL.revokeObjectURL(imageState.preview);
-            }
-        };
-    }, []);
-
-    const processPastedImage = useCallback(async (e: React.ClipboardEvent | ClipboardEvent) => {
+    const handlePaste = useCallback(async (e: React.ClipboardEvent | ClipboardEvent) => {
         const items = e.clipboardData?.items;
-        if (!items) return;
+        if (!items) {
+            return;
+        }
 
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
@@ -167,73 +340,40 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
                 e.preventDefault();
                 const file = item.getAsFile();
                 if (file) {
-                    await processImageFile(file);
+                    if (file.size > MAX_FILE_SIZE) {
+                        toast.error(FILE_SIZE_ERROR_MESSAGE);
+                        return;
+                    }
+                    setPreview(URL.createObjectURL(file));
+                    await handleImageUpload(file);
                 }
                 break;
             }
         }
-    }, []);
+    }, [handleImageUpload, setPreview]);
 
-    const processImageFile = async (file: File) => {
-        if (file.size > MAX_FILE_SIZE) {
-            toast.error(FILE_SIZE_ERROR_MESSAGE);
+    useEffect(() => {
+        if (!resolvedOpen) {
+            return;
+        }
+        document.addEventListener('paste', handlePaste);
+        return () => document.removeEventListener('paste', handlePaste);
+    }, [resolvedOpen, handlePaste]);
+
+    const handleImageChange = async (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) {
             return;
         }
 
-        const previewUrl = URL.createObjectURL(file);
-        setImageState(prev => ({...prev, preview: previewUrl}));
+        if (file.size > MAX_FILE_SIZE) {
+            toast.error(FILE_SIZE_ERROR_MESSAGE);
+            e.target.value = '';
+            return;
+        }
+
+        setPreview(URL.createObjectURL(file));
         await handleImageUpload(file);
-    };
-
-    const handleImageUpload = async (file: File) => {
-        try {
-            setImageState(prev => ({...prev, isUploading: true}));
-            const imageUrl = await uploadFile(file);
-            setImageState(prev => ({...prev, url: imageUrl}));
-        } catch (error) {
-            setImageState(prev => ({...prev, preview: null}));
-            const errorMessage = getImageErrorMessage(error);
-            toast.error(errorMessage);
-        } finally {
-            setImageState(prev => ({...prev, isUploading: false}));
-        }
-    };
-
-    const getImageErrorMessage = (error: unknown): string => {
-        if (error && typeof error === 'object' && 'statusCode' in error) {
-            switch ((error as {statusCode: number}).statusCode) {
-                case 413:
-                    return 'Image size exceeds limit.';
-                case 415:
-                    return 'The file type is not supported.';
-                default:
-                    return 'Failed to upload image. Try again.';
-            }
-        }
-        return 'Failed to upload image. Try again.';
-    };
-
-    const handleImageChange = async (e: ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files;
-        if (files?.length) {
-            await processImageFile(files[0]);
-        }
-    };
-
-    const clearImage = () => {
-        if (imageState.preview) {
-            URL.revokeObjectURL(imageState.preview);
-        }
-        if (imageInputRef.current) {
-            imageInputRef.current.value = '';
-        }
-        setImageState({
-            preview: null,
-            url: null,
-            altText: '',
-            showAltInput: false,
-            isUploading: false
-        });
     };
 
     const handleClearImage = (e: React.MouseEvent) => {
@@ -243,52 +383,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
 
     const handleToggleAltInput = (e: React.MouseEvent) => {
         e.stopPropagation();
-        setImageState(prev => ({...prev, showAltInput: !prev.showAltInput}));
-    };
-
-    const handleContentClick = () => {
-        textareaRef.current?.focus();
-    };
-
-    const handlePost = useCallback(async () => {
-        const trimmedContent = content.trim();
-
-        if (!trimmedContent || !user) return;
-
-        try {
-            setIsPosting(true);
-
-            const postData = {
-                content: trimmedContent,
-                imageUrl: imageState.url || undefined,
-                altText: imageState.altText || undefined
-            };
-
-            if (replyTo) {
-                await replyMutation.mutateAsync({
-                    inReplyTo: replyTo.object.id,
-                    ...postData
-                });
-                onReply?.();
-            } else {
-                await noteMutation.mutateAsync(postData);
-                navigate('/notes');
-            }
-
-            resetModal();
-            toast.success(replyTo ? 'Reply posted' : 'Note posted');
-        } catch {
-            onReplyError?.();
-        } finally {
-            setIsPosting(false);
-        }
-    }, [content, user, replyTo, imageState, replyMutation, noteMutation, onReply, onReplyError, navigate]);
-
-    const resetModal = () => {
-        setContent('');
-        clearImage();
-        setIsOpen(false);
-        onOpenChange?.(false);
+        toggleAltInput();
     };
 
     const handleOpenChange = (open: boolean) => {
@@ -300,29 +395,19 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
         onOpenChange?.(open);
     };
 
-    const getPlaceholder = (): string => {
-        if (!replyTo) return 'What\'s new?';
-
-        const attributedTo = replyTo.object.attributedTo;
-        if (typeof attributedTo === 'object' && attributedTo && 'preferredUsername' in attributedTo && 'id' in attributedTo) {
-            return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
-        }
-        return 'What\'s new?';
-    };
-
-    const getCharacterCountColor = (): string => {
-        if (content.length >= MAX_CONTENT_LENGTH) return 'text-red-500';
-        if (content.length >= MAX_CONTENT_LENGTH * 0.9) return 'text-yellow-600';
-        return 'text-gray-500';
-    };
+    const placeholder = replyTo ? getReplyPlaceholder(replyTo) : "What's new?";
 
     return (
-        <Dialog open={isModalOpen} onOpenChange={handleOpenChange} {...(props.open !== undefined ? {} : props)}>
+        <Dialog
+            open={resolvedOpen}
+            onOpenChange={handleOpenChange}
+            {...(props.open !== undefined ? {} : props)}
+        >
             <DialogTrigger asChild>
                 {children}
             </DialogTrigger>
             <DialogContent
-                className="max-h-[80vh] min-h-[240px] gap-0 overflow-y-auto pb-0"
+                className='max-h-[80vh] min-h-[240px] gap-0 overflow-y-auto pb-0'
                 data-testid="new-note-modal"
                 onClick={e => e.stopPropagation()}
             >
@@ -339,79 +424,4 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({
                         isCompact={true}
                         layout='reply'
                         likeCount={replyTo.object.likeCount ?? 0}
-                        object={replyTo.object}
-                        repostCount={replyTo.object.repostCount ?? 0}
-                        type={replyTo.object.type === 'Article' ? 'Article' : 'Note'}
-                        onClick={() => {}}
-                    />
-                )}
-
-                <div
-                    className={`flex ${!imageState.preview ? 'min-h-36' : ''} cursor-text items-start gap-3`}
-                    onClick={handleContentClick}
-                >
-                    <div className='sticky top-0'>
-                        <APAvatar author={user as ActorProperties} />
-                    </div>
-                    <FormPrimitive.Root asChild>
-                        <div className='-mt-0.5 flex w-full flex-col gap-0.5'>
-                            {isLoadingAccount ? (
-                                <Skeleton className='w-10' />
-                            ) : (
-                                <span className='min-w-0 truncate whitespace-nowrap font-semibold text-black break-anywhere dark:text-white'>
-                                    {account?.name}
-                                </span>
-                            )}
-                            <FormPrimitive.Field name='content' asChild>
-                                <FormPrimitive.Control asChild>
-                                    <textarea
-                                        ref={textareaRef}
-                                        autoFocus={true}
-                                        className='ap-textarea w-full resize-none bg-transparent text-[1.5rem] break-anywhere'
-                                        data-testid="note-textarea"
-                                        placeholder={getPlaceholder()}
-                                        rows={1}
-                                        value={content}
-                                        onChange={e => setContent(e.target.value)}
-                                        onPaste={processPastedImage}
-                                    />
-                                </FormPrimitive.Control>
-                            </FormPrimitive.Field>
-                            <FormPrimitive.Field name='image' asChild>
-                                <FormPrimitive.Control asChild>
-                                    <input
-                                        ref={imageInputRef}
-                                        accept="image/jpeg,image/png,image/webp,image/gif"
-                                        className='hidden'
-                                        type="file"
-                                        onChange={handleImageChange}
-                                    />
-                                </FormPrimitive.Control>
-                            </FormPrimitive.Field>
-                        </div>
-                    </FormPrimitive.Root>
-                </div>
-
-                {imageState.preview && (
-                    <div className='group relative mt-6 flex min-h-[200px] w-full items-center justify-center'>
-                        <img
-                            alt='Image attachment preview'
-                            className={`max-h-[320px] w-full rounded-sm object-cover outline outline-1 -outline-offset-1 outline-black/10 ${
-                                imageState.isUploading && 'opacity-10'
-                            }`}
-                            src={imageState.preview}
-                        />
-                        {imageState.isUploading && (
-                            <div className='absolute leading-[0]'>
-                                <LoadingIndicator size='md' />
-                            </div>
-                        )}
-                        <Button
-                            className='absolute right-3 top-3 size-8 bg-black/60 text-white opacity-0 hover:bg-black/80 group-hover:opacity-100'
-                            onClick={handleClearImage}
-                        >
-                            <LucideIcon.Trash2 />
-                        </Button>
-                        {!imageState.isUploading && (
-                            <Button
-                                className={
+                        object={replyTo.object
