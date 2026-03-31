@@ -5,45 +5,45 @@ const errors = require('@tryghost/errors');
 
 /**
  * @typedef {import('../email-service/email-event-processor')} EmailEventProcessor
- */
-
-/**
  * @typedef {object} FetchData
  * @property {boolean} running
- * @property {('email-analytics-latest-others'|'email-analytics-missing'|'email-analytics-latest-opened'|'email-analytics-scheduled')} jobName Name of the job that is running
- * @property {Date} [lastStarted] Date the last fetch started on
- * @property {Date} [lastBegin] The begin time used during the last fetch
+ * @property {('email-analytics-latest-others'|'email-analytics-missing'|'email-analytics-latest-opened'|'email-analytics-scheduled')} jobName
+ * @property {Date} [lastStarted]
+ * @property {Date} [lastBegin]
  * @property {Date} [lastEventTimestamp]
- * @property {boolean} [canceled] Set to quit the job early
- */
-
-/**
+ * @property {boolean} [canceled]
+ *
  * @typedef {FetchData & {schedule?: {begin: Date, end: Date}}} FetchDataScheduled
- */
-
-/**
  * @typedef {'delivered' | 'opened' | 'failed' | 'unsubscribed' | 'complained'} EmailAnalyticsEvent
- */
-
-/**
+ *
  * @typedef {object} EmailAnalyticsFetchResult
- * @property {number} eventCount - The number of events fetched
- * @property {number} apiPollingTimeMs - Time spent polling the API in milliseconds
- * @property {number} processingTimeMs - Time spent processing events in milliseconds
- * @property {number} aggregationTimeMs - Time spent aggregating stats in milliseconds
- * @property {EventProcessingResult} result - The processing result with event breakdown
+ * @property {number} eventCount
+ * @property {number} apiPollingTimeMs
+ * @property {number} processingTimeMs
+ * @property {number} aggregationTimeMs
+ * @property {EventProcessingResult} result
  */
 
 const TRUST_THRESHOLD_MS = 30 * 60 * 1000;
 const FETCH_LATEST_END_MARGIN_MS = 1 * 60 * 1000;
-const AGGREGATION_INTERVAL_MS = 5 * 60 * 1000;
-const AGGREGATION_MEMBER_THRESHOLD = 5000;
-const BATCH_SIZE = 100;
+const INTERMEDIATE_AGGREGATION_INTERVAL_MS = 5 * 60 * 1000;
+const INTERMEDIATE_AGGREGATION_MEMBER_THRESHOLD = 5000;
+const MEMBER_BATCH_SIZE = 100;
 
-/**
- * Helper function to create an empty fetch result
- * @returns {EmailAnalyticsFetchResult}
- */
+const EMPTY_FETCH_DATA = jobName => ({running: false, jobName});
+
+const EVENT_HANDLER_MAP = {
+    delivered: {method: 'handleDelivered', resultKey: 'delivered'},
+    opened: {method: 'handleOpened', resultKey: 'opened'},
+    unsubscribed: {method: 'handleUnsubscribed', resultKey: 'unsubscribed'},
+    complained: {method: 'handleComplained', resultKey: 'complained'}
+};
+
+const FAILED_SEVERITY_MAP = {
+    permanent: {method: 'handlePermanentFailed', resultKey: 'permanentFailed'},
+    temporary: {method: 'handleTemporaryFailed', resultKey: 'temporaryFailed'}
+};
+
 function createEmptyResult() {
     return {
         eventCount: 0,
@@ -54,28 +54,9 @@ function createEmptyResult() {
     };
 }
 
-/**
- * Event type handlers mapping
- */
-const EVENT_HANDLERS = {
-    delivered: 'handleDelivered',
-    opened: 'handleOpened',
-    failed: 'handleFailed',
-    unsubscribed: 'handleUnsubscribed',
-    complained: 'handleComplained'
-};
-
-/**
- * Event type to result field mapping
- */
-const EVENT_TYPE_RESULTS = {
-    delivered: 'delivered',
-    opened: 'opened',
-    permanentFailed: 'permanentFailed',
-    temporaryFailed: 'temporaryFailed',
-    unsubscribed: 'unsubscribed',
-    complained: 'complained'
-};
+function mergeUniqueSets(...sets) {
+    return Array.from(new Set(sets.flatMap(s => Array.from(s))));
+}
 
 module.exports = class EmailAnalyticsService {
     config;
@@ -84,25 +65,10 @@ module.exports = class EmailAnalyticsService {
     eventProcessor;
     providers;
 
-    #fetchLatestNonOpenedData = {
-        running: false,
-        jobName: 'email-analytics-latest-others'
-    };
-
-    #fetchMissingData = {
-        running: false,
-        jobName: 'email-analytics-missing'
-    };
-
-    #fetchLatestOpenedData = {
-        running: false,
-        jobName: 'email-analytics-latest-opened'
-    };
-
-    #fetchScheduledData = {
-        running: false,
-        jobName: 'email-analytics-scheduled'
-    };
+    #fetchLatestNonOpenedData = EMPTY_FETCH_DATA('email-analytics-latest-others');
+    #fetchMissingData = EMPTY_FETCH_DATA('email-analytics-missing');
+    #fetchLatestOpenedData = EMPTY_FETCH_DATA('email-analytics-latest-opened');
+    #fetchScheduledData = EMPTY_FETCH_DATA('email-analytics-scheduled');
 
     /**
      * @param {object} dependencies
@@ -124,6 +90,7 @@ module.exports = class EmailAnalyticsService {
         this.prometheusClient = prometheusClient;
 
         if (prometheusClient) {
+            // @ts-expect-error
             prometheusClient.registerCounter({
                 name: 'email_analytics_aggregate_member_stats_count',
                 help: 'Count of member stats aggregations'
@@ -140,80 +107,100 @@ module.exports = class EmailAnalyticsService {
         };
     }
 
+    async #getLastEventTimestamp(fetchData, eventTypes, fallbackMs = TRUST_THRESHOLD_MS) {
+        return fetchData?.lastEventTimestamp
+            ?? (await this.queries.getLastEventTimestamp(fetchData.jobName, eventTypes))
+            ?? new Date(Date.now() - fallbackMs);
+    }
+
     async getLastNonOpenedEventTimestamp() {
-        return this.#fetchLatestNonOpenedData?.lastEventTimestamp ??
-            (await this.queries.getLastEventTimestamp(this.#fetchLatestNonOpenedData.jobName, ['delivered', 'failed'])) ??
-            new Date(Date.now() - TRUST_THRESHOLD_MS);
+        return this.#getLastEventTimestamp(this.#fetchLatestNonOpenedData, ['delivered', 'failed']);
     }
 
     async getLastOpenedEventTimestamp() {
-        return this.#fetchLatestOpenedData?.lastEventTimestamp ??
-            (await this.queries.getLastEventTimestamp(this.#fetchLatestOpenedData.jobName, ['opened'])) ??
-            new Date(Date.now() - TRUST_THRESHOLD_MS);
+        return this.#getLastEventTimestamp(this.#fetchLatestOpenedData, ['opened']);
     }
 
     async getLastMissingEventTimestamp() {
-        return this.#fetchMissingData?.lastEventTimestamp ??
-            (await this.queries.getLastJobRunTimestamp(this.#fetchMissingData.jobName)) ??
-            new Date(Date.now() - TRUST_THRESHOLD_MS * 4);
+        return this.#fetchMissingData?.lastEventTimestamp
+            ?? (await this.queries.getLastJobRunTimestamp(this.#fetchMissingData.jobName))
+            ?? new Date(Date.now() - TRUST_THRESHOLD_MS * 4);
     }
 
+    async #fetchLatestEvents(fetchData, {getBegin, eventTypes, maxEvents}) {
+        const begin = await getBegin();
+        const end = new Date(Date.now() - FETCH_LATEST_END_MARGIN_MS);
+
+        if (end <= begin) {
+            logging.info(`[EmailAnalytics] Skipping fetch because end (${end}) is before begin (${begin})`);
+            return createEmptyResult();
+        }
+
+        return this.#fetchEvents(fetchData, {begin, end, maxEvents, eventTypes});
+    }
+
+    /**
+     * @param {Object} [options]
+     * @param {number} [options.maxEvents=Infinity]
+     * @returns {Promise<EmailAnalyticsFetchResult>}
+     */
     async fetchLatestOpenedEvents({maxEvents = Infinity} = {}) {
-        const begin = await this.getLastOpenedEventTimestamp();
-        const end = new Date(Date.now() - FETCH_LATEST_END_MARGIN_MS);
-
-        if (end <= begin) {
-            logging.info('[EmailAnalytics] Skipping fetchLatestOpenedEvents because end (' + end + ') is before begin (' + begin + ')');
-            return createEmptyResult();
-        }
-
-        return this.#fetchEvents(this.#fetchLatestOpenedData, {begin, end, maxEvents, eventTypes: ['opened']});
-    }
-
-    async fetchLatestNonOpenedEvents({maxEvents = Infinity} = {}) {
-        const begin = await this.getLastNonOpenedEventTimestamp();
-        const end = new Date(Date.now() - FETCH_LATEST_END_MARGIN_MS);
-
-        if (end <= begin) {
-            logging.info('[EmailAnalytics] Skipping fetchLatestNonOpenedEvents because end (' + end + ') is before begin (' + begin + ')');
-            return createEmptyResult();
-        }
-
-        return this.#fetchEvents(this.#fetchLatestNonOpenedData, {
-            begin,
-            end,
-            maxEvents,
-            eventTypes: ['delivered', 'failed', 'unsubscribed', 'complained']
+        return this.#fetchLatestEvents(this.#fetchLatestOpenedData, {
+            getBegin: () => this.getLastOpenedEventTimestamp(),
+            eventTypes: ['opened'],
+            maxEvents
         });
     }
 
+    /**
+     * @param {Object} [options]
+     * @param {number} [options.maxEvents=Infinity]
+     * @returns {Promise<EmailAnalyticsFetchResult>}
+     */
+    async fetchLatestNonOpenedEvents({maxEvents = Infinity} = {}) {
+        return this.#fetchLatestEvents(this.#fetchLatestNonOpenedData, {
+            getBegin: () => this.getLastNonOpenedEventTimestamp(),
+            eventTypes: ['delivered', 'failed', 'unsubscribed', 'complained'],
+            maxEvents
+        });
+    }
+
+    /**
+     * @param {object} [options]
+     * @param {number} [options.maxEvents]
+     * @returns {Promise<EmailAnalyticsFetchResult>}
+     */
     async fetchMissing({maxEvents = Infinity} = {}) {
         const begin = await this.getLastMissingEventTimestamp();
-        const end = new Date(
-            Math.min(
-                Date.now() - TRUST_THRESHOLD_MS,
-                this.#fetchLatestNonOpenedData?.lastBegin?.getTime() || Date.now()
-            )
-        );
+        const end = new Date(Math.min(
+            Date.now() - TRUST_THRESHOLD_MS,
+            this.#fetchLatestNonOpenedData?.lastBegin?.getTime() || Date.now()
+        ));
 
         if (end <= begin) {
-            logging.info('[EmailAnalytics] Skipping fetchMissing because end (' + end + ') is before begin (' + begin + ')');
+            logging.info(`[EmailAnalytics] Skipping fetchMissing because end (${end}) is before begin (${begin})`);
             return createEmptyResult();
         }
 
         return this.#fetchEvents(this.#fetchMissingData, {begin, end, maxEvents});
     }
 
+    /**
+     * @param {Object} options
+     * @param {Date} options.begin
+     * @param {Date} options.end
+     * @throws {errors.ValidationError}
+     */
     schedule({begin, end}) {
         if (this.#fetchScheduledData?.running) {
             throw new errors.ValidationError({
                 message: 'Already fetching scheduled events. Wait for it to finish before scheduling a new one.'
             });
         }
-        logging.info('[EmailAnalytics] Scheduling fetch from ' + begin.toISOString() + ' until ' + end.toISOString());
+
+        logging.info(`[EmailAnalytics] Scheduling fetch from ${begin.toISOString()} until ${end.toISOString()}`);
         this.#fetchScheduledData = {
-            running: false,
-            jobName: 'email-analytics-scheduled',
+            ...EMPTY_FETCH_DATA('email-analytics-scheduled'),
             schedule: {begin, end}
         };
     }
@@ -226,13 +213,15 @@ module.exports = class EmailAnalyticsService {
         if (this.#fetchScheduledData.running) {
             this.#fetchScheduledData.canceled = true;
         } else {
-            this.#fetchScheduledData = {
-                running: false,
-                jobName: 'email-analytics-scheduled'
-            };
+            this.#fetchScheduledData = EMPTY_FETCH_DATA('email-analytics-scheduled');
         }
     }
 
+    /**
+     * @param {Object} [options]
+     * @param {number} [options.maxEvents=Infinity]
+     * @returns {Promise<EmailAnalyticsFetchResult>}
+     */
     async fetchScheduled({maxEvents = Infinity} = {}) {
         if (!this.#fetchScheduledData?.schedule) {
             return createEmptyResult();
@@ -243,87 +232,95 @@ module.exports = class EmailAnalyticsService {
             return createEmptyResult();
         }
 
-        let begin = this.#fetchScheduledData.schedule.begin;
-        const end = this.#fetchScheduledData.schedule.end;
-
-        if (this.#fetchScheduledData.lastEventTimestamp && this.#fetchScheduledData.lastEventTimestamp > begin) {
-            begin = this.#fetchScheduledData.lastEventTimestamp;
-        }
+        const {schedule, lastEventTimestamp} = this.#fetchScheduledData;
+        const begin = (lastEventTimestamp && lastEventTimestamp > schedule.begin)
+            ? lastEventTimestamp
+            : schedule.begin;
+        const end = schedule.end;
 
         if (end <= begin) {
             logging.info('[EmailAnalytics] Ending fetchScheduled because end is before begin');
-            this.#fetchScheduledData = {
-                running: false,
-                jobName: 'email-analytics-scheduled'
-            };
+            this.#fetchScheduledData = EMPTY_FETCH_DATA('email-analytics-scheduled');
             return createEmptyResult();
         }
 
         const fetchResult = await this.#fetchEvents(this.#fetchScheduledData, {begin, end, maxEvents});
+
         if (fetchResult.eventCount === 0 || this.#fetchScheduledData.canceled) {
-            this.#fetchScheduledData = {
-                running: false,
-                jobName: 'email-analytics-scheduled'
-            };
+            this.#fetchScheduledData = EMPTY_FETCH_DATA('email-analytics-scheduled');
         }
 
-        this.queries.setJobTimestamp(this.#fetchScheduledData.jobName, 'finished', this.#fetchScheduledData.lastEventTimestamp);
+        this.queries.setJobTimestamp(
+            this.#fetchScheduledData.jobName,
+            'finished',
+            this.#fetchScheduledData.lastEventTimestamp
+        );
+
         return fetchResult;
     }
 
+    /**
+     * @param {FetchData} fetchData
+     * @param {object} options
+     * @param {Date} options.begin
+     * @param {Date} options.end
+     * @param {number} [options.maxEvents=Infinity]
+     * @param {EmailAnalyticsEvent[]} [options.eventTypes]
+     * @returns {Promise<EmailAnalyticsFetchResult>}
+     */
     async #fetchEvents(fetchData, {begin, end, maxEvents = Infinity, eventTypes = null}) {
         fetchData.running = true;
         fetchData.lastStarted = new Date();
         fetchData.lastBegin = begin;
         this.queries.setJobTimestamp(fetchData.jobName, 'started', begin);
 
-        let apiPollingTimeMs = 0;
-        let processingTimeMs = 0;
-        let aggregationTimeMs = 0;
-
-        let lastAggregation = Date.now();
-        let eventCount = 0;
+        const metrics = {apiPollingTimeMs: 0, processingTimeMs: 0, aggregationTimeMs: 0};
         const includeOpenedEvents = eventTypes?.includes('opened') ?? false;
 
+        let eventCount = 0;
+        let lastAggregation = Date.now();
         let processingResult = new EventProcessingResult();
         const cumulativeResult = new EventProcessingResult();
         const allEmailIds = new Set();
         const allMemberIds = new Set();
         let error = null;
 
+        const shouldRunIntermediateAggregation = () =>
+            (Date.now() - lastAggregation > INTERMEDIATE_AGGREGATION_INTERVAL_MS
+                || processingResult.memberIds.length > INTERMEDIATE_AGGREGATION_MEMBER_THRESHOLD)
+            && eventCount > 0;
+
+        const runIntermediateAggregation = async () => {
+            try {
+                const start = Date.now();
+                await this.aggregateStats(processingResult, includeOpenedEvents);
+                metrics.aggregationTimeMs += Date.now() - start;
+                lastAggregation = Date.now();
+
+                processingResult.emailIds.forEach(id => allEmailIds.delete(id));
+                processingResult.memberIds.forEach(id => allMemberIds.delete(id));
+                processingResult = new EventProcessingResult();
+            } catch (err) {
+                logging.error('[EmailAnalytics] Error while aggregating stats');
+                logging.error(err);
+            }
+        };
+
         const processBatch = async (events) => {
-            const processingStart = Date.now();
-            const beforeCounts = this.#captureResultState(processingResult);
-            const beforeEmailIds = new Set(processingResult.emailIds);
-            const beforeMemberIds = new Set(processingResult.memberIds);
+            const start = Date.now();
+            const snapshot = this.#snapshotResult(processingResult);
 
             await this.processEventBatch(events, processingResult, fetchData);
-            processingTimeMs += (Date.now() - processingStart);
+            metrics.processingTimeMs += Date.now() - start;
             eventCount += events.length;
 
-            const batchDelta = this.#calculateBatchDelta(
-                processingResult,
-                beforeCounts,
-                beforeEmailIds,
-                beforeMemberIds
-            );
-            cumulativeResult.merge(batchDelta);
-            batchDelta.emailIds.forEach(id => allEmailIds.add(id));
-            batchDelta.memberIds.forEach(id => allMemberIds.add(id));
+            const delta = this.#computeDelta(processingResult, snapshot);
+            cumulativeResult.merge(delta);
+            delta.emailIds.forEach(id => allEmailIds.add(id));
+            delta.memberIds.forEach(id => allMemberIds.add(id));
 
-            if (this.#shouldAggregate(lastAggregation, processingResult.memberIds.length, eventCount)) {
-                try {
-                    const aggregationStart = Date.now();
-                    await this.aggregateStats(processingResult, includeOpenedEvents);
-                    aggregationTimeMs += (Date.now() - aggregationStart);
-                    lastAggregation = Date.now();
-                    processingResult.emailIds.forEach(id => allEmailIds.delete(id));
-                    processingResult.memberIds.forEach(id => allMemberIds.delete(id));
-                    processingResult = new EventProcessingResult();
-                } catch (err) {
-                    logging.error('[EmailAnalytics] Error while aggregating stats');
-                    logging.error(err);
-                }
+            if (shouldRunIntermediateAggregation()) {
+                await runIntermediateAggregation();
             }
 
             if (fetchData.canceled) {
@@ -333,34 +330,32 @@ module.exports = class EmailAnalyticsService {
 
         try {
             for (const provider of this.providers) {
-                const apiStart = Date.now();
+                const start = Date.now();
                 await provider.fetchLatest(processBatch, {begin, end, maxEvents, events: eventTypes});
-                apiPollingTimeMs += (Date.now() - apiStart);
+                metrics.apiPollingTimeMs += Date.now() - start;
             }
         } catch (err) {
-            if (err.message !== 'Fetching canceled') {
+            if (err.message === 'Fetching canceled') {
+                logging.error('[EmailAnalytics] Canceled fetching');
+            } else {
                 logging.error('[EmailAnalytics] Error while fetching');
                 logging.error(err);
                 error = err;
-            } else {
-                logging.error('[EmailAnalytics] Canceled fetching');
             }
         }
 
-        await this.#performFinalAggregation(
-            processingResult,
-            allEmailIds,
-            allMemberIds,
+        await this.#runFinalAggregation(
+            {processingResult, allEmailIds, allMemberIds},
             includeOpenedEvents,
-            aggregationTimeMs
-        );
+            metrics,
+            error
+        ).catch((err) => {
+            if (!error) {
+                error = err;
+            }
+        });
 
-        if (!error && eventCount > 0 && fetchData.lastEventTimestamp && fetchData.lastEventTimestamp.getTime() < Date.now() - 2000) {
-            await this.queries.setJobTimestamp(fetchData.jobName, 'finished', new Date(fetchData.lastEventTimestamp.getTime()));
-            fetchData.lastEventTimestamp = new Date(fetchData.lastEventTimestamp.getTime() + 1000);
-        } else {
-            await this.queries.setJobStatus(fetchData.jobName, 'finished');
-        }
+        await this.#finalizeJobTimestamp(fetchData, error, eventCount);
 
         fetchData.running = false;
 
@@ -368,16 +363,10 @@ module.exports = class EmailAnalyticsService {
             throw error;
         }
 
-        return {
-            eventCount,
-            apiPollingTimeMs,
-            processingTimeMs,
-            aggregationTimeMs,
-            result: cumulativeResult
-        };
+        return {eventCount, ...metrics, result: cumulativeResult};
     }
 
-    #captureResultState(result) {
+    #snapshotResult(result) {
         return {
             opened: result.opened,
             delivered: result.delivered,
@@ -386,18 +375,17 @@ module.exports = class EmailAnalyticsService {
             unsubscribed: result.unsubscribed,
             complained: result.complained,
             unhandled: result.unhandled,
-            unprocessable: result.unprocessable
+            unprocessable: result.unprocessable,
+            emailIds: new Set(result.emailIds),
+            memberIds: new Set(result.memberIds)
         };
     }
 
-    #calculateBatchDelta(result, beforeCounts, beforeEmailIds, beforeMemberIds) {
+    #computeDelta(current, snapshot) {
         return new EventProcessingResult({
-            opened: result.opened - beforeCounts.opened,
-            delivered: result.delivered - beforeCounts.delivered,
-            temporaryFailed: result.temporaryFailed - beforeCounts.temporaryFailed,
-            permanentFailed: result.permanentFailed - beforeCounts.permanentFailed,
-            unsubscribed: result.unsubscribed - beforeCounts.unsubscribed,
-            complained: result.complained - beforeCounts.complained,
-            unhandled: result.unhandled - beforeCounts.unhandled,
-            unprocessable: result.unprocessable - beforeCounts.unprocessable,
-            emailIds: result.emailIds.filter(id => !before
+            opened: current.opened - snapshot.opened,
+            delivered: current.delivered - snapshot.delivered,
+            temporaryFailed: current.temporaryFailed - snapshot.temporaryFailed,
+            permanentFailed: current.permanentFailed - snapshot.permanentFailed,
+            unsubscribed: current.unsubscribed - snapshot.unsubscribed,
+            complained: current.complained
