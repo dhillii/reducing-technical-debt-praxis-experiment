@@ -82,10 +82,12 @@ class ExperimentOrchestrator:
         self.claude_caller = ClaudeCaller()
         self.sonar_poller = SonarCloudPoller()
         self.csv_df = None
+        self._prompts: Dict[str, str] = {}
         self._manifest_by_project_path: Dict[Tuple[str, str], int] = {}
         self._git_lock = threading.Lock()  # Serialize git operations
         self._csv_lock = threading.Lock()  # Serialize CSV writes
         self._load_csv()
+        self._load_prompts()
 
     def _load_csv(self) -> None:
         """Load the CSV data."""
@@ -106,6 +108,17 @@ class ExperimentOrchestrator:
         except Exception as e:
             logger.error(f"Failed to load CSV: {e}")
             raise
+
+    def _load_prompts(self) -> None:
+        """Load record_id -> active_prompt mapping from active_prompts_for_experiment.csv."""
+        if not ACTIVE_PROMPTS_FILE.exists():
+            raise FileNotFoundError(
+                f"Active prompts file not found: {ACTIVE_PROMPTS_FILE}\n"
+                "Copy active_prompts_for_experiment.csv to the data/ directory."
+            )
+        df = pd.read_csv(ACTIVE_PROMPTS_FILE, dtype={"record_id": str})
+        self._prompts = dict(zip(df["record_id"], df["active_prompt"]))
+        logger.info(f"Loaded {len(self._prompts)} prompts from {ACTIVE_PROMPTS_FILE.name}")
 
     def _load_manifest_index(self) -> None:
         """Load deterministic mapping from (project, original_path) -> file_id."""
@@ -657,16 +670,12 @@ class ExperimentOrchestrator:
         logger.info(f"CSV updated for {record_id}")
 
     def _build_prompt(self, run: ExperimentRun, csv_row: Any, original_code: str) -> str:
-        """Build the refactoring prompt for Claude."""
-        # Get prompt from CSV
-        prompt_col = f"prompt_{run.condition}"
-        if prompt_col in csv_row:
-            prompt_template = csv_row[prompt_col]
-        else:
-            # Fallback
-            prompt_template = "Refactor the following code to reduce complexity:\n\n{code}"
-
-        return prompt_template.format(code=original_code)
+        """Build the refactoring prompt using the per-file active prompt + source code."""
+        active_prompt = self._prompts.get(run.record_id)
+        if not active_prompt or str(active_prompt) == "nan":
+            logger.warning(f"No active_prompt for record_id={run.record_id}, using fallback")
+            return f"Refactor the following code to reduce complexity:\n\n{original_code}"
+        return f"{active_prompt}\n\nReturn only the refactored code without explanations:\n\n{original_code}"
 
     def _get_system_prompt(self, condition: str) -> str:
         """Get system prompt based on condition."""
@@ -1093,6 +1102,44 @@ def batch_retrieve() -> None:
 
     except Exception as e:
         logger.error(f"Result retrieval failed: {e}")
+        sys.exit(1)
+
+
+@cli.command("batch-cancel")
+def batch_cancel() -> None:
+    """Cancel all submitted batches and reset PENDING state for resubmission."""
+    setup_logging()
+    logger.info("Cancelling all submitted batches...")
+
+    try:
+        orchestrator = BatchRunOrchestrator()
+        batch_ids = orchestrator._load_batch_ids(None)
+
+        if not batch_ids:
+            logger.warning("No batch IDs found. Nothing to cancel.")
+            return
+
+        cancelled = 0
+        for batch_id in batch_ids:
+            try:
+                orchestrator.batch_orchestrator.processor.client.beta.messages.batches.cancel(batch_id)
+                logger.info(f"Cancelled batch: {batch_id}")
+                cancelled += 1
+            except Exception as e:
+                logger.warning(f"Could not cancel {batch_id}: {e}")
+
+        # Reset all IN_PROGRESS runs back to PENDING so they can be resubmitted
+        in_progress = orchestrator.state_manager.get_all_runs_by_status("IN_PROGRESS")
+        for record_id in in_progress:
+            orchestrator.state_manager.update_run_status(record_id, "PENDING")
+        pending_reset = len(in_progress)
+
+        logger.info(f"Cancelled {cancelled}/{len(batch_ids)} batches")
+        logger.info(f"Reset {pending_reset} IN_PROGRESS runs to PENDING")
+        logger.info("Ready to resubmit with: batch-submit")
+
+    except Exception as e:
+        logger.error(f"Batch cancel failed: {e}")
         sys.exit(1)
 
 
