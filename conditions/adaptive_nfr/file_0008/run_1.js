@@ -1,13 +1,19 @@
-```typescript
+```tsx
 import OffersRetention from './offers-retention';
-import {Button, type Tab, TabView} from '@tryghost/admin-x-design-system';
-import {ButtonGroup, type ButtonProps, showToast} from '@tryghost/admin-x-design-system';
-import {Icon} from '@tryghost/admin-x-design-system';
+import {
+    Button,
+    ButtonGroup,
+    Icon,
+    Modal,
+    Popover,
+    Tooltip,
+    type ButtonProps,
+    type Tab,
+    TabView,
+    showToast
+} from '@tryghost/admin-x-design-system';
 import {LucideIcon} from '@tryghost/shade';
-import {Modal} from '@tryghost/admin-x-design-system';
-import {Popover} from '@tryghost/admin-x-design-system';
 import {type Tier, getPaidActiveTiers, useBrowseTiers} from '@tryghost/admin-x-framework/api/tiers';
-import {Tooltip} from '@tryghost/admin-x-design-system';
 import {currencyToDecimal, getSymbol} from '../../../../utils/currency';
 import {getHomepageUrl} from '@tryghost/admin-x-framework/api/site';
 import {numberWithCommas} from '../../../../utils/helpers';
@@ -19,77 +25,40 @@ import {useSortingState} from '../../../providers/settings-app-provider';
 import {useState} from 'react';
 
 export type OfferType = 'percent' | 'fixed' | 'trial';
+type StatusFilter = 'active' | 'archived';
+
+const SORT_OPTIONS = [
+    {id: 'date-added', label: 'Date added'},
+    {id: 'name', label: 'Name'},
+    {id: 'redemptions', label: 'Redemptions'}
+] as const;
+
+const OFFERS_TABS: Tab[] = [
+    {id: 'signup', title: 'Signup'},
+    {id: 'retention', title: 'Retention'}
+];
 
 export const createRedemptionFilterUrl = (id: string): string => {
-    const baseHref = '/ghost/#/members';
     const filterValue = `offer_redemptions:[${id}]`;
-    return `${baseHref}?filter=${encodeURIComponent(filterValue)}`;
+    return `/ghost/#/members?filter=${encodeURIComponent(filterValue)}`;
 };
 
-export const getOfferCadence = (cadence: string): string => {
-    return cadence === 'month' ? 'monthly' : 'yearly';
-};
+export const getOfferCadence = (cadence: string): string =>
+    cadence === 'month' ? 'monthly' : 'yearly';
 
 export const getOfferDuration = (duration: string): string => {
-    const durationMap: Record<string, string> = {
-        'once': 'First payment',
-        'repeating': 'Repeating'
+    const map: Record<string, string> = {
+        once: 'First payment',
+        repeating: 'Repeating',
+        forever: 'Forever'
     };
-    return durationMap[duration] || 'Forever';
+    return map[duration] ?? 'Forever';
 };
 
 const formatToTwoDecimals = (num: number): number => parseFloat(num.toFixed(2));
 
-interface OfferDiscountResult {
-    discountColor: string;
-    discountOffer: string;
-    originalPriceWithCurrency: string;
-    updatedPriceWithCurrency: string;
-}
-
-const getDiscountByType = (
-    type: string,
-    amount: number,
-    originalPrice: number,
-    currency: string
-): {discountColor: string; discountOffer: string; updatedPrice: number; originalPriceWithCurrency: string} => {
-    const discountMap: Record<string, {color: string; calculate: () => {offer: string; price: number; originalPrice: string}}> = {
-        'percent': {
-            color: 'text-green',
-            calculate: () => ({
-                offer: `${amount}% off`,
-                price: originalPrice - ((originalPrice * amount) / 100),
-                originalPrice: getSymbol(currency) + numberWithCommas(formatToTwoDecimals(currencyToDecimal(originalPrice)))
-            })
-        },
-        'fixed': {
-            color: 'text-blue',
-            calculate: () => ({
-                offer: `${numberWithCommas(formatToTwoDecimals(currencyToDecimal(amount)))} ${currency} off`,
-                price: originalPrice - amount,
-                originalPrice: getSymbol(currency) + numberWithCommas(formatToTwoDecimals(currencyToDecimal(originalPrice)))
-            })
-        },
-        'trial': {
-            color: 'text-pink',
-            calculate: () => ({
-                offer: `${amount} days free`,
-                price: originalPrice,
-                originalPrice: ''
-            })
-        }
-    };
-
-    const config = discountMap[type] || discountMap['percent'];
-    const {offer, price, originalPrice: originalPriceStr} = config.calculate();
-
-    return {
-        discountColor: config.color,
-        discountOffer: offer,
-        updatedPrice: price,
-        originalPriceWithCurrency: originalPriceStr
-    };
-};
+const formatPrice = (currency: string, price: number): string =>
+    getSymbol(currency) + numberWithCommas(formatToTwoDecimals(currencyToDecimal(price)));
 
 export const getOfferDiscount = (
     type: string,
@@ -97,19 +66,34 @@ export const getOfferDiscount = (
     cadence: string,
     currency: string,
     tier: Tier | undefined
-): OfferDiscountResult => {
+): {discountColor: string; discountOffer: string; originalPriceWithCurrency: string; updatedPriceWithCurrency: string} => {
     const originalPrice = cadence === 'month' ? tier?.monthly_price ?? 0 : tier?.yearly_price ?? 0;
-    const {discountColor, discountOffer, updatedPrice, originalPriceWithCurrency} = getDiscountByType(type, amount, originalPrice, currency);
+    let updatedPrice = originalPrice;
+    let discountColor = '';
+    let discountOffer = '';
+    let originalPriceWithCurrency = formatPrice(currency, originalPrice);
 
-    let finalUpdatedPrice = Math.max(updatedPrice, 0);
-    const updatedPriceWithCurrency = getSymbol(currency) + numberWithCommas(formatToTwoDecimals(currencyToDecimal(finalUpdatedPrice)));
+    switch (type) {
+    case 'percent':
+        discountColor = 'text-green';
+        discountOffer = `${amount}% off`;
+        updatedPrice = originalPrice - (originalPrice * amount) / 100;
+        break;
+    case 'fixed':
+        discountColor = 'text-blue';
+        discountOffer = `${numberWithCommas(formatToTwoDecimals(currencyToDecimal(amount)))} ${currency} off`;
+        updatedPrice = originalPrice - amount;
+        break;
+    case 'trial':
+        discountColor = 'text-pink';
+        discountOffer = `${amount} days free`;
+        originalPriceWithCurrency = '';
+        break;
+    }
 
-    return {
-        discountColor,
-        discountOffer,
-        originalPriceWithCurrency,
-        updatedPriceWithCurrency
-    };
+    const updatedPriceWithCurrency = formatPrice(currency, Math.max(0, updatedPrice));
+
+    return {discountColor, discountOffer, originalPriceWithCurrency, updatedPriceWithCurrency};
 };
 
 export const CopyLinkButton: React.FC<{offerCode: string}> = ({offerCode}) => {
@@ -118,8 +102,7 @@ export const CopyLinkButton: React.FC<{offerCode: string}> = ({offerCode}) => {
 
     const handleCopyClick = (e?: React.MouseEvent<HTMLElement, MouseEvent>) => {
         e?.stopPropagation();
-        const offerLink = `${getHomepageUrl(siteData!)}${offerCode}`;
-        navigator.clipboard.writeText(offerLink);
+        navigator.clipboard.writeText(`${getHomepageUrl(siteData!)}${offerCode}`);
         setIsCopied(true);
         setTimeout(() => setIsCopied(false), 2000);
     };
@@ -143,12 +126,12 @@ export const CopyLinkButton: React.FC<{offerCode: string}> = ({offerCode}) => {
     );
 };
 
-export const EmptyState: React.FC<{title?: string; description: string; buttonAction: () => void; buttonLabel: string}> = ({
-    title = 'No offers found',
-    description,
-    buttonAction,
-    buttonLabel
-}) => (
+export const EmptyState: React.FC<{
+    title?: string;
+    description: string;
+    buttonAction: () => void;
+    buttonLabel: string;
+}> = ({title = 'No offers found', description, buttonAction, buttonLabel}) => (
     <div className='flex h-full grow flex-col items-center justify-center text-center'>
         <Icon className='-mt-14' colorClass='text-grey-700 -mt-6' name='tags-block' size='lg' />
         <h1 className='mt-4 text-xl'>{title}</h1>
@@ -157,155 +140,113 @@ export const EmptyState: React.FC<{title?: string; description: string; buttonAc
     </div>
 );
 
-const SORT_OPTIONS = [
-    {id: 'date-added', label: 'Date added'},
-    {id: 'name', label: 'Name'},
-    {id: 'redemptions', label: 'Redemptions'}
-];
+const FilterMenuItem: React.FC<{
+    isSelected: boolean;
+    label: string;
+    onClick: () => void;
+}> = ({isSelected, label, onClick}) => (
+    <button
+        className='group relative mx-1 flex cursor-pointer items-center rounded-[2.5px] px-8 py-1.5 text-left text-sm hover:bg-grey-100 dark:hover:bg-grey-800'
+        type='button'
+        onClick={onClick}
+    >
+        {isSelected && <Icon className='absolute left-2' name='check' size='xs' />}
+        {label}
+    </button>
+);
 
 const OffersFilterPopover: React.FC<{
-    statusFilter: 'active' | 'archived';
-    setStatusFilter: (status: 'active' | 'archived') => void;
+    statusFilter: StatusFilter;
+    setStatusFilter: (status: StatusFilter) => void;
     sortOption: string;
     sortDirection: string;
     onSortChange: (option: string) => void;
     onDirectionChange: () => void;
-}> = ({statusFilter, setStatusFilter, sortOption, sortDirection, onSortChange, onDirectionChange}) => {
-    return (
-        <Popover
-            position='end'
-            trigger={
-                <button className='flex cursor-pointer items-center justify-center rounded p-1 hover:bg-grey-100 dark:hover:bg-grey-800' type='button'>
-                    <LucideIcon.ListFilter className='text-grey-700' size={16} strokeWidth={1.5} />
-                </button>
-            }
-        >
-            <div className='flex min-w-[220px] flex-col'>
-                <div className='cursor-default select-none border-b border-b-grey-200 p-2 pl-3 text-xs font-semibold uppercase tracking-wide text-grey-700 dark:border-b-grey-800'>
-                    Status
-                </div>
-                <div className='flex flex-col py-1'>
-                    {(['active', 'archived'] as const).map(status => (
-                        <button
-                            key={status}
-                            className='group relative mx-1 flex cursor-pointer items-center rounded-[2.5px] px-8 py-1.5 text-left text-sm hover:bg-grey-100 dark:hover:bg-grey-800'
-                            type='button'
-                            onClick={() => setStatusFilter(status)}
-                        >
-                            {statusFilter === status && <Icon className='absolute left-2' name='check' size='xs' />}
-                            {status.charAt(0).toUpperCase() + status.slice(1)}
-                        </button>
-                    ))}
-                </div>
-                <div className='cursor-default select-none border-y border-y-grey-200 p-2 pl-3 text-xs font-semibold uppercase tracking-wide text-grey-700 dark:border-grey-800'>
-                    Sort by
-                </div>
-                <div className='flex flex-col py-1'>
-                    {SORT_OPTIONS.map(item => (
-                        <div
-                            key={item.id}
-                            className='group relative mx-1 flex items-center rounded-[2.5px] hover:bg-grey-100 dark:hover:bg-grey-800'
-                        >
-                            <button
-                                className='flex w-full cursor-pointer items-center px-8 py-1.5 pr-12 text-left text-sm'
-                                type='button'
-                                onClick={() => onSortChange(item.id)}
-                            >
-                                {sortOption === item.id && <Icon className='absolute left-2' name='check' size='xs' />}
-                                {item.label}
-                            </button>
-                            {sortOption === item.id && (
-                                <button
-                                    className='absolute right-1 flex size-6 cursor-pointer items-center justify-center rounded-full hover:bg-grey-300 dark:hover:bg-grey-700'
-                                    title={sortDirection === 'asc' ? 'Ascending' : 'Descending'}
-                                    type='button'
-                                    onClick={() => onDirectionChange()}
-                                >
-                                    <Icon name={sortDirection === 'asc' ? 'arrow-up' : 'arrow-down'} size='xs' />
-                                </button>
-                            )}
-                        </div>
-                    ))}
-                </div>
+}> = ({statusFilter, setStatusFilter, sortOption, sortDirection, onSortChange, onDirectionChange}) => (
+    <Popover
+        position='end'
+        trigger={
+            <button
+                className='flex cursor-pointer items-center justify-center rounded p-1 hover:bg-grey-100 dark:hover:bg-grey-800'
+                type='button'
+            >
+                <LucideIcon.ListFilter className='text-grey-700' size={16} strokeWidth={1.5} />
+            </button>
+        }
+    >
+        <div className='flex min-w-[220px] flex-col'>
+            <div className='cursor-default select-none border-b border-b-grey-200 p-2 pl-3 text-xs font-semibold uppercase tracking-wide text-grey-700 dark:border-b-grey-800'>
+                Status
             </div>
-        </Popover>
-    );
-};
+            <div className='flex flex-col py-1'>
+                {(['active', 'archived'] as const).map(status => (
+                    <FilterMenuItem
+                        key={status}
+                        isSelected={statusFilter === status}
+                        label={status.charAt(0).toUpperCase() + status.slice(1)}
+                        onClick={() => setStatusFilter(status)}
+                    />
+                ))}
+            </div>
+            <div className='cursor-default select-none border-y border-y-grey-200 p-2 pl-3 text-xs font-semibold uppercase tracking-wide text-grey-700 dark:border-grey-800'>
+                Sort by
+            </div>
+            <div className='flex flex-col py-1'>
+                {SORT_OPTIONS.map(item => (
+                    <div
+                        key={item.id}
+                        className='group relative mx-1 flex items-center rounded-[2.5px] hover:bg-grey-100 dark:hover:bg-grey-800'
+                    >
+                        <button
+                            className='flex w-full cursor-pointer items-center px-8 py-1.5 pr-12 text-left text-sm'
+                            type='button'
+                            onClick={() => onSortChange(item.id)}
+                        >
+                            {sortOption === item.id && <Icon className='absolute left-2' name='check' size='xs' />}
+                            {item.label}
+                        </button>
+                        {sortOption === item.id && (
+                            <button
+                                className='absolute right-1 flex size-6 cursor-pointer items-center justify-center rounded-full hover:bg-grey-300 dark:hover:bg-grey-700'
+                                title={sortDirection === 'asc' ? 'Ascending' : 'Descending'}
+                                type='button'
+                                onClick={onDirectionChange}
+                            >
+                                <Icon name={sortDirection === 'asc' ? 'arrow-up' : 'arrow-down'} size='xs' />
+                            </button>
+                        )}
+                    </div>
+                ))}
+            </div>
+        </div>
+    </Popover>
+);
 
-const useOfferFiltering = (allOffers: any[], allTiers: Tier[] | undefined) => {
-    const signupOffers = allOffers.filter(offer => offer.redemption_type === 'signup');
-
-    const filterOffersByStatus = (offers: any[], status: 'active' | 'archived') => {
-        return offers.filter(offer => {
-            const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
-            if (status === 'active') {
-                return offer.status === 'active' && offerTier && offerTier.active === true;
-            }
-            return offer.status === 'archived' || (offerTier && offerTier.active === false);
-        });
-    };
-
-    const activeOffers = filterOffersByStatus(signupOffers, 'active');
-    const archivedOffers = filterOffersByStatus(signupOffers, 'archived');
-
-    return {signupOffers, activeOffers, archivedOffers};
-};
-
-const sortOffers = (offers: any[], sortOption: string, sortDirection: string) => {
-    return offers.sort((offer1, offer2) => {
-        const multiplier = sortDirection === 'desc' ? -1 : 1;
-        switch (sortOption) {
-        case 'name':
-            return multiplier * offer1.name.localeCompare(offer2.name);
-        case 'redemptions':
-            return multiplier * (offer1.redemption_count - offer2.redemption_count);
-        default:
-            return multiplier * (
-                (offer1.created_at ? new Date(offer1.created_at).getTime() : 0) -
-                (offer2.created_at ? new Date(offer2.created_at).getTime() : 0)
-            );
-        }
-    });
-};
-
-interface OfferRowProps {
-    offer: any;
+const OfferTableRow: React.FC<{
+    offer: ReturnType<typeof useBrowseOffers>['data']['offers'][number];
     offerTier: Tier;
-    isTierArchived: boolean;
     onEdit: (id: string) => void;
-}
+}> = ({offer, offerTier, onEdit}) => {
+    const isTierArchived = offerTier.active === false;
+    const offerId = offer.id ?? '';
+    const {discountOffer, originalPriceWithCurrency, updatedPriceWithCurrency} =
+        getOfferDiscount(offer.type, offer.amount, offer.cadence, offer.currency || 'USD', offerTier);
 
-const OfferTableRow: React.FC<OfferRowProps> = ({offer, offerTier, isTierArchived, onEdit}) => {
-    const {discountOffer, originalPriceWithCurrency, updatedPriceWithCurrency} = getOfferDiscount(
-        offer.type,
-        offer.amount,
-        offer.cadence,
-        offer.currency || 'USD',
-        offerTier
-    );
-
-    const handleRowClick = () => {
-        if (!isTierArchived) {
-            onEdit(offer?.id || '');
-        }
-    };
-
-    const rowOpacity = isTierArchived ? 'opacity-50' : '';
-    const rowClickable = !isTierArchived ? 'cursor-pointer' : 'cursor-default select-none';
+    const handleEdit = isTierArchived ? () => {} : () => onEdit(offerId);
+    const clickableClass = isTierArchived ? 'cursor-default select-none' : 'cursor-pointer';
+    const opacityClass = isTierArchived ? 'opacity-50' : '';
 
     return (
         <tr className='group relative scale-100 border-b border-b-grey-200 dark:border-grey-800' data-testid='offer-item'>
-            <td className={`${rowOpacity} p-0`}>
-                <a className={`block ${rowClickable} p-5 pl-0`} onClick={handleRowClick}>
-                    <span className='font-semibold'>{offer?.name}</span>
+            <td className={`${opacityClass} p-0`}>
+                <a className={`block ${clickableClass} p-5 pl-0`} onClick={handleEdit}>
+                    <span className='font-semibold'>{offer.name}</span>
                     <br />
-                    <span className='text-sm text-grey-700'>
-                        {offerTier.name} {getOfferCadence(offer.cadence)}
-                    </span>
+                    <span className='text-sm text-grey-700'>{offerTier.name} {getOfferCadence(offer.cadence)}</span>
                 </a>
             </td>
-            <td className={`${rowOpacity} whitespace-nowrap p-0 text-sm`}>
-                <a className={`block ${rowClickable} p-5`} onClick={handleRowClick}>
+            <td className={`${opacityClass} whitespace-nowrap p-0 text-sm`}>
+                <a className={`block ${clickableClass} p-5`} onClick={handleEdit}>
                     <span className='text-[1.3rem] font-medium uppercase'>{discountOffer}</span>
                     <br />
                     <span className='text-grey-700'>
@@ -313,8 +254,56 @@ const OfferTableRow: React.FC<OfferRowProps> = ({offer, offerTier, isTierArchive
                     </span>
                 </a>
             </td>
-            <td className={`${rowOpacity} whitespace-nowrap p-0 text-sm`}>
-                <a className={`block ${rowClickable} p-5`} onClick={handleRowClick}>
-                    <span className='font-medium'>{updatedPriceWithCurrency}</span>
+            <td className={`${opacityClass} whitespace-nowrap p-0 text-sm`}>
+                <a className={`block ${clickableClass} p-5`} onClick={handleEdit}>
+                    <span className='font-medium'>{updatedPriceWithCurrency}</span>{' '}
                     {offer.type !== 'trial' && (
-                        <span className='relative text-xs text-grey-700 before:absolute before:-inset-x-0.5 before:top-1/2 before:rotate-
+                        <span className='relative text-xs text-grey-700 before:absolute before:-inset-x-0.5 before:top-1/2 before:rotate-[-20deg] before:border-t before:content-[""]'>
+                            {originalPriceWithCurrency}
+                        </span>
+                    )}
+                </a>
+            </td>
+            <td className={`${opacityClass} w-[120px] whitespace-nowrap p-0 text-sm`}>
+                <a
+                    className={`block ${clickableClass} p-5 ${offer.redemption_count === 0 ? '' : 'hover:underline'}`}
+                    href={offer.redemption_count > 0 ? createRedemptionFilterUrl(offerId) : undefined}
+                    onClick={offer.redemption_count === 0 ? handleEdit : () => {}}
+                >
+                    {offer.redemption_count}
+                </a>
+            </td>
+            <td className={`${opacityClass} w-[120px] whitespace-nowrap p-5 pr-8 text-right text-sm leading-none`}>
+                {!isTierArchived && <CopyLinkButton offerCode={offer.code} />}
+            </td>
+            {isTierArchived && (
+                <div className='absolute right-0 top-[11px] whitespace-nowrap rounded-sm bg-black px-2 py-0.5 text-xs leading-normal text-white opacity-0 transition-all group-hover:opacity-100 dark:bg-grey-950'>
+                    This offer is disabled, because <br /> it is tied to an archived tier.
+                </div>
+            )}
+        </tr>
+    );
+};
+
+const SignupTabHeader: React.FC<{
+    hasOffers: boolean;
+    filterPopover: React.ReactNode;
+}> = ({hasOffers, filterPopover}) => {
+    if (hasOffers) {
+        return (
+            <div className='flex items-center'>
+                <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Terms</span>
+                <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Price</span>
+                <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Redemptions</span>
+                <span className='flex w-[80px] items-center justify-end'>{filterPopover}</span>
+            </div>
+        );
+    }
+    return <div className='flex items-center'>{filterPopover}</div>;
+};
+
+const RetentionTabHeader: React.FC = () => (
+    <div className='flex items-center pt-[3px]'>
+        <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Terms</span>
+        <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Redemptions</span>
+        <span className='w-[220px] px-5 text-xs uppercase text-grey
