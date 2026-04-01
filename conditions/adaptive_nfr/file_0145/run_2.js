@@ -416,10 +416,10 @@ module.exports = class RuleSet {
 	 */
 	static _testConditions(data, rule) {
 		const conditionTests = [
-			{ condition: rule.resource, dataField: "resource", required: true },
-			{ condition: rule.resourceQuery, dataField: "resourceQuery", required: true },
-			{ condition: rule.compiler, dataField: "compiler", required: true },
-			{ condition: rule.issuer, dataField: "issuer", required: true }
+			{ condition: rule.resource, dataField: "resource", requireData: true },
+			{ condition: rule.resourceQuery, dataField: "resourceQuery", requireData: true },
+			{ condition: rule.compiler, dataField: "compiler", requireData: true },
+			{ condition: rule.issuer, dataField: "issuer", requireData: true }
 		];
 
 		for(const test of conditionTests) {
@@ -436,8 +436,8 @@ module.exports = class RuleSet {
 	 * Apply non-use properties to result
 	 */
 	static _applyProperties(rule, result) {
-		const ignoredKeys = ["resource", "resourceQuery", "compiler", "issuer", "rules", "oneOf", "use", "enforce"];
-		const keys = Object.keys(rule).filter((key) => ignoredKeys.indexOf(key) < 0);
+		const excludedKeys = ["resource", "resourceQuery", "compiler", "issuer", "rules", "oneOf", "use", "enforce"];
+		const keys = Object.keys(rule).filter((key) => excludedKeys.indexOf(key) < 0);
 		keys.forEach((key) => {
 			result.push({
 				type: key,
@@ -464,4 +464,60 @@ module.exports = class RuleSet {
 	/**
 	 * Apply nested rules and oneOf rules
 	 */
-	_applyNestedRules(context, data, rule, result
+	static _applyNestedRules(ruleSet, data, rule, result) {
+		if(rule.rules) {
+			for(let i = 0; i < rule.rules.length; i++) {
+				ruleSet._run(data, rule.rules[i], result);
+			}
+		}
+
+		if(rule.oneOf) {
+			for(let i = 0; i < rule.oneOf.length; i++) {
+				if(ruleSet._run(data, rule.oneOf[i], result))
+					break;
+			}
+		}
+	}
+
+	findOptionsByIdent(ident) {
+		const options = this.references[ident];
+		if(!options) throw new Error("Can't find options with ident '" + ident + "'");
+		return options;
+	}
+};
+
+/**
+ * Create a matcher that negates another matcher
+ */
+function notMatcher(matcher) {
+	return function(str) {
+		return !matcher(str);
+	};
+}
+
+/**
+ * Create a matcher that returns true if any item matches (OR logic)
+ */
+function orMatcher(items) {
+	return function(str) {
+		for(let i = 0; i < items.length; i++) {
+			if(items[i](str))
+				return true;
+		}
+		return false;
+	};
+}
+
+/**
+ * Create a matcher that returns true if all items match (AND logic)
+ */
+function andMatcher(items) {
+	return function(str) {
+		for(let i = 0; i < items.length; i++) {
+			if(!items[i](str))
+				return false;
+		}
+		return true;
+	};
+}
+```

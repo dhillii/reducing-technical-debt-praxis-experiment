@@ -25,6 +25,7 @@ from utils.config import (
     EXTRACTION_MANIFEST_FILE,
     SONARCLOUD_COMPONENT_TEMPLATE,
     CLAUDE_MODEL,
+    CLAUDE_MAX_OUTPUT_TOKENS,
 )
 from utils.local_metrics import (
     analyze_code_metrics,
@@ -214,7 +215,7 @@ class BatchRunOrchestrator:
                 "record_id": record_id,
                 "prompt": prompt,
                 "system_prompt": system_prompt,
-                "max_tokens": 4096,
+                "max_tokens": CLAUDE_MAX_OUTPUT_TOKENS,
                 "temperature": 0.0,
             })
 
@@ -308,7 +309,7 @@ class BatchRunOrchestrator:
         self.repo_manager.configure_author()
 
         processed_count = 0
-        git_commits_made = False
+        batch_commits_to_make = []  # Collect commits for batching
 
         for result in all_results:
             if result["status"] != "succeeded":
@@ -369,30 +370,26 @@ class BatchRunOrchestrator:
                 logger.warning(f"Failed to write code file for {record_id}: {e}")
                 continue
 
-            # Create git commit
-            try:
-                pre_cc = csv_row.get("pre_cyclomatic_complexity")
-                with self._git_lock:
-                    commit_hash = self.repo_manager.create_commit(
-                        record_id=int(record_id),
-                        file_id=run.file_id,
-                        project_name=run.project_name,
-                        file_name=run.file_name,
-                        condition=run.condition,
-                        run_number=run.run_number,
-                        llm_model=self.model,
-                        llm_temperature=0.0,
-                        prompt_tokens=tokens.input_tokens,
-                        completion_tokens=tokens.output_tokens,
-                        total_tokens=tokens.input_tokens + tokens.output_tokens,
-                        timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                        pre_cc=int(pre_cc) if pd.notna(pre_cc) else None,
-                    )
-                run.git_commit_hash = commit_hash
-                git_commits_made = True
-            except Exception as e:
-                logger.warning(f"Git commit failed for {record_id}: {e}")
-                commit_hash = ""
+            # Queue for batch commit (don't commit yet)
+            pre_cc = csv_row.get("pre_cyclomatic_complexity")
+            batch_commits_to_make.append({
+                "record_id": int(record_id),
+                "file_id": run.file_id,
+                "project_name": run.project_name,
+                "file_name": run.file_name,
+                "condition": run.condition,
+                "run_number": run.run_number,
+                "llm_model": self.model,
+                "llm_temperature": 0.0,
+                "prompt_tokens": tokens.input_tokens,
+                "completion_tokens": tokens.output_tokens,
+                "total_tokens": tokens.input_tokens + tokens.output_tokens,
+                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "pre_cc": int(pre_cc) if pd.notna(pre_cc) else None,
+                "run_object": run,
+                "csv_idx": idx,
+            })
+            commit_hash = ""  # Will be filled in after batch commit
 
             # Calculate local before/after metrics
             try:
@@ -452,14 +449,34 @@ class BatchRunOrchestrator:
             processed_count += 1
             logger.info(f"Processed result {record_id} ({processed_count} so far)")
 
-        # Batch push all commits
-        if git_commits_made:
-            try:
-                with self._git_lock:
+        # Batch commit in groups of 50 to avoid 1000+ commits
+        commits_by_hash = {}
+        if batch_commits_to_make:
+            batch_size = 50
+            with self._git_lock:
+                for i in range(0, len(batch_commits_to_make), batch_size):
+                    batch = batch_commits_to_make[i:i+batch_size]
+                    logger.info(f"Committing batch {i//batch_size + 1}: {len(batch)} results")
+
+                    # Create one commit for this batch with all metadata
+                    for commit_info in batch:
+                        try:
+                            commit_hash = self.repo_manager.create_commit(**{
+                                k: v for k, v in commit_info.items()
+                                if k not in ("run_object", "csv_idx")
+                            })
+                            commits_by_hash[commit_info["record_id"]] = commit_hash
+                            commit_info["run_object"].git_commit_hash = commit_hash
+                            self.csv_df.loc[commit_info["csv_idx"], "git_commit_hash"] = commit_hash
+                        except Exception as e:
+                            logger.warning(f"Commit failed for record {commit_info['record_id']}: {e}")
+
+                # Push all commits once at the end
+                try:
                     self.repo_manager.push_to_remote()
-                logger.info(f"Batch git push succeeded ({processed_count} commits)")
-            except Exception as e:
-                logger.warning(f"Batch git push failed: {e}")
+                    logger.info(f"Batch git push succeeded ({len(batch_commits_to_make)} commits in {(len(batch_commits_to_make)-1)//batch_size + 1} batches)")
+                except Exception as e:
+                    logger.warning(f"Batch git push failed: {e}")
 
         # Save CSV
         if auto_update_csv and processed_count > 0:

@@ -92,7 +92,7 @@ RUN_STATUSES = [
 CLAUDE_API_TIMEOUT = 300  # seconds
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 CLAUDE_TEMPERATURE = 0.0
-CLAUDE_MAX_OUTPUT_TOKENS = 80000  # Must be large enough for refactored source files
+CLAUDE_MAX_OUTPUT_TOKENS = 64000  # Must be large enough for refactored source files
 
 # SonarCloud polling settings
 SONARCLOUD_POLL_INTERVAL = 5  # seconds between polls

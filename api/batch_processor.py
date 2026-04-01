@@ -12,7 +12,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 
 from anthropic import Anthropic, APIError
-from utils.config import ANTHROPIC_API_KEY, CLAUDE_MODEL
+from utils.config import ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_MAX_OUTPUT_TOKENS
 from utils.logger_config import get_logger
 
 logger = get_logger("batch_processor")
@@ -44,7 +44,7 @@ class BatchProcessor:
                 - record_id: unique identifier (becomes custom_id)
                 - prompt: user message content
                 - system_prompt: system message
-                - max_tokens: max output tokens (default 4096)
+                - max_tokens: max output tokens (default CLAUDE_MAX_OUTPUT_TOKENS)
                 - temperature: sampling temperature (default 0.0)
 
         Returns:
@@ -56,7 +56,7 @@ class BatchProcessor:
                 "custom_id": req["record_id"],
                 "params": {
                     "model": self.model,
-                    "max_tokens": req.get("max_tokens", 4096),
+                    "max_tokens": req.get("max_tokens", CLAUDE_MAX_OUTPUT_TOKENS),
                     "temperature": req.get("temperature", 0.0),
                     "system": req["system_prompt"],
                     "messages": [
