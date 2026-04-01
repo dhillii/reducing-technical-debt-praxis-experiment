@@ -28,7 +28,7 @@ const isInteractive = process.stdout.isTTY;
  * @param {string} protocol - The protocol (http/https)
  * @param {number} port - The port number
  * @param {string} pathname - The pathname
- * @returns {string} Formatted URL
+ * @returns {string} The formatted URL
  */
 function formatUrl(hostname, protocol, port, pathname) {
   return url.format({
@@ -45,7 +45,7 @@ function formatUrl(hostname, protocol, port, pathname) {
  * @param {string} protocol - The protocol (http/https)
  * @param {number} port - The port number
  * @param {string} pathname - The pathname
- * @returns {string} Formatted URL with bold port
+ * @returns {string} The formatted URL with bold port
  */
 function prettyPrintUrl(hostname, protocol, port, pathname) {
   return url.format({
@@ -58,25 +58,18 @@ function prettyPrintUrl(hostname, protocol, port, pathname) {
 
 /**
  * Checks if the given IP address is private.
- * @param {string} ip - The IP address to check
- * @returns {boolean} True if the IP is private
+ * @param {string} ipAddress - The IP address to check
+ * @returns {boolean} True if the address is private
  */
-function isPrivateIp(ip) {
-  return /^10[.]|^172[.](1[6-9]|2[0-9]|3[0-1])[.]|^192[.]168[.]/.test(ip);
-}
-
-/**
- * Checks if the host is unspecified (0.0.0.0 or ::).
- * @param {string} host - The host to check
- * @returns {boolean} True if host is unspecified
- */
-function isUnspecifiedHost(host) {
-  return host === '0.0.0.0' || host === '::';
+function isPrivateIp(ipAddress) {
+  return /^10[.]|^172[.](1[6-9]|2[0-9]|3[0-1])[.]|^192[.]168[.]/.test(
+    ipAddress
+  );
 }
 
 /**
  * Attempts to get the LAN URL configuration.
- * @returns {string|undefined} The LAN IP if it's private, undefined otherwise
+ * @returns {string|undefined} The LAN IP address if available and private
  */
 function getLanUrlForConfig() {
   try {
@@ -88,6 +81,15 @@ function getLanUrlForConfig() {
     // ignored
   }
   return undefined;
+}
+
+/**
+ * Checks if the host is unspecified (0.0.0.0 or ::).
+ * @param {string} host - The host to check
+ * @returns {boolean} True if host is unspecified
+ */
+function isUnspecifiedHost(host) {
+  return host === '0.0.0.0' || host === '::';
 }
 
 function prepareUrls(protocol, host, port, pathname = '/') {
@@ -148,9 +150,21 @@ function printInstructions(appName, urls, useYarn) {
 }
 
 /**
- * Handles the invalid hook for webpack compiler.
+ * Handles compiler initialization errors.
+ * @param {Error} err - The error that occurred
  */
-function handleCompilerInvalid() {
+function handleCompilerError(err) {
+  console.log(chalk.red('Failed to compile.'));
+  console.log();
+  console.log(err.message || err);
+  console.log();
+  process.exit(1);
+}
+
+/**
+ * Handles the invalid hook event.
+ */
+function handleInvalidEvent() {
   if (isInteractive) {
     clearConsole();
   }
@@ -169,16 +183,9 @@ function isCompilationSuccessful(messages) {
 /**
  * Handles successful compilation output.
  * @param {Object} messages - Formatted webpack messages
- * @param {string} appName - Application name
- * @param {Object} urls - URL configuration
- * @param {boolean} useYarn - Whether yarn is being used
- * @param {boolean} isFirstCompile - Whether this is the first compilation
  */
-function handleCompilationSuccess(messages, appName, urls, useYarn, isFirstCompile) {
+function handleSuccessfulCompilation(messages) {
   console.log(chalk.green('Compiled successfully!'));
-  if (isInteractive || isFirstCompile) {
-    printInstructions(appName, urls, useYarn);
-  }
 }
 
 /**
@@ -200,6 +207,7 @@ function handleCompilationErrors(messages) {
 function handleCompilationWarnings(messages) {
   console.log(chalk.yellow('Compiled with warnings.\n'));
   console.log(messages.warnings.join('\n\n'));
+
   console.log(
     `\nSearch for the ${chalk.underline(chalk.yellow('keywords'))} to learn more about each warning.`
   );
@@ -209,58 +217,79 @@ function handleCompilationWarnings(messages) {
 }
 
 /**
- * Processes the done hook for webpack compiler.
- * @param {Object} stats - Webpack stats
- * @param {string} appName - Application name
- * @param {Object} urls - URL configuration
- * @param {boolean} useYarn - Whether yarn is being used
- * @param {boolean} isFirstCompile - Whether this is the first compilation
- * @returns {boolean} True if should return early
+ * Checks if this is a smoke test run.
+ * @returns {boolean} True if smoke test flag is present
  */
-function processDoneHook(stats, appName, urls, useYarn, isFirstCompile) {
-  if (isInteractive) {
-    clearConsole();
-  }
-
-  const statsData = stats.toJson({
-    all: false,
-    warnings: true,
-    errors: true,
-  });
-
-  const messages = formatWebpackMessages(statsData);
-  const successful = isCompilationSuccessful(messages);
-
-  if (successful) {
-    handleCompilationSuccess(messages, appName, urls, useYarn, isFirstCompile);
-    return false;
-  }
-
-  if (messages.errors.length) {
-    handleCompilationErrors(messages);
-    return true;
-  }
-
-  if (messages.warnings.length) {
-    handleCompilationWarnings(messages);
-  }
-
-  return false;
-}
-
-/**
- * Checks if smoke test mode is enabled.
- * @returns {boolean} True if smoke test is enabled
- */
-function isSmokeTestMode() {
+function isSmokeTestRun() {
   return process.argv.some(arg => arg.indexOf('--smoke-test') > -1);
 }
 
 /**
- * Sets up TypeScript checking hooks.
- * @param {Object} compiler - Webpack compiler instance
+ * Sets up the done hook handler for the compiler.
+ * @param {Object} compiler - The webpack compiler
+ * @param {string} appName - The application name
+ * @param {Object} urls - URL configuration
+ * @param {boolean} useYarn - Whether yarn is being used
+ * @param {boolean} useTypeScript - Whether TypeScript is enabled
  */
-function setupTypeScriptHooks(compiler) {
+function setupDoneHook(compiler, appName, urls, useYarn, useTypeScript) {
+  let isFirstCompile = true;
+
+  compiler.hooks.done.tap('done', async stats => {
+    if (isInteractive) {
+      clearConsole();
+    }
+
+    const statsData = stats.toJson({
+      all: false,
+      warnings: true,
+      errors: true,
+    });
+
+    const messages = formatWebpackMessages(statsData);
+    const isSuccessful = isCompilationSuccessful(messages);
+
+    if (isSuccessful) {
+      handleSuccessfulCompilation(messages);
+    }
+
+    if (isSuccessful && (isInteractive || isFirstCompile)) {
+      printInstructions(appName, urls, useYarn);
+    }
+
+    isFirstCompile = false;
+
+    if (messages.errors.length) {
+      handleCompilationErrors(messages);
+      return;
+    }
+
+    if (messages.warnings.length) {
+      handleCompilationWarnings(messages);
+    }
+  });
+}
+
+/**
+ * Sets up the invalid hook handler for the compiler.
+ * @param {Object} compiler - The webpack compiler
+ */
+function setupInvalidHook(compiler) {
+  compiler.hooks.invalid.tap('invalid', () => {
+    handleInvalidEvent();
+  });
+}
+
+/**
+ * Sets up the TypeScript checking hook.
+ * @param {Object} compiler - The webpack compiler
+ * @param {boolean} useTypeScript - Whether TypeScript is enabled
+ */
+function setupTypeScriptHook(compiler, useTypeScript) {
+  if (!useTypeScript) {
+    return;
+  }
+
   forkTsCheckerWebpackPlugin
     .getCompilerHooks(compiler)
     .waiting.tap('awaitingTypeScriptCheck', () => {
@@ -274,10 +303,14 @@ function setupTypeScriptHooks(compiler) {
 
 /**
  * Sets up smoke test hooks.
- * @param {Object} compiler - Webpack compiler instance
+ * @param {Object} compiler - The webpack compiler
  * @param {Promise} tsMessagesPromise - Promise for TypeScript messages
  */
 function setupSmokeTestHooks(compiler, tsMessagesPromise) {
+  if (!isSmokeTestRun()) {
+    return;
+  }
+
   compiler.hooks.failed.tap('smokeTest', async () => {
     await tsMessagesPromise;
     process.exit(1);
@@ -302,36 +335,19 @@ function createCompiler({
   webpack,
 }) {
   let compiler;
+
   try {
     compiler = webpack(config);
   } catch (err) {
-    console.log(chalk.red('Failed to compile.'));
-    console.log();
-    console.log(err.message || err);
-    console.log();
-    process.exit(1);
+    handleCompilerError(err);
   }
 
-  compiler.hooks.invalid.tap('invalid', handleCompilerInvalid);
+  setupInvalidHook(compiler);
+  setupTypeScriptHook(compiler, useTypeScript);
+  setupDoneHook(compiler, appName, urls, useYarn, useTypeScript);
 
-  let isFirstCompile = true;
-  let tsMessagesPromise;
-
-  if (useTypeScript) {
-    setupTypeScriptHooks(compiler);
-  }
-
-  compiler.hooks.done.tap('done', async stats => {
-    const shouldReturn = processDoneHook(stats, appName, urls, useYarn, isFirstCompile);
-    isFirstCompile = false;
-    if (shouldReturn) {
-      return;
-    }
-  });
-
-  if (isSmokeTestMode()) {
-    setupSmokeTestHooks(compiler, tsMessagesPromise);
-  }
+  const tsMessagesPromise = Promise.resolve();
+  setupSmokeTestHooks(compiler, tsMessagesPromise);
 
   return compiler;
 }
@@ -356,103 +372,115 @@ function resolveLoopback(proxy) {
 }
 
 /**
- * Builds the error message for proxy errors.
- * @param {string} url - The request URL
- * @param {string} host - The request host
- * @param {string} proxy - The proxy target
- * @param {string} code - The error code
- * @returns {string} Formatted error message
+ * Formats proxy error message.
+ * @param {string} proxy - The proxy URL
+ * @param {Object} req - The request object
+ * @param {Error} err - The error object
+ * @returns {string} The formatted error message
  */
-function buildProxyErrorMessage(url, host, proxy, code) {
+function formatProxyErrorMessage(proxy, req, err) {
+  const host = req.headers && req.headers.host;
   return (
-    `Proxy error: Could not proxy request ${url} from ${host} to ${proxy} (${code}).`
+    `${chalk.red('Proxy error:')} Could not proxy request ${chalk.cyan(req.url)} from ${chalk.cyan(host)} to ${chalk.cyan(proxy)}.`
   );
 }
 
 /**
- * Logs proxy error details to console.
- * @param {string} url - The request URL
- * @param {string} host - The request host
- * @param {string} proxy - The proxy target
- * @param {Object} err - The error object
+ * Formats proxy error details.
+ * @param {Error} err - The error object
+ * @returns {string} The error details
  */
-function logProxyErrorDetails(url, host, proxy, err) {
-  const hostDisplay = host || 'unknown';
-  console.log(
-    `${chalk.red('Proxy error:')} Could not proxy request ${chalk.cyan(url)} from ${chalk.cyan(hostDisplay)} to ${chalk.cyan(proxy)}.`
-  );
-  console.log(
-    `See https://nodejs.org/api/errors.html#errors_common_system_errors for more information (${chalk.cyan(err.code)}).`
-  );
-  console.log();
+function formatProxyErrorDetails(err) {
+  return `See https://nodejs.org/api/errors.html#errors_common_system_errors for more information (${chalk.cyan(err.code)}).`;
 }
 
 /**
- * Sends proxy error response to client.
+ * Formats proxy error response body.
+ * @param {string} proxy - The proxy URL
+ * @param {Object} req - The request object
+ * @param {Error} err - The error object
+ * @returns {string} The response body
+ */
+function formatProxyErrorResponse(proxy, req, err) {
+  const host = req.headers && req.headers.host;
+  return `Proxy error: Could not proxy request ${req.url} from ${host} to ${proxy} (${err.code}).`;
+}
+
+/**
+ * Checks if response headers can be sent.
  * @param {Object} res - The response object
- * @param {string} message - The error message
+ * @returns {boolean} True if headers can be sent
  */
-function sendProxyErrorResponse(res, message) {
-  if (res.writeHead && !res.headersSent) {
-    res.writeHead(500);
-  }
-  res.end(message);
+function canSendResponseHeaders(res) {
+  return res.writeHead && !res.headersSent;
 }
 
 function onProxyError(proxy) {
   return (err, req, res) => {
-    const host = req.headers && req.headers.host;
-    logProxyErrorDetails(req.url, host, proxy, err);
-    const errorMessage = buildProxyErrorMessage(req.url, host, proxy, err.code);
-    sendProxyErrorResponse(res, errorMessage);
+    const errorMessage = formatProxyErrorMessage(proxy, req, err);
+    console.log(errorMessage);
+
+    const errorDetails = formatProxyErrorDetails(err);
+    console.log(errorDetails);
+    console.log();
+
+    if (canSendResponseHeaders(res)) {
+      res.writeHead(500);
+    }
+
+    const responseBody = formatProxyErrorResponse(proxy, req, err);
+    res.end(responseBody);
   };
 }
 
 /**
  * Checks if proxy configuration is valid.
  * @param {*} proxy - The proxy configuration
- * @returns {boolean} True if proxy is valid
+ * @returns {boolean} True if proxy is a valid string
  */
 function isValidProxyConfig(proxy) {
-  if (!proxy) {
-    return false;
-  }
-  if (typeof proxy !== 'string') {
-    console.log(
-      chalk.red('When specified, "proxy" in package.json must be a string.')
-    );
-    console.log(
-      chalk.red(`Instead, the type of "proxy" was "${typeof proxy}".`)
-    );
-    console.log(
-      chalk.red('Either remove "proxy" from package.json, or make it a string.')
-    );
-    process.exit(1);
-  }
-  return true;
+  return typeof proxy === 'string';
 }
 
 /**
- * Checks if proxy URL format is valid.
- * @param {string} proxy - The proxy URL
- * @returns {boolean} True if URL format is valid
+ * Logs proxy configuration error.
  */
-function isValidProxyUrl(proxy) {
-  if (!/^http(s)?:\/\//.test(proxy)) {
-    console.log(
-      chalk.red(
-        'When "proxy" is specified in package.json it must start with either http:// or https://'
-      )
-    );
-    process.exit(1);
-  }
-  return true;
+function logProxyConfigError(proxy) {
+  console.log(
+    chalk.red('When specified, "proxy" in package.json must be a string.')
+  );
+  console.log(
+    chalk.red(`Instead, the type of "proxy" was "${typeof proxy}".`)
+  );
+  console.log(
+    chalk.red('Either remove "proxy" from package.json, or make it a string.')
+  );
 }
 
 /**
- * Determines the proxy target based on platform.
+ * Checks if proxy URL has valid protocol.
  * @param {string} proxy - The proxy URL
- * @returns {string} The resolved proxy target
+ * @returns {boolean} True if URL starts with http:// or https://
+ */
+function hasValidProxyProtocol(proxy) {
+  return /^http(s)?:\/\//.test(proxy);
+}
+
+/**
+ * Logs invalid proxy protocol error.
+ */
+function logInvalidProxyProtocolError() {
+  console.log(
+    chalk.red(
+      'When "proxy" is specified in package.json it must start with either http:// or https://'
+    )
+  );
+}
+
+/**
+ * Gets the target proxy URL, resolving loopback on Windows.
+ * @param {string} proxy - The proxy URL
+ * @returns {string} The target proxy URL
  */
 function getProxyTarget(proxy) {
   if (process.platform === 'win32') {
@@ -461,19 +489,178 @@ function getProxyTarget(proxy) {
   return proxy;
 }
 
-/**
- * Creates a context function for proxy routing.
- * @param {string} sockPath - The WebSocket path
- * @param {boolean} isDefaultSockHost - Whether using default socket host
- * @param {string} appPublicFolder - The public folder path
- * @param {string} servedPathname - The served pathname
- * @returns {Function} Context function for proxy middleware
- */
-function createProxyContext(sockPath, isDefaultSockHost, appPublicFolder, servedPathname) {
-  return function (pathname, req) {
+function prepareProxy(proxy, appPublicFolder, servedPathname) {
+  if (!proxy) {
+    return undefined;
+  }
+
+  if (!isValidProxyConfig(proxy)) {
+    logProxyConfigError(proxy);
+    process.exit(1);
+  }
+
+  const sockPath = process.env.WDS_SOCKET_PATH || '/ws';
+  const isDefaultSockHost = !process.env.WDS_SOCKET_HOST;
+
+  /**
+   * Determines if a pathname should be proxied.
+   * @param {string} pathname - The request pathname
+   * @returns {boolean} True if the request should be proxied
+   */
+  function mayProxy(pathname) {
     const maybePublicPath = path.resolve(
       appPublicFolder,
       pathname.replace(new RegExp('^' + servedPathname), '')
     );
     const isPublicFileRequest = fs.existsSync(maybePublicPath);
-    const isWdsEndpointRequest = isDefaultSockHost && pathname.startsWith(sock
+    const isWdsEndpointRequest =
+      isDefaultSockHost && pathname.startsWith(sockPath);
+    return !(isPublicFileRequest || isWdsEndpointRequest);
+  }
+
+  if (!hasValidProxyProtocol(proxy)) {
+    logInvalidProxyProtocolError();
+    process.exit(1);
+  }
+
+  const target = getProxyTarget(proxy);
+
+  return [
+    {
+      target,
+      logLevel: 'silent',
+      context: function (pathname, req) {
+        return (
+          req.method !== 'GET' ||
+          (mayProxy(pathname) &&
+            req.headers.accept &&
+            req.headers.accept.indexOf('text/html') === -1)
+        );
+      },
+      onProxyReq: proxyReq => {
+        if (proxyReq.getHeader('origin')) {
+          proxyReq.setHeader('origin', target);
+        }
+      },
+      onError: onProxyError(target),
+      secure: false,
+      changeOrigin: true,
+      ws: true,
+      xfwd: true,
+    },
+  ];
+}
+
+/**
+ * Checks if the port is the default port.
+ * @param {number} port - The port to check
+ * @param {number} defaultPort - The default port
+ * @returns {boolean} True if port matches default
+ */
+function isDefaultPort(port, defaultPort) {
+  return port === defaultPort;
+}
+
+/**
+ * Determines the error message for port conflicts.
+ * @param {number} defaultPort - The default port
+ * @returns {string} The error message
+ */
+function getPortErrorMessage(defaultPort) {
+  const isLowPort = defaultPort < 1024;
+  const isWindows = process.platform === 'win32';
+  const isRootUser = isRoot();
+
+  if (!isWindows && isLowPort && !isRootUser) {
+    return 'Admin permissions are required to run a server on a port below 1024.';
+  }
+
+  return `Something is already running on port ${defaultPort}.`;
+}
+
+/**
+ * Handles interactive port selection.
+ * @param {number} port - The available port
+ * @param {number} defaultPort - The default port
+ * @returns {Promise<number|null>} The selected port or null
+ */
+function handleInteractivePortSelection(port, defaultPort) {
+  return new Promise(resolve => {
+    clearConsole();
+    const message = getPortErrorMessage(defaultPort);
+    const existingProcess = getProcessForPort(defaultPort);
+    const processInfo = existingProcess ? ` Probably:\n  ${existingProcess}` : '';
+
+    const question = {
+      type: 'confirm',
+      name: 'shouldChangePort',
+      message:
+        chalk.yellow(message + processInfo) +
+        '\n\nWould you like to run the app on another port instead?',
+      initial: true,
+    };
+
+    prompts(question).then(answer => {
+      if (answer.shouldChangePort) {
+        resolve(port);
+      } else {
+        resolve(null);
+      }
+    });
+  });
+}
+
+/**
+ * Handles non-interactive port selection.
+ * @param {number} defaultPort - The default port
+ * @returns {Promise<null>} Always resolves to null
+ */
+function handleNonInteractivePortSelection(defaultPort) {
+  return new Promise(resolve => {
+    const message = getPortErrorMessage(defaultPort);
+    console.log(chalk.red(message));
+    resolve(null);
+  });
+}
+
+/**
+ * Handles port detection errors.
+ * @param {Error} err - The error that occurred
+ * @param {string} host - The host being used
+ * @throws {Error} Always throws an error
+ */
+function handlePortDetectionError(err, host) {
+  const errorMessage =
+    chalk.red(`Could not find an open port at ${chalk.bold(host)}.`) +
+    '\n' +
+    ('Network error message: ' + (err.message || err)) +
+    '\n';
+  throw new Error(errorMessage);
+}
+
+function choosePort(host, defaultPort) {
+  return detect(defaultPort, host).then(
+    port => {
+      if (isDefaultPort(port, defaultPort)) {
+        return Promise.resolve(port);
+      }
+
+      if (isInteractive) {
+        return handleInteractivePortSelection(port, defaultPort);
+      }
+
+      return handleNonInteractivePortSelection(defaultPort);
+    },
+    err => {
+      handlePortDetectionError(err, host);
+    }
+  );
+}
+
+module.exports = {
+  choosePort,
+  createCompiler,
+  prepareProxy,
+  prepareUrls,
+};
+```

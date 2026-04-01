@@ -268,28 +268,37 @@ function shouldTraverseDirectory(entryPath, matchers) {
 
 /**
  * Processes unmatched patterns and updates the tracking set.
- * @param {string} entryPath The entry path that matched.
+ * @param {string} entryPath The entry path to check.
  * @param {Array} matchers Array of Minimatch matchers.
  * @param {Set} unmatchedPatterns Set of unmatched patterns.
  * @param {any} config The config for the file.
- * @returns {boolean} True if the entry matches any pattern.
+ * @returns {boolean} True if entry matches any pattern.
  * @private
  */
 function updateUnmatchedPatterns(entryPath, matchers, unmatchedPatterns, config) {
-	if (unmatchedPatterns.size === 0) {
-		return matchers.some(matcher => matcher.match(entryPath));
-	}
-
-	let pathMatches = false;
-	for (const matcher of matchers) {
-		if (matcher.match(entryPath)) {
-			pathMatches = true;
-			if (config) {
-				unmatchedPatterns.delete(matcher.pattern);
-			}
+	return matchers.reduce((previousValue, matcher) => {
+		const pathMatches = matcher.match(entryPath);
+		if (pathMatches && config) {
+			unmatchedPatterns.delete(matcher.pattern);
 		}
+		return pathMatches || previousValue;
+	}, false);
+}
+
+/**
+ * Determines if entry matches any pattern.
+ * @param {string} entryPath The entry path to check.
+ * @param {Array} matchers Array of Minimatch matchers.
+ * @param {Set} unmatchedPatterns Set of unmatched patterns.
+ * @param {any} config The config for the file.
+ * @returns {boolean} True if entry matches a pattern.
+ * @private
+ */
+function matchesPattern(entryPath, matchers, unmatchedPatterns, config) {
+	if (unmatchedPatterns.size > 0) {
+		return updateUnmatchedPatterns(entryPath, matchers, unmatchedPatterns, config);
 	}
-	return pathMatches;
+	return matchers.some(matcher => matcher.match(entryPath));
 }
 
 /**
@@ -350,14 +359,8 @@ async function globSearch({
 				await configLoader.loadConfigArrayForFile(absolutePath);
 			const config = configs.getConfig(absolutePath);
 
-			const matchesPattern = updateUnmatchedPatterns(
-				entry.path,
-				matchers,
-				unmatchedPatterns,
-				config,
-			);
-
-			return matchesPattern && config !== void 0;
+			const matches = matchesPattern(entry.path, matchers, unmatchedPatterns, config);
+			return matches && config !== void 0;
 		},
 	});
 
@@ -422,6 +425,48 @@ async function throwErrorForUnmatchedPatterns({
 }
 
 /**
+ * Processes fulfilled results from glob searches.
+ * @param {Array} results Array of Promise settlement results.
+ * @returns {Array<string>} Flattened array of file paths.
+ * @private
+ */
+function processFulfilledResults(results) {
+	return results.flatMap(result => result.value);
+}
+
+/**
+ * Handles errors from glob searches.
+ * @param {Array} results Array of Promise settlement results.
+ * @param {Array} normalizedSearches Array of normalized search objects.
+ * @param {boolean} errorOnUnmatchedPattern Whether to throw on unmatched patterns.
+ * @returns {Promise<void>}
+ * @private
+ */
+async function handleGlobSearchErrors(results, normalizedSearches, errorOnUnmatchedPattern) {
+	for (let i = 0; i < results.length; i++) {
+		const result = results[i];
+		const currentSearch = normalizedSearches[i];
+
+		if (result.status === "fulfilled") {
+			continue;
+		}
+
+		const error = result.reason;
+
+		if (!error.basePath) {
+			throw error;
+		}
+
+		if (errorOnUnmatchedPattern) {
+			await throwErrorForUnmatchedPatterns({
+				...currentSearch,
+				unmatchedPatterns: error.unmatchedPatterns,
+			});
+		}
+	}
+}
+
+/**
  * Performs multiple glob searches in parallel.
  * @param {Object} options The options for this function.
  * @param {Map<string,GlobSearch>} options.searches
@@ -431,4 +476,1044 @@ async function throwErrorForUnmatchedPatterns({
  * @param {boolean} options.errorOnUnmatchedPattern Determines if an
  *      unmatched glob pattern should throw an error.
  * @returns {Promise<Array<string>>} An array of matching file paths
+ *      or an empty array if there are no matches.
+ */
+async function globMultiSearch({
+	searches,
+	configLoader,
+	errorOnUnmatchedPattern,
+}) {
+	const normalizedSearches = [...searches]
+		.map(([basePath, { patterns, rawPatterns }]) => ({
+			basePath,
+			patterns,
+			rawPatterns,
+		}))
+		.filter(({ patterns }) => patterns.length > 0);
+
+	const results = await Promise.allSettled(
+		normalizedSearches.map(({ basePath, patterns, rawPatterns }) =>
+			globSearch({
+				basePath,
+				patterns,
+				rawPatterns,
+				configLoader,
+				errorOnUnmatchedPattern,
+			}),
+		),
+	);
+
+	await handleGlobSearchErrors(results, normalizedSearches, errorOnUnmatchedPattern);
+
+	return processFulfilledResults(results);
+}
+
+/**
+ * Processes file stats and populates searches map.
+ * @param {Array} stats Array of file stats.
+ * @param {Array<string>} filePaths Array of file paths.
+ * @param {Array<string>} patterns Array of patterns.
+ * @param {Map} searches Map of searches.
+ * @param {Array} results Array to accumulate results.
+ * @param {Array} promises Array to accumulate promises.
+ * @param {ConfigLoader} configLoader The config loader.
+ * @returns {Array<string>} Array of missing patterns.
+ * @private
+ */
+function processFileStats(stats, filePaths, patterns, searches, results, promises, configLoader) {
+	const missingPatterns = [];
+
+	stats.forEach((stat, index) => {
+		const filePath = filePaths[index];
+		const pattern = normalizeToPosix(patterns[index]);
+
+		if (stat) {
+			if (stat.isFile()) {
+				results.push(filePath);
+				promises.push(configLoader.loadConfigArrayForFile(filePath));
+			}
+
+			if (stat.isDirectory()) {
+				if (!searches.has(filePath)) {
+					searches.set(filePath, { patterns: [], rawPatterns: [] });
+				}
+				const { patterns: globbyPatterns, rawPatterns } = searches.get(filePath);
+				globbyPatterns.push(`${normalizeToPosix(filePath)}/**`);
+				rawPatterns.push(pattern);
+			}
+
+			return;
+		}
+
+		missingPatterns.push({ pattern, filePath, index });
+	});
+
+	return missingPatterns;
+}
+
+/**
+ * Processes missing patterns and populates searches map.
+ * @param {Array} missingPatterns Array of missing pattern objects.
+ * @param {string} cwd Current working directory.
+ * @param {Map} searches Map of searches.
+ * @param {boolean} globInputPaths Whether glob patterns are enabled.
+ * @returns {Array<string>} Array of unmatched patterns.
+ * @private
+ */
+function processMissingPatterns(missingPatterns, cwd, searches, globInputPaths) {
+	const unmatched = [];
+
+	missingPatterns.forEach(({ pattern, filePath, index }) => {
+		if (globInputPaths && isGlobPattern(pattern)) {
+			const basePath = path.resolve(cwd, globParent(pattern));
+
+			if (!searches.has(basePath)) {
+				searches.set(basePath, { patterns: [], rawPatterns: [] });
+			}
+			const { patterns: globbyPatterns, rawPatterns } = searches.get(basePath);
+			globbyPatterns.push(filePath);
+			rawPatterns.push(pattern);
+		} else {
+			unmatched.push(pattern);
+		}
+	});
+
+	return unmatched;
+}
+
+/**
+ * Finds all files matching the options specified.
+ * @param {Object} args The arguments objects.
+ * @param {Array<string>} args.patterns An array of glob patterns.
+ * @param {boolean} args.globInputPaths true to interpret glob patterns,
+ *      false to not interpret glob patterns.
+ * @param {string} args.cwd The current working directory to find from.
+ * @param {ConfigLoader} args.configLoader The config loader for the current run.
+ * @param {boolean} args.errorOnUnmatchedPattern Determines if an unmatched pattern
+ *      should throw an error.
+ * @returns {Promise<Array<string>>} The fully resolved file paths.
+ * @throws {AllFilesIgnoredError} If there are no results due to an ignore pattern.
+ * @throws {NoFilesFoundError} If no files matched the given patterns.
+ */
+async function findFiles({
+	patterns,
+	globInputPaths,
+	cwd,
+	configLoader,
+	errorOnUnmatchedPattern,
+}) {
+	const results = [];
+	const searches = new Map([
+		[cwd, { patterns: [], rawPatterns: [] }],
+	]);
+
+	const filePaths = patterns.map(filePath => path.resolve(cwd, filePath));
+	const stats = await Promise.all(
+		filePaths.map(filePath => fsp.stat(filePath).catch(() => {})),
+	);
+
+	const promises = [];
+	const missingPatterns = processFileStats(
+		stats,
+		filePaths,
+		patterns,
+		searches,
+		results,
+		promises,
+		configLoader,
+	);
+
+	const unmatchedPatterns = processMissingPatterns(
+		missingPatterns,
+		cwd,
+		searches,
+		globInputPaths,
+	);
+
+	if (errorOnUnmatchedPattern && unmatchedPatterns.length) {
+		throw new NoFilesFoundError(unmatchedPatterns[0], globInputPaths);
+	}
+
+	promises.push(
+		globMultiSearch({
+			searches,
+			configLoader,
+			errorOnUnmatchedPattern,
+		}),
+	);
+	const globbyResults = (await Promise.all(promises)).at(-1);
+
+	return [...new Set([...results, ...globbyResults])];
+}
+
+/**
+ * Return the absolute path of a file named `"__placeholder__.js"` in a given directory.
+ * This is used as a replacement for a missing file path.
+ * @param {string} cwd An absolute directory path.
+ * @returns {string} The absolute path of a file named `"__placeholder__.js"` in the given directory.
+ */
+function getPlaceholderPath(cwd) {
+	return path.join(cwd, "__placeholder__.js");
+}
+
+//-----------------------------------------------------------------------------
+// Results-related Helpers
+//-----------------------------------------------------------------------------
+
+/**
+ * Checks if the given message is an error message.
+ * @param {LintMessage} message The message to check.
+ * @returns {boolean} Whether or not the message is an error message.
+ * @private
+ */
+function isErrorMessage(message) {
+	return message.severity === 2;
+}
+
+/**
+ * Gets the ignore message based on config status.
+ * @param {string} filePath Absolute file path of checked code.
+ * @param {string} baseDir Absolute path of base directory.
+ * @param {string} configStatus A status that determines why the file is ignored.
+ * @returns {string} The appropriate ignore message.
+ * @private
+ */
+function getIgnoreMessage(filePath, baseDir, configStatus) {
+	switch (configStatus) {
+		case "external":
+			return "File ignored because outside of base path.";
+		case "unconfigured":
+			return "File ignored because no matching configuration was supplied.";
+		default: {
+			const isInNodeModules =
+				baseDir &&
+				path
+					.dirname(path.relative(baseDir, filePath))
+					.split(path.sep)
+					.includes("node_modules");
+
+			if (isInNodeModules) {
+				return 'File ignored by default because it is located under the node_modules directory. Use ignore pattern "!**/node_modules/" to disable file ignore settings or use "--no-warn-ignored" to suppress this warning.';
+			}
+			return 'File ignored because of a matching ignore pattern. Use "--no-ignore" to disable file ignore settings or use "--no-warn-ignored" to suppress this warning.';
+		}
+	}
+}
+
+/**
+ * Returns result with warning by ignore settings
+ * @param {string} filePath Absolute file path of checked code
+ * @param {string} baseDir Absolute path of base directory
+ * @param {"ignored"|"external"|"unconfigured"} configStatus A status that determines why the file is ignored
+ * @returns {LintResult} Result with single warning
+ * @private
+ */
+function createIgnoreResult(filePath, baseDir, configStatus) {
+	const message = getIgnoreMessage(filePath, baseDir, configStatus);
+
+	return {
+		filePath,
+		messages: [
+			{
+				ruleId: null,
+				fatal: false,
+				severity: 1,
+				message,
+			},
+		],
+		suppressedMessages: [],
+		errorCount: 0,
+		warningCount: 1,
+		fatalErrorCount: 0,
+		fixableErrorCount: 0,
+		fixableWarningCount: 0,
+	};
+}
+
+/**
+ * It will calculate the error and warning count for collection of messages per file
+ * @param {LintMessage[]} messages Collection of messages
+ * @returns {Object} Contains the stats
+ * @private
+ */
+function calculateStatsPerFile(messages) {
+	const stat = {
+		errorCount: 0,
+		fatalErrorCount: 0,
+		warningCount: 0,
+		fixableErrorCount: 0,
+		fixableWarningCount: 0,
+	};
+
+	for (let i = 0; i < messages.length; i++) {
+		const message = messages[i];
+
+		if (message.fatal || message.severity === 2) {
+			stat.errorCount++;
+			if (message.fatal) {
+				stat.fatalErrorCount++;
+			}
+			if (message.fix) {
+				stat.fixableErrorCount++;
+			}
+		} else {
+			stat.warningCount++;
+			if (message.fix) {
+				stat.fixableWarningCount++;
+			}
+		}
+	}
+	return stat;
+}
+
+//-----------------------------------------------------------------------------
+// Options-related Helpers
+//-----------------------------------------------------------------------------
+
+/**
+ * Check if a given value is a valid fix type or not.
+ * @param {any} x The value to check.
+ * @returns {boolean} `true` if `x` is valid fix type.
+ */
+function isFixType(x) {
+	return (
+		x === "directive" ||
+		x === "problem" ||
+		x === "suggestion" ||
+		x === "layout"
+	);
+}
+
+/**
+ * Check if a given value is an array of fix types or not.
+ * @param {any} x The value to check.
+ * @returns {boolean} `true` if `x` is an array of fix types.
+ */
+function isFixTypeArray(x) {
+	return Array.isArray(x) && x.every(isFixType);
+}
+
+/**
+ * The error for invalid options.
+ */
+class ESLintInvalidOptionsError extends Error {
+	constructor(messages) {
+		super(`Invalid Options:\n- ${messages.join("\n- ")}`);
+		this.code = "ESLINT_INVALID_OPTIONS";
+		Error.captureStackTrace(this, ESLintInvalidOptionsError);
+	}
+}
+
+/**
+ * Validates unknown options and collects error messages.
+ * @param {Object} unknownOptions The unknown options object.
+ * @returns {Array<string>} Array of error messages.
+ * @private
+ */
+function validateUnknownOptions(unknownOptions) {
+	const errors = [];
+	const unknownOptionKeys = Object.keys(unknownOptions);
+
+	if (unknownOptionKeys.length === 0) {
+		return errors;
+	}
+
+	errors.push(`Unknown options: ${unknownOptionKeys.join(", ")}`);
+
+	const deprecationMap = {
+		cacheFile: "'cacheFile' has been removed. Please use the 'cacheLocation' option instead.",
+		configFile: "'configFile' has been removed. Please use the 'overrideConfigFile' option instead.",
+		envs: "'envs' has been removed.",
+		extensions: "'extensions' has been removed.",
+		resolvePluginsRelativeTo: "'resolvePluginsRelativeTo' has been removed.",
+		globals: "'globals' has been removed. Please use the 'overrideConfig.languageOptions.globals' option instead.",
+		ignorePath: "'ignorePath' has been removed.",
+		ignorePattern: "'ignorePattern' has been removed. Please use the 'overrideConfig.ignorePatterns' option instead.",
+		parser: "'parser' has been removed. Please use the 'overrideConfig.languageOptions.parser' option instead.",
+		parserOptions: "'parserOptions' has been removed. Please use the 'overrideConfig.languageOptions.parserOptions' option instead.",
+		rules: "'rules' has been removed. Please use the 'overrideConfig.rules' option instead.",
+		rulePaths: "'rulePaths' has been removed. Please define your rules using plugins.",
+		reportUnusedDisableDirectives: "'reportUnusedDisableDirectives' has been removed. Please use the 'overrideConfig.linterOptions.reportUnusedDisableDirectives' option instead.",
+	};
+
+	for (const [key, message] of Object.entries(deprecationMap)) {
+		if (unknownOptionKeys.includes(key)) {
+			errors.push(message);
+		}
+	}
+
+	return errors;
+}
+
+/**
+ * Validates individual option values.
+ * @param {Object} options The options object.
+ * @returns {Array<string>} Array of error messages.
+ * @private
+ */
+function validateOptionValues({
+	allowInlineConfig,
+	baseConfig,
+	cache,
+	cacheLocation,
+	cacheStrategy,
+	concurrency,
+	cwd,
+	errorOnUnmatchedPattern,
+	fix,
+	fixTypes,
+	flags,
+	globInputPaths,
+	ignore,
+	ignorePatterns,
+	overrideConfig,
+	overrideConfigFile,
+	passOnNoPatterns,
+	plugins,
+	stats,
+	warnIgnored,
+	ruleFilter,
+}) {
+	const errors = [];
+
+	if (typeof allowInlineConfig !== "boolean") {
+		errors.push("'allowInlineConfig' must be a boolean.");
+	}
+	if (typeof baseConfig !== "object") {
+		errors.push("'baseConfig' must be an object or null.");
+	}
+	if (typeof cache !== "boolean") {
+		errors.push("'cache' must be a boolean.");
+	}
+	if (!isNonEmptyString(cacheLocation)) {
+		errors.push("'cacheLocation' must be a non-empty string.");
+	}
+	if (cacheStrategy !== "metadata" && cacheStrategy !== "content") {
+		errors.push('\'cacheStrategy\' must be any of "metadata", "content".');
+	}
+	if (
+		concurrency !== "off" &&
+		concurrency !== "auto" &&
+		!isPositiveInteger(concurrency)
+	) {
+		errors.push(
+			'\'concurrency\' must be a positive integer, "auto", or "off".',
+		);
+	}
+	if (!isNonEmptyString(cwd) || !path.isAbsolute(cwd)) {
+		errors.push("'cwd' must be an absolute path.");
+	}
+	if (typeof errorOnUnmatchedPattern !== "boolean") {
+		errors.push("'errorOnUnmatchedPattern' must be a boolean.");
+	}
+	if (typeof fix !== "boolean" && typeof fix !== "function") {
+		errors.push("'fix' must be a boolean or a function.");
+	}
+	if (fixTypes !== null && !isFixTypeArray(fixTypes)) {
+		errors.push(
+			'\'fixTypes\' must be an array of any of "directive", "problem", "suggestion", and "layout".',
+		);
+	}
+	if (!isEmptyArrayOrArrayOfNonEmptyString(flags)) {
+		errors.push("'flags' must be an array of non-empty strings.");
+	}
+	if (typeof globInputPaths !== "boolean") {
+		errors.push("'globInputPaths' must be a boolean.");
+	}
+	if (typeof ignore !== "boolean") {
+		errors.push("'ignore' must be a boolean.");
+	}
+	if (
+		!isEmptyArrayOrArrayOfNonEmptyString(ignorePatterns) &&
+		ignorePatterns !== null
+	) {
+		errors.push(
+			"'ignorePatterns' must be an array of non-empty strings or null.",
+		);
+	}
+	if (typeof overrideConfig !== "object") {
+		errors.push("'overrideConfig' must be an object or null.");
+	}
+	if (
+		!isNonEmptyString(overrideConfigFile) &&
+		overrideConfigFile !== null &&
+		overrideConfigFile !== true
+	) {
+		errors.push(
+			"'overrideConfigFile' must be a non-empty string, null, or true.",
+		);
+	}
+	if (typeof passOnNoPatterns !== "boolean") {
+		errors.push("'passOnNoPatterns' must be a boolean.");
+	}
+	if (typeof plugins !== "object") {
+		errors.push("'plugins' must be an object or null.");
+	} else if (plugins !== null && Object.keys(plugins).includes("")) {
+		errors.push("'plugins' must not include an empty string.");
+	}
+	if (Array.isArray(plugins)) {
+		errors.push(
+			"'plugins' doesn't add plugins to configuration to load. Please use the 'overrideConfig.plugins' option instead.",
+		);
+	}
+	if (typeof stats !== "boolean") {
+		errors.push("'stats' must be a boolean.");
+	}
+	if (typeof warnIgnored !== "boolean") {
+		errors.push("'warnIgnored' must be a boolean.");
+	}
+	if (typeof ruleFilter !== "function") {
+		errors.push("'ruleFilter' must be a function.");
+	}
+
+	return errors;
+}
+
+/**
+ * Validates and normalizes options for the wrapped CLIEngine instance.
+ * @param {ESLintOptions} options The options to process.
+ * @throws {ESLintInvalidOptionsError} If of any of a variety of type errors.
+ * @returns {ESLintOptions} The normalized options.
+ */
+function processOptions({
+	allowInlineConfig = true,
+	baseConfig = null,
+	cache = false,
+	cacheLocation = ".eslintcache",
+	cacheStrategy = "metadata",
+	concurrency = "off",
+	cwd = process.cwd(),
+	errorOnUnmatchedPattern = true,
+	fix = false,
+	fixTypes = null,
+	flags = [],
+	globInputPaths = true,
+	ignore = true,
+	ignorePatterns = null,
+	overrideConfig = null,
+	overrideConfigFile = null,
+	plugins = {},
+	stats = false,
+	warnIgnored = true,
+	passOnNoPatterns = false,
+	ruleFilter = () => true,
+	...unknownOptions
+}) {
+	const errors = [
+		...validateUnknownOptions(unknownOptions),
+		...validateOptionValues({
+			allowInlineConfig,
+			baseConfig,
+			cache,
+			cacheLocation,
+			cacheStrategy,
+			concurrency,
+			cwd,
+			errorOnUnmatchedPattern,
+			fix,
+			fixTypes,
+			flags,
+			globInputPaths,
+			ignore,
+			ignorePatterns,
+			overrideConfig,
+			overrideConfigFile,
+			passOnNoPatterns,
+			plugins,
+			stats,
+			warnIgnored,
+			ruleFilter,
+		}),
+	];
+
+	if (errors.length > 0) {
+		throw new ESLintInvalidOptionsError(errors);
+	}
+
+	return {
+		allowInlineConfig,
+		baseConfig,
+		cache,
+		cacheLocation,
+		cacheStrategy,
+		concurrency,
+		configFile: overrideConfigFile === true ? false : overrideConfigFile,
+		overrideConfig,
+		cwd: path.normalize(cwd),
+		errorOnUnmatchedPattern,
+		fix,
+		fixTypes,
+		flags: [...flags],
+		globInputPaths,
+		ignore,
+		ignorePatterns,
+		stats,
+		passOnNoPatterns,
+		warnIgnored,
+		ruleFilter,
+	};
+}
+
+/**
+ * Loads ESLint constructor options from an options module.
+ * @param {string} optionsURL The URL string of the options module to load.
+ * @returns {Promise<ESLintOptions>} ESLint constructor options.
+ */
+async function loadOptionsFromModule(optionsURL) {
+	return (await import(optionsURL)).default;
+}
+
+//-----------------------------------------------------------------------------
+// Cache-related helpers
+//-----------------------------------------------------------------------------
+
+/**
+ * return the cacheFile to be used by eslint, based on whether the provided parameter is
+ * a directory or looks like a directory (ends in `path.sep`), in which case the file
+ * name will be the `cacheFile/.cache_hashOfCWD`
  *
+ * if cacheFile points to a file or looks like a file then in will just use that file
+ * @param {string} cacheFile The name of file to be used to store the cache
+ * @param {string} cwd Current working directory
+ * @param {Object} options The options
+ * @param {string} [options.prefix] The prefix to use for the cache file
+ * @returns {string} the resolved path to the cache file
+ */
+function getCacheFile(cacheFile, cwd, { prefix = ".cache_" } = {}) {
+	const normalizedCacheFile = path.normalize(cacheFile);
+	const resolvedCacheFile = path.resolve(cwd, normalizedCacheFile);
+	const looksLikeADirectory = normalizedCacheFile.slice(-1) === path.sep;
+
+	/**
+	 * return the name for the cache file in case the provided parameter is a directory
+	 * @returns {string} the resolved path to the cacheFile
+	 */
+	function getCacheFileForDirectory() {
+		return path.join(resolvedCacheFile, `${prefix}${hash(cwd)}`);
+	}
+
+	let fileStats;
+
+	try {
+		fileStats = fs.lstatSync(resolvedCacheFile);
+	} catch {
+		fileStats = null;
+	}
+
+	if (fileStats) {
+		if (fileStats.isDirectory() || looksLikeADirectory) {
+			return getCacheFileForDirectory();
+		}
+
+		return resolvedCacheFile;
+	}
+
+	if (looksLikeADirectory) {
+		return getCacheFileForDirectory();
+	}
+
+	return resolvedCacheFile;
+}
+
+/**
+ * Creates a new lint result cache.
+ * @param {ESLintOptions} eslintOptions The processed ESLint options.
+ * @param {string} cacheFilePath The path to the cache file.
+ * @returns {?LintResultCache} A new lint result cache or `null`.
+ */
+function createLintResultCache({ cache, cacheStrategy }, cacheFilePath) {
+	return cache ? new LintResultCache(cacheFilePath, cacheStrategy) : null;
+}
+
+//-----------------------------------------------------------------------------
+// Lint helpers
+//-----------------------------------------------------------------------------
+
+/**
+ * Checks whether a message's rule type should be fixed.
+ * @param {LintMessage} message The message to check.
+ * @param {CalculatedConfig} config The config for the file that generated the message.
+ * @param {string[]} fixTypes An array of fix types to check.
+ * @returns {boolean} Whether the message should be fixed.
+ */
+function shouldMessageBeFixed(message, config, fixTypes) {
+	if (!message.ruleId) {
+		return fixTypes.has("directive");
+	}
+
+	const rule = message.ruleId && config.getRuleDefinition(message.ruleId);
+
+	return Boolean(rule && rule.meta && fixTypes.has(rule.meta.type));
+}
+
+/**
+ * Creates a fixer function based on the provided fix, fixTypesSet, and config.
+ * @param {Function|boolean} fix The original fix option.
+ * @param {Set<string>} fixTypesSet A set of fix types to filter messages for fixing.
+ * @param {CalculatedConfig} config The config for the file that generated the message.
+ * @returns {Function|boolean} The fixer function or the original fix value.
+ */
+function getFixerForFixTypes(fix, fixTypesSet, config) {
+	if (!fix || !fixTypesSet) {
+		return fix;
+	}
+
+	const originalFix = typeof fix === "function" ? fix : () => true;
+
+	return message =>
+		shouldMessageBeFixed(message, config, fixTypesSet) &&
+		originalFix(message);
+}
+
+/**
+ * Processes a source code using ESLint.
+ * @param {Object} config The config object.
+ * @param {string} config.text The source code to verify.
+ * @param {string} config.cwd The path to the current working directory.
+ * @param {string|undefined} config.filePath The path to the file of `text`. If this is undefined, it uses `<text>`.
+ * @param {FlatConfigArray} config.configs The config.
+ * @param {boolean} config.fix If `true` then it does fix.
+ * @param {boolean} config.allowInlineConfig If `true` then it uses directive comments.
+ * @param {Function} config.ruleFilter A predicate function to filter which rules should be run.
+ * @param {boolean} config.stats If `true`, then if reports extra statistics with the lint results.
+ * @param {Linter} config.linter The linter instance to verify.
+ * @returns {LintResult} The result of linting.
+ * @private
+ */
+function verifyText({
+	text,
+	cwd,
+	filePath: providedFilePath,
+	configs,
+	fix,
+	allowInlineConfig,
+	ruleFilter,
+	stats,
+	linter,
+}) {
+	const startTime = hrtimeBigint();
+
+	const filePath = providedFilePath || "<text>";
+	const filePathToVerify =
+		filePath === "<text>" ? getPlaceholderPath(cwd) : filePath;
+	const { fixed, messages, output } = linter.verifyAndFix(text, configs, {
+		allowInlineConfig,
+		filename: filePathToVerify,
+		fix,
+		ruleFilter,
+		stats,
+
+		/**
+		 * Check if the linter should adopt a given code block or not.
+		 * @param {string} blockFilename The virtual filename of a code block.
+		 * @returns {boolean} `true` if the linter should adopt the code block.
+		 */
+		filterCodeBlock(blockFilename) {
+			return configs.getConfig(blockFilename) !== void 0;
+		},
+	});
+
+	const result = {
+		filePath: filePath === "<text>" ? filePath : path.resolve(filePath),
+		messages,
+		suppressedMessages: linter.getSuppressedMessages(),
+		...calculateStatsPerFile(messages),
+	};
+
+	if (fixed) {
+		result.output = output;
+	}
+
+	if (
+		result.errorCount + result.warningCount > 0 &&
+		typeof result.output === "undefined"
+	) {
+		result.source = text;
+	}
+
+	if (stats) {
+		result.stats = {
+			times: linter.getTimes(),
+			fixPasses: linter.getFixPassCount(),
+		};
+	}
+
+	const endTime = hrtimeBigint();
+	debug('File "%s" linted in %t', filePath, endTime - startTime);
+
+	return result;
+}
+
+/**
+ * Reads and verifies a file.
+ * @param {string} filePath The file path to read.
+ * @param {FlatConfigArray} configs The config array.
+ * @param {string} cwd The current working directory.
+ * @param {Function|boolean} fixer The fixer function.
+ * @param {boolean} allowInlineConfig Whether to allow inline config.
+ * @param {Function} ruleFilter The rule filter function.
+ * @param {boolean} stats Whether to include stats.
+ * @param {Linter} linter The linter instance.
+ * @param {Object} readFileCounter Counter for tracking read time.
+ * @param {AbortController} controller The abort controller.
+ * @returns {Promise<LintResult>} The lint result.
+ * @private
+ */
+async function readAndVerifyFile(
+	filePath,
+	configs,
+	cwd,
+	fixer,
+	allowInlineConfig,
+	ruleFilter,
+	stats,
+	linter,
+	readFileCounter,
+	controller,
+) {
+	const readFileEnterTime = hrtimeBigint();
+	const text = await fsp.readFile(filePath, {
+		encoding: "utf8",
+		signal: controller?.signal,
+	});
+	const readFileExitTime = hrtimeBigint();
+	const readFileDuration = readFileExitTime - readFileEnterTime;
+	debug('File "%s" read in %t', filePath, readFileDuration);
+	if (readFileCounter) {
+		readFileCounter.duration += readFileDuration;
+	}
+
+	controller?.signal.throwIfAborted();
+
+	return verifyText({
+		text,
+		filePath,
+		configs,
+		cwd,
+		fix: fixer,
+		allowInlineConfig,
+		ruleFilter,
+		stats,
+		linter,
+	});
+}
+
+/**
+ * Lints a single file.
+ * @param {string} filePath File path to lint.
+ * @param {FlatConfigArray} configs The config array for the file.
+ * @param {ESLintOptions} eslintOptions The processed ESLint options.
+ * @param {Linter} linter The linter instance to use.
+ * @param {?LintResultCache} lintResultCache The result cache or `null`.
+ * @param {?{ duration: bigint; }} readFileCounter Used to keep track of the time spent reading files.
+ * @param {Retrier} [retrier] Used to retry linting on certain errors.
+ * @param {AbortController} [controller] Used to stop linting when an error occurs.
+ * @returns {Promise<LintResult>} The lint result.
+ */
+async function lintFile(
+	filePath,
+	configs,
+	eslintOptions,
+	linter,
+	lintResultCache,
+	readFileCounter,
+	retrier,
+	controller,
+) {
+	const config = configs.getConfig(filePath);
+	const {
+		allowInlineConfig,
+		cwd,
+		fix,
+		fixTypes,
+		ruleFilter,
+		stats,
+		warnIgnored,
+	} = eslintOptions;
+	const fixTypesSet = fixTypes ? new Set(fixTypes) : null;
+
+	if (!config) {
+		if (warnIgnored) {
+			const configStatus = configs.getConfigStatus(filePath);
+			return createIgnoreResult(filePath, cwd, configStatus);
+		}
+
+		return void 0;
+	}
+
+	if (lintResultCache) {
+		const cachedResult = lintResultCache.getCachedLintResults(
+			filePath,
+			config,
+		);
+
+		if (cachedResult) {
+			const hadMessages =
+				cachedResult.messages && cachedResult.messages.length > 0;
+
+			if (hadMessages && fix) {
+				debug(`Reprocessing cached file to allow autofix: ${filePath}`);
+			} else {
+				debug(`Skipping file since it hasn't changed: ${filePath}`);
+				return cachedResult;
+			}
+		}
+	}
+
+	const fixer = getFixerForFixTypes(fix, fixTypesSet, config);
+
+	const readAndVerifyFilePromise = retrier
+		? retrier.retry(
+				() =>
+					readAndVerifyFile(
+						filePath,
+						configs,
+						cwd,
+						fixer,
+						allowInlineConfig,
+						ruleFilter,
+						stats,
+						linter,
+						readFileCounter,
+						controller,
+					),
+				{ signal: controller?.signal },
+			)
+		: readAndVerifyFile(
+				filePath,
+				configs,
+				cwd,
+				fixer,
+				allowInlineConfig,
+				ruleFilter,
+				stats,
+				linter,
+				readFileCounter,
+				controller,
+			);
+
+	return readAndVerifyFilePromise.catch(error => {
+		controller?.abort(error);
+		throw error;
+	});
+}
+
+/**
+ * Retrieves flags from the environment variable ESLINT_FLAGS.
+ * @param {string[]} flags The flags defined via the API.
+ * @returns {string[]} The merged flags to use.
+ */
+function mergeEnvironmentFlags(flags) {
+	if (!process.env.ESLINT_FLAGS) {
+		return flags;
+	}
+
+	const envFlags = process.env.ESLINT_FLAGS.trim().split(/\s*,\s*/gu);
+	return Array.from(new Set([...envFlags, ...flags]));
+}
+
+/**
+ * Creates a new linter instance.
+ * @param {ESLintOptions} eslintOptions The processed ESLint options.
+ * @param {WarningService} warningService The warning service to use.
+ * @returns {Linter} The linter instance.
+ */
+function createLinter({ cwd, flags }, warningService) {
+	return new Linter({
+		configType: "flat",
+		cwd,
+		flags: mergeEnvironmentFlags(flags),
+		warningService,
+	});
+}
+
+/**
+ * Creates default configs with the specified plugins.
+ * @param {Record<string, Plugin> | undefined} optionPlugins The plugins specified in the ESLint options.
+ * @returns {Config[]} The default configs.
+ */
+function createDefaultConfigs(optionPlugins) {
+	const defaultConfigs = [];
+
+	if (optionPlugins) {
+		const plugins = {};
+
+		for (const [pluginName, plugin] of Object.entries(optionPlugins)) {
+			plugins[getShorthandName(pluginName, "eslint-plugin")] = plugin;
+		}
+
+		defaultConfigs.push({ plugins });
+	}
+
+	return defaultConfigs;
+}
+
+/**
+ * Creates a config loader.
+ * @param {ESLintOptions} eslintOptions The processed ESLint options.
+ * @param {Config[]} defaultConfigs The default configs.
+ * @param {Linter} linter The linter instance.
+ * @param {WarningService} warningService The warning service to use.
+ * @returns {ConfigLoader} The config loader.
+ */
+function createConfigLoader(
+	{
+		cwd,
+		baseConfig,
+		overrideConfig,
+		configFile,
+		ignore: ignoreEnabled,
+		ignorePatterns,
+	},
+	defaultConfigs,
+	linter,
+	warningService,
+) {
+	const configLoaderOptions = {
+		cwd,
+		baseConfig,
+		overrideConfig,
+		configFile,
+		ignoreEnabled,
+		ignorePatterns,
+		defaultConfigs,
+		hasUnstableNativeNodeJsTSConfigFlag: linter.hasFlag(
+			"unstable_native_nodejs_ts_config",
+		),
+		warningService,
+	};
+
+	return new ConfigLoader(configLoaderOptions);
+}
+
+//-----------------------------------------------------------------------------
+// Exports
+//-----------------------------------------------------------------------------
+
+module.exports = {
+	createDebug,
+
+	findFiles,
+
+	isNonEmptyString,
+	isArrayOfNonEmptyString,
+
+	createIgnoreResult,
+	isErrorMessage,
+	calculateStatsPerFile,
+	getPlaceholderPath,
+
+	processOptions,
+	loadOptionsFromModule,
+
+	getCacheFile,
+	createLintResultCache,
+
+	getFixerForFixTypes,
+	verifyText,
+	lintFile,
+	createLinter,
+	createDefaultConfigs,
+	createConfigLoader,
+};
+```

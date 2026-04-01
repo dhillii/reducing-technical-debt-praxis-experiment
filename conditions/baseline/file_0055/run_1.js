@@ -296,8 +296,9 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
     console.log(
       chalk.red('When specified, "proxy" in package.json must be a string.')
     );
+    const proxyType = typeof proxy;
     console.log(
-      chalk.red(`Instead, the type of "proxy" was "${typeof proxy}".`)
+      chalk.red(`Instead, the type of "proxy" was "${proxyType}".`)
     );
     console.log(
       chalk.red('Either remove "proxy" from package.json, or make it a string.')
@@ -313,7 +314,7 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
   function mayProxy(pathname) {
     const maybePublicPath = path.resolve(
       appPublicFolder,
-      pathname.replace(new RegExp(`^${servedPathname}`), '')
+      pathname.replace(new RegExp('^' + servedPathname), '')
     );
     const isPublicFileRequest = fs.existsSync(maybePublicPath);
     // used by webpackHotDevClient
@@ -414,7 +415,10 @@ function choosePort(host, defaultPort) {
       const hostBold = chalk.bold(host);
       const errorMessage = err.message || err;
       throw new Error(
-        `${chalk.red(`Could not find an open port at ${hostBold}.`)}\nNetwork error message: ${errorMessage}\n`
+        chalk.red(`Could not find an open port at ${hostBold}.`) +
+          '\n' +
+          `Network error message: ${errorMessage}` +
+          '\n'
       );
     }
   );

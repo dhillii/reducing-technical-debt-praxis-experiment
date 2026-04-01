@@ -27,9 +27,9 @@ const ErrorOverlay = require('react-error-overlay');
 // State Management
 // ============================================================================
 
+let hadRuntimeError = false;
 let isFirstCompilation = true;
 let mostRecentCompilationHash = null;
-let hadRuntimeError = false;
 let hasCompileErrors = false;
 
 // ============================================================================
@@ -40,7 +40,7 @@ let hasCompileErrors = false;
  * Configures the error overlay editor handler to launch the editor at the
  * specified error location.
  */
-function setupErrorOverlayEditor() {
+function setupErrorOverlayHandler() {
   ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
     // Keep this sync with errorOverlayMiddleware.js
     fetch(
@@ -79,7 +79,7 @@ function registerHotModuleDisposal() {
   }
 }
 
-setupErrorOverlayEditor();
+setupErrorOverlayHandler();
 initializeRuntimeErrorReporting();
 registerHotModuleDisposal();
 
@@ -88,24 +88,23 @@ registerHotModuleDisposal();
 // ============================================================================
 
 /**
- * Creates a WebSocket connection to the development server.
+ * Creates a WebSocket connection URL based on the current environment
+ * and configuration.
  */
-function createDevServerConnection() {
-  return new WebSocket(
-    url.format({
-      protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
-      hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
-      port: process.env.WDS_SOCKET_PORT || window.location.port,
-      pathname: process.env.WDS_SOCKET_PATH || '/ws',
-      slashes: true,
-    })
-  );
+function createWebSocketUrl() {
+  return url.format({
+    protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
+    hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
+    port: process.env.WDS_SOCKET_PORT || window.location.port,
+    pathname: process.env.WDS_SOCKET_PATH || '/ws',
+    slashes: true,
+  });
 }
 
-const connection = createDevServerConnection();
+const connection = new WebSocket(createWebSocketUrl());
 
 /**
- * Handles WebSocket connection closure.
+ * Handles WebSocket connection closure by notifying the user.
  */
 function handleConnectionClose() {
   if (typeof console !== 'undefined' && typeof console.info === 'function') {
@@ -118,11 +117,11 @@ function handleConnectionClose() {
 connection.onclose = handleConnectionClose;
 
 // ============================================================================
-// Console Management
+// Console Utilities
 // ============================================================================
 
 /**
- * Clears console if there are outdated compile errors.
+ * Clears the console if there are compile errors to clean up outdated messages.
  */
 function clearOutdatedErrors() {
   if (typeof console !== 'undefined' && typeof console.clear === 'function') {
@@ -133,7 +132,7 @@ function clearOutdatedErrors() {
 }
 
 /**
- * Logs warnings to the console, limiting output to first 5 warnings.
+ * Logs formatted warnings to the console, limiting output to first 5 warnings.
  */
 function logWarningsToConsole(warnings) {
   const formatted = formatWebpackMessages({
@@ -156,7 +155,7 @@ function logWarningsToConsole(warnings) {
 }
 
 /**
- * Logs errors to the console.
+ * Logs formatted errors to the console.
  */
 function logErrorsToConsole(errors) {
   if (typeof console !== 'undefined' && typeof console.error === 'function') {
@@ -167,11 +166,37 @@ function logErrorsToConsole(errors) {
 }
 
 // ============================================================================
-// Compilation State Handlers
+// Error Overlay Management
 // ============================================================================
 
 /**
- * Handles successful compilation without errors or warnings.
+ * Dismisses the error overlay if there are no compile errors.
+ */
+function tryDismissErrorOverlay() {
+  if (!hasCompileErrors) {
+    ErrorOverlay.dismissBuildError();
+  }
+}
+
+/**
+ * Reports build errors to the overlay and logs them to console.
+ */
+function reportBuildErrors(errors) {
+  const formatted = formatWebpackMessages({
+    errors: errors,
+    warnings: [],
+  });
+
+  ErrorOverlay.reportBuildError(formatted.errors[0]);
+  logErrorsToConsole(formatted.errors);
+}
+
+// ============================================================================
+// Message Handlers
+// ============================================================================
+
+/**
+ * Handles successful compilation by clearing errors and attempting hot updates.
  */
 function handleSuccess() {
   clearOutdatedErrors();
@@ -181,12 +206,14 @@ function handleSuccess() {
   hasCompileErrors = false;
 
   if (isHotUpdate) {
-    tryApplyUpdates(tryDismissErrorOverlay);
+    tryApplyUpdates(function onHotUpdateSuccess() {
+      tryDismissErrorOverlay();
+    });
   }
 }
 
 /**
- * Handles compilation with warnings.
+ * Handles compilation with warnings by logging them and attempting hot updates.
  */
 function handleWarnings(warnings) {
   clearOutdatedErrors();
@@ -198,12 +225,14 @@ function handleWarnings(warnings) {
   logWarningsToConsole(warnings);
 
   if (isHotUpdate) {
-    tryApplyUpdates(tryDismissErrorOverlay);
+    tryApplyUpdates(function onSuccessfulHotUpdate() {
+      tryDismissErrorOverlay();
+    });
   }
 }
 
 /**
- * Handles compilation with errors.
+ * Handles compilation errors by reporting them and preventing reload attempts.
  */
 function handleErrors(errors) {
   clearOutdatedErrors();
@@ -211,39 +240,22 @@ function handleErrors(errors) {
   isFirstCompilation = false;
   hasCompileErrors = true;
 
-  const formatted = formatWebpackMessages({
-    errors: errors,
-    warnings: [],
-  });
-
-  ErrorOverlay.reportBuildError(formatted.errors[0]);
-  logErrorsToConsole(formatted.errors);
+  reportBuildErrors(errors);
 }
 
 /**
- * Updates the most recent compilation hash.
+ * Updates the most recent compilation hash when a new one is available.
  */
 function handleAvailableHash(hash) {
   mostRecentCompilationHash = hash;
 }
 
 /**
- * Dismisses error overlay if there are no compile errors.
+ * Routes incoming WebSocket messages to appropriate handlers based on type.
  */
-function tryDismissErrorOverlay() {
-  if (!hasCompileErrors) {
-    ErrorOverlay.dismissBuildError();
-  }
-}
-
-// ============================================================================
-// Message Routing
-// ============================================================================
-
-/**
- * Routes messages from the development server to appropriate handlers.
- */
-function routeServerMessage(message) {
+function handleWebSocketMessage(event) {
+  const message = JSON.parse(event.data);
+  
   switch (message.type) {
     case 'hash':
       handleAvailableHash(message.data);
@@ -266,13 +278,10 @@ function routeServerMessage(message) {
   }
 }
 
-connection.onmessage = function (e) {
-  const message = JSON.parse(e.data);
-  routeServerMessage(message);
-};
+connection.onmessage = handleWebSocketMessage;
 
 // ============================================================================
-// Hot Module Replacement
+// Hot Module Replacement Utilities
 // ============================================================================
 
 /**
@@ -284,7 +293,7 @@ function isUpdateAvailable() {
 }
 
 /**
- * Checks if hot module replacement is in a state that allows updates.
+ * Checks if the module hot replacement system is in a state that allows updates.
  */
 function canApplyUpdates() {
   return module.hot.status() === 'idle';
@@ -297,14 +306,38 @@ function canApplyUpdates() {
 function canAcceptErrors() {
   const hasReactRefresh = process.env.FAST_REFRESH;
   const status = module.hot.status();
-
+  
   return hasReactRefresh && ['abort', 'fail'].indexOf(status) === -1;
 }
 
+// ============================================================================
+// Hot Update Application
+// ============================================================================
+
 /**
- * Handles the result of a hot module replacement check.
+ * Processes the result of a hot module replacement check.
+ * Handles both callback-based and Promise-based results.
  */
-function handleApplyUpdatesResult(err, updatedModules, onHotUpdateSuccess) {
+function processHotUpdateResult(result, onHotUpdateSuccess) {
+  if (!result || !result.then) {
+    return;
+  }
+
+  result.then(
+    function (updatedModules) {
+      handleHotUpdateCompletion(null, updatedModules, onHotUpdateSuccess);
+    },
+    function (err) {
+      handleHotUpdateCompletion(err, null, onHotUpdateSuccess);
+    }
+  );
+}
+
+/**
+ * Handles the completion of a hot module replacement check.
+ * Determines whether to reload, retry, or continue.
+ */
+function handleHotUpdateCompletion(err, updatedModules, onHotUpdateSuccess) {
   const haveErrors = err || hadRuntimeError;
   const needsForcedReload = !err && !updatedModules;
 
@@ -323,7 +356,8 @@ function handleApplyUpdatesResult(err, updatedModules, onHotUpdateSuccess) {
 }
 
 /**
- * Attempts to apply hot module updates, falling back to a full reload if necessary.
+ * Attempts to apply hot module updates, falling back to a full page reload
+ * if updates cannot be applied. Invokes the callback on successful update.
  */
 function tryApplyUpdates(onHotUpdateSuccess) {
   if (!module.hot) {
@@ -335,20 +369,7 @@ function tryApplyUpdates(onHotUpdateSuccess) {
     return;
   }
 
-  const result = module.hot.check(/* autoApply */ true, function (err, updatedModules) {
-    handleApplyUpdatesResult(err, updatedModules, onHotUpdateSuccess);
-  });
-
-  // webpack 2 returns a Promise instead of invoking a callback
-  if (result && result.then) {
-    result.then(
-      function (updatedModules) {
-        handleApplyUpdatesResult(null, updatedModules, onHotUpdateSuccess);
-      },
-      function (err) {
-        handleApplyUpdatesResult(err, null, onHotUpdateSuccess);
-      }
-    );
-  }
+  const result = module.hot.check(/* autoApply */ true);
+  processHotUpdateResult(result, onHotUpdateSuccess);
 }
 ```

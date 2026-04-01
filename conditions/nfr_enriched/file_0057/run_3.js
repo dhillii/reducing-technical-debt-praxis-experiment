@@ -27,10 +27,10 @@ const ErrorOverlay = require('react-error-overlay');
 // State Management
 // ============================================================================
 
+let hadRuntimeError = false;
 let isFirstCompilation = true;
 let mostRecentCompilationHash = null;
 let hasCompileErrors = false;
-let hadRuntimeError = false;
 
 // ============================================================================
 // Error Overlay Setup
@@ -40,7 +40,7 @@ let hadRuntimeError = false;
  * Configures the error overlay editor handler to launch the editor at the
  * specified error location.
  */
-function setupErrorOverlayEditor() {
+function setupErrorOverlayHandler() {
   ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
     // Keep this sync with errorOverlayMiddleware.js
     fetch(
@@ -56,8 +56,9 @@ function setupErrorOverlayEditor() {
 }
 
 /**
- * Initializes runtime error reporting. Tracks if a runtime error occurs
- * to determine if a full page reload is necessary.
+ * Initializes runtime error reporting. We track runtime errors to ensure
+ * we perform a full reload if the application state may be corrupted.
+ * See https://github.com/facebook/create-react-app/issues/3096
  */
 function initializeRuntimeErrorReporting() {
   ErrorOverlay.startReportingRuntimeErrors({
@@ -79,7 +80,7 @@ function registerHotModuleDisposal() {
   }
 }
 
-setupErrorOverlayEditor();
+setupErrorOverlayHandler();
 initializeRuntimeErrorReporting();
 registerHotModuleDisposal();
 
@@ -118,11 +119,11 @@ function handleConnectionClose() {
 connection.onclose = handleConnectionClose;
 
 // ============================================================================
-// Console Management
+// Console Utilities
 // ============================================================================
 
 /**
- * Clears console if there are outdated compile errors.
+ * Clears the console if there are outdated compile errors.
  */
 function clearOutdatedErrors() {
   if (typeof console !== 'undefined' && typeof console.clear === 'function') {
@@ -133,16 +134,11 @@ function clearOutdatedErrors() {
 }
 
 /**
- * Prints formatted warnings to the console, limiting output to first 5.
+ * Safely logs warnings to the console, limiting output to first 5 warnings.
  */
-function printWarningsToConsole(warnings) {
-  const formatted = formatWebpackMessages({
-    warnings: warnings,
-    errors: [],
-  });
-
+function logWarningsToConsole(formattedWarnings) {
   if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-    for (let i = 0; i < formatted.warnings.length; i++) {
+    for (let i = 0; i < formattedWarnings.length; i++) {
       if (i === 5) {
         console.warn(
           'There were more warnings in other files.\n' +
@@ -150,18 +146,18 @@ function printWarningsToConsole(warnings) {
         );
         break;
       }
-      console.warn(stripAnsi(formatted.warnings[i]));
+      console.warn(stripAnsi(formattedWarnings[i]));
     }
   }
 }
 
 /**
- * Prints formatted errors to the console.
+ * Safely logs errors to the console.
  */
-function printErrorsToConsole(errors) {
+function logErrorsToConsole(formattedErrors) {
   if (typeof console !== 'undefined' && typeof console.error === 'function') {
-    for (let i = 0; i < errors.length; i++) {
-      console.error(stripAnsi(errors[i]));
+    for (let i = 0; i < formattedErrors.length; i++) {
+      console.error(stripAnsi(formattedErrors[i]));
     }
   }
 }
@@ -171,7 +167,7 @@ function printErrorsToConsole(errors) {
 // ============================================================================
 
 /**
- * Dismisses error overlay if there are no compile errors.
+ * Dismisses the error overlay if there are no compile errors.
  */
 function tryDismissErrorOverlay() {
   if (!hasCompileErrors) {
@@ -179,21 +175,8 @@ function tryDismissErrorOverlay() {
   }
 }
 
-/**
- * Reports build errors to the error overlay and console.
- */
-function reportBuildErrors(errors) {
-  const formatted = formatWebpackMessages({
-    errors: errors,
-    warnings: [],
-  });
-
-  ErrorOverlay.reportBuildError(formatted.errors[0]);
-  printErrorsToConsole(formatted.errors);
-}
-
 // ============================================================================
-// Compilation State Handlers
+// Message Handlers
 // ============================================================================
 
 /**
@@ -223,7 +206,12 @@ function handleWarnings(warnings) {
   isFirstCompilation = false;
   hasCompileErrors = false;
 
-  printWarningsToConsole(warnings);
+  const formatted = formatWebpackMessages({
+    warnings: warnings,
+    errors: [],
+  });
+
+  logWarningsToConsole(formatted.warnings);
 
   if (isHotUpdate) {
     tryApplyUpdates(function onSuccessfulHotUpdate() {
@@ -233,7 +221,7 @@ function handleWarnings(warnings) {
 }
 
 /**
- * Handles compilation with errors.
+ * Handles compilation errors (syntax errors, missing modules, etc.).
  */
 function handleErrors(errors) {
   clearOutdatedErrors();
@@ -241,24 +229,28 @@ function handleErrors(errors) {
   isFirstCompilation = false;
   hasCompileErrors = true;
 
-  reportBuildErrors(errors);
+  const formatted = formatWebpackMessages({
+    errors: errors,
+    warnings: [],
+  });
+
+  ErrorOverlay.reportBuildError(formatted.errors[0]);
+  logErrorsToConsole(formatted.errors);
 }
 
 /**
- * Updates the most recent compilation hash.
+ * Updates the most recent compilation hash received from the server.
  */
 function handleAvailableHash(hash) {
   mostRecentCompilationHash = hash;
 }
 
-// ============================================================================
-// Message Routing
-// ============================================================================
-
 /**
- * Routes messages from the development server to appropriate handlers.
+ * Routes incoming messages from the development server to appropriate handlers.
  */
-function routeServerMessage(message) {
+function handleServerMessage(event) {
+  const message = JSON.parse(event.data);
+  
   switch (message.type) {
     case 'hash':
       handleAvailableHash(message.data);
@@ -277,17 +269,14 @@ function routeServerMessage(message) {
       handleErrors(message.data);
       break;
     default:
-      // Do nothing.
+      // Do nothing for unknown message types
   }
 }
 
-connection.onmessage = function (e) {
-  const message = JSON.parse(e.data);
-  routeServerMessage(message);
-};
+connection.onmessage = handleServerMessage;
 
 // ============================================================================
-// Hot Module Replacement
+// Hot Module Replacement Utilities
 // ============================================================================
 
 /**
@@ -299,31 +288,38 @@ function isUpdateAvailable() {
 }
 
 /**
- * Checks if hot module replacement can be applied.
+ * Checks if the module hot replacement system is in a state that allows updates.
  */
 function canApplyUpdates() {
   return module.hot.status() === 'idle';
 }
 
 /**
- * Checks if errors can be accepted during hot module replacement.
- * React Refresh can handle errors, but certain states require a full reload.
+ * Determines if the current state can accept errors during hot updates.
+ * React Refresh can handle errors, but certain states (abort, fail) require
+ * a full reload for consistency.
  */
 function canAcceptErrors() {
   const hasReactRefresh = process.env.FAST_REFRESH;
   const status = module.hot.status();
-
   return hasReactRefresh && ['abort', 'fail'].indexOf(status) === -1;
 }
 
 /**
- * Handles the result of applying hot module updates.
+ * Determines if a forced reload is necessary based on update results.
+ */
+function needsForcedReload(err, updatedModules) {
+  return !err && !updatedModules;
+}
+
+/**
+ * Processes the result of a hot module replacement check.
  */
 function handleApplyUpdatesResult(err, updatedModules, onHotUpdateSuccess) {
   const haveErrors = err || hadRuntimeError;
-  const needsForcedReload = !err && !updatedModules;
+  const shouldForcedReload = needsForcedReload(err, updatedModules);
 
-  if ((haveErrors && !canAcceptErrors()) || needsForcedReload) {
+  if ((haveErrors && !canAcceptErrors()) || shouldForcedReload) {
     window.location.reload();
     return;
   }
@@ -350,6 +346,7 @@ function tryApplyUpdates(onHotUpdateSuccess) {
     return;
   }
 
+  // https://webpack.github.io/docs/hot-module-replacement.html#check
   const result = module.hot.check(/* autoApply */ true, function (err, updatedModules) {
     handleApplyUpdatesResult(err, updatedModules, onHotUpdateSuccess);
   });

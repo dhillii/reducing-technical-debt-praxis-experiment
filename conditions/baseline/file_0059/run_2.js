@@ -252,20 +252,21 @@ function executeInstall(command, args, templateName) {
       console.error(`\`${command} ${args.join(' ')}\` failed`);
       return false;
     }
+  }
 
-    if (args.find(arg => arg.includes('typescript'))) {
-      console.log();
-      verifyTypeScriptSetup();
-    }
+  if (args.find(arg => arg.includes('typescript'))) {
+    console.log();
+    verifyTypeScriptSetup();
   }
 
   console.log(`Removing template package using ${command}...`);
   console.log();
 
-  const proc = spawn.sync(command, ['remove', templateName], {
+  const removeProc = spawn.sync(command, ['remove', templateName], {
     stdio: 'inherit',
   });
-  if (proc.status !== 0) {
+
+  if (removeProc.status !== 0) {
     console.error(`\`${command} remove ${templateName}\` failed`);
     return false;
   }
@@ -273,13 +274,10 @@ function executeInstall(command, args, templateName) {
   return true;
 }
 
-function printSuccessMessage(appName, appPath, originalDirectory, useYarn, readmeExists) {
-  let cdpath;
-  if (originalDirectory && path.join(originalDirectory, appName) === appPath) {
-    cdpath = appName;
-  } else {
-    cdpath = appPath;
-  }
+function displaySuccessMessage(appName, appPath, originalDirectory, useYarn, readmeExists) {
+  let cdpath = originalDirectory && path.join(originalDirectory, appName) === appPath
+    ? appName
+    : appPath;
 
   const displayedCommand = useYarn ? 'yarn' : 'npm';
 
@@ -304,10 +302,12 @@ function printSuccessMessage(appName, appPath, originalDirectory, useYarn, readm
   console.log();
   console.log(chalk.cyan('  cd'), cdpath);
   console.log(`  ${chalk.cyan(`${displayedCommand} start`)}`);
+
   if (readmeExists) {
     console.log();
     console.log(chalk.yellow('You had a `README.md` file, we renamed it to `README.old.md`'));
   }
+
   console.log();
   console.log('Happy hacking!');
 }
@@ -319,12 +319,12 @@ module.exports = function (
   originalDirectory,
   templateName
 ) {
-  const appPackage = require(path.join(appPath, 'package.json'));
-  const useYarn = fs.existsSync(path.join(appPath, 'yarn.lock'));
-
   if (!validateTemplate(templateName)) {
     return;
   }
+
+  const appPackage = require(path.join(appPath, 'package.json'));
+  const useYarn = fs.existsSync(path.join(appPath, 'yarn.lock'));
 
   const templatePath = path.dirname(
     require.resolve(`${templateName}/package.json`, { paths: [appPath] })
@@ -383,6 +383,6 @@ module.exports = function (
     console.log('Created git commit.');
   }
 
-  printSuccessMessage(appName, appPath, originalDirectory, useYarn, readmeExists);
+  displaySuccessMessage(appName, appPath, originalDirectory, useYarn, readmeExists);
 };
 ```

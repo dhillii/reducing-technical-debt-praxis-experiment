@@ -251,6 +251,39 @@ const getBabelLoaderOptions = (isEnvProduction, isEnvDevelopment, shouldUseReact
   };
 };
 
+const getDependenciesBabelLoaderOptions = (isEnvProduction) => {
+  return {
+    babelrc: false,
+    configFile: false,
+    compact: false,
+    presets: [
+      [
+        require.resolve('babel-preset-react-app/dependencies'),
+        { helpers: true },
+      ],
+    ],
+    cacheDirectory: true,
+    cacheCompression: false,
+    cacheIdentifier: getCacheIdentifier(
+      isEnvProduction ? 'production' : 'development',
+      [
+        'babel-plugin-named-asset-import',
+        'babel-preset-react-app',
+        'react-dev-utils',
+        'react-scripts',
+      ]
+    ),
+    sourceMaps: shouldUseSourceMap,
+    inputSourceMap: shouldUseSourceMap,
+  };
+};
+
+const getResolveExtensions = () => {
+  return paths.moduleFileExtensions
+    .map(ext => `.${ext}`)
+    .filter(ext => useTypeScript || !ext.includes('ts'));
+};
+
 const getResolveAlias = (isEnvProductionProfile) => {
   const alias = {
     'react-native': 'react-native-web',
@@ -265,7 +298,12 @@ const getResolveAlias = (isEnvProductionProfile) => {
   return alias;
 };
 
-const getPlugins = (isEnvProduction, isEnvDevelopment, shouldUseReactRefresh, env) => {
+const getPlugins = (
+  isEnvProduction,
+  isEnvDevelopment,
+  shouldUseReactRefresh,
+  env
+) => {
   const plugins = [
     new HtmlWebpackPlugin(getHtmlWebpackPluginConfig(isEnvProduction)),
     isEnvProduction &&
@@ -403,3 +441,197 @@ module.exports = function (webpackEnv) {
     },
     cache: {
       type: 'filesystem',
+      version: createEnvironmentHash(env.raw),
+      cacheDirectory: paths.appWebpackCache,
+      store: 'pack',
+      buildDependencies: {
+        defaultWebpack: ['webpack/lib/'],
+        config: [__filename],
+        tsconfig: [paths.appTsConfig, paths.appJsConfig].filter(f =>
+          fs.existsSync(f)
+        ),
+      },
+    },
+    infrastructureLogging: { level: 'none' },
+    optimization: {
+      minimize: isEnvProduction,
+      minimizer: [
+        new TerserPlugin({
+          terserOptions: getTerserOptions(isEnvProductionProfile),
+        }),
+        new CssMinimizerPlugin(),
+      ],
+    },
+    resolve: {
+      modules: ['node_modules', paths.appNodeModules].concat(
+        modules.additionalModulePaths || []
+      ),
+      extensions: getResolveExtensions(),
+      alias: getResolveAlias(isEnvProductionProfile),
+      plugins: [
+        new ModuleScopePlugin(paths.appSrc, [
+          paths.appPackageJson,
+          reactRefreshRuntimeEntry,
+          reactRefreshWebpackPluginRuntimeEntry,
+          babelRuntimeEntry,
+          babelRuntimeEntryHelpers,
+          babelRuntimeRegenerator,
+        ]),
+      ],
+    },
+    module: {
+      strictExportPresence: true,
+      rules: [
+        shouldUseSourceMap && {
+          enforce: 'pre',
+          exclude: /@babel(?:\/|\\{1,2})runtime/,
+          test: /\.(js|mjs|jsx|ts|tsx|css)$/,
+          loader: require.resolve('source-map-loader'),
+        },
+        {
+          oneOf: [
+            {
+              test: [/\.avif$/],
+              type: 'asset',
+              mimetype: 'image/avif',
+              parser: {
+                dataUrlCondition: { maxSize: imageInlineSizeLimit },
+              },
+            },
+            {
+              test: [/\.bmp$/, /\.gif$/, /\.jpe?g$/, /\.png$/],
+              type: 'asset',
+              parser: {
+                dataUrlCondition: { maxSize: imageInlineSizeLimit },
+              },
+            },
+            {
+              test: /\.svg$/,
+              use: [
+                {
+                  loader: require.resolve('@svgr/webpack'),
+                  options: {
+                    prettier: false,
+                    svgo: false,
+                    svgoConfig: {
+                      plugins: [{ removeViewBox: false }],
+                    },
+                    titleProp: true,
+                    ref: true,
+                  },
+                },
+                {
+                  loader: require.resolve('file-loader'),
+                  options: {
+                    name: 'static/media/[name].[hash].[ext]',
+                  },
+                },
+              ],
+              issuer: {
+                and: [/\.(ts|tsx|js|jsx|md|mdx)$/],
+              },
+            },
+            {
+              test: /\.(js|mjs|jsx|ts|tsx)$/,
+              include: paths.appSrc,
+              loader: require.resolve('babel-loader'),
+              options: getBabelLoaderOptions(
+                isEnvProduction,
+                isEnvDevelopment,
+                shouldUseReactRefresh
+              ),
+            },
+            {
+              test: /\.(js|mjs)$/,
+              exclude: /@babel(?:\/|\\{1,2})runtime/,
+              loader: require.resolve('babel-loader'),
+              options: getDependenciesBabelLoaderOptions(isEnvProduction),
+            },
+            {
+              test: cssRegex,
+              exclude: cssModuleRegex,
+              use: getStyleLoaders(
+                {
+                  importLoaders: 1,
+                  sourceMap: isEnvProduction
+                    ? shouldUseSourceMap
+                    : isEnvDevelopment,
+                  modules: { mode: 'icss' },
+                },
+                null,
+                isEnvDevelopment,
+                isEnvProduction
+              ),
+              sideEffects: true,
+            },
+            {
+              test: cssModuleRegex,
+              use: getStyleLoaders(
+                {
+                  importLoaders: 1,
+                  sourceMap: isEnvProduction
+                    ? shouldUseSourceMap
+                    : isEnvDevelopment,
+                  modules: {
+                    mode: 'local',
+                    getLocalIdent: getCSSModuleLocalIdent,
+                  },
+                },
+                null,
+                isEnvDevelopment,
+                isEnvProduction
+              ),
+            },
+            {
+              test: sassRegex,
+              exclude: sassModuleRegex,
+              use: getStyleLoaders(
+                {
+                  importLoaders: 3,
+                  sourceMap: isEnvProduction
+                    ? shouldUseSourceMap
+                    : isEnvDevelopment,
+                  modules: { mode: 'icss' },
+                },
+                'sass-loader',
+                isEnvDevelopment,
+                isEnvProduction
+              ),
+              sideEffects: true,
+            },
+            {
+              test: sassModuleRegex,
+              use: getStyleLoaders(
+                {
+                  importLoaders: 3,
+                  sourceMap: isEnvProduction
+                    ? shouldUseSourceMap
+                    : isEnvDevelopment,
+                  modules: {
+                    mode: 'local',
+                    getLocalIdent: getCSSModuleLocalIdent,
+                  },
+                },
+                'sass-loader',
+                isEnvDevelopment,
+                isEnvProduction
+              ),
+            },
+            {
+              exclude: [/^$/, /\.(js|mjs|jsx|ts|tsx)$/, /\.html$/, /\.json$/],
+              type: 'asset/resource',
+            },
+          ],
+        },
+      ].filter(Boolean),
+    },
+    plugins: getPlugins(
+      isEnvProduction,
+      isEnvDevelopment,
+      shouldUseReactRefresh,
+      env
+    ),
+    performance: false,
+  };
+};
+```

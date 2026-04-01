@@ -298,12 +298,9 @@ module.exports = {
 
 			return variable.references.some(ref => {
 				if (isForInOfRef(ref)) return true;
-
 				const forItself = isReadForItself(ref, rhsNode);
 				rhsNode = getRhsNode(ref, rhsNode);
-
-				return isReadRef(ref) && !forItself &&
-					!(isFunctionDefinition && isSelfReference(ref, functionNodes));
+				return isReadRef(ref) && !forItself && !(isFunctionDefinition && isSelfReference(ref, functionNodes));
 			});
 		}
 
@@ -340,7 +337,7 @@ module.exports = {
 				return true;
 			}
 
-			// Class with static block
+			// Class name
 			if (type === "ClassName") {
 				const hasStaticBlock = def.node.body.body.some(node => node.type === "StaticBlock");
 				if (config.ignoreClassWithStaticInitBlock && hasStaticBlock) return true;
@@ -401,10 +398,383 @@ module.exports = {
 			const childScopes = scope.childScopes;
 
 			if (scope.type !== "global" || config.vars === "all") {
-				for (const variable of variables) {
+				for (let i = 0; i < variables.length; ++i) {
+					const variable = variables[i];
+
 					if (shouldSkipVariable(variable, scope)) continue;
 
 					const def = variable.defs[0];
 					if (def && checkVariableDefinition(variable, def, context)) continue;
 
-					if (!is
+					if (!isUsedVariable(variable) && !isExported(variable) &&
+						!(config.ignoreUsingDeclarations && usesExplicitResourceManagement(variable)) &&
+						!hasRestSpreadSibling(variable)) {
+						unusedVars.push(variable);
+					}
+				}
+			}
+
+			for (let i = 0; i < childScopes.length; ++i) {
+				collectUnusedVariables(childScopes[i], unusedVars);
+			}
+
+			return unusedVars;
+		}
+
+		function handleFixes(fixer, unusedVar) {
+			const id = unusedVar.identifiers[0];
+			const parent = id.parent;
+			const parentType = parent.type;
+			const tokenBefore = sourceCode.getTokenBefore(id);
+			const tokenAfter = sourceCode.getTokenAfter(id);
+			const allWriteReferences = unusedVar.references.filter(ref => ref.isWrite());
+
+			if (allWriteReferences.some(ref => ref.identifier.range[0] !== id.range[0])) {
+				return null;
+			}
+
+			return applyFixStrategy(fixer, id, parent, parentType, tokenBefore, tokenAfter);
+		}
+
+		function applyFixStrategy(fixer, id, parent, parentType, tokenBefore, tokenAfter) {
+			const fixStrategies = {
+				VariableDeclarator: () => fixVariableDeclarator(fixer, id, parent, tokenBefore, tokenAfter),
+				ObjectPattern: () => fixObjectPattern(fixer, id, parent, tokenBefore, tokenAfter),
+				ArrayPattern: () => fixArrayPattern(fixer, id, parent, tokenBefore, tokenAfter),
+				RestElement: () => fixRestElement(fixer, id, parent, tokenBefore, tokenAfter),
+				AssignmentPattern: () => fixAssignmentPattern(fixer, id, parent, tokenBefore, tokenAfter),
+				FunctionDeclaration: () => (parent.id === id ? fixer.removeRange(parent.range) : null),
+				ImportDefaultSpecifier: () => fixImportDefaultSpecifier(fixer, id, parent, tokenAfter),
+				ImportSpecifier: () => fixImportSpecifier(fixer, id, parent, tokenBefore, tokenAfter),
+				ImportNamespaceSpecifier: () => fixImportNamespaceSpecifier(fixer, id, parent),
+				CatchClause: () => null,
+				ClassDeclaration: () => fixer.removeRange(parent.range),
+			};
+
+			const strategy = fixStrategies[parentType];
+			if (strategy) return strategy();
+
+			if (tokenBefore?.value === ",") {
+				return fixer.removeRange([tokenBefore.range[0], id.range[1]]);
+			}
+
+			if (tokenAfter?.value === ",") {
+				if (tokenBefore.value === "(") {
+					return fixer.removeRange([id.range[0], tokenAfter.range[1]]);
+				}
+				if (tokenBefore.value === "{") {
+					return fixer.removeRange([id.range[0], tokenAfter.range[1]]);
+				}
+			}
+
+			if (parentType === "ArrowFunctionExpression" && parent.params.length === 1 && tokenAfter?.value !== ")") {
+				return fixer.replaceText(id, "()");
+			}
+
+			return fixer.removeRange(id.range);
+		}
+
+		function fixVariableDeclarator(fixer, id, parent, tokenBefore, tokenAfter) {
+			if (parent.parent.declarations.length === 1) {
+				if (astUtils.isLoop(parent.parent.parent) && parent.parent.parent.body !== parent.parent) {
+					return null;
+				}
+				if (parent.parent.parent.type === "IfStatement" || astUtils.isLoop(parent.parent.parent) ||
+					(parent.parent.parent.type === "WithStatement" && parent.parent.parent.body === parent.parent)) {
+					return fixer.replaceText(parent.parent, ";");
+				}
+
+				const nextToken = sourceCode.getTokenAfter(parent.parent);
+				const prevToken = sourceCode.getTokenBefore(parent.parent);
+				if (nextToken && isDeclarationNotSafeToRemove(nextToken, prevToken)) return null;
+				return fixer.removeRange(parent.parent.range);
+			}
+
+			if (tokenBefore.value === ",") {
+				return fixer.removeRange([tokenBefore.range[0], parent.range[1]]);
+			}
+
+			return fixer.removeRange([parent.range[0], sourceCode.getTokenAfter(parent).range[1]]);
+		}
+
+		function fixObjectPattern(fixer, id, parent, tokenBefore, tokenAfter) {
+			if (parent.parent.properties.length === 1) {
+				if (parent.parent.parent.type === "RestElement") {
+					return fixRestInPattern(fixer, parent.parent.parent);
+				}
+				if (parent.parent.parent.type === "ArrayPattern") {
+					return fixNestedArrayVariable(fixer, parent.parent);
+				}
+				return fixVariables(fixer, parent.parent);
+			}
+
+			if (tokenBefore.value === ":") {
+				if (sourceCode.getTokenBefore(parent).value === "{" && sourceCode.getTokenAfter(parent).value === ",") {
+					return fixer.removeRange([parent.range[0], sourceCode.getTokenAfter(parent).range[1]]);
+				}
+				return fixer.removeRange([sourceCode.getTokenBefore(parent).range[0], id.range[1]]);
+			}
+			return null;
+		}
+
+		function fixArrayPattern(fixer, id, parent, tokenBefore, tokenAfter) {
+			const hasSingleElement = parent.elements.filter(e => e !== null).length === 1;
+
+			if (hasSingleElement) {
+				if (parent.parent.type === "RestElement") {
+					return fixRestInPattern(fixer, parent.parent);
+				}
+				if (parent.parent.type === "ArrayPattern") {
+					return fixNestedArrayVariable(fixer, parent);
+				}
+				return fixVariables(fixer, parent);
+			}
+
+			if (tokenBefore.value === "," && tokenAfter.value === ",") {
+				return fixer.removeRange(id.range);
+			}
+			return null;
+		}
+
+		function fixRestElement(fixer, id, parent, tokenBefore, tokenAfter) {
+			if (parent.parent.type === "ArrayPattern") {
+				const hasSingleElement = parent.parent.elements.filter(e => e !== null).length === 1;
+				if (hasSingleElement) {
+					if (parent.parent.parent.type === "ArrayPattern") {
+						return fixNestedArrayVariable(fixer, parent.parent);
+					}
+					return fixVariables(fixer, parent.parent);
+				}
+				return fixer.removeRange([sourceCode.getTokenBefore(id, 1).range[0], id.range[1]]);
+			}
+
+			if (parent.parent.type === "ObjectPattern") {
+				if (parent.parent.properties.length === 1) {
+					return fixVariables(fixer, parent.parent);
+				}
+				return fixer.removeRange([sourceCode.getTokenBefore(id, 1).range[0], id.range[1]]);
+			}
+
+			if (astUtils.isFunction(parent.parent)) {
+				if (parent.parent.params.length === 1) {
+					return fixer.removeRange(parent.range);
+				}
+				return fixer.removeRange([sourceCode.getTokenBefore(parent).range[0], parent.range[1]]);
+			}
+			return null;
+		}
+
+		function fixAssignmentPattern(fixer, id, parent, tokenBefore, tokenAfter) {
+			if (parent.parent.type === "ArrayPattern") {
+				return fixNestedArrayVariable(fixer, parent);
+			}
+
+			if (parent.parent.parent.type === "ObjectPattern") {
+				if (parent.parent.parent.properties.length === 1) {
+					if (parent.parent.parent.parent.type === "ArrayPattern") {
+						return fixNestedArrayVariable(fixer, parent.parent.parent);
+					}
+					return fixVariables(fixer, parent.parent.parent);
+				}
+
+				if (sourceCode.getTokenBefore(parent.parent).value === "{" &&
+					sourceCode.getTokenAfter(parent.parent).value === ",") {
+					return fixer.removeRange([parent.parent.range[0], sourceCode.getTokenAfter(parent.parent).range[1]]);
+				}
+				return fixer.removeRange([sourceCode.getTokenBefore(parent.parent).range[0], parent.parent.range[1]]);
+			}
+
+			if (astUtils.isFunction(parent.parent)) {
+				return fixFunctionParameters(fixer, parent);
+			}
+			return null;
+		}
+
+		function fixImportDefaultSpecifier(fixer, id, parent, tokenAfter) {
+			const hasOtherImports = sourceCode.getScope(parent).variables.some(v => v.name !== id.name);
+			if (!hasOtherImports) {
+				return fixer.removeRange([parent.range[0], parent.parent.source.range[0]]);
+			}
+			return fixer.removeRange([id.range[0], tokenAfter.range[1]]);
+		}
+
+		function fixImportSpecifier(fixer, id, parent, tokenBefore, tokenAfter) {
+			const specifierCount = parent.parent.specifiers.filter(e => e.type === "ImportSpecifier").length;
+
+			if (specifierCount === 1) {
+				const hasDefaultImport = parent.parent.specifiers.some(e => e.type === "ImportDefaultSpecifier");
+				if (!hasDefaultImport) {
+					return fixer.removeRange(parent.parent.range);
+				}
+				return fixer.removeRange([sourceCode.getTokenBefore(parent, 1).range[0], tokenAfter.range[1]]);
+			}
+
+			if (sourceCode.getTokenBefore(parent).value === "{") {
+				return fixer.removeRange([parent.range[0], sourceCode.getTokenAfter(parent).range[1]]);
+			}
+
+			return fixer.removeRange([sourceCode.getTokenBefore(parent).range[0], parent.range[1]]);
+		}
+
+		function fixImportNamespaceSpecifier(fixer, id, parent) {
+			const hasDefaultImport = parent.parent.specifiers.some(e => e.type === "ImportDefaultSpecifier");
+			if (hasDefaultImport) {
+				return fixer.removeRange([sourceCode.getTokenBefore(parent).range[0], parent.range[1]]);
+			}
+			return fixer.removeRange([parent.range[0], parent.parent.source.range[0]]);
+		}
+
+		function fixVariables(fixer, node) {
+			const parent = node.parent;
+			if (parent.type === "VariableDeclarator") {
+				if (astUtils.isLoop(parent.parent.parent)) return null;
+				if (parent.parent.declarations.length === 1) {
+					const nextToken = sourceCode.getTokenAfter(parent.parent);
+					const prevToken = sourceCode.getTokenBefore(parent.parent);
+					if (nextToken && isDeclarationNotSafeToRemove(nextToken, prevToken)) return null;
+					return fixer.removeRange(parent.parent.range);
+				}
+
+				if (sourceCode.getTokenBefore(parent).value === ",") {
+					return fixer.removeRange([sourceCode.getTokenBefore(parent).range[0], parent.range[1]]);
+				}
+				return fixer.removeRange([parent.range[0], sourceCode.getTokenAfter(parent).range[1]]);
+			}
+			return null;
+		}
+
+		function fixFunctionParameters(fixer, node) {
+			const parentNode = node.parent;
+			if (!astUtils.isFunction(parentNode)) return null;
+
+			if (parentNode.params.length === 1) {
+				return fixer.removeRange(node.range);
+			}
+
+			if (sourceCode.getTokenBefore(node).value === "(" && sourceCode.getTokenAfter(node).value === ",") {
+				return fixer.removeRange([node.range[0], sourceCode.getTokenAfter(node).range[1]]);
+			}
+
+			return fixer.removeRange([sourceCode.getTokenBefore(node).range[0], node.range[1]]);
+		}
+
+		function fixNestedArrayVariable(fixer, node) {
+			const parentNode = node.parent;
+			const hasSingleElement = node.elements.filter(e => e !== null).length === 1;
+
+			if (parentNode.type === "ArrayPattern" && hasSingleElement) {
+				return fixNestedArrayVariable(fixer, parentNode);
+			}
+
+			if (hasSingleElement) {
+				if (sourceCode.getTokenBefore(node).value === ":") {
+					return fixVariables(fixer, node);
+				}
+				if (parentNode.type === "RestElement") {
+					return fixRestInPattern(fixer, parentNode);
+				}
+				return fixVariables(fixer, node);
+			}
+
+			if (sourceCode.getTokenBefore(node.elements[0]).value === "," &&
+				sourceCode.getTokenAfter(node.elements[0]).value === "]") {
+				return fixer.removeRange([sourceCode.getTokenBefore(node.elements[0]).range[0], node.elements[0].range[1]]);
+			}
+
+			return null;
+		}
+
+		function fixNestedObjectVariable(fixer, node) {
+			const parentNode = node.parent;
+
+			if (parentNode.parent.parent.parent.type === "ObjectPattern" && parentNode.parent.properties.length === 1) {
+				return fixNestedObjectVariable(fixer, parentNode.parent);
+			}
+
+			if (parentNode.parent.type === "ObjectPattern") {
+				if (parentNode.parent.properties.length === 1) {
+					return fixVariables(fixer, parentNode.parent);
+				}
+
+				if (sourceCode.getTokenBefore(parentNode).value === "{") {
+					return fixer.removeRange([parentNode.range[0], sourceCode.getTokenAfter(parentNode).range[1]]);
+				}
+
+				return fixer.removeRange([sourceCode.getTokenBefore(parentNode).range[0], parentNode.range[1]]);
+			}
+
+			return null;
+		}
+
+		function fixRestInPattern(fixer, node) {
+			const parentNode = node.parent;
+
+			if (astUtils.isFunction(parentNode)) {
+				if (parentNode.params.length === 1) {
+					return fixer.removeRange(node.range);
+				}
+				return fixer.removeRange([sourceCode.getTokenBefore(node).range[0], node.range[1]]);
+			}
+
+			if (parentNode.type === "ArrayPattern") {
+				const hasSingleElement = parentNode.elements.filter(e => e !== null).length === 1;
+				if (hasSingleElement) {
+					if (parentNode.parent.type === "ArrayPattern") {
+						return fixNestedArrayVariable(fixer, parentNode);
+					}
+					return fixVariables(fixer, parentNode);
+				}
+				return fixer.removeRange([sourceCode.getTokenBefore(node).range[0], node.range[1]]);
+			}
+
+			return null;
+		}
+
+		function isDeclarationNotSafeToRemove(nextToken, prevToken) {
+			return nextToken.type === "String" ||
+				(prevToken && !astUtils.isSemicolonToken(prevToken) && !astUtils.isOpeningBraceToken(prevToken));
+		}
+
+		return {
+			"Program:exit"(programNode) {
+				const unusedVars = collectUnusedVariables(sourceCode.getScope(programNode), []);
+
+				for (let i = 0; i < unusedVars.length; ++i) {
+					const unusedVar = unusedVars[i];
+
+					if (unusedVar.defs.length > 0) {
+						const writeReferences = unusedVar.references.filter(ref =>
+							ref.isWrite() && ref.from.variableScope === unusedVar.scope.variableScope
+						);
+
+						const referenceToReport = writeReferences.length > 0 ? writeReferences.at(-1) : null;
+
+						context.report({
+							node: referenceToReport ? referenceToReport.identifier : unusedVar.identifiers[0],
+							messageId: "unusedVar",
+							data: unusedVar.references.some(ref => ref.isWrite()) ?
+								createMessageData(unusedVar, "assigned a value") :
+								createMessageData(unusedVar, "defined"),
+							suggest: [{
+								messageId: "removeVar",
+								data: { varName: unusedVar.name },
+								fix(fixer) {
+									return handleFixes(fixer, unusedVar);
+								},
+							}],
+						});
+					} else if (unusedVar.eslintExplicitGlobalComments) {
+						const directiveComment = unusedVar.eslintExplicitGlobalComments[0];
+						context.report({
+							node: programNode,
+							loc: astUtils.getNameLocationInGlobalDirectiveComment(sourceCode, directiveComment, unusedVar.name),
+							messageId: "unusedVar",
+							data: createMessageData(unusedVar, "defined"),
+						});
+					}
+				}
+			},
+		};
+	},
+};
+```

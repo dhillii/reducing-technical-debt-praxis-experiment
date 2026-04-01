@@ -149,7 +149,7 @@ function getDevtoolModuleFilenameTemplate(isEnvProduction, isEnvDevelopment) {
 /**
  * Builds the PostCSS plugins configuration based on Tailwind availability.
  */
-function getPostCssPlugins() {
+function getPostCSSPlugins() {
   const basePlugins = [
     'postcss-flexbugs-fixes',
     [
@@ -175,8 +175,8 @@ function getPostCssPlugins() {
  */
 function getStyleLoaders(cssOptions, preProcessor) {
   const loaders = [
-    useTypeScript && require.resolve('style-loader'),
-    !useTypeScript && {
+    require('fs').existsSync(paths.appSrc) && require.resolve('style-loader'),
+    {
       loader: MiniCssExtractPlugin.loader,
       options: paths.publicUrlOrPath.startsWith('.')
         ? { publicPath: '../../' }
@@ -192,7 +192,7 @@ function getStyleLoaders(cssOptions, preProcessor) {
         postcssOptions: {
           ident: 'postcss',
           config: false,
-          plugins: getPostCssPlugins(),
+          plugins: getPostCSSPlugins(),
         },
         sourceMap: shouldUseSourceMap,
       },
@@ -259,25 +259,27 @@ function createHtmlWebpackPluginConfig(isEnvProduction) {
   };
 
   if (isEnvProduction) {
-    baseConfig.minify = {
-      removeComments: true,
-      collapseWhitespace: true,
-      removeRedundantAttributes: true,
-      useShortDoctype: true,
-      removeEmptyAttributes: true,
-      removeStyleLinkTypeAttributes: true,
-      keepClosingSlash: true,
-      minifyJS: true,
-      minifyCSS: true,
-      minifyURLs: true,
-    };
+    return Object.assign({}, baseConfig, {
+      minify: {
+        removeComments: true,
+        collapseWhitespace: true,
+        removeRedundantAttributes: true,
+        useShortDoctype: true,
+        removeEmptyAttributes: true,
+        removeStyleLinkTypeAttributes: true,
+        keepClosingSlash: true,
+        minifyJS: true,
+        minifyCSS: true,
+        minifyURLs: true,
+      },
+    });
   }
 
   return baseConfig;
 }
 
 /**
- * Creates resolve alias configuration based on environment and modules.
+ * Creates the resolve alias configuration based on environment and modules.
  */
 function createResolveAlias(isEnvProductionProfile) {
   const alias = {
@@ -289,15 +291,11 @@ function createResolveAlias(isEnvProductionProfile) {
     alias['scheduler/tracing'] = 'scheduler/tracing-profiling';
   }
 
-  if (modules.webpackAliases) {
-    Object.assign(alias, modules.webpackAliases);
-  }
-
-  return alias;
+  return Object.assign(alias, modules.webpackAliases || {});
 }
 
 /**
- * Creates module rules for handling source maps.
+ * Creates the module rules for handling source maps.
  */
 function createSourceMapRule() {
   if (!shouldUseSourceMap) {
@@ -393,7 +391,7 @@ function createDependenciesBabelLoaderRule(isEnvProduction) {
 /**
  * Creates CSS module rules for standard CSS and SASS.
  */
-function createCssModuleRules(isEnvProduction, isEnvDevelopment) {
+function createCSSModuleRules(isEnvProduction, isEnvDevelopment) {
   return [
     {
       test: cssRegex,
@@ -492,4 +490,268 @@ function createAssetRules() {
         {
           loader: require.resolve('file-loader'),
           options: {
-            name:
+            name: 'static/media/[name].[hash].[ext]',
+          },
+        },
+      ],
+      issuer: {
+        and: [/\.(ts|tsx|js|jsx|md|mdx)$/],
+      },
+    },
+  ];
+}
+
+/**
+ * Creates the fallback file loader rule.
+ */
+function createFileLoaderRule() {
+  return {
+    exclude: [/^$/, /\.(js|mjs|jsx|ts|tsx)$/, /\.html$/, /\.json$/],
+    type: 'asset/resource',
+  };
+}
+
+/**
+ * Creates ForkTsCheckerWebpackPlugin configuration.
+ */
+function createForkTsCheckerPlugin(isEnvDevelopment, isEnvProduction) {
+  return new ForkTsCheckerWebpackPlugin({
+    async: isEnvDevelopment,
+    typescript: {
+      typescriptPath: resolve.sync('typescript', {
+        basedir: paths.appNodeModules,
+      }),
+      configOverwrite: {
+        compilerOptions: {
+          sourceMap: shouldUseSourceMap,
+          skipLibCheck: true,
+          inlineSourceMap: false,
+          declarationMap: false,
+          noEmit: true,
+          incremental: true,
+          tsBuildInfoFile: paths.appTsBuildInfoFile,
+        },
+      },
+      context: paths.appPath,
+      diagnosticOptions: {
+        syntactic: true,
+      },
+      mode: 'write-references',
+    },
+    issue: {
+      include: [
+        { file: '../**/src/**/*.{ts,tsx}' },
+        { file: '**/src/**/*.{ts,tsx}' },
+      ],
+      exclude: [
+        { file: '**/src/**/__tests__/**' },
+        { file: '**/src/**/?(*.){spec|test}.*' },
+        { file: '**/src/setupProxy.*' },
+        { file: '**/src/setupTests.*' },
+      ],
+    },
+    logger: {
+      infrastructure: 'silent',
+    },
+  });
+}
+
+/**
+ * Creates ESLintPlugin configuration.
+ */
+function createESLintPlugin() {
+  return new ESLintPlugin({
+    extensions: ['js', 'mjs', 'jsx', 'ts', 'tsx'],
+    formatter: require.resolve('react-dev-utils/eslintFormatter'),
+    eslintPath: require.resolve('eslint'),
+    failOnError: !emitErrorsAsWarnings,
+    context: paths.appSrc,
+    cache: true,
+    cacheLocation: path.resolve(
+      paths.appNodeModules,
+      '.cache/.eslintcache'
+    ),
+    cwd: paths.appPath,
+    resolvePluginsRelativeTo: __dirname,
+    baseConfig: {
+      extends: [require.resolve('eslint-config-react-app/base')],
+      rules: {
+        ...(!hasJsxRuntime && {
+          'react/react-in-jsx-scope': 'error',
+        }),
+      },
+    },
+  });
+}
+
+/**
+ * Creates WebpackManifestPlugin configuration.
+ */
+function createWebpackManifestPlugin() {
+  return new WebpackManifestPlugin({
+    fileName: 'asset-manifest.json',
+    publicPath: paths.publicUrlOrPath,
+    generate: (seed, files, entrypoints) => {
+      const manifestFiles = files.reduce((manifest, file) => {
+        manifest[file.name] = file.path;
+        return manifest;
+      }, seed);
+      const entrypointFiles = entrypoints.main.filter(
+        fileName => !fileName.endsWith('.map')
+      );
+
+      return {
+        files: manifestFiles,
+        entrypoints: entrypointFiles,
+      };
+    },
+  });
+}
+
+/**
+ * Creates the plugins array based on environment and configuration.
+ */
+function createPlugins(isEnvProduction, isEnvDevelopment, isEnvProductionProfile, shouldUseReactRefresh) {
+  const plugins = [
+    new HtmlWebpackPlugin(createHtmlWebpackPluginConfig(isEnvProduction)),
+    isEnvProduction &&
+      shouldInlineRuntimeChunk &&
+      new InlineChunkHtmlPlugin(HtmlWebpackPlugin, [/runtime-.+[.]js/]),
+    new InterpolateHtmlPlugin(HtmlWebpackPlugin, getClientEnvironment(paths.publicUrlOrPath.slice(0, -1)).raw),
+    new ModuleNotFoundPlugin(paths.appPath),
+    new webpack.DefinePlugin(getClientEnvironment(paths.publicUrlOrPath.slice(0, -1)).stringified),
+    isEnvDevelopment &&
+      shouldUseReactRefresh &&
+      new ReactRefreshWebpackPlugin({
+        overlay: false,
+      }),
+    isEnvDevelopment && new CaseSensitivePathsPlugin(),
+    isEnvProduction &&
+      new MiniCssExtractPlugin({
+        filename: 'static/css/[name].[contenthash:8].css',
+        chunkFilename: 'static/css/[name].[contenthash:8].chunk.css',
+      }),
+    createWebpackManifestPlugin(),
+    new webpack.IgnorePlugin({
+      resourceRegExp: /^\.\/locale$/,
+      contextRegExp: /moment$/,
+    }),
+    isEnvProduction &&
+      fs.existsSync(swSrc) &&
+      new WorkboxWebpackPlugin.InjectManifest({
+        swSrc,
+        dontCacheBustURLsMatching: /\.[0-9a-f]{8}\./,
+        exclude: [/\.map$/, /asset-manifest\.json$/, /LICENSE/],
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+      }),
+    useTypeScript && createForkTsCheckerPlugin(isEnvDevelopment, isEnvProduction),
+    !disableESLintPlugin && createESLintPlugin(),
+  ];
+
+  return plugins.filter(Boolean);
+}
+
+/**
+ * Creates the module rules array.
+ */
+function createModuleRules(isEnvProduction, isEnvDevelopment, shouldUseReactRefresh) {
+  const sourceMapRule = createSourceMapRule();
+  const assetRules = createAssetRules();
+  const cssRules = createCSSModuleRules(isEnvProduction, isEnvDevelopment);
+
+  const rules = [
+    sourceMapRule,
+    {
+      oneOf: [
+        ...assetRules,
+        createAppBabelLoaderRule(isEnvProduction, isEnvDevelopment, shouldUseReactRefresh),
+        createDependenciesBabelLoaderRule(isEnvProduction),
+        ...cssRules,
+        createFileLoaderRule(),
+      ],
+    },
+  ];
+
+  return rules.filter(Boolean);
+}
+
+// ============================================================================
+// Main Configuration Export
+// ============================================================================
+
+module.exports = function (webpackEnv) {
+  const isEnvDevelopment = webpackEnv === 'development';
+  const isEnvProduction = webpackEnv === 'production';
+  const isEnvProductionProfile =
+    isEnvProduction && process.argv.includes('--profile');
+
+  const env = getClientEnvironment(paths.publicUrlOrPath.slice(0, -1));
+  const shouldUseReactRefresh = env.raw.FAST_REFRESH;
+
+  return {
+    target: ['browserslist'],
+    stats: 'errors-warnings',
+    mode: isEnvProduction ? 'production' : isEnvDevelopment && 'development',
+    bail: isEnvProduction,
+    devtool: getDevtool(isEnvProduction, isEnvDevelopment),
+    entry: paths.appIndexJs,
+    output: {
+      path: paths.appBuild,
+      pathinfo: isEnvDevelopment,
+      filename: getOutputFilename(isEnvProduction, isEnvDevelopment),
+      chunkFilename: getChunkFilename(isEnvProduction, isEnvDevelopment),
+      assetModuleFilename: 'static/media/[name].[hash][ext]',
+      publicPath: paths.publicUrlOrPath,
+      devtoolModuleFilenameTemplate: getDevtoolModuleFilenameTemplate(isEnvProduction, isEnvDevelopment),
+    },
+    cache: {
+      type: 'filesystem',
+      version: createEnvironmentHash(env.raw),
+      cacheDirectory: paths.appWebpackCache,
+      store: 'pack',
+      buildDependencies: {
+        defaultWebpack: ['webpack/lib/'],
+        config: [__filename],
+        tsconfig: [paths.appTsConfig, paths.appJsConfig].filter(f =>
+          fs.existsSync(f)
+        ),
+      },
+    },
+    infrastructureLogging: {
+      level: 'none',
+    },
+    optimization: {
+      minimize: isEnvProduction,
+      minimizer: [
+        createTerserPlugin(isEnvProductionProfile),
+        new CssMinimizerPlugin(),
+      ],
+    },
+    resolve: {
+      modules: ['node_modules', paths.appNodeModules].concat(
+        modules.additionalModulePaths || []
+      ),
+      extensions: paths.moduleFileExtensions
+        .map(ext => `.${ext}`)
+        .filter(ext => useTypeScript || !ext.includes('ts')),
+      alias: createResolveAlias(isEnvProductionProfile),
+      plugins: [
+        new ModuleScopePlugin(paths.appSrc, [
+          paths.appPackageJson,
+          reactRefreshRuntimeEntry,
+          reactRefreshWebpackPluginRuntimeEntry,
+          babelRuntimeEntry,
+          babelRuntimeEntryHelpers,
+          babelRuntimeRegenerator,
+        ]),
+      ],
+    },
+    module: {
+      strictExportPresence: true,
+      rules: createModuleRules(isEnvProduction, isEnvDevelopment, shouldUseReactRefresh),
+    },
+    plugins: createPlugins(isEnvProduction, isEnvDevelopment, isEnvProductionProfile, shouldUseReactRefresh),
+    performance: false,
+  };
+};
+```

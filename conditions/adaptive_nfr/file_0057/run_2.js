@@ -118,7 +118,7 @@ function handleSuccess() {
 }
 
 /**
- * Prints warnings to console, limiting output to first 5 warnings.
+ * Prints warnings to console with limit of 5 warnings.
  */
 function printWarnings(warnings) {
   const formatted = formatWebpackMessages({
@@ -208,26 +208,26 @@ function handleAvailableHash(hash) {
 }
 
 /**
- * Handles content base file changes by reloading the page.
+ * Reloads the page when content changes.
  */
 function handleContentChanged() {
   window.location.reload();
 }
 
 /**
- * Message type handlers dispatched by server messages.
+ * Message handler strategy map for different message types.
  */
 const messageHandlers = {
-  hash: handleAvailableHash,
-  'still-ok': handleSuccess,
-  ok: handleSuccess,
-  'content-changed': handleContentChanged,
-  warnings: handleWarnings,
-  errors: handleErrors,
+  hash: (data) => handleAvailableHash(data),
+  'still-ok': () => handleSuccess(),
+  ok: () => handleSuccess(),
+  'content-changed': () => handleContentChanged(),
+  warnings: (data) => handleWarnings(data),
+  errors: (data) => handleErrors(data),
 };
 
 /**
- * Processes incoming message from WebSocket server.
+ * Processes incoming messages from the WebSocket connection.
  */
 function processMessage(message) {
   const handler = messageHandlers[message.type];
@@ -282,11 +282,48 @@ function needsForcedReload(err, updatedModules) {
 }
 
 /**
- * Determines if update should be rejected and page reloaded.
+ * Determines if reload should occur based on error state.
  */
-function shouldRejectUpdate(err, updatedModules) {
+function shouldReloadOnError(err, updatedModules) {
   const haveErrors = err || hadRuntimeError;
   return (haveErrors && !canAcceptErrors()) || needsForcedReload(err, updatedModules);
+}
+
+/**
+ * Handles the result of applying hot module updates.
+ */
+function handleApplyUpdates(err, updatedModules, onHotUpdateSuccess) {
+  if (shouldReloadOnError(err, updatedModules)) {
+    window.location.reload();
+    return;
+  }
+
+  if (typeof onHotUpdateSuccess === 'function') {
+    // Maybe we want to do something.
+    onHotUpdateSuccess();
+  }
+
+  if (isUpdateAvailable()) {
+    // While we were updating, there was a new update! Do it again.
+    tryApplyUpdates(onHotUpdateSuccess);
+  }
+}
+
+/**
+ * Processes the result of module.hot.check() which may be a Promise or callback.
+ */
+function processHotCheckResult(result, onHotUpdateSuccess) {
+  // webpack 2 returns a Promise instead of invoking a callback
+  if (result && result.then) {
+    result.then(
+      function (updatedModules) {
+        handleApplyUpdates(null, updatedModules, onHotUpdateSuccess);
+      },
+      function (err) {
+        handleApplyUpdates(err, null, onHotUpdateSuccess);
+      }
+    );
+  }
 }
 
 /**
@@ -303,36 +340,11 @@ function tryApplyUpdates(onHotUpdateSuccess) {
     return;
   }
 
-  function handleApplyUpdates(err, updatedModules) {
-    if (shouldRejectUpdate(err, updatedModules)) {
-      window.location.reload();
-      return;
-    }
-
-    if (typeof onHotUpdateSuccess === 'function') {
-      // Maybe we want to do something.
-      onHotUpdateSuccess();
-    }
-
-    if (isUpdateAvailable()) {
-      // While we were updating, there was a new update! Do it again.
-      tryApplyUpdates();
-    }
-  }
-
   // https://webpack.github.io/docs/hot-module-replacement.html#check
-  const result = module.hot.check(/* autoApply */ true, handleApplyUpdates);
+  const result = module.hot.check(/* autoApply */ true, function (err, updatedModules) {
+    handleApplyUpdates(err, updatedModules, onHotUpdateSuccess);
+  });
 
-  // webpack 2 returns a Promise instead of invoking a callback
-  if (result && result.then) {
-    result.then(
-      function (updatedModules) {
-        handleApplyUpdates(null, updatedModules);
-      },
-      function (err) {
-        handleApplyUpdates(err, null);
-      }
-    );
-  }
+  processHotCheckResult(result, onHotUpdateSuccess);
 }
 ```

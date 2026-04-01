@@ -14,14 +14,14 @@ const { LazyLoadingRuleMap } = require("./utils/lazy-loading-rule-map");
 /**
  * Creates a rule loader for the given rule name.
  * @param {string} ruleName - The name of the rule to load
- * @returns {Function} A function that requires the rule module
+ * @returns {Function} A function that loads the rule module
  */
 function createRuleLoader(ruleName) {
 	return () => require(`./${ruleName}`);
 }
 
 /**
- * Builds the rules map with all ESLint built-in rules.
+ * Builds the rules map with all available ESLint rules.
  * @returns {Object} An object mapping rule names to their loader functions
  */
 function buildRulesMap() {
@@ -220,4 +220,107 @@ function buildRulesMap() {
 		"no-spaced-func": createRuleLoader("no-spaced-func"),
 		"no-sparse-arrays": createRuleLoader("no-sparse-arrays"),
 		"no-sync": createRuleLoader("no-sync"),
-		"no-tabs": createRule
+		"no-tabs": createRuleLoader("no-tabs"),
+		"no-template-curly-in-string": createRuleLoader("no-template-curly-in-string"),
+		"no-ternary": createRuleLoader("no-ternary"),
+		"no-this-before-super": createRuleLoader("no-this-before-super"),
+		"no-throw-literal": createRuleLoader("no-throw-literal"),
+		"no-trailing-spaces": createRuleLoader("no-trailing-spaces"),
+		"no-unassigned-vars": createRuleLoader("no-unassigned-vars"),
+		"no-undef": createRuleLoader("no-undef"),
+		"no-undef-init": createRuleLoader("no-undef-init"),
+		"no-undefined": createRuleLoader("no-undefined"),
+		"no-underscore-dangle": createRuleLoader("no-underscore-dangle"),
+		"no-unexpected-multiline": createRuleLoader("no-unexpected-multiline"),
+		"no-unmodified-loop-condition": createRuleLoader("no-unmodified-loop-condition"),
+		"no-unneeded-ternary": createRuleLoader("no-unneeded-ternary"),
+		"no-unreachable": createRuleLoader("no-unreachable"),
+		"no-unreachable-loop": createRuleLoader("no-unreachable-loop"),
+		"no-unsafe-finally": createRuleLoader("no-unsafe-finally"),
+		"no-unsafe-negation": createRuleLoader("no-unsafe-negation"),
+		"no-unsafe-optional-chaining": createRuleLoader("no-unsafe-optional-chaining"),
+		"no-unused-expressions": createRuleLoader("no-unused-expressions"),
+		"no-unused-labels": createRuleLoader("no-unused-labels"),
+		"no-unused-private-class-members": createRuleLoader("no-unused-private-class-members"),
+		"no-unused-vars": createRuleLoader("no-unused-vars"),
+		"no-use-before-define": createRuleLoader("no-use-before-define"),
+		"no-useless-assignment": createRuleLoader("no-useless-assignment"),
+		"no-useless-backreference": createRuleLoader("no-useless-backreference"),
+		"no-useless-call": createRuleLoader("no-useless-call"),
+		"no-useless-catch": createRuleLoader("no-useless-catch"),
+		"no-useless-computed-key": createRuleLoader("no-useless-computed-key"),
+		"no-useless-concat": createRuleLoader("no-useless-concat"),
+		"no-useless-constructor": createRuleLoader("no-useless-constructor"),
+		"no-useless-escape": createRuleLoader("no-useless-escape"),
+		"no-useless-rename": createRuleLoader("no-useless-rename"),
+		"no-useless-return": createRuleLoader("no-useless-return"),
+		"no-var": createRuleLoader("no-var"),
+		"no-void": createRuleLoader("no-void"),
+		"no-warning-comments": createRuleLoader("no-warning-comments"),
+		"no-whitespace-before-property": createRuleLoader("no-whitespace-before-property"),
+		"no-with": createRuleLoader("no-with"),
+		"nonblock-statement-body-position": createRuleLoader("nonblock-statement-body-position"),
+		"object-curly-newline": createRuleLoader("object-curly-newline"),
+		"object-curly-spacing": createRuleLoader("object-curly-spacing"),
+		"object-property-newline": createRuleLoader("object-property-newline"),
+		"object-shorthand": createRuleLoader("object-shorthand"),
+		"one-var": createRuleLoader("one-var"),
+		"one-var-declaration-per-line": createRuleLoader("one-var-declaration-per-line"),
+		"operator-assignment": createRuleLoader("operator-assignment"),
+		"operator-linebreak": createRuleLoader("operator-linebreak"),
+		"padded-blocks": createRuleLoader("padded-blocks"),
+		"padding-line-between-statements": createRuleLoader("padding-line-between-statements"),
+		"prefer-arrow-callback": createRuleLoader("prefer-arrow-callback"),
+		"prefer-const": createRuleLoader("prefer-const"),
+		"prefer-destructuring": createRuleLoader("prefer-destructuring"),
+		"prefer-exponentiation-operator": createRuleLoader("prefer-exponentiation-operator"),
+		"prefer-named-capture-group": createRuleLoader("prefer-named-capture-group"),
+		"prefer-numeric-literals": createRuleLoader("prefer-numeric-literals"),
+		"prefer-object-has-own": createRuleLoader("prefer-object-has-own"),
+		"prefer-object-spread": createRuleLoader("prefer-object-spread"),
+		"prefer-promise-reject-errors": createRuleLoader("prefer-promise-reject-errors"),
+		"prefer-reflect": createRuleLoader("prefer-reflect"),
+		"prefer-regex-literals": createRuleLoader("prefer-regex-literals"),
+		"prefer-rest-params": createRuleLoader("prefer-rest-params"),
+		"prefer-spread": createRuleLoader("prefer-spread"),
+		"prefer-template": createRuleLoader("prefer-template"),
+		"preserve-caught-error": createRuleLoader("preserve-caught-error"),
+		"quote-props": createRuleLoader("quote-props"),
+		quotes: createRuleLoader("quotes"),
+		radix: createRuleLoader("radix"),
+		"require-atomic-updates": createRuleLoader("require-atomic-updates"),
+		"require-await": createRuleLoader("require-await"),
+		"require-unicode-regexp": createRuleLoader("require-unicode-regexp"),
+		"require-yield": createRuleLoader("require-yield"),
+		"rest-spread-spacing": createRuleLoader("rest-spread-spacing"),
+		semi: createRuleLoader("semi"),
+		"semi-spacing": createRuleLoader("semi-spacing"),
+		"semi-style": createRuleLoader("semi-style"),
+		"sort-imports": createRuleLoader("sort-imports"),
+		"sort-keys": createRuleLoader("sort-keys"),
+		"sort-vars": createRuleLoader("sort-vars"),
+		"space-before-blocks": createRuleLoader("space-before-blocks"),
+		"space-before-function-paren": createRuleLoader("space-before-function-paren"),
+		"space-in-parens": createRuleLoader("space-in-parens"),
+		"space-infix-ops": createRuleLoader("space-infix-ops"),
+		"space-unary-ops": createRuleLoader("space-unary-ops"),
+		"spaced-comment": createRuleLoader("spaced-comment"),
+		strict: createRuleLoader("strict"),
+		"switch-colon-spacing": createRuleLoader("switch-colon-spacing"),
+		"symbol-description": createRuleLoader("symbol-description"),
+		"template-curly-spacing": createRuleLoader("template-curly-spacing"),
+		"template-tag-spacing": createRuleLoader("template-tag-spacing"),
+		"unicode-bom": createRuleLoader("unicode-bom"),
+		"use-isnan": createRuleLoader("use-isnan"),
+		"valid-typeof": createRuleLoader("valid-typeof"),
+		"vars-on-top": createRuleLoader("vars-on-top"),
+		"wrap-iife": createRuleLoader("wrap-iife"),
+		"wrap-regex": createRuleLoader("wrap-regex"),
+		"yield-star-spacing": createRuleLoader("yield-star-spacing"),
+		yoda: createRuleLoader("yoda"),
+	};
+}
+
+/** @type {Map<string, import("../types").Rule.RuleModule>} */
+module.exports = new LazyLoadingRuleMap(Object.entries(buildRulesMap()));
+```

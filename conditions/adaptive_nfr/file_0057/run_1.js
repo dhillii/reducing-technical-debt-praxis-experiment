@@ -118,7 +118,7 @@ function handleSuccess() {
 }
 
 /**
- * Prints warnings to console with a limit of 5 warnings.
+ * Prints warnings to console with limit of 5 warnings.
  */
 function printWarnings(warnings) {
   const formatted = formatWebpackMessages({
@@ -215,7 +215,7 @@ function handleContentChanged() {
 }
 
 /**
- * Message handler strategy map for WebSocket messages.
+ * Message handler strategy map for different message types.
  */
 const messageHandlers = {
   hash: handleAvailableHash,
@@ -227,7 +227,7 @@ const messageHandlers = {
 };
 
 /**
- * Processes incoming WebSocket message based on type.
+ * Processes incoming message from WebSocket connection.
  */
 function processMessage(message) {
   const handler = messageHandlers[message.type];

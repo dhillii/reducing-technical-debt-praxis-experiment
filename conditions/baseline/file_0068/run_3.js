@@ -11,7 +11,7 @@
 
 const { LazyLoadingRuleMap } = require("./utils/lazy-loading-rule-map");
 
-const RULE_NAMES = [
+const RULES = [
 	"accessor-pairs",
 	"array-bracket-newline",
 	"array-bracket-spacing",
@@ -316,12 +316,12 @@ function createRuleLoader(ruleName) {
 }
 
 /**
- * Builds the rules map from rule names
- * @returns {Object} An object mapping rule names to their lazy loaders
+ * Builds the rules map from the rules array
+ * @returns {Object} An object mapping rule names to their loader functions
  */
 function buildRulesMap() {
 	const rulesMap = {};
-	for (const ruleName of RULE_NAMES) {
+	for (const ruleName of RULES) {
 		rulesMap[ruleName] = createRuleLoader(ruleName);
 	}
 	return rulesMap;

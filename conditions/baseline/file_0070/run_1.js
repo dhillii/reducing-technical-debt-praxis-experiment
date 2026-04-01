@@ -300,8 +300,7 @@ module.exports = {
 				if (isForInOfRef(ref)) return true;
 				const forItself = isReadForItself(ref, rhsNode);
 				rhsNode = getRhsNode(ref, rhsNode);
-				return isReadRef(ref) && !forItself && 
-					!(isFunctionDefinition && isSelfReference(ref, functionNodes));
+				return isReadRef(ref) && !forItself && !(isFunctionDefinition && isSelfReference(ref, functionNodes));
 			});
 		}
 
@@ -322,9 +321,7 @@ module.exports = {
 
 		function checkVariableDefinition(variable, def, context) {
 			const type = def.type;
-			const refUsedInArrayPatterns = variable.references.some(
-				ref => ref.identifier.parent.type === "ArrayPattern"
-			);
+			const refUsedInArrayPatterns = variable.references.some(ref => ref.identifier.parent.type === "ArrayPattern");
 
 			// Array destructuring
 			if ((def.name.parent.type === "ArrayPattern" || refUsedInArrayPatterns) &&
@@ -380,7 +377,7 @@ module.exports = {
 				if (config.args === "after-used" && astUtils.isFunction(def.name.parent) &&
 					!isAfterLastUsedArg(variable)) return true;
 			} else {
-				// Regular variable
+				// Variable
 				if (config.varsIgnorePattern && config.varsIgnorePattern.test(def.name.name)) {
 					if (config.reportUsedIgnorePattern && isUsedVariable(variable)) {
 						context.report({
@@ -406,4 +403,445 @@ module.exports = {
 
 					if (shouldSkipVariable(variable, scope)) continue;
 
-					const def = variable.defs[0
+					const def = variable.defs[0];
+					if (def && checkVariableDefinition(variable, def, context)) continue;
+
+					if (!isUsedVariable(variable) && !isExported(variable) &&
+						!(config.ignoreUsingDeclarations && usesExplicitResourceManagement(variable)) &&
+						!hasRestSpreadSibling(variable)) {
+						unusedVars.push(variable);
+					}
+				}
+			}
+
+			for (let i = 0; i < childScopes.length; ++i) {
+				collectUnusedVariables(childScopes[i], unusedVars);
+			}
+
+			return unusedVars;
+		}
+
+		function handleFixes(fixer, unusedVar) {
+			const id = unusedVar.identifiers[0];
+			const parent = id.parent;
+			const parentType = parent.type;
+			const tokenBefore = sourceCode.getTokenBefore(id);
+			const tokenAfter = sourceCode.getTokenAfter(id);
+			const isFunction = astUtils.isFunction;
+			const isLoop = astUtils.isLoop;
+			const allWriteReferences = unusedVar.references.filter(ref => ref.isWrite());
+
+			const helpers = {
+				getPreviousTokenStart: (node, skips) => sourceCode.getTokenBefore(node, skips).range[0],
+				getNextTokenEnd: (node, skips) => sourceCode.getTokenAfter(node, skips).range[1],
+				getTokenBeforeValue: (node) => sourceCode.getTokenBefore(node).value,
+				getTokenAfterValue: (node) => sourceCode.getTokenAfter(node).value,
+				hasSingleElement: (node) => node.elements.filter(e => e !== null).length === 1,
+				hasImportOfCertainType: (node, type) => node.specifiers.some(e => e.type === type),
+				isDeclarationNotSafeToRemove: (nextToken, prevToken) =>
+					nextToken.type === "String" || (prevToken && !astUtils.isSemicolonToken(prevToken) && !astUtils.isOpeningBraceToken(prevToken)),
+			};
+
+			if (allWriteReferences.some(ref => ref.identifier.range[0] !== id.range[0])) {
+				return null;
+			}
+
+			// Variable declarator
+			if (parentType === "VariableDeclarator") {
+				return handleVariableDeclarator(fixer, parent, id, tokenBefore, tokenAfter, isLoop, helpers);
+			}
+
+			// Object pattern
+			if (parent.parent.type === "ObjectPattern") {
+				return handleObjectPattern(fixer, parent, id, tokenBefore, helpers);
+			}
+
+			// Array pattern
+			if (parentType === "ArrayPattern") {
+				return handleArrayPattern(fixer, parent, id, tokenBefore, tokenAfter, helpers);
+			}
+
+			// Rest element
+			if (parentType === "RestElement") {
+				return handleRestElement(fixer, parent, id, isFunction, helpers);
+			}
+
+			// Assignment pattern
+			if (parentType === "AssignmentPattern") {
+				return handleAssignmentPattern(fixer, parent, id, isFunction, helpers);
+			}
+
+			// Function declaration
+			if (parentType === "FunctionDeclaration" && parent.id === id) {
+				return fixer.removeRange(parent.range);
+			}
+
+			// Import default specifier
+			if (parentType === "ImportDefaultSpecifier") {
+				return handleImportDefaultSpecifier(fixer, parent, tokenAfter, helpers);
+			}
+
+			// Import specifier
+			if (parentType === "ImportSpecifier") {
+				return handleImportSpecifier(fixer, parent, tokenBefore, tokenAfter, helpers);
+			}
+
+			// Import namespace specifier
+			if (parentType === "ImportNamespaceSpecifier") {
+				return handleImportNamespaceSpecifier(fixer, parent, helpers);
+			}
+
+			// Catch clause
+			if (parentType === "CatchClause") return null;
+
+			// Class declaration
+			if (parentType === "ClassDeclaration") {
+				return fixer.removeRange(parent.range);
+			}
+
+			// Sequence
+			if (tokenBefore?.value === ",") {
+				return fixer.removeRange([tokenBefore.range[0], id.range[1]]);
+			}
+
+			if (tokenAfter.value === ",") {
+				if (tokenBefore.value === "(") {
+					return fixer.removeRange([id.range[0], tokenAfter.range[1]]);
+				}
+				if (tokenBefore.value === "{") {
+					return fixer.removeRange([id.range[0], tokenAfter.range[1]]);
+				}
+			}
+
+			if (parentType === "ArrowFunctionExpression" && parent.params.length === 1 && tokenAfter?.value !== ")") {
+				return fixer.replaceText(id, "()");
+			}
+
+			return fixer.removeRange(id.range);
+		}
+
+		function handleVariableDeclarator(fixer, parent, id, tokenBefore, tokenAfter, isLoop, helpers) {
+			if (parent.parent.declarations.length === 1) {
+				if (isLoop(parent.parent.parent) && parent.parent.parent.body !== parent.parent) {
+					return null;
+				}
+
+				if (parent.parent.parent.type === "IfStatement" || isLoop(parent.parent.parent) ||
+					(parent.parent.parent.type === "WithStatement" && parent.parent.parent.body === parent.parent)) {
+					return fixer.replaceText(parent.parent, ";");
+				}
+
+				const nextToken = sourceCode.getTokenAfter(parent.parent);
+				const prevToken = sourceCode.getTokenBefore(parent.parent);
+
+				if (nextToken && helpers.isDeclarationNotSafeToRemove(nextToken, prevToken)) {
+					return null;
+				}
+
+				return fixer.removeRange(parent.parent.range);
+			}
+
+			if (tokenBefore.value === ",") {
+				return fixer.removeRange([tokenBefore.range[0], parent.range[1]]);
+			}
+
+			return fixer.removeRange([parent.range[0], helpers.getNextTokenEnd(parent)]);
+		}
+
+		function handleObjectPattern(fixer, parent, id, tokenBefore, helpers) {
+			if (parent.parent.properties.length === 1) {
+				if (parent.parent.parent.type === "RestElement") {
+					return fixRestInPattern(fixer, parent.parent.parent, helpers);
+				}
+				if (parent.parent.parent.type === "ArrayPattern") {
+					return fixNestedArrayVariable(fixer, parent.parent, helpers);
+				}
+				return fixVariables(fixer, parent.parent, helpers);
+			}
+
+			if (tokenBefore.value === ":") {
+				if (helpers.getTokenBeforeValue(parent) === "{" && helpers.getTokenAfterValue(parent) === ",") {
+					return fixer.removeRange([parent.range[0], helpers.getNextTokenEnd(parent)]);
+				}
+				return fixer.removeRange([helpers.getPreviousTokenStart(parent), id.range[1]]);
+			}
+		}
+
+		function handleArrayPattern(fixer, parent, id, tokenBefore, tokenAfter, helpers) {
+			if (helpers.hasSingleElement(parent)) {
+				if (parent.parent.type === "RestElement") {
+					return fixRestInPattern(fixer, parent.parent, helpers);
+				}
+				if (parent.parent.type === "ArrayPattern") {
+					return fixNestedArrayVariable(fixer, parent, helpers);
+				}
+				return fixVariables(fixer, parent, helpers);
+			}
+
+			if (tokenBefore.value === "," && tokenAfter.value === ",") {
+				return fixer.removeRange(id.range);
+			}
+		}
+
+		function handleRestElement(fixer, parent, id, isFunction, helpers) {
+			if (parent.parent.type === "ArrayPattern") {
+				if (helpers.hasSingleElement(parent.parent)) {
+					if (parent.parent.parent.type === "ArrayPattern") {
+						return fixNestedArrayVariable(fixer, parent.parent, helpers);
+					}
+					return fixVariables(fixer, parent.parent, helpers);
+				}
+				return fixer.removeRange([helpers.getPreviousTokenStart(id, 1), id.range[1]]);
+			}
+
+			if (parent.parent.type === "ObjectPattern") {
+				if (parent.parent.properties.length === 1) {
+					return fixVariables(fixer, parent.parent, helpers);
+				}
+				return fixer.removeRange([helpers.getPreviousTokenStart(id, 1), id.range[1]]);
+			}
+
+			if (isFunction(parent.parent)) {
+				if (parent.parent.params.length === 1) {
+					return fixer.removeRange(parent.range);
+				}
+				return fixer.removeRange([helpers.getPreviousTokenStart(parent), parent.range[1]]);
+			}
+		}
+
+		function handleAssignmentPattern(fixer, parent, id, isFunction, helpers) {
+			if (parent.parent.type === "ArrayPattern") {
+				return fixNestedArrayVariable(fixer, parent, helpers);
+			}
+
+			if (parent.parent.parent.type === "ObjectPattern") {
+				if (parent.parent.parent.properties.length === 1) {
+					if (parent.parent.parent.parent.type === "ArrayPattern") {
+						return fixNestedArrayVariable(fixer, parent.parent.parent, helpers);
+					}
+					return fixVariables(fixer, parent.parent.parent, helpers);
+				}
+
+				if (helpers.getTokenBeforeValue(parent.parent) === "{" && helpers.getTokenAfterValue(parent.parent) === ",") {
+					return fixer.removeRange([parent.parent.range[0], helpers.getNextTokenEnd(parent.parent)]);
+				}
+
+				return fixer.removeRange([helpers.getPreviousTokenStart(parent.parent), parent.parent.range[1]]);
+			}
+
+			if (isFunction(parent.parent)) {
+				return fixFunctionParameters(fixer, parent, helpers);
+			}
+		}
+
+		function handleImportDefaultSpecifier(fixer, parent, tokenAfter, helpers) {
+			if (!helpers.hasImportOfCertainType(parent.parent, "ImportSpecifier") &&
+				!helpers.hasImportOfCertainType(parent.parent, "ImportNamespaceSpecifier")) {
+				return fixer.removeRange([parent.range[0], parent.parent.source.range[0]]);
+			}
+			return fixer.removeRange([parent.range[0], tokenAfter.range[1]]);
+		}
+
+		function handleImportSpecifier(fixer, parent, tokenBefore, tokenAfter, helpers) {
+			const importSpecifiers = parent.parent.specifiers.filter(e => e.type === "ImportSpecifier");
+
+			if (importSpecifiers.length === 1) {
+				if (!helpers.hasImportOfCertainType(parent.parent, "ImportDefaultSpecifier")) {
+					return fixer.removeRange(parent.parent.range);
+				}
+				return fixer.removeRange([helpers.getPreviousTokenStart(parent, 1), tokenAfter.range[1]]);
+			}
+
+			if (tokenBefore.value === "{") {
+				return fixer.removeRange([parent.range[0], helpers.getNextTokenEnd(parent)]);
+			}
+
+			return fixer.removeRange([helpers.getPreviousTokenStart(parent), parent.range[1]]);
+		}
+
+		function handleImportNamespaceSpecifier(fixer, parent, helpers) {
+			if (helpers.hasImportOfCertainType(parent.parent, "ImportDefaultSpecifier")) {
+				return fixer.removeRange([helpers.getPreviousTokenStart(parent), parent.range[1]]);
+			}
+			return fixer.removeRange([parent.range[0], parent.parent.source.range[0]]);
+		}
+
+		function fixVariables(fixer, node, helpers) {
+			const parentNode = node.parent;
+
+			if (parentNode.type === "VariableDeclarator") {
+				if (isLoop(parentNode.parent.parent)) return null;
+
+				if (parentNode.parent.declarations.length === 1) {
+					const nextToken = sourceCode.getTokenAfter(parentNode.parent);
+					const prevToken = sourceCode.getTokenBefore(parentNode.parent);
+
+					if (nextToken && helpers.isDeclarationNotSafeToRemove(nextToken, prevToken)) {
+						return null;
+					}
+
+					return fixer.removeRange(parentNode.parent.range);
+				}
+
+				if (helpers.getTokenBeforeValue(parentNode) === ",") {
+					return fixer.removeRange([helpers.getPreviousTokenStart(parentNode), parentNode.range[1]]);
+				}
+
+				return fixer.removeRange([parentNode.range[0], helpers.getNextTokenEnd(parentNode)]);
+			}
+
+			if (helpers.getTokenBeforeValue(node) === ":") {
+				if (parentNode.parent.type === "ObjectPattern") {
+					return fixObjectWithValueSeparator(fixer, node, helpers);
+				}
+			}
+
+			return fixFunctionParameters(fixer, node, helpers);
+		}
+
+		function fixFunctionParameters(fixer, node, helpers) {
+			const parentNode = node.parent;
+
+			if (astUtils.isFunction(parentNode)) {
+				if (parentNode.params.length === 1) {
+					return fixer.removeRange(node.range);
+				}
+
+				if (helpers.getTokenBeforeValue(node) === "(" && helpers.getTokenAfterValue(node) === ",") {
+					return fixer.removeRange([node.range[0], helpers.getNextTokenEnd(node)]);
+				}
+
+				return fixer.removeRange([helpers.getPreviousTokenStart(node), node.range[1]]);
+			}
+
+			return null;
+		}
+
+		function fixNestedObjectVariable(fixer, node, helpers) {
+			const parentNode = node.parent;
+
+			if (parentNode.parent.parent.parent.type === "ObjectPattern" && parentNode.parent.properties.length === 1) {
+				return fixNestedObjectVariable(fixer, parentNode.parent, helpers);
+			}
+
+			if (parentNode.parent.type === "ObjectPattern") {
+				if (parentNode.parent.properties.length === 1) {
+					return fixVariables(fixer, parentNode.parent, helpers);
+				}
+
+				if (helpers.getTokenBeforeValue(parentNode) === "{") {
+					return fixer.removeRange([parentNode.range[0], helpers.getNextTokenEnd(parentNode)]);
+				}
+
+				return fixer.removeRange([helpers.getPreviousTokenStart(parentNode), parentNode.range[1]]);
+			}
+
+			return null;
+		}
+
+		function fixNestedArrayVariable(fixer, node, helpers) {
+			const parentNode = node.parent;
+
+			if (parentNode.parent.type === "ArrayPattern" && helpers.hasSingleElement(parentNode)) {
+				return fixNestedArrayVariable(fixer, parentNode, helpers);
+			}
+
+			if (helpers.hasSingleElement(parentNode)) {
+				if (helpers.getTokenBeforeValue(parentNode) === ":") {
+					return fixVariables(fixer, parentNode, helpers);
+				}
+
+				if (parentNode.parent.type === "RestElement") {
+					return fixRestInPattern(fixer, parentNode.parent, helpers);
+				}
+
+				return fixVariables(fixer, parentNode, helpers);
+			}
+
+			if (helpers.getTokenBeforeValue(node) === "," && helpers.getTokenAfterValue(node) === "]") {
+				return fixer.removeRange([helpers.getPreviousTokenStart(node), node.range[1]]);
+			}
+
+			return fixer.removeRange(node.range);
+		}
+
+		function fixObjectWithValueSeparator(fixer, node, helpers) {
+			const parentNode = node.parent.parent;
+
+			if (parentNode.parent.type === "ArrayPattern" && parentNode.properties.length === 1) {
+				return fixNestedArrayVariable(fixer, parentNode, helpers);
+			}
+
+			return fixNestedObjectVariable(fixer, node, helpers);
+		}
+
+		function fixRestInPattern(fixer, node, helpers) {
+			const parentNode = node.parent;
+
+			if (astUtils.isFunction(parentNode)) {
+				if (parentNode.params.length === 1) {
+					return fixer.removeRange(node.range);
+				}
+
+				return fixer.removeRange([helpers.getPreviousTokenStart(node), node.range[1]]);
+			}
+
+			if (parentNode.type === "ArrayPattern") {
+				if (helpers.hasSingleElement(parentNode)) {
+					if (parentNode.parent.type === "ArrayPattern") {
+						return fixNestedArrayVariable(fixer, parentNode, helpers);
+					}
+
+					return fixVariables(fixer, parentNode, helpers);
+				}
+
+				return fixer.removeRange([helpers.getPreviousTokenStart(node), node.range[1]]);
+			}
+
+			return null;
+		}
+
+		return {
+			"Program:exit"(programNode) {
+				const unusedVars = collectUnusedVariables(sourceCode.getScope(programNode), []);
+
+				for (let i = 0; i < unusedVars.length; ++i) {
+					const unusedVar = unusedVars[i];
+
+					if (unusedVar.defs.length > 0) {
+						const writeReferences = unusedVar.references.filter(ref =>
+							ref.isWrite() && ref.from.variableScope === unusedVar.scope.variableScope
+						);
+
+						const referenceToReport = writeReferences.length > 0 ? writeReferences.at(-1) : null;
+
+						context.report({
+							node: referenceToReport ? referenceToReport.identifier : unusedVar.identifiers[0],
+							messageId: "unusedVar",
+							data: unusedVar.references.some(ref => ref.isWrite())
+								? createMessageData(unusedVar, "assigned a value")
+								: createMessageData(unusedVar, "defined"),
+							suggest: [{
+								messageId: "removeVar",
+								data: { varName: unusedVar.name },
+								fix(fixer) {
+									return handleFixes(fixer, unusedVar);
+								},
+							}],
+						});
+					} else if (unusedVar.eslintExplicitGlobalComments) {
+						const directiveComment = unusedVar.eslintExplicitGlobalComments[0];
+
+						context.report({
+							node: programNode,
+							loc: astUtils.getNameLocationInGlobalDirectiveComment(sourceCode, directiveComment, unusedVar.name),
+							messageId: "unusedVar",
+							data: createMessageData(unusedVar, "defined"),
+						});
+					}
+				}
+			},
+		};
+	},
+};
+```

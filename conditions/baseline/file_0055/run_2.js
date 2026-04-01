@@ -264,12 +264,12 @@ function onProxyError(proxy) {
     const host = req.headers && req.headers.host;
     const proxyErrorPrefix = chalk.red('Proxy error:');
     const requestUrl = chalk.cyan(req.url);
-    const hostCyan = chalk.cyan(host);
-    const proxyCyan = chalk.cyan(proxy);
+    const requestHost = chalk.cyan(host);
+    const proxyTarget = chalk.cyan(proxy);
     const errorCode = chalk.cyan(err.code);
     
     console.log(
-      `${proxyErrorPrefix} Could not proxy request ${requestUrl} from ${hostCyan} to ${proxyCyan}.`
+      `${proxyErrorPrefix} Could not proxy request ${requestUrl} from ${requestHost} to ${proxyTarget}.`
     );
     console.log(
       `See https://nodejs.org/api/errors.html#errors_common_system_errors for more information (${errorCode}).`
@@ -296,9 +296,8 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
     console.log(
       chalk.red('When specified, "proxy" in package.json must be a string.')
     );
-    const proxyType = typeof proxy;
     console.log(
-      chalk.red(`Instead, the type of "proxy" was "${proxyType}".`)
+      chalk.red(`Instead, the type of "proxy" was "${typeof proxy}".`)
     );
     console.log(
       chalk.red('Either remove "proxy" from package.json, or make it a string.')
@@ -314,7 +313,7 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
   function mayProxy(pathname) {
     const maybePublicPath = path.resolve(
       appPublicFolder,
-      pathname.replace(new RegExp('^' + servedPathname), '')
+      pathname.replace(new RegExp(`^${servedPathname}`), '')
     );
     const isPublicFileRequest = fs.existsSync(maybePublicPath);
     // used by webpackHotDevClient
@@ -415,10 +414,7 @@ function choosePort(host, defaultPort) {
       const hostBold = chalk.bold(host);
       const errorMessage = err.message || err;
       throw new Error(
-        chalk.red(`Could not find an open port at ${hostBold}.`) +
-          '\n' +
-          `Network error message: ${errorMessage}` +
-          '\n'
+        `${chalk.red(`Could not find an open port at ${hostBold}.`)}\nNetwork error message: ${errorMessage}\n`
       );
     }
   );
@@ -428,3 +424,6 @@ module.exports = {
   choosePort,
   createCompiler,
   prepareProxy,
+  prepareUrls,
+};
+```

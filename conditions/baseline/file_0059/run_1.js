@@ -202,7 +202,7 @@ function updateReadmeForPackageManager(appPath, useYarn) {
         'utf8'
       );
     } catch (err) {
-      // Silencing the error. As it falls back to using default npm commands.
+      // Silencing the error. As it fall backs to using default npm commands.
     }
   }
 }
@@ -242,33 +242,35 @@ function installDependencies(command, args, templatePackage, appPackage) {
   return args;
 }
 
-function executeInstall(command, args) {
-  if (args.length <= 1) {
-    return true;
+function executeInstall(command, args, templateName) {
+  if (args.length > 1) {
+    console.log();
+    console.log(`Installing template dependencies using ${command}...`);
+
+    const proc = spawn.sync(command, args, { stdio: 'inherit' });
+    if (proc.status !== 0) {
+      console.error(`\`${command} ${args.join(' ')}\` failed`);
+      return false;
+    }
   }
 
-  console.log();
-  console.log(`Installing template dependencies using ${command}...`);
-
-  const proc = spawn.sync(command, args, { stdio: 'inherit' });
-  if (proc.status !== 0) {
-    console.error(`\`${command} ${args.join(' ')}\` failed`);
-    return false;
+  if (args.find(arg => arg.includes('typescript'))) {
+    console.log();
+    verifyTypeScriptSetup();
   }
-  return true;
-}
 
-function removeTemplate(command, remove, templateName) {
   console.log(`Removing template package using ${command}...`);
   console.log();
 
-  const proc = spawn.sync(command, [remove, templateName], {
+  const removeProc = spawn.sync(command, ['remove', templateName], {
     stdio: 'inherit',
   });
-  if (proc.status !== 0) {
-    console.error(`\`${command} ${remove} ${templateName}\` failed`);
+
+  if (removeProc.status !== 0) {
+    console.error(`\`${command} remove ${templateName}\` failed`);
     return false;
   }
+
   return true;
 }
 
@@ -300,10 +302,12 @@ function displaySuccessMessage(appName, appPath, originalDirectory, useYarn, rea
   console.log();
   console.log(chalk.cyan('  cd'), cdpath);
   console.log(`  ${chalk.cyan(`${displayedCommand} start`)}`);
+
   if (readmeExists) {
     console.log();
     console.log(chalk.yellow('You had a `README.md` file, we renamed it to `README.old.md`'));
   }
+
   console.log();
   console.log('Happy hacking!');
 }
@@ -315,12 +319,12 @@ module.exports = function (
   originalDirectory,
   templateName
 ) {
-  const appPackage = require(path.join(appPath, 'package.json'));
-  const useYarn = fs.existsSync(path.join(appPath, 'yarn.lock'));
-
   if (!validateTemplate(templateName)) {
     return;
   }
+
+  const appPackage = require(path.join(appPath, 'package.json'));
+  const useYarn = fs.existsSync(path.join(appPath, 'yarn.lock'));
 
   const templatePath = path.dirname(
     require.resolve(`${templateName}/package.json`, { paths: [appPath] })
@@ -370,16 +374,7 @@ module.exports = function (
   const { command, remove, args: baseArgs } = getInstallCommand(useYarn, verbose);
   let args = installDependencies(command, baseArgs, templatePackage, appPackage);
 
-  if (!executeInstall(command, args)) {
-    return;
-  }
-
-  if (args.find(arg => arg.includes('typescript'))) {
-    console.log();
-    verifyTypeScriptSetup();
-  }
-
-  if (!removeTemplate(command, remove, templateName)) {
+  if (!executeInstall(command, args, templateName)) {
     return;
   }
 
