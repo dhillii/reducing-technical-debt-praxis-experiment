@@ -212,7 +212,11 @@ export default class PublishOptions {
     _getVisibilityBasedRecipientFilter() {
         const visibility = this.post.visibility;
 
-        if (visibility === 'public' || visibility === 'members') {
+        if (visibility === 'public') {
+            return 'status:free,status:-free';
+        }
+
+        if (visibility === 'members') {
             return 'status:free,status:-free';
         }
 
@@ -274,16 +278,16 @@ export default class PublishOptions {
 
         this.newsletter = this.defaultNewsletter;
 
-        this._initializePublishType();
+        this._applyInitialPublishTypeRules();
     }
 
-    _initializePublishType() {
+    _applyInitialPublishTypeRules() {
         if (this.emailUnavailable || this.emailDisabled) {
             this.publishType = 'publish';
             return;
         }
 
-        if (this._isDefaultRecipientsUsuallyNobody()) {
+        if (this._isUsuallyNobodyFilter()) {
             this.publishType = 'publish';
             return;
         }
@@ -293,7 +297,7 @@ export default class PublishOptions {
         }
     }
 
-    _isDefaultRecipientsUsuallyNobody() {
+    _isUsuallyNobodyFilter() {
         return (
             this.settings.editorDefaultEmailRecipients === 'filter' &&
             this.settings.editorDefaultEmailRecipientsFilter === null
@@ -411,7 +415,7 @@ export default class PublishOptions {
         }
 
         this._backupModelProperties();
-        this._applyStatusChanges();
+        this._applyPublishStatusChanges();
         this._applyEmailChanges(willEmail);
     }
 
@@ -423,7 +427,7 @@ export default class PublishOptions {
         });
     }
 
-    _applyStatusChanges() {
+    _applyPublishStatusChanges() {
         this.post.status = this.isScheduled ? 'scheduled' : 'published';
 
         if (this.isScheduled) {

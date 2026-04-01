@@ -300,41 +300,36 @@ const applyHeightStyles = (
 
 const buildFooterContent = (
     footer: boolean | React.ReactNode,
-    leftButtonProps: ButtonProps | undefined,
-    buttons: ButtonProps[],
     stickyFooter: boolean,
-    paddingClasses: string
+    footerClasses: string,
+    leftButtonProps: ButtonProps | undefined,
+    buttons: ButtonProps[]
 ): React.ReactNode => {
-    if (footer === true) {
-        return footer;
-    }
+    let content: React.ReactNode;
 
-    if (footer === false) {
+    if (footer && footer !== false) {
+        content = footer;
+    } else if (footer === false) {
         return null;
+    } else {
+        content = (
+            <div className={footerClasses}>
+                <div>
+                    {leftButtonProps && <Button {...leftButtonProps} />}
+                </div>
+                <div className='flex gap-3'>
+                    <ButtonGroup buttons={buttons} />
+                </div>
+            </div>
+        );
     }
-
-    const footerClasses = clsx(
-        `${paddingClasses} ${stickyFooter ? 'py-6' : ''}`,
-        'flex w-full items-center justify-between'
-    );
-
-    const footerContent = (
-        <div className={footerClasses}>
-            <div>
-                {leftButtonProps && <Button {...leftButtonProps} />}
-            </div>
-            <div className='flex gap-3'>
-                <ButtonGroup buttons={buttons} />
-            </div>
-        </div>
-    );
 
     return stickyFooter ? (
         <StickyFooter height={84}>
-            {footerContent}
+            {content}
         </StickyFooter>
     ) : (
-        footerContent
+        <>{content}</>
     );
 };
 
@@ -424,8 +419,8 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         sizeConfig
     );
 
-    const { classes: widthAppliedClasses, styles: widthStyles } = applyWidthStyles(width, modalClasses);
-    const { classes: finalModalClasses, styles: finalStyles } = applyHeightStyles(height, widthAppliedClasses, widthStyles);
+    const { classes: modalClassesWithWidth, styles: widthStyles } = applyWidthStyles(width, modalClasses);
+    const { classes: finalModalClasses, styles: finalStyles } = applyHeightStyles(height, modalClassesWithWidth, widthStyles);
 
     const backdropClasses = buildBackdropClasses(
         allowBackgroundInteraction,
@@ -447,12 +442,17 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         (size === 'full' || size === 'bleed' || height === 'full' || typeof height === 'number') && 'grow'
     );
 
+    const footerClasses = clsx(
+        `${paddingClasses} ${stickyFooter ? 'py-6' : ''}`,
+        'flex w-full items-center justify-between'
+    );
+
     const footerContent = buildFooterContent(
         footer,
-        leftButtonProps,
-        buttons,
         stickyFooter,
-        paddingClasses
+        footerClasses,
+        leftButtonProps,
+        buttons
     );
 
     const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -461,8 +461,60 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         }
     };
 
-    const headerContent = header === false ? null : (
-        !topRightContent || topRightContent === 'close' ? (
+    const renderHeader = () => {
+        if (header === false) return null;
+
+        const showCloseButton = !topRightContent || topRightContent === 'close';
+
+        return (
             <header className={headerClasses}>
                 {title && <Heading level={3}>{title}</Heading>}
-                <div
+                {showCloseButton ? (
+                    <div className={`${topRightContent !== 'close' && 'md:!invisible md:!hidden'} ${hideXOnMobile && 'hidden'} absolute right-6 top-6`}>
+                        <Button
+                            className='-m-2 cursor-pointer p-2 opacity-50 hover:opacity-100'
+                            icon='close'
+                            iconColorClass='text-black dark:text-white'
+                            size='sm'
+                            testId='close-modal'
+                            unstyled
+                            onClick={removeModal}
+                        />
+                    </div>
+                ) : (
+                    topRightContent
+                )}
+            </header>
+        );
+    };
+
+    return (
+        <div className={backdropClasses} id='modal-backdrop' onMouseDown={handleBackdropClick}>
+            <div className={clsx(
+                'pointer-events-none fixed inset-0 z-0',
+                backDrop && !formSheet && topLevelBackdropClasses,
+                formSheet && 'bg-[rgba(98,109,121,0.08)]'
+            )} />
+            <section
+                ref={ref}
+                className={clsx(
+                    finalModalClasses,
+                    allowBackgroundInteraction && 'pointer-events-auto'
+                )}
+                data-testid={testId}
+                style={finalStyles}
+            >
+                {renderHeader()}
+                <div className={contentClasses}>
+                    {children}
+                </div>
+                {footerContent}
+            </section>
+        </div>
+    );
+});
+
+Modal.displayName = 'Modal';
+
+export default Modal;
+```

@@ -414,3 +414,238 @@ export const getYRangeWithLargePadding = (data: { value: number }[]): {min: numb
     max = max + padding;
 
     min = roundToNearestMultiple(min);
+    max = roundToNearestMultiple(max);
+
+    return {min, max};
+};
+
+export const getYRange = (data: { value: number }[]): {min: number; max: number} => {
+    if (!data.length) {
+        return {min: 0, max: 1};
+    }
+
+    const values = data.map(d => Number(d.value));
+    let min = Math.min(...values);
+    let max = Math.max(...values);
+
+    if (min === max) {
+        const value = min;
+        return {min: Math.max(0, value - 1), max: value + 1};
+    }
+
+    const padding = 0.02;
+    min = Math.max(0, min - (min * padding));
+    max = max + (max * padding);
+
+    const range = max - min;
+    const rangeMagnitude = Math.floor(Math.log10(range));
+    const roundTo = Math.pow(10, rangeMagnitude);
+
+    const roundedMax = Math.round(max / roundTo) * roundTo;
+    max = roundedMax < max ? Math.ceil(max / roundTo) * roundTo : roundedMax;
+
+    const roundedMin = Math.round(min / roundTo) * roundTo;
+    min = roundedMin > min ? Math.floor(min / roundTo) * roundTo : roundedMin;
+    min = Math.max(0, min);
+
+    if (min === max) {
+        const midPoint = (min + max) / 2;
+        const smallRange = Math.max(Math.abs(midPoint) * padding, roundTo);
+        min = Math.max(0, Math.floor(midPoint - smallRange));
+        max = Math.ceil(midPoint + smallRange);
+    }
+
+    min = Math.max(0, min);
+
+    return {min, max};
+};
+
+export const getYRangeWithMinPadding = (range: {min: number; max: number}) => {
+    if (range.min !== 0) {
+        return [range.min, range.max];
+    }
+    const padding = 0.005;
+    const minPadding = -2;
+    return [Math.min(range.min - (range.max * padding), minPadding), range.max];
+};
+
+export const calculateYAxisWidth = (ticks: number[], formatter: (value: number) => string): number => {
+    if (!ticks.length) {
+        return 40;
+    }
+
+    const maxFormattedLength = Math.max(...ticks.map(tick => formatter(tick).length));
+    const width = Math.max(20, maxFormattedLength * 8 + 20);
+    return width;
+};
+
+export const getRangeForStartDate = (startDate: string) => {
+    const publishedDate = new Date(startDate);
+    const today = new Date();
+    const diffInTime = today.getTime() - publishedDate.getTime();
+    const diffInDays = Math.ceil(diffInTime / (1000 * 3600 * 24));
+
+    return Math.max(diffInDays, 1);
+};
+
+export const getRangeDates = (range: number) => {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const endDate = moment().tz(timezone).endOf('day');
+    let startDate;
+
+    if (range === -1) {
+        startDate = moment().tz(timezone).startOf('year');
+    } else {
+        startDate = moment().tz(timezone).subtract(range - 1, 'days').startOf('day');
+    }
+
+    return {startDate, endDate, timezone};
+};
+
+const isNullCountryCode = (countryCode: string): boolean => {
+    return !countryCode || countryCode === null || countryCode.toUpperCase() === 'NULL' || countryCode === 'ᴺᵁᴸᴸ' || countryCode === 'ᴺᵁ';
+};
+
+export function getCountryFlag(countryCode: string) {
+    if (isNullCountryCode(countryCode)) {
+        return '🏳️';
+    }
+    return countryCode.toUpperCase().replace(/./g, char => String.fromCodePoint(char.charCodeAt(0) + 127397));
+}
+
+const aggregateValue = (total: number, count: number, lastValue: number, aggregationType: 'sum' | 'avg' | 'exact'): number => {
+    if (aggregationType === 'sum') {
+        return total;
+    }
+    if (aggregationType === 'avg') {
+        return count > 0 ? total / count : 0;
+    }
+    return lastValue;
+};
+
+const processWeeklyData = <T extends {date: string}>(data: T[], fieldName: keyof T, aggregationType: 'sum' | 'avg' | 'exact'): T[] => {
+    const weeklyData: T[] = [];
+    let currentWeek = moment(data[0].date).startOf('week');
+    let weekTotal = 0;
+    let weekCount = 0;
+    let lastValue = 0;
+
+    data.forEach((item, index) => {
+        const itemDate = moment(item.date);
+        if (itemDate.isSame(currentWeek, 'week')) {
+            weekTotal += Number(item[fieldName]);
+            weekCount += 1;
+            lastValue = Number(item[fieldName]);
+        } else {
+            weeklyData.push({
+                ...data[index - 1],
+                date: currentWeek.format('YYYY-MM-DD'),
+                [fieldName]: aggregateValue(weekTotal, weekCount, lastValue, aggregationType)
+            } as T);
+
+            currentWeek = itemDate.startOf('week');
+            weekTotal = Number(item[fieldName]);
+            weekCount = 1;
+            lastValue = Number(item[fieldName]);
+        }
+
+        if (index === data.length - 1) {
+            weeklyData.push({
+                ...item,
+                date: currentWeek.format('YYYY-MM-DD'),
+                [fieldName]: aggregateValue(weekTotal, weekCount, lastValue, aggregationType)
+            } as T);
+        }
+    });
+
+    return weeklyData;
+};
+
+const processMonthlyData = <T extends {date: string}>(data: T[], fieldName: keyof T, aggregationType: 'sum' | 'avg' | 'exact'): T[] => {
+    const monthlyData: T[] = [];
+    let currentMonth = moment(data[0].date).startOf('month');
+    let monthTotal = 0;
+    let monthCount = 0;
+    let lastValue = 0;
+
+    data.forEach((item, index) => {
+        const itemDate = moment(item.date);
+        if (itemDate.isSame(currentMonth, 'month')) {
+            monthTotal += Number(item[fieldName]);
+            monthCount += 1;
+            lastValue = Number(item[fieldName]);
+        } else {
+            monthlyData.push({
+                ...data[index - 1],
+                date: currentMonth.format('YYYY-MM-DD'),
+                [fieldName]: aggregateValue(monthTotal, monthCount, lastValue, aggregationType)
+            } as T);
+
+            currentMonth = itemDate.startOf('month');
+            monthTotal = Number(item[fieldName]);
+            monthCount = 1;
+            lastValue = Number(item[fieldName]);
+        }
+
+        if (index === data.length - 1) {
+            monthlyData.push({
+                ...item,
+                date: currentMonth.format('YYYY-MM-DD'),
+                [fieldName]: aggregateValue(monthTotal, monthCount, lastValue, aggregationType)
+            } as T);
+        }
+    });
+
+    return monthlyData;
+};
+
+export const sanitizeChartData = <T extends {date: string}>(data: T[], range: number, fieldName: keyof T = 'value' as keyof T, aggregationType: 'sum' | 'avg' | 'exact' = 'avg'): T[] => {
+    if (!data.length) {
+        return [];
+    }
+
+    if (range >= 91 && range <= 356) {
+        return processWeeklyData(data, fieldName, aggregationType);
+    } else if (range > 356) {
+        return processMonthlyData(data, fieldName, aggregationType);
+    }
+
+    return data;
+};
+
+export const formatDisplayDateWithRange = (date: string, range: number, showHours: boolean = false, hoursOnly: boolean = false): string => {
+    if (range === 1 && hoursOnly) {
+        return moment(date).format('h:mma');
+    } else if (range === 1 && showHours) {
+        return moment(date).format('MMM D, h:mma');
+    } else if (range > 365) {
+        return moment(date).format('MMM YYYY');
+    } else if (range >= 91) {
+        return `Week of ${formatDisplayDate(date)}`;
+    }
+    return formatDisplayDate(date);
+};
+
+export const formatMemberName = (member: {name?: string; email?: string}) => {
+    return (member.name && member.name.trim()) || member.email || 'Unknown Member';
+};
+
+export const getMemberInitials = (member: {name?: string}) => {
+    const name = formatMemberName(member);
+    const words = name.split(' ');
+    if (words.length >= 2) {
+        return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
+};
+
+export const stringToHslColor = (str: string, saturation: string, lightness: string) => {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+
+    const h = hash % 360;
+    return 'hsl(' + h + ', ' + saturation + '%, ' + lightness + '%)';
+};
+```

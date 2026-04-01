@@ -149,43 +149,15 @@ async function verifyOTC({data, api}) {
     }
 }
 
-async function handleFreeSignup({data, api}) {
-    const integrityToken = await api.member.getIntegrityToken();
-    const {inboxLinks} = await api.member.sendMagicLink({emailType: 'signup', integrityToken, ...data, name: data.name?.trim()});
-    return {inboxLinks};
-}
-
-async function handlePaidSignup({data, state, api}) {
-    let {plan, tierId, cadence, email, name, newsletters, offerId} = data;
-    if (!tierId || !cadence) {
-        ({tierId, cadence} = getProductCadenceFromPrice({site: state?.site, priceId: plan}));
-    }
-    await api.member.checkoutPlan({plan, tierId, cadence, email, name, newsletters, offerId});
-    return {page: 'loading'};
-}
-
 async function signup({data, state, api}) {
     try {
-        const {plan, email} = data;
-        const isFree = plan.toLowerCase() === 'free';
-        
-        const result = isFree 
-            ? await handleFreeSignup({data, api})
-            : await handlePaidSignup({data, state, api});
+        let {plan, tierId, cadence, email, name, newsletters, offerId} = data;
+        name = name?.trim();
 
-        if (!isFree) {
-            return result;
+        if (plan.toLowerCase() === 'free') {
+            return await handleFreeSignup({data, state, api, name});
         }
-
-        return {
-            page: 'magiclink',
-            lastPage: 'signup',
-            inboxLinks: result.inboxLinks,
-            pageData: {
-                ...(state.pageData || {}),
-                email: (email || '').trim()
-            }
-        };
+        return await handlePaidSignup({plan, tierId, cadence, email, name, newsletters, offerId, state, api});
     } catch (e) {
         const message = chooseBestErrorMessage(e, t('Failed to sign up, please try again'));
         return {
@@ -196,6 +168,34 @@ async function signup({data, state, api}) {
             })
         };
     }
+}
+
+async function handleFreeSignup({data, state, api, name}) {
+    const integrityToken = await api.member.getIntegrityToken();
+    const {inboxLinks} = await api.member.sendMagicLink({emailType: 'signup', integrityToken, ...data, name});
+    return {
+        page: 'magiclink',
+        lastPage: 'signup',
+        inboxLinks,
+        pageData: {
+            ...(state.pageData || {}),
+            email: (data.email || '').trim()
+        }
+    };
+}
+
+async function handlePaidSignup({plan, tierId, cadence, email, name, newsletters, offerId, state, api}) {
+    let resolvedTierId = tierId;
+    let resolvedCadence = cadence;
+    
+    if (!tierId || !cadence) {
+        ({tierId: resolvedTierId, cadence: resolvedCadence} = getProductCadenceFromPrice({site: state?.site, priceId: plan}));
+    }
+    
+    await api.member.checkoutPlan({plan, tierId: resolvedTierId, cadence: resolvedCadence, email, name, newsletters, offerId});
+    return {
+        page: 'loading'
+    };
 }
 
 async function checkoutPlan({data, state, api}) {
@@ -472,4 +472,206 @@ async function updateMemberEmail({data, state, api}) {
     const originalEmail = getMemberEmail({member: state.member});
     if (email !== originalEmail) {
         try {
-            await api.member
+            await api.member.updateEmailAddress({email});
+            return {
+                success: true
+            };
+        } catch (err) {
+            return {
+                success: false,
+                error: err
+            };
+        }
+    }
+    return null;
+}
+
+async function updateMemberData({data, state, api}) {
+    const name = data?.name?.trim();
+    const originalName = getMemberName({member: state.member});
+
+    if (originalName !== name) {
+        try {
+            const member = await api.member.update({name});
+            if (!member) {
+                throw new Error('Failed to update member');
+            }
+            return {
+                member,
+                success: true
+            };
+        } catch (err) {
+            return {
+                success: false,
+                error: err
+            };
+        }
+    }
+    return null;
+}
+
+async function refreshMemberData({state, api}) {
+    if (state.member) {
+        try {
+            const member = await api.member.sessionData();
+            if (member) {
+                return {
+                    member,
+                    success: true,
+                    action: 'refreshMemberData:success'
+                };
+            }
+            return null;
+        } catch (err) {
+            return {
+                success: false,
+                error: err,
+                action: 'refreshMemberData:failed'
+            };
+        }
+    }
+    return null;
+}
+
+function buildProfileUpdateResponse(action, status, message, dataUpdate, emailUpdate, state) {
+    const baseResponse = {
+        action,
+        popupNotification: createPopupNotification({
+            type: action, autoHide: status === 'success', closeable: true, status, state, message
+        })
+    };
+
+    if (dataUpdate?.success) {
+        baseResponse.member = dataUpdate.member;
+    }
+    if (status === 'success') {
+        baseResponse.page = 'accountHome';
+    }
+    return baseResponse;
+}
+
+async function updateProfile({data, state, api}) {
+    const [dataUpdate, emailUpdate] = await Promise.all([updateMemberData({data, state, api}), updateMemberEmail({data, state, api})]);
+    
+    if (dataUpdate && emailUpdate) {
+        if (emailUpdate.success) {
+            return buildProfileUpdateResponse('updateProfile:success', 'success', t('Check your inbox to verify email update'), dataUpdate, emailUpdate, state);
+        }
+        const message = !dataUpdate.success ? t('Failed to update account data') : t('Failed to send verification email');
+        return buildProfileUpdateResponse('updateProfile:failed', 'error', message, dataUpdate, emailUpdate, state);
+    }
+    
+    if (dataUpdate) {
+        const action = dataUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
+        const status = dataUpdate.success ? 'success' : 'error';
+        const message = !dataUpdate.success ? t('Failed to update account details') : t('Account details updated successfully');
+        return buildProfileUpdateResponse(action, status, message, dataUpdate, null, state);
+    }
+    
+    if (emailUpdate) {
+        const action = emailUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
+        const status = emailUpdate.success ? 'success' : 'error';
+        const message = emailUpdate.error 
+            ? chooseBestErrorMessage(emailUpdate.error, t('Failed to send verification email'))
+            : t('Check your inbox to verify email update');
+        return buildProfileUpdateResponse(action, status, message, null, emailUpdate, state);
+    }
+    
+    return buildProfileUpdateResponse('updateProfile:success', 'success', t('Account details updated successfully'), null, null, state);
+}
+
+async function oneClickSubscribe({data: {siteUrl}, state}) {
+    const externalSiteApi = setupGhostApi({siteUrl: siteUrl, apiUrl: 'not-defined', contentApiKey: 'not-defined'});
+    const {member} = state;
+
+    const referrerUrl = window.location.href;
+    const referrerSource = getRefDomain();
+
+    const integrityToken = await externalSiteApi.member.getIntegrityToken();
+    await externalSiteApi.member.sendMagicLink({
+        emailType: 'signup',
+        name: member.name,
+        email: member.email,
+        autoRedirect: false,
+        integrityToken,
+        customUrlHistory: state.site.outbound_link_tagging ? [
+            {
+                time: Date.now(),
+                referrerSource,
+                referrerMedium: 'Ghost Recommendations',
+                referrerUrl
+            }
+        ] : []
+    });
+
+    return {};
+}
+
+function trackRecommendationClicked({data: {recommendationId}, api}) {
+    try {
+        const existing = localStorage.getItem('ghost-recommendations-clicked');
+        const clicked = existing ? JSON.parse(existing) : [];
+        if (clicked.includes(recommendationId)) {
+            return;
+        }
+        clicked.push(recommendationId);
+        localStorage.setItem('ghost-recommendations-clicked', JSON.stringify(clicked));
+    } catch (e) {
+        // Ignore localstorage errors (browser not supported or in private mode)
+    }
+    api.recommendations.trackClicked({
+        recommendationId
+    });
+
+    return {};
+}
+
+async function trackRecommendationSubscribed({data: {recommendationId}, api}) {
+    api.recommendations.trackSubscribed({
+        recommendationId
+    });
+
+    return {};
+}
+
+const Actions = {
+    togglePopup,
+    openPopup,
+    closePopup,
+    switchPage,
+    openNotification,
+    closeNotification,
+    back,
+    signout,
+    signin,
+    startSigninOTCFromCustomForm,
+    verifyOTC,
+    signup,
+    updateSubscription,
+    cancelSubscription,
+    continueSubscription,
+    applyOffer,
+    updateNewsletter,
+    updateProfile,
+    refreshMemberData,
+    clearPopupNotification,
+    editBilling,
+    manageBilling,
+    checkoutPlan,
+    updateNewsletterPreference,
+    showPopupNotification,
+    removeEmailFromSuppressionList,
+    oneClickSubscribe,
+    trackRecommendationClicked,
+    trackRecommendationSubscribed
+};
+
+/** Handle actions in the App, returns updated state */
+export default async function ActionHandler({action, data, state, api}) {
+    const handler = Actions[action];
+    if (handler) {
+        return await handler({data, state, api}) || {};
+    }
+    return {};
+}
+```

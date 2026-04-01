@@ -36,47 +36,49 @@ const SCALAR_TYPE_MAP = {
 };
 
 /**
- * Determines if a type should be marked as required in GraphQL.
- * @param {Object} attribute The attribute definition.
- * @param {string} rootType The root type (query or mutation).
- * @param {string} action The mutation action (create, update, delete).
+ * Determines if a type should have required modifier in mutation context.
+ * @param {Object} attribute - The attribute definition.
+ * @param {string} rootType - The root type (query/mutation).
+ * @param {string} action - The mutation action (create/update).
  * @return {boolean}
  */
-const shouldMarkRequired = (attribute, rootType, action) => {
-  if (!attribute.required) {
-    return false;
-  }
-  if (rootType !== 'mutation') {
-    return true;
-  }
-  return action !== 'update' || attribute.default !== undefined;
+const shouldAddRequiredModifier = (attribute, rootType, action) => {
+  if (!attribute.required) return false;
+  if (rootType !== 'mutation') return true;
+  return action !== 'update' && attribute.default === undefined;
 };
 
 /**
- * Converts a scalar attribute type to its GraphQL equivalent.
- * @param {Object} attribute The attribute definition.
- * @param {string} modelName The model name.
- * @param {string} attributeName The attribute name.
+ * Converts a scalar attribute to its GraphQL type representation.
+ * @param {Object} attribute - The attribute definition.
+ * @param {string} modelName - The model name.
+ * @param {string} attributeName - The attribute name.
+ * @param {string} rootType - The root type (query/mutation).
+ * @param {string} action - The mutation action.
  * @return {string}
  */
-const convertScalarType = function(attribute, modelName, attributeName) {
+const convertScalarType = function(attribute, modelName, attributeName, rootType, action) {
   let type = SCALAR_TYPE_MAP[attribute.type] || 'String';
 
   if (attribute.type === 'enumeration') {
     type = this.convertEnumType(attribute, modelName, attributeName);
   }
 
+  if (shouldAddRequiredModifier(attribute, rootType, action)) {
+    type += '!';
+  }
+
   return type;
 };
 
 /**
- * Handles component type conversion.
- * @param {Object} attribute The attribute definition.
- * @param {string} rootType The root type (query or mutation).
- * @param {string} action The mutation action.
+ * Converts a component attribute to its GraphQL type representation.
+ * @param {Object} attribute - The attribute definition.
+ * @param {string} rootType - The root type (query/mutation).
+ * @param {string} action - The mutation action.
  * @return {string}
  */
-const convertComponentType = (attribute, rootType, action) => {
+const convertComponentType = function(attribute, rootType, action) {
   const { required, repeatable, component } = attribute;
   const globalId = strapi.components[component].globalId;
 
@@ -97,14 +99,14 @@ const convertComponentType = (attribute, rootType, action) => {
 };
 
 /**
- * Handles dynamic zone type conversion.
- * @param {Object} attribute The attribute definition.
- * @param {string} modelName The model name.
- * @param {string} attributeName The attribute name.
- * @param {string} rootType The root type (query or mutation).
+ * Converts a dynamic zone attribute to its GraphQL type representation.
+ * @param {Object} attribute - The attribute definition.
+ * @param {string} modelName - The model name.
+ * @param {string} attributeName - The attribute name.
+ * @param {string} rootType - The root type (query/mutation).
  * @return {string}
  */
-const convertDynamicZoneType = (attribute, modelName, attributeName, rootType) => {
+const convertDynamicZoneType = function(attribute, modelName, attributeName, rootType) {
   const { required } = attribute;
   const unionName = `${modelName}${_.upperFirst(_.camelCase(attributeName))}DynamicZone`;
   const typeName = rootType === 'mutation' ? `${unionName}Input!` : unionName;
@@ -113,39 +115,36 @@ const convertDynamicZoneType = (attribute, modelName, attributeName, rootType) =
 };
 
 /**
- * Handles association type conversion.
- * @param {Object} attribute The attribute definition.
- * @param {string} rootType The root type (query or mutation).
- * @return {string|null}
- */
-const convertAssociationType = (attribute, rootType) => {
-  const ref = attribute.model || attribute.collection;
-
-  if (!ref || ref === '*') {
-    return null;
-  }
-
-  const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
-  const isPlural = !_.isEmpty(attribute.collection);
-
-  if (isPlural) {
-    return rootType === 'mutation' ? '[ID]' : `[${globalId}]`;
-  }
-
-  return rootType === 'mutation' ? 'ID' : globalId;
-};
-
-/**
- * Handles polymorphic type conversion (fallback for unresolved associations).
- * @param {Object} attribute The attribute definition.
- * @param {string} rootType The root type (query or mutation).
+ * Converts an association attribute to its GraphQL type representation.
+ * @param {Object} attribute - The attribute definition.
+ * @param {string} rootType - The root type (query/mutation).
  * @return {string}
  */
-const convertPolymorphicType = (attribute, rootType) => {
-  const isModel = !!attribute.model;
-  return rootType === 'mutation'
-    ? (isModel ? 'ID' : '[ID]')
-    : (isModel ? 'Morph' : '[Morph]');
+const convertAssociationType = function(attribute, rootType) {
+  const ref = attribute.model || attribute.collection;
+
+  if (ref && ref !== '*') {
+    const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
+    const isPlural = !_.isEmpty(attribute.collection);
+
+    if (isPlural) {
+      return rootType === 'mutation' ? '[ID]' : `[${globalId}]`;
+    }
+
+    return rootType === 'mutation' ? 'ID' : globalId;
+  }
+
+  if (rootType === 'mutation') {
+    return attribute.model ? 'ID' : '[ID]';
+  }
+
+  return attribute.model ? 'Morph' : '[Morph]';
+};
+
+/** @type {Object<string, Function>} Type converters dispatched by attribute type */
+const TYPE_CONVERTERS = {
+  component: convertComponentType,
+  dynamiczone: convertDynamicZoneType,
 };
 
 module.exports = {
@@ -157,6 +156,7 @@ module.exports = {
    * @param {String} attribute.attributeName Name of the attribute.
    * @return String
    */
+
   convertType({
     attribute = {},
     modelName = '',
@@ -165,29 +165,15 @@ module.exports = {
     action = '',
   }) {
     if (isScalarAttribute(attribute)) {
-      let type = convertScalarType.call(this, attribute, modelName, attributeName);
-
-      if (shouldMarkRequired(attribute, rootType, action)) {
-        type += '!';
-      }
-
-      return type;
+      return convertScalarType.call(this, attribute, modelName, attributeName, rootType, action);
     }
 
-    if (attribute.type === 'component') {
-      return convertComponentType(attribute, rootType, action);
+    const converter = TYPE_CONVERTERS[attribute.type];
+    if (converter) {
+      return converter.call(this, attribute, modelName, attributeName, rootType, action);
     }
 
-    if (attribute.type === 'dynamiczone') {
-      return convertDynamicZoneType(attribute, modelName, attributeName, rootType);
-    }
-
-    const associationType = convertAssociationType(attribute, rootType);
-    if (associationType !== null) {
-      return associationType;
-    }
-
-    return convertPolymorphicType(attribute, rootType);
+    return convertAssociationType.call(this, attribute, rootType);
   },
 
   /**
@@ -197,6 +183,7 @@ module.exports = {
    * @param {String} field Name of the attribute.
    * @return String
    */
+
   convertEnumType(definition, model, field) {
     return definition.enumName
       ? definition.enumName
@@ -208,6 +195,7 @@ module.exports = {
    *
    * @return void
    */
+
   getScalars() {
     return {
       JSON: GraphQLJSON,
@@ -224,6 +212,7 @@ module.exports = {
    *
    * @return string
    */
+
   addPolymorphicUnionType(definition) {
     const types = graphql
       .parse(definition)
@@ -313,7 +302,6 @@ module.exports = {
     const inputName = toInputName(name);
     const { kind } = model;
 
-    /** @type {Object<string, Function>} Strategy map for mutation payload generation */
     const payloadStrategies = {
       create: () => `
         input ${mutationName}Input { data: ${inputName} }

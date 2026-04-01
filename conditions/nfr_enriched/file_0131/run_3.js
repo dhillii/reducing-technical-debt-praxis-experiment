@@ -149,60 +149,54 @@ const handleOnChangeAllowedType = (state, action) => {
   });
 };
 
-// Helper to build data schema for different attribute types
-const buildAttributeDataSchema = (attributeType, action, options) => {
-  const { nameToSetForRelation, targetUid, step } = action;
-
-  if (attributeType === 'component') {
-    return step === '1'
-      ? { type: 'component', createComponent: true, componentToCreate: { type: 'component' } }
-      : { ...options, type: 'component', repeatable: true };
-  }
-
-  if (attributeType === 'dynamiczone') {
-    return { ...options, type: 'dynamiczone', components: [] };
-  }
-
-  if (attributeType === 'text') {
-    return { ...options, type: 'string' };
-  }
-
-  if (attributeType === 'number' || attributeType === 'date') {
-    return options;
-  }
-
-  if (attributeType === 'media') {
+// Helper to build data schema for component attribute type
+const buildComponentDataSchema = (step, options) => {
+  if (step === '1') {
     return {
-      allowedTypes: ['images', 'files', 'videos'],
-      type: 'media',
-      multiple: true,
-      ...options,
+      type: 'component',
+      createComponent: true,
+      componentToCreate: { type: 'component' },
     };
   }
 
-  if (attributeType === 'enumeration') {
-    return { ...options, type: 'enumeration', enum: [] };
-  }
-
-  if (attributeType === 'relation') {
-    return {
-      name: snakeCase(nameToSetForRelation),
-      nature: 'oneWay',
-      targetAttribute: '-',
-      target: targetUid,
-      unique: false,
-      dominant: null,
-      columnName: null,
-      targetColumnName: null,
-    };
-  }
-
-  return { ...options, type: attributeType, default: null };
+  return {
+    ...options,
+    type: 'component',
+    repeatable: true,
+  };
 };
+
+// Helper to build data schema for media attribute type
+const buildMediaDataSchema = (options) => ({
+  allowedTypes: ['images', 'files', 'videos'],
+  type: 'media',
+  multiple: true,
+  ...options,
+});
+
+// Helper to build data schema for relation attribute type
+const buildRelationDataSchema = (nameToSetForRelation, targetUid) => ({
+  name: snakeCase(nameToSetForRelation),
+  nature: 'oneWay',
+  targetAttribute: '-',
+  target: targetUid,
+  unique: false,
+  dominant: null,
+  columnName: null,
+  targetColumnName: null,
+});
 
 // Handler for SET_ATTRIBUTE_DATA_SCHEMA action
 const handleSetAttributeDataSchema = (state, action) => {
-  const { attributeType, isEditing, modifiedDataToSetForEditing, options = {} } = action;
+  const {
+    attributeType,
+    isEditing,
+    modifiedDataToSetForEditing,
+    nameToSetForRelation,
+    targetUid,
+    step,
+    options = {},
+  } = action;
 
   if (isEditing) {
     return state
@@ -210,7 +204,26 @@ const handleSetAttributeDataSchema = (state, action) => {
       .update('initialData', () => fromJS(modifiedDataToSetForEditing));
   }
 
-  const dataToSet = buildAttributeDataSchema(attributeType, action, options);
+  let dataToSet;
+
+  if (attributeType === 'component') {
+    dataToSet = buildComponentDataSchema(step, options);
+  } else if (attributeType === 'dynamiczone') {
+    dataToSet = { ...options, type: 'dynamiczone', components: [] };
+  } else if (attributeType === 'text') {
+    dataToSet = { ...options, type: 'string' };
+  } else if (attributeType === 'number' || attributeType === 'date') {
+    dataToSet = options;
+  } else if (attributeType === 'media') {
+    dataToSet = buildMediaDataSchema(options);
+  } else if (attributeType === 'enumeration') {
+    dataToSet = { ...options, type: 'enumeration', enum: [] };
+  } else if (attributeType === 'relation') {
+    dataToSet = buildRelationDataSchema(nameToSetForRelation, targetUid);
+  } else {
+    dataToSet = { ...options, type: attributeType, default: null };
+  }
+
   return state.update('modifiedData', () => fromJS(dataToSet));
 };
 

@@ -81,20 +81,10 @@ function shouldShowVisibilityIcon(settings, visibility) {
  */
 function getVisibilityIconConfig(visibility) {
     const iconMap = {
-        members: {
-            MetaIcon: LockIcon,
-            metaIconTitle: 'Members only'
-        },
-        paid: {
-            MetaIcon: DollarIcon,
-            metaIconTitle: 'Paid-members only'
-        },
-        tiers: {
-            MetaIcon: DollarIcon,
-            metaIconTitle: 'Specific tiers only'
-        }
+        members: {MetaIcon: LockIcon, metaIconTitle: 'Members only'},
+        paid: {MetaIcon: DollarIcon, metaIconTitle: 'Paid-members only'},
+        tiers: {MetaIcon: DollarIcon, metaIconTitle: 'Specific tiers only'}
     };
-
     return iconMap[visibility] || null;
 }
 
@@ -307,7 +297,6 @@ export default class KoenigLexicalEditor extends Component {
             if (!this.membersUtils.paidMembersEnabled) {
                 return [];
             }
-
             return [
                 {
                     label: 'Paid signup',
@@ -324,7 +313,6 @@ export default class KoenigLexicalEditor extends Component {
             if (!this.settings.donationsEnabled) {
                 return [];
             }
-
             return [{
                 label: 'Tips and donations',
                 value: '#/portal/support'
@@ -335,7 +323,6 @@ export default class KoenigLexicalEditor extends Component {
             if (!this.settings.recommendationsEnabled) {
                 return [];
             }
-
             return [{
                 label: 'Recommendations',
                 value: '#/portal/recommendations'
@@ -370,48 +357,415 @@ export default class KoenigLexicalEditor extends Component {
             return labels.map(label => label.name);
         };
 
-        const isPublishedPost = (item) => item.status === 'published';
+        const isPublishedPost = (post) => post.status === 'published';
 
-        const isValidStaffUrl = (item) => !/\/404\//.test(item.url);
+        const isValidStaffUrl = (url) => !/\/404\//.test(url);
 
         const shouldFilterByStatus = (groupName) => groupName === 'Posts' || groupName === 'Pages';
 
-        const shouldFilterByStaffUrl = (groupName) => groupName === 'Staff';
+        const shouldFilterByUrl = (groupName) => groupName === 'Staff';
 
-        const shouldDecorateResult = (groupName) => groupName === 'Posts' || groupName === 'Pages';
-
-        const filterSearchResultGroup = (group) => {
-            let items = group.options;
-
-            if (shouldFilterByStatus(group.groupName)) {
-                items = items.filter(isPublishedPost);
+        const filterSearchResultsByStatus = (items, groupName) => {
+            if (!shouldFilterByStatus(groupName)) {
+                return items;
             }
-
-            if (shouldFilterByStaffUrl(group.groupName)) {
-                items = items.filter(isValidStaffUrl);
-            }
-
-            return items;
+            return items.filter(isPublishedPost);
         };
 
-        const decorateSearchResultGroup = (group, items) => {
-            if (shouldDecorateResult(group.groupName)) {
-                items.forEach(item => decoratePostSearchResult(item, this.settings));
+        const filterSearchResultsByUrl = (items, groupName) => {
+            if (!shouldFilterByUrl(groupName)) {
+                return items;
             }
+            return items.filter(i => isValidStaffUrl(i.url));
+        };
+
+        const decorateSearchResults = (items, groupName) => {
+            if (!shouldFilterByStatus(groupName)) {
+                return;
+            }
+            items.forEach(item => decoratePostSearchResult(item, this.settings));
+        };
+
+        const buildFilteredResults = (results) => {
+            const filteredResults = [];
+            results.forEach((group) => {
+                let items = group.options;
+
+                items = filterSearchResultsByStatus(items, group.groupName);
+                items = filterSearchResultsByUrl(items, group.groupName);
+
+                if (items.length === 0) {
+                    return;
+                }
+
+                decorateSearchResults(items, group.groupName);
+
+                filteredResults.push({
+                    label: group.groupName,
+                    items
+                });
+            });
+            return filteredResults;
+        };
+
+        const getDefaultLinks = async () => {
+            if (this.defaultLinks) {
+                return this.defaultLinks;
+            }
+
+            const posts = await this.store.query('post', {
+                filter: 'status:published',
+                fields: 'id,url,title,visibility,published_at',
+                order: 'published_at desc',
+                limit: 5
+            });
+
+            const results = posts.toArray().map(post => ({
+                groupName: 'Latest posts',
+                id: post.id,
+                title: post.title,
+                url: post.url,
+                visibility: post.visibility,
+                publishedAt: post.publishedAtUTC.toISOString()
+            }));
+
+            results.forEach(item => decoratePostSearchResult(item, this.settings));
+
+            this.defaultLinks = [{
+                label: 'Latest posts',
+                items: results
+            }];
+            return this.defaultLinks;
         };
 
         const searchLinks = async (term) => {
             if (!term) {
-                if (this.defaultLinks) {
-                    return this.defaultLinks;
+                return getDefaultLinks();
+            }
+
+            let results = [];
+
+            try {
+                results = await this.search.searchTask.perform(term);
+            } catch (error) {
+                if (!didCancel(error)) {
+                    throw error;
+                }
+                return;
+            }
+
+            return buildFilteredResults(results);
+        };
+
+        const unsplashConfig = {
+            defaultHeaders: {
+                Authorization: `Client-ID 8672af113b0a8573edae3aa3713886265d9bb741d707f6c01a486cde8c278980`,
+                'Accept-Version': 'v1',
+                'Content-Type': 'application/json',
+                'App-Pragma': 'no-cache',
+                'X-Unsplash-Cache': true
+            }
+        };
+
+        const hasDirectStripeKeys = () => !!(this.settings.stripeSecretKey && this.settings.stripePublishableKey);
+
+        const hasConnectStripeKeys = () => !!(this.settings.stripeConnectSecretKey && this.settings.stripeConnectPublishableKey);
+
+        const checkStripeEnabled = () => {
+            if (this.config.stripeDirect) {
+                return hasDirectStripeKeys();
+            }
+            return hasDirectStripeKeys() || hasConnectStripeKeys();
+        };
+
+        const defaultCardConfig = {
+            unsplash: this.settings.unsplash ? unsplashConfig.defaultHeaders : null,
+            tenor: this.config.tenor?.googleApiKey ? this.config.tenor : null,
+            fetchAutocompleteLinks,
+            fetchEmbed,
+            fetchLabels,
+            renderLabels: !this.session.user.isContributor,
+            feature: {
+                transistor: this.feature.transistor
+            },
+            deprecated: {
+                headerV1: true
+            },
+            membersEnabled: this.settings.membersSignupAccess === 'all',
+            searchLinks,
+            siteTitle: this.settings.title,
+            siteDescription: this.settings.description,
+            siteUrl: this.config.getSiteUrl('/'),
+            stripeEnabled: checkStripeEnabled()
+        };
+        const cardConfig = Object.assign({}, defaultCardConfig, props.cardConfig, {pinturaConfig: this.pinturaConfig});
+
+        const useFileUpload = (type = 'image') => {
+            const [progress, setProgress] = React.useState(0);
+            const [isLoading, setLoading] = React.useState(false);
+            const [errors, setErrors] = React.useState([]);
+            const [filesNumber, setFilesNumber] = React.useState(0);
+
+            const progressTracker = React.useRef(new Map());
+
+            const updateProgress = () => {
+                if (progressTracker.current.size === 0) {
+                    setProgress(0);
+                    return;
                 }
 
-                const posts = await this.store.query('post', {filter: 'status:published', fields: 'id,url,title,visibility,published_at', order: 'published_at desc', limit: 5});
-                const results = posts.toArray().map(post => ({
-                    groupName: 'Latest posts',
-                    id: post.id,
-                    title: post.title,
-                    url: post.url,
-                    visibility: post.visibility,
-                    publishedAt: post.publishedAtUTC.toISOString()
-                }));
+                let totalProgress = 0;
+                progressTracker.current.forEach(value => totalProgress += value);
+                setProgress(Math.round(totalProgress / progressTracker.current.size));
+            };
+
+            const isFileType = (fileType) => fileType === 'file';
+
+            const getFileExtension = (fileName) => {
+                const match = (/(?:\.([^.]+))?$/).exec(fileName);
+                return match[1];
+            };
+
+            const hasValidExtensions = (extensions) => extensions && Array.isArray(extensions);
+
+            const formatValidExtensions = (extensions) => `.${extensions.join(', .').toUpperCase()}`;
+
+            const validateFileExtension = (file, extensions) => {
+                if (!extensions) {
+                    return true;
+                }
+
+                const extension = getFileExtension(file.name);
+                if (!extension || extensions.indexOf(extension.toLowerCase()) === -1) {
+                    const validExtensions = formatValidExtensions(extensions);
+                    return `The file type you uploaded is not supported. Please use ${validExtensions}`;
+                }
+
+                return true;
+            };
+
+            const defaultValidator = (file) => {
+                if (isFileType(type)) {
+                    return true;
+                }
+
+                let extensions = fileTypes[type].extensions;
+
+                if (!hasValidExtensions(extensions)) {
+                    return true;
+                }
+
+                if (!Array.isArray(extensions)) {
+                    extensions = extensions.split(',');
+                }
+
+                return validateFileExtension(file, extensions);
+            };
+
+            const validate = (files = []) => {
+                const validationResult = [];
+
+                for (let i = 0; i < files.length; i += 1) {
+                    let file = files[i];
+                    let result = defaultValidator(file);
+                    if (result === true) {
+                        continue;
+                    }
+
+                    validationResult.push({fileName: file.name, message: result});
+                }
+
+                return validationResult;
+            };
+
+            const parseUploadResponse = (response) => {
+                try {
+                    return JSON.parse(response);
+                } catch (error) {
+                    if (error instanceof SyntaxError) {
+                        return null;
+                    }
+                    throw error;
+                }
+            };
+
+            const extractResponseUrl = (uploadResponse, type) => {
+                if (!uploadResponse) {
+                    return null;
+                }
+
+                const resource = uploadResponse[fileTypes[type].resourceName];
+                if (resource && Array.isArray(resource) && resource[0]) {
+                    return resource[0].url;
+                }
+
+                return null;
+            };
+
+            const buildErrorResult = (error, fileName) => {
+                const message = error.payload?.errors?.[0]?.message || error.message || '';
+                const context = error.payload?.errors?.[0]?.context || '';
+
+                return {
+                    message,
+                    context,
+                    fileName
+                };
+            };
+
+            const _uploadFile = async (file, {formData = {}} = {}) => {
+                progressTracker.current[file] = 0;
+
+                const fileFormData = new FormData();
+                fileFormData.append('file', file, file.name);
+
+                Object.keys(formData || {}).forEach((key) => {
+                    fileFormData.append(key, formData[key]);
+                });
+
+                const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
+
+                try {
+                    const requestMethod = fileTypes[type].requestMethod || 'post';
+                    const response = await this.ajax[requestMethod](url, {
+                        data: fileFormData,
+                        processData: false,
+                        contentType: false,
+                        dataType: 'text',
+                        xhr: () => {
+                            const xhr = new window.XMLHttpRequest();
+
+                            xhr.upload.addEventListener('progress', (event) => {
+                                if (event.lengthComputable) {
+                                    progressTracker.current.set(file, (event.loaded / event.total) * 100);
+                                    updateProgress();
+                                }
+                            }, false);
+
+                            return xhr;
+                        }
+                    });
+
+                    progressTracker.current.set(file, 100);
+                    updateProgress();
+
+                    const uploadResponse = parseUploadResponse(response);
+                    const responseUrl = extractResponseUrl(uploadResponse, type);
+
+                    return {
+                        url: responseUrl,
+                        fileName: file.name
+                    };
+                } catch (error) {
+                    console.error(error); // eslint-disable-line
+
+                    const errorResult = buildErrorResult(error, file.name);
+                    throw errorResult;
+                }
+            };
+
+            const upload = async (files = [], options = {}) => {
+                setFilesNumber(files.length);
+                setLoading(true);
+
+                const validationResult = validate(files);
+
+                if (validationResult.length) {
+                    setErrors(validationResult);
+                    setLoading(false);
+                    setProgress(100);
+                    return null;
+                }
+
+                const uploadPromises = [];
+
+                for (let i = 0; i < files.length; i += 1) {
+                    const file = files[i];
+                    uploadPromises.push(_uploadFile(file, options));
+                }
+
+                try {
+                    const uploadResult = await Promise.all(uploadPromises);
+                    setProgress(100);
+                    progressTracker.current.clear();
+                    setLoading(false);
+                    setErrors([]);
+
+                    return uploadResult;
+                } catch (error) {
+                    console.error(error); // eslint-disable-line no-console
+
+                    setErrors([...errors, error]);
+                    setLoading(false);
+                    setProgress(100);
+                    progressTracker.current.clear();
+
+                    return null;
+                }
+            };
+
+            return {progress, isLoading, upload, errors, filesNumber};
+        };
+
+        const buildKGEditorProps = (isInitInstance) => {
+            return {
+                cursorDidExitAtTop: isInitInstance ? null : this.args.cursorDidExitAtTop,
+                placeholderText: isInitInstance ? null : this.args.placeholderText,
+                darkMode: isInitInstance ? null : this.feature.nightShift,
+                onChange: isInitInstance ? this.args.updateSecondaryInstanceModel : this.args.onChange,
+                registerAPI: isInitInstance ? this.args.registerSecondaryAPI : this.args.registerAPI
+            };
+        };
+
+        const buildWordCountPluginProps = (isInitInstance) => {
+            return {
+                onChange: isInitInstance ? () => {} : this.args.updateWordCount
+            };
+        };
+
+        const buildTKCountPluginProps = (isInitInstance) => {
+            return {
+                onChange: isInitInstance ? () => {} : this.args.updatePostTkCount
+            };
+        };
+
+        const KGEditorComponent = ({isInitInstance}) => {
+            const editorProps = buildKGEditorProps(isInitInstance);
+            const wordCountProps = buildWordCountPluginProps(isInitInstance);
+            const tkCountProps = buildTKCountPluginProps(isInitInstance);
+
+            return (
+                <div data-secondary-instance={isInitInstance ? true : false} style={isInitInstance ? {display: 'none'} : {}}>
+                    <KoenigComposer
+                        editorResource={this.editorResource}
+                        cardConfig={cardConfig}
+                        fileUploader={{useFileUpload, fileTypes}}
+                        initialEditorState={this.args.lexical}
+                        onError={this.onError}
+                        darkMode={this.feature.nightShift}
+                        isTKEnabled={true}
+                    >
+                        <KoenigEditor
+                            editorResource={this.editorResource}
+                            {...editorProps}
+                        />
+                        <WordCountPlugin editorResource={this.editorResource} {...wordCountProps} />
+                        <TKCountPlugin editorResource={this.editorResource} {...tkCountProps} />
+                    </KoenigComposer>
+                </div>
+            );
+        };
+
+        return (
+            <div className={['koenig-react-editor', 'koenig-lexical', this.args.className].filter(Boolean).join(' ')}>
+                <ErrorHandler config={this.config}>
+                    <Suspense fallback={<p className="koenig-react-editor-loading">Loading editor...</p>}>
+                        <KGEditorComponent />
+                        <KGEditorComponent isInitInstance={true} />
+                    </Suspense>
+                </ErrorHandler>
+            </div>
+        );
+    };
+}
+```

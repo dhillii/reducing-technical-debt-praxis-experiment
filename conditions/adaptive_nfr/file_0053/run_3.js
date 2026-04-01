@@ -64,21 +64,22 @@ function buildOptionColumn(long, o) {
 }
 
 /**
- * Process single option entry and update column width.
- * @param {string} long - Long option name
- * @returns {Array} Option entry [column1, info]
+ * Map CLI options to table row format.
+ * @returns {Array} Array of [column1, info] pairs
  */
-function processOptionEntry(long) {
-  const o = grunt.cli.optlist[long];
-  const col1 = buildOptionColumn(long, o);
-  exports.initCol1(col1);
-  return [col1, o.info];
+function mapOptionsToTable() {
+  return Object.keys(grunt.cli.optlist).map(function(long) {
+    const o = grunt.cli.optlist[long];
+    const col1 = buildOptionColumn(long, o);
+    exports.initCol1(col1);
+    return [col1, o.info];
+  });
 }
 
 // Options.
 exports.initOptions = function() {
   // Build 2-column array for table view.
-  exports._options = Object.keys(grunt.cli.optlist).map(processOptionEntry);
+  exports._options = mapOptionsToTable();
 };
 
 exports.options = function() {
@@ -94,17 +95,17 @@ exports.optionsFooter = function() {
 };
 
 /**
- * Initialize task system and build task list.
+ * Initialize the task system for help display.
  */
 function initializeTaskSystem() {
   grunt.task.init([], {help: true});
 }
 
 /**
- * Build array of tasks from grunt task registry.
+ * Collect all registered tasks and update column width.
  * @returns {Array} Array of task objects
  */
-function buildTaskArray() {
+function collectRegisteredTasks() {
   const tasks = [];
   Object.keys(grunt.task._tasks).forEach(function(name) {
     exports.initCol1(name);
@@ -120,28 +121,43 @@ exports.initTasks = function() {
   initializeTaskSystem();
 
   // Build object of tasks by info (where they were loaded from).
-  exports._tasks = buildTaskArray();
+  exports._tasks = collectRegisteredTasks();
 };
 
 /**
- * Format task entry with name and info.
+ * Format task information with multi-task indicator.
  * @param {Object} task - Task object with name, info, and multi properties
- * @returns {Array} Formatted task entry [name, info]
+ * @returns {Array} Array of [name, info] pair
  */
-function formatTaskEntry(task) {
+function formatTaskInfo(task) {
   let info = task.info;
   if (task.multi) { info += ' *'; }
   return [task.name, info];
 }
 
 /**
- * Display task list or empty message.
+ * Display available tasks table.
  */
-function displayTaskList() {
+function displayTasksTable() {
+  exports.table(exports._tasks.map(formatTaskInfo));
+}
+
+/**
+ * Display message when no tasks are found.
+ */
+function displayNoTasksMessage() {
+  grunt.log.writeln('(no tasks found)');
+}
+
+/**
+ * Display tasks section with table and footer notes.
+ */
+function displayTasksSection() {
+  grunt.log.header('Available tasks');
   if (exports._tasks.length === 0) {
-    grunt.log.writeln('(no tasks found)');
+    displayNoTasksMessage();
   } else {
-    exports.table(exports._tasks.map(formatTaskEntry));
+    displayTasksTable();
 
     grunt.log.writeln().writelns(
       'Tasks run in the order specified. Arguments may be passed to tasks that ' +
@@ -153,9 +169,9 @@ function displayTaskList() {
 }
 
 /**
- * Display additional task information footer.
+ * Display tasks availability notice.
  */
-function displayTaskFooter() {
+function displayTasksAvailabilityNotice() {
   grunt.log.writeln().writelns(
     'The list of available tasks may change based on tasks directories or ' +
     'grunt plugins specified in the Gruntfile or via command-line options.'
@@ -163,9 +179,8 @@ function displayTaskFooter() {
 }
 
 exports.tasks = function() {
-  grunt.log.header('Available tasks');
-  displayTaskList();
-  displayTaskFooter();
+  displayTasksSection();
+  displayTasksAvailabilityNotice();
 };
 
 // Footer.

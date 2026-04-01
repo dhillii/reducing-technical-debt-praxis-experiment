@@ -107,11 +107,11 @@ const handleVerificationFailure = function(msg, failProps) {
   
   if (!config.data) {
     throw grunt.util.error('Unable to load config.');
-  } else {
-    const p = grunt.util.pluralize;
-    throw grunt.util.error('Required config propert' +
-      p(failProps.length, 'y/ies') + ' ' + failProps.join(', ') + ' missing.');
   }
+  
+  const p = grunt.util.pluralize;
+  throw grunt.util.error('Required config propert' +
+    p(failProps.length, 'y/ies') + ' ' + failProps.join(', ') + ' missing.');
 };
 
 // Test to see if required config params have been defined. If not, throw an

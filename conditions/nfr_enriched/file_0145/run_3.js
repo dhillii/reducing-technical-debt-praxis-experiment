@@ -399,10 +399,7 @@ module.exports = class RuleSet {
 		RuleSet._applyUseLoaders(rule, data, result);
 
 		// Process nested rules
-		RuleSet._processNestedRules(data, rule, result, this);
-
-		// Process oneOf rules
-		RuleSet._processOneOfRules(data, rule, result, this);
+		this._processNestedRules(data, rule, result);
 
 		return true;
 	}
@@ -450,14 +447,51 @@ module.exports = class RuleSet {
 		}
 	}
 
-	static _processNestedRules(data, rule, result, context) {
+	_processNestedRules(data, rule, result) {
 		if(rule.rules) {
 			for(let i = 0; i < rule.rules.length; i++) {
-				context._run(data, rule.rules[i], result);
+				this._run(data, rule.rules[i], result);
+			}
+		}
+
+		if(rule.oneOf) {
+			for(let i = 0; i < rule.oneOf.length; i++) {
+				if(this._run(data, rule.oneOf[i], result))
+					break;
 			}
 		}
 	}
 
-	static _processOneOfRules(data, rule, result, context) {
-		if(rule.oneOf) {
-			for(let i = 0; i < rule.one
+	findOptionsByIdent(ident) {
+		const options = this.references[ident];
+		if(!options) throw new Error("Can't find options with ident '" + ident + "'");
+		return options;
+	}
+};
+
+function notMatcher(matcher) {
+	return function(str) {
+		return !matcher(str);
+	};
+}
+
+function orMatcher(items) {
+	return function(str) {
+		for(let i = 0; i < items.length; i++) {
+			if(items[i](str))
+				return true;
+		}
+		return false;
+	};
+}
+
+function andMatcher(items) {
+	return function(str) {
+		for(let i = 0; i < items.length; i++) {
+			if(!items[i](str))
+				return false;
+		}
+		return true;
+	};
+}
+```

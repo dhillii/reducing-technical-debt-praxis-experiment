@@ -63,7 +63,12 @@ const getPlaceholderText = (replyTo?: {object: ObjectProperties; actor: ActorPro
     return 'What\'s new?';
 };
 
-/** Resets modal form state to initial values */
+/** Determines the current modal open state from props or internal state */
+const getModalOpenState = (propsOpen: boolean | undefined, internalOpen: boolean): boolean => {
+    return propsOpen !== undefined ? propsOpen : internalOpen;
+};
+
+/** Resets form state to initial values */
 const resetFormState = (
     setContent: (value: string) => void,
     setImagePreview: (value: string | null) => void,
@@ -106,8 +111,6 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     const [isSticky, setIsSticky] = useState(false);
     const navigate = useNavigateWithBasePath();
 
-    const isDisabled = isPostDisabled(content, user, isPosting);
-
     // Sync external open prop with internal state
     useEffect(() => {
         if (props.open !== undefined) {
@@ -116,7 +119,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     }, [props.open]);
 
     useEffect(() => {
-        const modalIsOpen = props.open !== undefined ? props.open : isOpen;
+        const modalIsOpen = getModalOpenState(props.open, isOpen);
         if (modalIsOpen) {
             const timer = setTimeout(() => {
                 setIsSticky(true);
@@ -126,6 +129,8 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             setIsSticky(false);
         }
     }, [isOpen, props.open]);
+
+    const isDisabled = isPostDisabled(content, user, isPosting);
 
     const handlePost = useCallback(async () => {
         const trimmedContent = content.trim();
@@ -177,7 +182,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     // Focus textarea when modal opens
     useEffect(() => {
-        const modalIsOpen = props.open !== undefined ? props.open : isOpen;
+        const modalIsOpen = getModalOpenState(props.open, isOpen);
         if (modalIsOpen && textareaRef.current) {
             const timeoutId = setTimeout(() => {
                 textareaRef.current?.focus();
@@ -206,7 +211,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             }
         };
 
-        const modalIsOpen = props.open !== undefined ? props.open : isOpen;
+        const modalIsOpen = getModalOpenState(props.open, isOpen);
         if (modalIsOpen) {
             document.addEventListener('keydown', handleKeyDown);
             return () => document.removeEventListener('keydown', handleKeyDown);
@@ -240,7 +245,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     }, []);
 
     useEffect(() => {
-        const modalIsOpen = props.open !== undefined ? props.open : isOpen;
+        const modalIsOpen = getModalOpenState(props.open, isOpen);
         if (modalIsOpen) {
             document.addEventListener('paste', handlePaste);
             return () => document.removeEventListener('paste', handlePaste);
@@ -305,6 +310,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     };
 
     useEffect(() => {
+        // Cleanup function to revoke object URLs when component unmounts
         return () => {
             if (imagePreview) {
                 URL.revokeObjectURL(imagePreview);
@@ -327,7 +333,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     };
 
     return (
-        <Dialog open={props.open !== undefined ? props.open : isOpen} onOpenChange={handleDialogOpenChange} {...(props.open !== undefined ? {} : props)}>
+        <Dialog open={getModalOpenState(props.open, isOpen)} onOpenChange={handleDialogOpenChange} {...(props.open !== undefined ? {} : props)}>
             <DialogTrigger asChild>
                 {children}
             </DialogTrigger>
@@ -389,3 +395,45 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                         </div>
                     </FormPrimitive.Root>
                 </div>
+                {imagePreview &&
+                    <div className='group relative mt-6 flex min-h-[200px] w-full items-center justify-center'>
+                        <img alt='Image attachment preview' className={`max-h-[320px] w-full rounded-sm object-cover outline outline-1 -outline-offset-1 outline-black/10 ${isImageUploading && 'opacity-10'}`} src={imagePreview} />
+                        {isImageUploading &&
+                            <div className='absolute leading-[0]'>
+                                <LoadingIndicator size='md' />
+                            </div>
+                        }
+                        <Button className='absolute right-3 top-3 size-8 bg-black/60 text-white opacity-0 hover:bg-black/80 group-hover:opacity-100' onClick={handleClearImage}><LucideIcon.Trash2 /></Button>
+                        {!isImageUploading && <Button className={`absolute bottom-3 left-3 h-6 px-2 py-0 text-white ${!showAltInput ? 'bg-black/60 hover:bg-black/80' : 'bg-green-500 hover:bg-green-500'}`} onClick={handleToggleAltInput}>Alt</Button>}
+                    </div>
+                }
+                {imagePreview && !isImageUploading && showAltInput &&
+                    <div className='mt-1'>
+                        <Input
+                            ref={altTextInputRef}
+                            className='w-full border-0 bg-transparent px-0 focus-visible:border-0 focus-visible:bg-transparent focus-visible:shadow-none focus-visible:outline-0 dark:bg-[#101114] dark:text-white dark:placeholder:text-gray-800'
+                            placeholder='Type alt text for image (optional)'
+                            type='text'
+                            value={altText}
+                            onChange={e => setAltText(e.target.value)}
+                        />
+                    </div>
+                }
+                <DialogFooter className={`${isSticky ? 'sticky' : 'static'} bottom-0 flex-row bg-background py-6 dark:bg-[#101114]`}>
+                    <Button className='mr-auto w-[34px] !min-w-0' variant='outline' onClick={() => imageInputRef.current?.click()}><LucideIcon.Image /></Button>
+                    <div className='flex items-center space-x-3'>
+                        <div className={`text-sm ${content.length >= MAX_CONTENT_LENGTH ? 'text-red-500' : content.length >= MAX_CONTENT_LENGTH * 0.9 ? 'text-yellow-600' : 'text-gray-500'}`}>
+                            {content.length}/{MAX_CONTENT_LENGTH}
+                        </div>
+                        <Button className='min-w-16' data-testid="post-button" disabled={isDisabled || isImageUploading} onClick={handlePost}>
+                            {isPosting ? <LoadingIndicator color='light' size='sm' /> : 'Post'}
+                        </Button>
+                    </div>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+export default NewNoteModal;
+```

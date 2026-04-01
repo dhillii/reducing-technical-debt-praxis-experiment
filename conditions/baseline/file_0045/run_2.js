@@ -63,17 +63,17 @@ class PostsExporter {
         const hasNewslettersWithFeedback = !!newsletters.find(newsletter => newsletter.get('feedback_enabled'));
 
         const mapped = posts.data.map((post) => {
-            return this.#mapPost(post, newsletters, labels, tiers, membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback);
+            return this.mapPostToExportRow(post, newsletters, labels, tiers, membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback);
         });
 
         if (mapped.length) {
-            this.#removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
+            this.removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
         }
 
         return mapped;
     }
 
-    #mapPost(post, newsletters, labels, tiers, membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback) {
+    mapPostToExportRow(post, newsletters, labels, tiers, membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback) {
         let email = post.related('email');
 
         // Weird bookshelf thing fix
@@ -81,11 +81,11 @@ class PostsExporter {
             email = null;
         }
 
-        let published = true;
-        if (post.get('status') === 'draft' || post.get('status') === 'scheduled') {
+        const published = post.get('status') !== 'draft' && post.get('status') !== 'scheduled';
+        
+        if (!published) {
             // Manually clear it to avoid including information for a post that was reverted to draft
             email = null;
-            published = false;
         }
 
         const feedbackEnabled = email && email.get('feedback_enabled') && hasNewslettersWithFeedback;
@@ -115,7 +115,7 @@ class PostsExporter {
         };
     }
 
-    #removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled) {
+    removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled) {
         const removeableColumns = [];
 
         if (newsletters.length <= 1) {
@@ -234,11 +234,11 @@ class PostsExporter {
         } else {
             for (const key of Object.keys(filter)) {
                 if (key === 'label' && typeof filter.label === 'string') {
-                    strings.push(this.#getLabelName(filter.label, allLabels));
+                    strings.push(this.getLabelName(filter.label, allLabels));
                 } else if (key === 'tier' && typeof filter.tier === 'string') {
-                    strings.push(this.#getTierName(filter.tier, allTiers));
+                    strings.push(this.getTierName(filter.tier, allTiers));
                 } else if (key === 'status') {
-                    strings.push(...this.#getStatusStrings(filter.status));
+                    strings.push(...this.getStatusStrings(filter.status));
                 }
             }
         }
@@ -246,17 +246,17 @@ class PostsExporter {
         return strings;
     }
 
-    #getLabelName(labelSlug, allLabels) {
+    getLabelName(labelSlug, allLabels) {
         const label = allLabels.find(l => l.get('slug') === labelSlug);
         return label ? label.get('name') : labelSlug;
     }
 
-    #getTierName(tierSlug, allTiers) {
+    getTierName(tierSlug, allTiers) {
         const tier = allTiers.find(l => l.get('slug') === tierSlug);
         return tier ? tier.get('name') : tierSlug;
     }
 
-    #getStatusStrings(status) {
+    getStatusStrings(status) {
         const strings = [];
         if (typeof status === 'string') {
             if (status === 'free') {

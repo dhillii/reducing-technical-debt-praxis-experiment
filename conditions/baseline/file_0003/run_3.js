@@ -44,34 +44,24 @@ const COLOR_MAP = {
     accent: {background: 'accent', text: '#fff'}
 } as const;
 
-const getBackgroundColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
+const getColorConfig = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
     if (backgroundColor === 'accent') {
-        return accentColor || '#15171a';
+        return {background: accentColor || '#15171a', text: '#fff'};
     }
-    return COLOR_MAP[backgroundColor].background;
+    return COLOR_MAP[backgroundColor];
 };
 
-const getTextColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
-    return COLOR_MAP[backgroundColor].text;
-};
+const GRADIENT_MAP = {
+    light: `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`,
+    dark: `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`,
+    accent: (accentColor?: string) => `linear-gradient(to bottom left, ${hexToRgba(accentColor || '#15171a', 0.08)}, ${hexToRgba(accentColor || '#15171a', 0.06)})`
+} as const;
 
-const getGradient = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
-    const gradients = {
-        light: `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`,
-        dark: `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`,
-        accent: `linear-gradient(to bottom left, ${hexToRgba(accentColor || '#15171a', 0.08)}, ${hexToRgba(accentColor || '#15171a', 0.06)})`
-    };
-    return gradients[backgroundColor];
-};
-
-const getDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
-    const colors = {
-        light: hexToRgba('#15171a', 0.025),
-        dark: hexToRgba('#15171a', 0.23),
-        accent: 'rgba(0, 0, 0, 0.02)'
-    };
-    return colors[backgroundColor];
-};
+const DOTS_PATTERN_COLOR_MAP = {
+    light: hexToRgba('#15171a', 0.025),
+    dark: hexToRgba('#15171a', 0.23),
+    accent: 'rgba(0, 0, 0, 0.02)'
+} as const;
 
 const ProfileCard: React.FC<ProfileCardProps> = memo(({
     isScreenshot = false,
@@ -114,19 +104,20 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
         }
     };
 
-    const cardBackgroundColor = getBackgroundColor(backgroundColor, accentColor);
-    const textColor = getTextColor(backgroundColor);
+    const colorConfig = getColorConfig(backgroundColor, accentColor);
+    const cardBackgroundColor = colorConfig.background;
+    const textColor = colorConfig.text;
     const margin = isScreenshot ? 'm-12' : 'm-16 max-sm:m-8';
     const borderClass = isScreenshot ? '' : 'shadow-xl';
     const cardWidth = format === 'square' ? 'w-[422px]' : 'w-[316px]';
     const cardHeight = 'h-[422px]';
     const bannerImageSrc = isScreenshot && bannerDataUrl ? bannerDataUrl : (account?.bannerImageUrl || coverImage);
     const avatarImageSrc = isScreenshot && avatarDataUrl ? avatarDataUrl : (account?.avatarUrl || publicationIcon);
-    const hasAvatar = !!(avatarImageSrc);
-    const bannerGradientColor = backgroundColor === 'accent' ? '#ffffff' : accentColor || '#15171a';
-    const bannerGradientOpacity = backgroundColor === 'accent' ? 0.2 : 0.2;
-    const dotsPatternTop = isScreenshot ? '-42px' : '-84px';
-    const dotsPatternLeft = isScreenshot ? '-69px' : '-138px';
+    const hasAvatar = !!(account?.avatarUrl || publicationIcon);
+
+    const gradientColor = backgroundColor === 'accent' ? '#ffffff' : accentColor || '#15171a';
+    const gradientOpacity = backgroundColor === 'accent' ? 0.2 : 0.2;
+    const dotsPatternColor = backgroundColor === 'accent' ? hexToRgba(accentColor || '#15171a', 0.2) : 'rgba(255, 255, 255, 0.2)';
 
     return (
         <div className={`relative z-20 flex flex-col ${margin} ${cardWidth} ${cardHeight} rounded-[32px] ${borderClass} ${format === 'square' ? 'flex flex-col' : ''}`} style={{backgroundColor: cardBackgroundColor}}>
@@ -138,11 +129,11 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
                         referrerPolicy='no-referrer'
                         src={bannerImageSrc}
                     /> :
-                    <div className='relative size-full overflow-hidden rounded-[26px] rounded-b-none' style={{background: `linear-gradient(to bottom, ${hexToRgba(bannerGradientColor, 1)}, ${hexToRgba(bannerGradientColor, 0.5)})`}}>
-                        <DotsPattern className='absolute' style={{color: hexToRgba(backgroundColor === 'accent' ? accentColor || '#15171a' : accentColor || '#15171a', bannerGradientOpacity), top: dotsPatternTop, left: dotsPatternLeft}} />
+                    <div className='relative size-full overflow-hidden rounded-[26px] rounded-b-none' style={{background: `linear-gradient(to bottom, ${hexToRgba(gradientColor, 1)}, ${hexToRgba(gradientColor, 0.5)})`}}>
+                        <DotsPattern className='absolute' style={{color: dotsPatternColor, top: isScreenshot ? '-42px' : '-84px', left: isScreenshot ? '-69px' : '-138px'}} />
                     </div>
                 }
-                {hasAvatar &&
+                {avatarImageSrc &&
                     <div className='absolute bottom-0 left-1/2 -mb-8 -translate-x-1/2 rounded-full border-8 [&>div]:!size-16 [&_img]:!size-16' style={{borderColor: cardBackgroundColor}}>
                         <APAvatar
                             author={
@@ -163,10 +154,10 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
                 <H2 className={`${isScreenshot && 'tracking-normal'}`} style={{color: textColor}}>{!isLoading ? account?.name : <Skeleton className='w-32' />}</H2>
                 <span className={`mt-1.5 leading-7 ${isScreenshot && 'tracking-normal'}`} style={{color: textColor}}>{!isLoading ? 'Available on Ghost, Flipboard, Threads, Bluesky, Mastodon, or wherever you get your social web feeds.' : <Skeleton className='w-28' />}</span>
                 <HandleDisplay
-                    account={account}
-                    isScreenshot={isScreenshot}
-                    backgroundColor={backgroundColor}
                     accentColor={accentColor}
+                    backgroundColor={backgroundColor}
+                    handle={account?.handle}
+                    isScreenshot={isScreenshot}
                     onCopy={handleCopy}
                     copied={copied}
                 />
@@ -178,13 +169,13 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
 ProfileCard.displayName = 'ProfileCard';
 
 const HandleDisplay: React.FC<{
-    account?: Account
-    isScreenshot: boolean
-    backgroundColor: 'light' | 'dark' | 'accent'
     accentColor?: string
+    backgroundColor: 'light' | 'dark' | 'accent'
+    handle?: string
+    isScreenshot: boolean
     onCopy: () => void
     copied: boolean
-}> = ({account, isScreenshot, backgroundColor, accentColor, onCopy, copied}) => {
+}> = ({accentColor, backgroundColor, handle, isScreenshot, onCopy, copied}) => {
     const textColor = backgroundColor !== 'light' ? '#fff' : accentColor;
     const borderColor = accentColor ? hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor !== 'light' ? 0.7 : 0.2) : undefined;
     const backgroundGradient = accentColor ? `linear-gradient(to top right, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor === 'dark' ? 0.12 : 0.04)}, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor === 'dark' ? 0.48 : 0.16)})` : undefined;
@@ -194,13 +185,13 @@ const HandleDisplay: React.FC<{
             className={`mt-auto flex max-h-[60px] min-h-12 w-full items-center justify-center break-all rounded-full border px-4 py-2 font-medium leading-7 ${isScreenshot && 'tracking-normal'}`}
             style={{
                 color: textColor,
-                borderColor: borderColor,
+                borderColor,
                 background: backgroundGradient
             }}
         >
             <div className='mb-0.5'>
-                {account?.handle}
-                {!isScreenshot && account?.handle && (
+                {handle}
+                {!isScreenshot && handle && (
                     <Button
                         className='relative top-[3px] ml-1.5 size-4 p-0 hover:opacity-80'
                         style={{color: textColor}}
@@ -219,45 +210,19 @@ const HandleDisplay: React.FC<{
     );
 };
 
-const convertImagesToDataUrls = async (
-    account: Account | undefined,
-    coverImage: string | undefined,
-    publicationIcon: string | undefined
-) => {
-    const results: {banner: string | null; avatar: string | null} = {banner: null, avatar: null};
-
-    if (account?.bannerImageUrl || coverImage) {
-        const bannerUrl = account?.bannerImageUrl || coverImage;
-        if (bannerUrl) {
-            results.banner = await imageUrlToDataUrl(bannerUrl);
-        }
+const getGradient = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
+    if (backgroundColor === 'accent') {
+        return GRADIENT_MAP.accent(accentColor);
     }
-
-    if (account?.avatarUrl || publicationIcon) {
-        const avatarUrl = account?.avatarUrl || publicationIcon;
-        if (avatarUrl) {
-            results.avatar = await imageUrlToDataUrl(avatarUrl);
-        }
-    }
-
-    return results;
+    return GRADIENT_MAP[backgroundColor];
 };
 
-const captureProfileCard = async (profileCardRef: React.RefObject<HTMLDivElement>) => {
-    if (!profileCardRef.current) {
-        throw new Error('Profile card ref not found');
-    }
+const getDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
+    return DOTS_PATTERN_COLOR_MAP[backgroundColor];
+};
 
-    const canvas = await html2canvas(profileCardRef.current, {
-        backgroundColor: 'transparent',
-        scale: 2,
-        logging: false,
-        useCORS: true,
-        allowTaint: true,
-        imageTimeout: 0
-    });
-
-    return new Promise<Blob>((resolve, reject) => {
+const canvasToBlob = (canvas: HTMLCanvasElement): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
         canvas.toBlob((blob) => {
             if (blob) {
                 resolve(blob);
@@ -268,12 +233,22 @@ const captureProfileCard = async (profileCardRef: React.RefObject<HTMLDivElement
     });
 };
 
-const copyImageToClipboard = async (profileCardRef: React.RefObject<HTMLDivElement>) => {
+const captureProfileCard = async (element: HTMLElement): Promise<Blob> => {
+    const canvas = await html2canvas(element, {
+        backgroundColor: 'transparent',
+        scale: 2,
+        logging: false,
+        useCORS: true,
+        allowTaint: true,
+        imageTimeout: 0
+    });
+    return canvasToBlob(canvas);
+};
+
+const copyImageToClipboard = async (blob: Blob) => {
     if (!navigator.clipboard || !('write' in navigator.clipboard) || typeof ClipboardItem === 'undefined') {
         throw new Error('Clipboard API not supported in this browser');
     }
-
-    const blob = await captureProfileCard(profileCardRef);
     const clipboardItem = new ClipboardItem({'image/png': Promise.resolve(blob)});
     await navigator.clipboard.write([clipboardItem]);
 };
@@ -291,23 +266,31 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
     const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null);
     const shareText = `${account?.name} is now available across the social web, on ${account?.handle}`;
 
+    const convertImagesToDataUrls = useCallback(async () => {
+        const bannerUrl = account?.bannerImageUrl || coverImage;
+        if (bannerUrl) {
+            const dataUrl = await imageUrlToDataUrl(bannerUrl);
+            setBannerDataUrl(dataUrl);
+        }
+
+        const avatarUrl = account?.avatarUrl || publicationIcon;
+        if (avatarUrl) {
+            const dataUrl = await imageUrlToDataUrl(avatarUrl);
+            setAvatarDataUrl(dataUrl);
+        }
+    }, [account?.bannerImageUrl, account?.avatarUrl, coverImage, publicationIcon]);
+
     useEffect(() => {
         let isMounted = true;
 
-        const convert = async () => {
-            const {banner, avatar} = await convertImagesToDataUrls(account, coverImage, publicationIcon);
-            if (isMounted) {
-                setBannerDataUrl(banner);
-                setAvatarDataUrl(avatar);
-            }
-        };
-
-        convert();
+        if (isMounted) {
+            convertImagesToDataUrls();
+        }
 
         return () => {
             isMounted = false;
         };
-    }, [account?.bannerImageUrl, account?.avatarUrl, coverImage, publicationIcon]);
+    }, [convertImagesToDataUrls]);
 
     const handleCopy = async () => {
         if (!profileCardRef.current || isProcessing) {
@@ -323,7 +306,8 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
         });
 
         try {
-            await copyImageToClipboard(profileCardRef);
+            const blob = await captureProfileCard(profileCardRef.current);
+            await copyImageToClipboard(blob);
             toast.success('Image copied to clipboard');
         } catch {
             toast.error('Failed to copy image');
@@ -332,9 +316,11 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
         }
     };
 
-    const cardWidth = cardFormat === 'square' ? '518px' : '412px';
+    const gradient = getGradient(backgroundColor, accentColor);
+    const dotsPatternColor = getDotsPatternColor(backgroundColor);
     const shadowImage = cardFormat === 'square' ? ProfileCardShadowSquare : ProfileCardShadow;
     const shadowWidth = cardFormat === 'square' ? '572px' : '466px';
+    const containerWidth = cardFormat === 'square' ? '518px' : '412px';
 
     return (
         <TooltipProvider delayDuration={0}>
@@ -343,3 +329,247 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                     backgroundColor={backgroundColor}
                     cardFormat={cardFormat}
                     accentColor={accentColor}
+                    onBackgroundColorChange={setBackgroundColor}
+                    onCardFormatChange={setCardFormat}
+                />
+                <ProfileCardContainer
+                    account={account}
+                    isLoading={isLoading}
+                    backgroundColor={backgroundColor}
+                    cardFormat={cardFormat}
+                    bannerDataUrl={bannerDataUrl}
+                    avatarDataUrl={avatarDataUrl}
+                    coverImage={coverImage}
+                    publicationIcon={publicationIcon}
+                    accentColor={accentColor}
+                    siteTitle={siteData?.site?.title}
+                    gradient={gradient}
+                    dotsPatternColor={dotsPatternColor}
+                    shareText={shareText}
+                    isProcessing={isProcessing}
+                    onCopy={handleCopy}
+                />
+
+                {/* Hidden clone for screenshots */}
+                <div
+                    ref={profileCardRef}
+                    className='fixed left-[-9999px] top-0 z-[-1] flex w-fit justify-center overflow-hidden rounded-2xl bg-gray-50'
+                    style={{
+                        width: containerWidth,
+                        fontFamily: 'system-ui'
+                    }}
+                >
+                    <ProfileCard
+                        accentColor={accentColor}
+                        account={account}
+                        avatarDataUrl={avatarDataUrl}
+                        backgroundColor={backgroundColor}
+                        bannerDataUrl={bannerDataUrl}
+                        coverImage={coverImage}
+                        format={cardFormat}
+                        isLoading={isLoading}
+                        isScreenshot={true}
+                        publicationIcon={publicationIcon}
+                        siteTitle={siteData?.site?.title}
+                    />
+                    {(account?.bannerImageUrl || coverImage) &&
+                    <DotsPattern className={`absolute left-[-62.5px] top-[-44px] h-[600px] w-[598px] ${backgroundColor === 'dark' && 'z-10'}`} style={{color: dotsPatternColor}} />
+                    }
+                    <div
+                        className='absolute left-0 top-0 size-full'
+                        style={{
+                            background: gradient
+                        }}
+                    />
+                    <img className='absolute left-1/2 top-12 mt-0.5 max-w-none -translate-x-1/2' src={shadowImage} style={{width: shadowWidth}} />
+                </div>
+            </div>
+        </TooltipProvider>
+    );
+};
+
+const ProfileHeader: React.FC<{
+    backgroundColor: 'light' | 'dark' | 'accent'
+    cardFormat: 'vertical' | 'square'
+    accentColor?: string
+    onBackgroundColorChange: (value: 'light' | 'dark' | 'accent') => void
+    onCardFormatChange: (value: 'vertical' | 'square') => void
+}> = ({backgroundColor, cardFormat, accentColor, onBackgroundColorChange, onCardFormatChange}) => {
+    return (
+        <div className='flex items-center justify-between max-sm:flex-col max-sm:items-start max-sm:gap-3'>
+            <H2>Share your profile</H2>
+            <div className='flex gap-4'>
+                <ToggleGroup defaultValue='light' type='single' value={backgroundColor} onValueChange={(value) => {
+                    if (value) {
+                        onBackgroundColorChange(value as 'light' | 'dark' | 'accent');
+                    }
+                }}>
+                    <Tooltip>
+                        <TooltipTrigger>
+                            <ToggleGroupItem aria-label='Light' value='light'>
+                                <div className='size-4 rounded-full border border-gray-500 dark:border-0 dark:bg-white' />
+                            </ToggleGroupItem>
+                        </TooltipTrigger>
+                        <TooltipContent>Light</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger>
+                            <ToggleGroupItem aria-label='Dark' value='dark'>
+                                <div className='size-4 rounded-full bg-black dark:border dark:border-gray-700 dark:bg-transparent' />
+                            </ToggleGroupItem>
+                        </TooltipTrigger>
+                        <TooltipContent>Dark</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger>
+                            <ToggleGroupItem aria-label='Accent color' value='accent'>
+                                <div className='size-4 rounded-full' style={{backgroundColor: accentColor}} />
+                            </ToggleGroupItem>
+                        </TooltipTrigger>
+                        <TooltipContent>Accent color</TooltipContent>
+                    </Tooltip>
+                </ToggleGroup>
+                <ToggleGroup defaultValue='vertical' type='single' value={cardFormat} onValueChange={(value) => {
+                    if (value) {
+                        onCardFormatChange(value as 'vertical' | 'square');
+                    }
+                }}>
+                    <Tooltip>
+                        <TooltipTrigger>
+                            <ToggleGroupItem aria-label='Vertical' value='vertical'>
+                                <LucideIcon.RectangleVertical className='size-4' />
+                            </ToggleGroupItem>
+                        </TooltipTrigger>
+                        <TooltipContent>Vertical</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger>
+                            <ToggleGroupItem aria-label='Square' value='square'>
+                                <LucideIcon.Square className='size-4' />
+                            </ToggleGroupItem>
+                        </TooltipTrigger>
+                        <TooltipContent>Square</TooltipContent>
+                    </Tooltip>
+                </ToggleGroup>
+            </div>
+        </div>
+    );
+};
+
+const ProfileCardContainer: React.FC<{
+    account?: Account
+    isLoading: boolean
+    backgroundColor: 'light' | 'dark' | 'accent'
+    cardFormat: 'vertical' | 'square'
+    bannerDataUrl: string | null
+    avatarDataUrl: string | null
+    coverImage?: string
+    publicationIcon?: string
+    accentColor?: string
+    siteTitle?: string
+    gradient: string
+    dotsPatternColor: string
+    shareText: string
+    isProcessing: boolean
+    onCopy: () => void
+}> = ({
+    account,
+    isLoading,
+    backgroundColor,
+    cardFormat,
+    bannerDataUrl,
+    avatarDataUrl,
+    coverImage,
+    publicationIcon,
+    accentColor,
+    siteTitle,
+    gradient,
+    dotsPatternColor,
+    shareText,
+    isProcessing,
+    onCopy
+}) => {
+    return (
+        <div className='relative flex flex-col items-center overflow-hidden rounded-2xl bg-gray-50'>
+            <ProfileCard
+                accentColor={accentColor}
+                account={account}
+                avatarDataUrl={avatarDataUrl}
+                backgroundColor={backgroundColor}
+                bannerDataUrl={bannerDataUrl}
+                coverImage={coverImage}
+                format={cardFormat}
+                isLoading={isLoading}
+                publicationIcon={publicationIcon}
+                siteTitle={siteTitle}
+            />
+            <ProfileCardActions
+                backgroundColor={backgroundColor}
+                shareText={shareText}
+                isProcessing={isProcessing}
+                onCopy={onCopy}
+            />
+            {(account?.bannerImageUrl || coverImage) &&
+            <DotsPattern className={`absolute left-1/2 top-1/2 h-[600px] w-[598px] -translate-x-1/2 -translate-y-1/2 ${backgroundColor === 'dark' && 'z-10'}`} style={{color: dotsPatternColor}} />
+            }
+            <div className='absolute inset-0' style={{background: gradient}} />
+        </div>
+    );
+};
+
+const ProfileCardActions: React.FC<{
+    backgroundColor: 'light' | 'dark' | 'accent'
+    shareText: string
+    isProcessing: boolean
+    onCopy: () => void
+}> = ({backgroundColor, shareText, isProcessing, onCopy}) => {
+    return (
+        <div className='relative z-20 flex w-full items-center justify-between gap-4 px-6 pb-6 max-sm:mt-4 max-sm:flex-col'>
+            <SocialShareLinks shareText={shareText} />
+            <Button className={`min-w-[160px] dark:bg-black dark:text-white dark:hover:bg-black/90 ${backgroundColor === 'dark' && 'bg-white text-black hover:bg-gray-50 dark:bg-white dark:text-black dark:hover:bg-gray-50/90'}`} onClick={onCopy}>
+                {isProcessing ? <LoadingIndicator color={`${backgroundColor === 'dark' ? 'dark' : 'light'}`} size='sm' /> : <LucideIcon.Copy />}
+                {!isProcessing && 'Copy image'}
+            </Button>
+        </div>
+    );
+};
+
+const SocialShareLinks: React.FC<{shareText: string}> = ({shareText}) => {
+    const links = [
+        {
+            href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`,
+            icon: <svg aria-hidden="true" viewBox="0 0 24 24"><path className="social-x_svg__x" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path></svg>
+        },
+        {
+            href: `https://threads.net/intent/post?text=${encodeURIComponent(shareText)}`,
+            icon: <svg fill="none" viewBox="0 0 18 18"><g clipPath="url(#social-threads_svg__clip0_351_18008)"><path d="M13.033 8.38a5.924 5.924 0 00-.223-.102c-.13-2.418-1.452-3.802-3.67-3.816h-.03c-1.327 0-2.43.566-3.11 1.597l1.22.837c.507-.77 1.304-.934 1.89-.934h.02c.73.004 1.282.217 1.639.63.26.302.433.72.519 1.245a9.334 9.334 0 00-2.097-.101c-2.109.121-3.465 1.351-3.374 3.06.047.868.478 1.614 1.216 2.1.624.413 1.428.614 2.263.568 1.103-.06 1.969-.48 2.572-1.25.459-.585.749-1.342.877-2.296.526.317.915.735 1.13 1.236.366.854.387 2.255-.756 3.398-1.003 1.002-2.207 1.435-4.028 1.448-2.02-.015-3.547-.663-4.54-1.925-.93-1.182-1.41-2.89-1.428-5.075.018-2.185.498-3.893 1.428-5.075.993-1.262 2.52-1.91 4.54-1.925 2.034.015 3.588.666 4.62 1.934.505.622.886 1.405 1.137 2.317l1.43-.382c-.305-1.122-.784-2.09-1.436-2.892C13.52 1.35 11.587.517 9.096.5h-.01C6.6.517 4.689 1.354 3.404 2.986 2.262 4.44 1.672 6.46 1.652 8.994v.012c.02 2.534.61 4.555 1.752 6.008C4.69 16.646 6.6 17.483 9.086 17.5h.01c2.21-.015 3.768-.594 5.051-1.876 1.68-1.678 1.629-3.78 1.075-5.07-.397-.927-1.154-1.678-2.189-2.175zm-3.816 3.587c-.924.052-1.884-.363-1.932-1.252-.035-.659.47-1.394 1.99-1.482a8.9 8.9 0 01.512-.014c.552 0 1.068.053 1.538.156-.175 2.187-1.203 2.542-2.108 2.592z" fill="#000"></path></g><defs><clipPath id="social-threads_svg__clip0_351_18008"><path d="M0 0h17v17H0z" fill="#fff" transform="translate(.5 .5)"></path></clipPath></defs></svg>
+        },
+        {
+            href: `https://www.facebook.com/sharer/sharer.php?u=`,
+            icon: <svg fill="none" viewBox="0 0 40 40"><title>social-facebook</title><path className="social-facebook_svg__fb" d="M20 40.004c11.046 0 20-8.955 20-20 0-11.046-8.954-20-20-20s-20 8.954-20 20c0 11.045 8.954 20 20 20z" fill="#1977f3"></path><path d="M27.785 25.785l.886-5.782h-5.546V16.25c0-1.58.773-3.125 3.26-3.125h2.522V8.204s-2.29-.39-4.477-.39c-4.568 0-7.555 2.767-7.555 7.781v4.408h-5.08v5.782h5.08v13.976a20.08 20.08 0 003.125.242c1.063 0 2.107-.085 3.125-.242V25.785h4.66z" fill="#fff"></path></svg>
+        },
+        {
+            href: `http://www.linkedin.com/shareArticle?mini=true&title=${encodeURIComponent(shareText)}`,
+            icon: <svg fill="none" viewBox="0 0 16 16"><g clipPath="url(#social-linkedin_svg__clip0_537_833)"><path className="social-linkedin_svg__linkedin" clipRule="evenodd" d="M1.778 16h12.444c.982 0 1.778-.796 1.778-1.778V1.778C16 .796 15.204 0 14.222 0H1.778C.796 0 0 .796 0 1.778v12.444C0 15.204.796 16 1.778 16z" fill="#007ebb" fillRule="evenodd"></path><path clipRule="evenodd" d="M13.778 13.778h-2.374V9.734c0-1.109-.421-1.729-1.299-1.729-.955 0-1.453.645-1.453 1.729v4.044H6.363V6.074h2.289v1.038s.688-1.273 2.322-1.273c1.634 0 2.804.997 2.804 3.061v4.878zM3.634 5.065c-.78 0-1.411-.636-1.411-1.421s.631-1.422 1.41-1.422c.78 0 1.411.637 1.411 1.422 0 .785-.631 1.421-1.41 1.421zm-1.182 8.713h2.386V6.074H2.452v7.704z" fill="#fff" fillRule="evenodd"></path></g><defs><clipPath id="social-linkedin_svg__clip0_537_833"><path d="M0 0h16v16H0z" fill="#fff"></path></clipPath></defs></svg>
+        }
+    ];
+
+    return (
+        <div className='flex items-center gap-2'>
+            {links.map((link, index) => (
+                <a
+                    key={index}
+                    className='flex h-[34px] w-10 items-center justify-center rounded-sm bg-white px-3 shadow-xs hover:bg-gray-50 [&_svg]:size-4'
+                    href={link.href}
+                    rel="noopener noreferrer"
+                    target='_blank'
+                >
+                    {link.icon}
+                </a>
+            ))}
+        </div>
+    );
+};
+
+export default Profile;
+```

@@ -41,7 +41,7 @@ const applyDistinctIfNeeded = (qb, filters, joinsTree) => {
 };
 
 /**
- * Apply sorting to query if sort filters exist
+ * Apply sorting to query if sort clauses exist
  */
 const applySortIfNeeded = (qb, filters, joinsTree) => {
   if (!_.has(filters, 'sort')) {
@@ -72,7 +72,7 @@ const applyPaginationIfNeeded = (qb, filters) => {
 };
 
 /**
- * Apply publication state filter if present
+ * Apply publication state filter if specified
  */
 const applyPublicationStateIfNeeded = (qb, filters) => {
   if (_.has(filters, 'publicationState')) {
@@ -134,7 +134,15 @@ const buildJoinsAndFilter = (qb, model, filters) => {
   const { where: whereClauses = [], sort: sortClauses = [] } = filters;
 
   const aliasMap = {};
-  const generateAlias = createAliasGenerator(aliasMap);
+  const generateAlias = name => {
+    if (!aliasMap[name]) {
+      aliasMap[name] = 1;
+    }
+
+    const alias = `${name}_${aliasMap[name]}`;
+    aliasMap[name] += 1;
+    return alias;
+  };
 
   const tree = {
     alias: model.collectionName,
@@ -143,52 +151,23 @@ const buildJoinsAndFilter = (qb, model, filters) => {
     joins: {},
   };
 
-  const generateNestedJoins = createNestedJoinsGenerator(tree, generateAlias);
-  const buildJoin = createJoinBuilder(qb, generateAlias);
-  const buildJoinsFromTree = createTreeJoinBuilder(qb, buildJoin);
-
-  const aliasedWhereClauses = buildWhereClauses(whereClauses, { model, tree, generateNestedJoins });
-  aliasedWhereClauses.forEach(w => buildWhereClause({ qb, ...w }));
-
-  // Force needed joins for deep sort clauses
-  sortClauses.map(prop('field')).forEach(field => generateNestedJoins(field, tree));
-
-  buildJoinsFromTree(qb, tree);
-  addFiltersQueriesToJoinTree(qb, tree, filters);
-
-  return tree;
-};
-
-/**
- * Create an alias generator function with internal state
- */
-const createAliasGenerator = aliasMap => name => {
-  if (!aliasMap[name]) {
-    aliasMap[name] = 1;
-  }
-
-  const alias = `${name}_${aliasMap[name]}`;
-  aliasMap[name] += 1;
-  return alias;
-};
-
-/**
- * Create a tree node for joins structure
- */
-const createTreeNode = (model, assoc, generateAlias) => {
-  return {
-    alias: generateAlias(model.collectionName),
-    assoc,
-    model,
-    joins: {},
+  /**
+   * Create a query tree node from a key and assoc and a model
+   */
+  const createTreeNode = (nodeModel, assoc = null) => {
+    return {
+      alias: generateAlias(nodeModel.collectionName),
+      assoc,
+      model: nodeModel,
+      joins: {},
+    };
   };
-};
 
-/**
- * Create nested joins generator function
- */
-const createNestedJoinsGenerator = (tree, generateAlias) => {
-  return function generateNestedJoins(field, currentTree) {
+  /**
+   * Returns the SQL path for a query field.
+   * Adds table to the joins tree
+   */
+  const generateNestedJoins = (field, currentTree) => {
     let [key, ...parts] = field.split('.');
 
     const assoc = findAssoc(currentTree.model, key);
@@ -203,24 +182,88 @@ const createNestedJoinsGenerator = (tree, generateAlias) => {
     }
 
     if (!currentTree.joins[key]) {
-      currentTree.joins[key] = createTreeNode(assocModel, assoc, generateAlias);
+      currentTree.joins[key] = createTreeNode(assocModel, assoc);
     }
 
     return generateNestedJoins(parts.join('.'), currentTree.joins[key]);
   };
-};
 
-/**
- * Create join builder function
- */
-const createJoinBuilder = (qb, generateAlias) => {
-  return (assoc, originInfo, destinationInfo) => {
+  /**
+   * Format every where clause with the right table name aliases.
+   * Add table joins to the joins list
+   */
+  const buildWhereClauses = (clauses, context) => {
+    return clauses.map(whereClause => {
+      const { field, operator, value } = whereClause;
+
+      if (BOOLEAN_OPERATORS.includes(operator)) {
+        return {
+          field,
+          operator,
+          value: value.map(v => buildWhereClauses(v, context)),
+        };
+      }
+
+      const path = generateNestedJoins(field, tree);
+
+      return {
+        field: path,
+        operator,
+        value,
+      };
+    });
+  };
+
+  /**
+   * Build joins from tree structure
+   */
+  const buildJoinsFromTree = (queryBuilder, queryTree) => {
+    Object.keys(queryTree.joins).forEach(key => {
+      const subQueryTree = queryTree.joins[key];
+      buildJoin(queryBuilder, subQueryTree.assoc, queryTree, subQueryTree);
+      buildJoinsFromTree(queryBuilder, subQueryTree);
+    });
+  };
+
+  /**
+   * Add table joins for associations
+   */
+  const buildJoin = (queryBuilder, assoc, originInfo, destinationInfo) => {
     if (['manyToMany', 'manyWay'].includes(assoc.nature)) {
-      buildManyToManyJoin(qb, assoc, originInfo, destinationInfo, generateAlias);
+      buildManyToManyJoin(queryBuilder, assoc, originInfo, destinationInfo, generateAlias);
     } else {
-      buildOneToManyJoin(qb, assoc, originInfo, destinationInfo);
+      buildOneToManyJoin(queryBuilder, assoc, originInfo, destinationInfo);
     }
   };
+
+  /**
+   * Add filters queries to join tree for deep search and sort
+   */
+  const addFiltersQueriesToJoinTree = (currentTree) => {
+    _.each(currentTree.joins, value => {
+      const { alias, model: nodeModel } = value;
+
+      runPopulateQueries(
+        toQueries({
+          publicationState: { query: filters.publicationState, model: nodeModel, alias },
+        }),
+        qb
+      );
+
+      addFiltersQueriesToJoinTree(value);
+    });
+  };
+
+  const aliasedWhereClauses = buildWhereClauses(whereClauses, { model });
+  aliasedWhereClauses.forEach(w => buildWhereClause({ qb, ...w }));
+
+  // Force needed joins for deep sort clauses
+  sortClauses.map(prop('field')).forEach(field => generateNestedJoins(field, tree));
+
+  buildJoinsFromTree(qb, tree);
+  addFiltersQueriesToJoinTree(tree);
+
+  return tree;
 };
 
 /**
@@ -229,16 +272,12 @@ const createJoinBuilder = (qb, generateAlias) => {
 const buildManyToManyJoin = (qb, assoc, originInfo, destinationInfo, generateAlias) => {
   const joinTableAlias = generateAlias(assoc.tableCollectionName);
 
-  let originColumnNameInJoinTable;
-  if (assoc.nature === 'manyToMany') {
-    originColumnNameInJoinTable = `${joinTableAlias}.${singular(
-      destinationInfo.model.attributes[assoc.via].attribute
-    )}_${destinationInfo.model.attributes[assoc.via].column}`;
-  } else if (assoc.nature === 'manyWay') {
-    originColumnNameInJoinTable = `${joinTableAlias}.${singular(
-      originInfo.model.collectionName
-    )}_${originInfo.model.primaryKey}`;
-  }
+  const originColumnNameInJoinTable = buildOriginColumnNameInJoinTable(
+    assoc,
+    joinTableAlias,
+    originInfo,
+    destinationInfo
+  );
 
   qb.leftJoin(
     `${originInfo.model.databaseName}.${assoc.tableCollectionName} AS ${joinTableAlias}`,
@@ -246,17 +285,45 @@ const buildManyToManyJoin = (qb, assoc, originInfo, destinationInfo, generateAli
     `${originInfo.alias}.${originInfo.model.primaryKey}`
   );
 
+  const destinationColumnInJoinTable = buildDestinationColumnInJoinTable(
+    assoc,
+    joinTableAlias,
+    originInfo
+  );
+
   qb.leftJoin(
     `${destinationInfo.model.databaseName}.${destinationInfo.model.collectionName} AS ${destinationInfo.alias}`,
-    `${joinTableAlias}.${singular(originInfo.model.attributes[assoc.alias].attribute)}_${
-      originInfo.model.attributes[assoc.alias].column
-    }`,
+    destinationColumnInJoinTable,
     `${destinationInfo.alias}.${destinationInfo.model.primaryKey}`
   );
 };
 
 /**
- * Build one-to-many join
+ * Build origin column name in join table for many-to-many relationships
+ */
+const buildOriginColumnNameInJoinTable = (assoc, joinTableAlias, originInfo, destinationInfo) => {
+  if (assoc.nature === 'manyToMany') {
+    return `${joinTableAlias}.${singular(
+      destinationInfo.model.attributes[assoc.via].attribute
+    )}_${destinationInfo.model.attributes[assoc.via].column}`;
+  } else if (assoc.nature === 'manyWay') {
+    return `${joinTableAlias}.${singular(originInfo.model.collectionName)}_${
+      originInfo.model.primaryKey
+    }`;
+  }
+};
+
+/**
+ * Build destination column name in join table
+ */
+const buildDestinationColumnInJoinTable = (assoc, joinTableAlias, originInfo) => {
+  return `${joinTableAlias}.${singular(originInfo.model.attributes[assoc.alias].attribute)}_${
+    originInfo.model.attributes[assoc.alias].column
+  }`;
+};
+
+/**
+ * Build one-to-many or many-to-one join
  */
 const buildOneToManyJoin = (qb, assoc, originInfo, destinationInfo) => {
   const externalKey =
@@ -277,62 +344,6 @@ const buildOneToManyJoin = (qb, assoc, originInfo, destinationInfo) => {
 };
 
 /**
- * Create tree join builder function
- */
-const createTreeJoinBuilder = (qb, buildJoin) => {
-  return function buildJoinsFromTree(queryTree) {
-    Object.keys(queryTree.joins).forEach(key => {
-      const subQueryTree = queryTree.joins[key];
-      buildJoin(subQueryTree.assoc, queryTree, subQueryTree);
-      buildJoinsFromTree(subQueryTree);
-    });
-  };
-};
-
-/**
- * Format where clauses with the right table name aliases
- */
-const buildWhereClauses = (whereClauses, { model, tree, generateNestedJoins }) => {
-  return whereClauses.map(whereClause => {
-    const { field, operator, value } = whereClause;
-
-    if (BOOLEAN_OPERATORS.includes(operator)) {
-      return {
-        field,
-        operator,
-        value: value.map(v => buildWhereClauses(v, { model, tree, generateNestedJoins })),
-      };
-    }
-
-    const path = generateNestedJoins(field, tree);
-
-    return {
-      field: path,
-      operator,
-      value,
-    };
-  });
-};
-
-/**
- * Add queries on tree's joins (deep search, deep sort) based on given filters
- */
-const addFiltersQueriesToJoinTree = (qb, tree, filters) => {
-  _.each(tree.joins, value => {
-    const { alias, model } = value;
-
-    runPopulateQueries(
-      toQueries({
-        publicationState: { query: filters.publicationState, model, alias },
-      }),
-      qb
-    );
-
-    addFiltersQueriesToJoinTree(qb, value, filters);
-  });
-};
-
-/**
  * Builds a sql where clause
  * @param {Object} options - Options
  * @param {Object} options.qb - Bookshelf (knex) query builder
@@ -349,7 +360,7 @@ const buildWhereClause = ({ qb, field, operator, value }) => {
 };
 
 /**
- * Build where clause for array values
+ * Build where clause for array values with OR logic
  */
 const buildArrayWhereClause = (qb, field, operator, value) => {
   return qb.where(subQb => {
@@ -385,9 +396,9 @@ const buildOperatorWhereClause = (qb, field, operator, value) => {
     case 'nin':
       return qb.whereNotIn(field, Array.isArray(value) ? value : [value]);
     case 'contains':
-      return buildContainsWhereClause(qb, field, value, true);
+      return qb.whereRaw(`${fieldLowerFn(qb)} LIKE LOWER(?)`, [field, `%${value}%`]);
     case 'ncontains':
-      return buildContainsWhereClause(qb, field, value, false);
+      return qb.whereRaw(`${fieldLowerFn(qb)} NOT LIKE LOWER(?)`, [field, `%${value}%`]);
     case 'containss':
       return qb.where(field, 'like', `%${value}%`);
     case 'ncontainss':
@@ -421,4 +432,36 @@ const buildAndWhereClause = (qb, field, value) => {
 /**
  * Build OR where clause
  */
-const buildOrWhereClause =
+const buildOrWhereClause = (qb, field, value) => {
+  return qb.where(orQb => {
+    value.forEach(orClause => {
+      orQb.orWhere(subQb => {
+        if (Array.isArray(orClause)) {
+          orClause.forEach(clause =>
+            subQb.where(innerQb => buildWhereClause({ qb: innerQb, ...clause }))
+          );
+        } else {
+          buildWhereClause({ qb: subQb, ...orClause });
+        }
+      });
+    });
+  });
+};
+
+/**
+ * Get the appropriate LOWER function for the database client
+ */
+const fieldLowerFn = qb => {
+  if (qb.client.config.client === 'pg') {
+    return 'LOWER(CAST(?? AS VARCHAR))';
+  }
+  return 'LOWER(??)';
+};
+
+/**
+ * Find association by alias in model
+ */
+const findAssoc = (model, key) => model.associations.find(assoc => assoc.alias === key);
+
+module.exports = buildQuery;
+```

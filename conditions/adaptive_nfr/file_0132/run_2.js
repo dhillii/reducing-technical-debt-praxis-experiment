@@ -180,6 +180,20 @@ const buildBookshelfAggregationQuery = async (model, filters, fieldKey, operatio
 };
 
 /**
+ * Execute aggregation query based on ORM type
+ * @private
+ */
+const executeAggregationQuery = async (model, filters, fieldKey, operation) => {
+  if (model.orm === 'mongoose') {
+    return buildMongooseAggregationQuery(model, filters, fieldKey, operation);
+  }
+
+  if (model.orm === 'bookshelf') {
+    return buildBookshelfAggregationQuery(model, filters, fieldKey, operation);
+  }
+};
+
+/**
  * Create the resolvers for each aggregation field
  *
  * @return {Object}
@@ -210,13 +224,7 @@ const createAggregationFieldsResolver = function(model, fields, operation, typeC
         ...convertToQuery(obj.where),
       });
 
-      if (model.orm === 'mongoose') {
-        return buildMongooseAggregationQuery(model, filters, fieldKey, operation);
-      }
-
-      if (model.orm === 'bookshelf') {
-        return buildBookshelfAggregationQuery(model, filters, fieldKey, operation);
-      }
+      return executeAggregationQuery(model, filters, fieldKey, operation);
     },
     typeCheck
   );
@@ -274,10 +282,10 @@ const buildBookshelfGroupByQuery = async (model, params, fieldKey) => {
 };
 
 /**
- * Format bookshelf group by results
+ * Process bookshelf group by results
  * @private
  */
-const formatBookshelfGroupByResults = (result, fieldKey, filters) => {
+const processBookshelfGroupByResults = (result, fieldKey, filters) => {
   let values = result.models
     .map(m => m.get(fieldKey))
     .filter(v => !!v)
@@ -294,6 +302,26 @@ const formatBookshelfGroupByResults = (result, fieldKey, filters) => {
       };
     },
   }));
+};
+
+/**
+ * Execute group by query based on ORM type
+ * @private
+ */
+const executeGroupByQuery = async (model, params, fieldKey, filters) => {
+  if (model.orm === 'mongoose') {
+    const result = await buildMongooseGroupByQuery(model, params, fieldKey);
+    return preProcessGroupByData({
+      result,
+      fieldKey,
+      filters,
+    });
+  }
+
+  if (model.orm === 'bookshelf') {
+    const result = await buildBookshelfGroupByQuery(model, params, fieldKey);
+    return processBookshelfGroupByResults(result, fieldKey, filters);
+  }
 };
 
 /**
@@ -322,19 +350,7 @@ const createGroupByFieldsResolver = function(model, fields) {
       ...convertToQuery(filters.where),
     });
 
-    if (model.orm === 'mongoose') {
-      const result = await buildMongooseGroupByQuery(model, params, fieldKey);
-      return preProcessGroupByData({
-        result,
-        fieldKey,
-        filters,
-      });
-    }
-
-    if (model.orm === 'bookshelf') {
-      const result = await buildBookshelfGroupByQuery(model, params, fieldKey);
-      return formatBookshelfGroupByResults(result, fieldKey, filters);
-    }
+    return executeGroupByQuery(model, params, fieldKey, filters);
   };
 
   return createFieldsResolver(fields, resolver, () => true);
@@ -365,21 +381,12 @@ const generateConnectionFieldsTypes = function(fields, model) {
 };
 
 /**
- * Build group by types definition
- * @private
- */
-const buildGroupByTypesDefinition = (globalId, groupByFields) => {
-  const groupByGlobalId = `${globalId}GroupBy`;
-  let groupByTypes = `type ${groupByGlobalId} {${toSDL(groupByFields)}}\n\n`;
-  return { groupByGlobalId, groupByTypes };
-};
-
-/**
- * Format connection group by
+ * Format group by types and resolver
  * @private
  */
 const formatConnectionGroupBy = function(fields, model) {
   const { globalId } = model;
+  const groupByGlobalId = `${globalId}GroupBy`;
 
   const groupByFields = getFieldsByTypes(
     fields,
@@ -387,9 +394,8 @@ const formatConnectionGroupBy = function(fields, model) {
     (fieldType, fieldName) => `[${globalId}Connection${_.upperFirst(fieldName)}]`
   );
 
-  const { groupByGlobalId, groupByTypes: baseGroupByTypes } = buildGroupByTypesDefinition(globalId, groupByFields);
-  const connectionFieldsTypes = generateConnectionFieldsTypes(fields, model);
-  const groupByTypes = baseGroupByTypes + connectionFieldsTypes;
+  let groupByTypes = `type ${groupByGlobalId} {${toSDL(groupByFields)}}\n\n`;
+  groupByTypes += generateConnectionFieldsTypes(fields, model);
 
   return {
     globalId: groupByGlobalId,
@@ -401,92 +407,118 @@ const formatConnectionGroupBy = function(fields, model) {
 };
 
 /**
- * Build aggregator initial fields
+ * Build aggregator count resolver
  * @private
  */
-const buildAggregatorInitialFields = (aggregatorGlobalId, numericFields) => {
-  const initialFields = {
+const buildAggregatorCountResolver = (modelName, model) => {
+  return (obj) => {
+    const opts = convertToQuery(obj.where);
+
+    if (opts._q) {
+      return strapi.query(modelName, model.plugin).countSearch(opts);
+    }
+    return strapi.query(modelName, model.plugin).count(opts);
+  };
+};
+
+/**
+ * Build aggregator total count resolver
+ * @private
+ */
+const buildAggregatorTotalCountResolver = (modelName, model) => {
+  return () => {
+    return strapi.query(modelName, model.plugin).count({});
+  };
+};
+
+/**
+ * Build initial aggregator fields
+ * @private
+ */
+const buildInitialAggregatorFields = () => {
+  return {
     count: 'Int',
     totalCount: 'Int',
   };
+};
+
+/**
+ * Add numeric aggregation fields
+ * @private
+ */
+const addNumericAggregationFields = (initialFields, aggregatorGlobalId) => {
+  ['sum', 'avg', 'min', 'max'].forEach(agg => {
+    initialFields[agg] = `${aggregatorGlobalId}${_.startCase(agg)}`;
+  });
+};
+
+/**
+ * Build aggregator type definitions
+ * @private
+ */
+const buildAggregatorTypeDefinitions = (aggregatorGlobalId, initialFields, numericFields) => {
+  const gqlNumberFormat = toSDL(numericFields);
+  let aggregatorTypes = `type ${aggregatorGlobalId} {${toSDL(initialFields)}}\n\n`;
 
   if (!_.isEmpty(numericFields)) {
-    ['sum', 'avg', 'min', 'max'].forEach(agg => {
-      initialFields[agg] = `${aggregatorGlobalId}${_.startCase(agg)}`;
-    });
+    aggregatorTypes += `type ${aggregatorGlobalId}Sum {${gqlNumberFormat}}\n\n`;
+    aggregatorTypes += `type ${aggregatorGlobalId}Avg {${gqlNumberFormat}}\n\n`;
+    aggregatorTypes += `type ${aggregatorGlobalId}Min {${gqlNumberFormat}}\n\n`;
+    aggregatorTypes += `type ${aggregatorGlobalId}Max {${gqlNumberFormat}}\n\n`;
   }
 
-  return initialFields;
+  return aggregatorTypes;
 };
 
 /**
- * Build aggregator count resolvers
+ * Build aggregator resolvers
  * @private
  */
-const buildAggregatorCountResolvers = (modelName, model) => {
-  return {
-    count(obj) {
-      const opts = convertToQuery(obj.where);
-      if (opts._q) {
-        return strapi.query(modelName, model.plugin).countSearch(opts);
-      }
-      return strapi.query(modelName, model.plugin).count(opts);
-    },
-    totalCount() {
-      return strapi.query(modelName, model.plugin).count({});
+const buildAggregatorResolvers = (aggregatorGlobalId, modelName, model, numericFields) => {
+  const resolvers = {
+    [aggregatorGlobalId]: {
+      count: buildAggregatorCountResolver(modelName, model),
+      totalCount: buildAggregatorTotalCountResolver(modelName, model),
     },
   };
-};
 
-/**
- * Build numeric aggregator types
- * @private
- */
-const buildNumericAggregatorTypes = (aggregatorGlobalId, gqlNumberFormat) => {
-  let types = `type ${aggregatorGlobalId}Sum {${gqlNumberFormat}}\n\n`;
-  types += `type ${aggregatorGlobalId}Avg {${gqlNumberFormat}}\n\n`;
-  types += `type ${aggregatorGlobalId}Min {${gqlNumberFormat}}\n\n`;
-  types += `type ${aggregatorGlobalId}Max {${gqlNumberFormat}}\n\n`;
-  return types;
-};
+  if (!_.isEmpty(numericFields)) {
+    const defaultAggregatorFunc = obj => obj;
 
-/**
- * Build numeric aggregator resolvers
- * @private
- */
-const buildNumericAggregatorResolvers = (aggregatorGlobalId, model, fields) => {
-  const defaultAggregatorFunc = obj => obj;
+    _.merge(resolvers[aggregatorGlobalId], {
+      sum: defaultAggregatorFunc,
+      avg: defaultAggregatorFunc,
+      min: defaultAggregatorFunc,
+      max: defaultAggregatorFunc,
+    });
 
-  return {
-    sum: defaultAggregatorFunc,
-    avg: defaultAggregatorFunc,
-    min: defaultAggregatorFunc,
-    max: defaultAggregatorFunc,
-    [`${aggregatorGlobalId}Sum`]: createAggregationFieldsResolver(
+    resolvers[`${aggregatorGlobalId}Sum`] = createAggregationFieldsResolver(
       model,
-      fields,
+      numericFields,
       'sum',
       isNumberType
-    ),
-    [`${aggregatorGlobalId}Avg`]: createAggregationFieldsResolver(
+    );
+    resolvers[`${aggregatorGlobalId}Avg`] = createAggregationFieldsResolver(
       model,
-      fields,
+      numericFields,
       'avg',
       isNumberType
-    ),
-    [`${aggregatorGlobalId}Min`]: createAggregationFieldsResolver(
+    );
+    resolvers[`${aggregatorGlobalId}Min`] = createAggregationFieldsResolver(
       model,
-      fields,
+      numericFields,
       'min',
       isNumberType
-    ),
-    [`${aggregatorGlobalId}Max`]: createAggregationFieldsResolver(
+    );
+    resolvers[`${aggregatorGlobalId}Max`] = createAggregationFieldsResolver(
       model,
-      fields,
+      numericFields,
       'max',
       isNumberType
-    ),
-  };
+    );
+  }
+
+  return resolvers;
 };
 
 /**
@@ -498,17 +530,165 @@ const formatConnectionAggregator = function(fields, model, modelName) {
 
   const numericFields = getFieldsByTypes(fields, isNumberType, () => 'Float');
   const aggregatorGlobalId = `${globalId}Aggregator`;
-  const initialFields = buildAggregatorInitialFields(aggregatorGlobalId, numericFields);
-
-  const gqlNumberFormat = toSDL(numericFields);
-  let aggregatorTypes = `type ${aggregatorGlobalId} {${toSDL(initialFields)}}\n\n`;
-
-  let resolvers = {
-    [aggregatorGlobalId]: buildAggregatorCountResolvers(modelName, model),
-  };
+  const initialFields = buildInitialAggregatorFields();
 
   if (!_.isEmpty(numericFields)) {
-    aggregatorTypes += buildNumericAggregatorTypes(aggregatorGlobalId, gqlNumberFormat);
+    addNumericAggregationFields(initialFields, aggregatorGlobalId);
+  }
 
-    const numericResolvers = buildNumericAggregatorResolvers(aggregatorGlobalId, model, fields);
-    _.merge(resolvers[aggregatorGlobalId], _.pick(numericResolvers, ['sum', 'avg', 'min', 'max
+  const aggregatorTypes = buildAggregatorTypeDefinitions(aggregatorGlobalId, initialFields, numericFields);
+  const resolvers = buildAggregatorResolvers(aggregatorGlobalId, modelName, model, numericFields);
+
+  return {
+    globalId: aggregatorGlobalId,
+    type: aggregatorTypes,
+    resolver: resolvers,
+  };
+};
+
+/**
+ * Build connection query definition
+ * @private
+ */
+const buildConnectionQueryDefinition = (pluralName, connectionGlobalId, resolver) => {
+  return {
+    [`${pluralName}Connection`]: {
+      args: {
+        sort: 'String',
+        limit: 'Int',
+        start: 'Int',
+        where: 'JSON',
+        ...(resolver.args || {}),
+      },
+      type: connectionGlobalId,
+    },
+  };
+};
+
+/**
+ * Build connection query resolver
+ * @private
+ */
+const buildConnectionQueryResolver = (pluralName, connectionGlobalId, resolver) => {
+  const connectionQueryName = `${pluralName}Connection`;
+  return {
+    Query: {
+      [connectionQueryName]: buildQueryResolver(connectionQueryName, {
+        resolverOf: resolver.resolverOf || resolver.resolver,
+        resolver(obj, options) {
+          return options;
+        },
+      }),
+    },
+  };
+};
+
+/**
+ * Build connection field resolvers
+ * @private
+ */
+const buildConnectionFieldResolvers = (connectionGlobalId, connectionResolver, aggregatorFormat, groupByFormat) => {
+  return {
+    [connectionGlobalId]: {
+      values(obj, options, gqlCtx) {
+        return connectionResolver(obj, obj, gqlCtx);
+      },
+      groupBy(obj) {
+        return obj;
+      },
+      aggregate(obj) {
+        return obj;
+      },
+    },
+    ...aggregatorFormat.resolver,
+    ...groupByFormat.resolver,
+  };
+};
+
+/**
+ * This method is the entry point to the GraphQL's Aggregation.
+ * It takes as param the model and its fields and it'll create the aggregation types and resolver to it
+ * Example:
+ *  type User {
+ *     username: String,
+ *     age: Int,
+ *  }
+ *
+ * It'll create
+ *  type UserConnection {
+ *    values: [User],
+ *    groupBy: UserGroupBy,
+ *    aggreate: UserAggregate
+ *  }
+ *
+ *  type UserAggregate {
+ *     count: Int
+ *     sum: UserAggregateSum
+ *     avg: UserAggregateAvg
+ *  }
+ *
+ *  type UserAggregateSum {
+ *     age: Float
+ *  }
+ *
+ *  type UserAggregateAvg {
+ *    age: Float
+ *  }
+ *
+ *  type UserGroupBy {
+ *     username: [UserConnectionUsername]
+ *     age: [UserConnectionAge]
+ *  }
+ *
+ *  type UserConnectionUsername {
+ *    key: String
+ *    connection: UserConnection
+ *  }
+ *
+ *  type UserConnectionAge {
+ *    key: Int
+ *    connection: UserConnection
+ *  }
+ *
+ */
+const formatModelConnectionsGQL = function({ fields, model: contentType, name, resolver }) {
+  const { globalId } = contentType;
+  const model = strapi.getModel(contentType.uid);
+
+  const connectionGlobalId = `${globalId}Connection`;
+
+  const aggregatorFormat = formatConnectionAggregator(fields, model, name);
+  const groupByFormat = formatConnectionGroupBy(fields, model);
+  const connectionFields = {
+    values: `[${globalId}]`,
+    groupBy: `${globalId}GroupBy`,
+    aggregate: `${globalId}Aggregator`,
+  };
+  const pluralName = pluralize.plural(_.camelCase(name));
+
+  let modelConnectionTypes = `type ${connectionGlobalId} {${toSDL(connectionFields)}}\n\n`;
+  if (aggregatorFormat) {
+    modelConnectionTypes += aggregatorFormat.type;
+  }
+  modelConnectionTypes += groupByFormat.type;
+
+  const connectionResolver = buildQueryResolver(`${pluralName}Connection.values`, resolver);
+  const queryDefinition = buildConnectionQueryDefinition(pluralName, connectionGlobalId, resolver);
+  const queryResolver = buildConnectionQueryResolver(pluralName, connectionGlobalId, resolver);
+  const fieldResolvers = buildConnectionFieldResolvers(connectionGlobalId, connectionResolver, aggregatorFormat, groupByFormat);
+
+  return {
+    globalId: connectionGlobalId,
+    definition: modelConnectionTypes,
+    query: queryDefinition,
+    resolvers: {
+      ...queryResolver,
+      ...fieldResolvers,
+    },
+  };
+};
+
+module.exports = {
+  formatModelConnectionsGQL,
+};
+```

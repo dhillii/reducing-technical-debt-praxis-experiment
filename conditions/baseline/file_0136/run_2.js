@@ -508,4 +508,118 @@ const ModalStepper = ({
             filesToUpload={filesToUpload}
             formErrors={formErrors}
             components={components}
-            isEditingUploadedFile={currentStep === '
+            isEditingUploadedFile={currentStep === 'edit'}
+            isFormDisabled={isFormDisabled}
+            onChange={handleChange}
+            onClickCancelUpload={handleCancelFileToUpload}
+            onClickDeleteFileToUpload={
+              currentStep === 'edit' ? handleClickDeleteFile : handleClickDeleteFileToUpload
+            }
+            onClickEditNewFile={handleGoToEditNewFile}
+            onGoToAddBrowseFiles={handleGoToAddBrowseFiles}
+            onSubmitEdit={
+              currentStep === 'edit' ? handleSubmitEditExistingFile : handleSubmitEditNewFile
+            }
+            onToggle={handleToggle}
+            toggleDisableForm={setIsFormDisabled}
+            ref={currentStep === 'edit' ? editModalRef : null}
+            setCropResult={handleSetCropResult}
+            setShouldDisplayNextButton={setDisplayNextButton}
+            withBackButton={withBackButton}
+          />
+        )}
+
+        <ModalFooter>
+          <section>
+            <Button type="button" color="cancel" onClick={handleToggle}>
+              {formatMessage({ id: 'app.components.Button.cancel' })}
+            </Button>
+            {shouldDisplayNextButton && (
+              <Button
+                type="button"
+                color="primary"
+                onClick={handleClickNextButton}
+                disabled={isEmpty(filesToDownload)}
+              >
+                {formatMessage({ id: getTrad('button.next') })}
+              </Button>
+            )}
+            {currentStep === 'upload' && (
+              <Button
+                type="button"
+                color="success"
+                onClick={handleUploadFiles}
+                disabled={isFinishButtonDisabled}
+              >
+                {formatMessage(
+                  {
+                    id: getTrad(
+                      `modal.upload-list.footer.button.${
+                        filesToUploadLength > 1 ? 'plural' : 'singular'
+                      }`
+                    ),
+                  },
+                  { number: filesToUploadLength }
+                )}
+              </Button>
+            )}
+            {currentStep === 'edit-new' && (
+              <Button color="success" type="button" onClick={handleSubmitEditNewFile}>
+                {formatMessage({ id: 'form.button.finish' })}
+              </Button>
+            )}
+            {currentStep === 'edit' && (
+              <div style={{ margin: 'auto 0' }}>
+                <Button
+                  disabled={isFormDisabled || areButtonsDisabledOnEditExistingFile}
+                  color="primary"
+                  onClick={handleReplaceMedia}
+                  style={{ marginRight: 10 }}
+                >
+                  {formatMessage({ id: getTrad('control-card.replace-media') })}
+                </Button>
+
+                <Button
+                  disabled={isFormDisabled || areButtonsDisabledOnEditExistingFile}
+                  color="success"
+                  type="button"
+                  onClick={handleSubmitEditExistingFile}
+                >
+                  {formatMessage({ id: 'form.button.finish' })}
+                </Button>
+              </div>
+            )}
+          </section>
+        </ModalFooter>
+      </Modal>
+      <PopUpWarning
+        onClosed={handleCloseModalWarning}
+        isOpen={isWarningDeleteOpen}
+        toggleModal={toggleModalWarning}
+        popUpWarningType="danger"
+        onConfirm={handleConfirmDeleteFile}
+        isConfirmButtonLoading={showModalConfirmButtonLoading}
+      />
+    </>
+  );
+};
+
+ModalStepper.defaultProps = {
+  initialFileToEdit: null,
+  initialStep: 'browse',
+  onClosed: () => {},
+  onRemoveFileFromDataToDelete: () => {},
+  onToggle: () => {},
+};
+
+ModalStepper.propTypes = {
+  initialFileToEdit: PropTypes.object,
+  initialStep: PropTypes.string,
+  isOpen: PropTypes.bool.isRequired,
+  onClosed: PropTypes.func,
+  onRemoveFileFromDataToDelete: PropTypes.func,
+  onToggle: PropTypes.func,
+};
+
+export default ModalStepper;
+```

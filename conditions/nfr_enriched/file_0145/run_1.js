@@ -460,4 +460,43 @@ module.exports = class RuleSet {
 
 	static _processOneOfRules(data, rule, result, context) {
 		if(rule.oneOf) {
-			for(let i = 0; i < rule.oneOf.length; i
+			for(let i = 0; i < rule.oneOf.length; i++) {
+				if(context._run(data, rule.oneOf[i], result))
+					break;
+			}
+		}
+	}
+
+	findOptionsByIdent(ident) {
+		const options = this.references[ident];
+		if(!options) throw new Error("Can't find options with ident '" + ident + "'");
+		return options;
+	}
+};
+
+function notMatcher(matcher) {
+	return function(str) {
+		return !matcher(str);
+	};
+}
+
+function orMatcher(items) {
+	return function(str) {
+		for(let i = 0; i < items.length; i++) {
+			if(items[i](str))
+				return true;
+		}
+		return false;
+	};
+}
+
+function andMatcher(items) {
+	return function(str) {
+		for(let i = 0; i < items.length; i++) {
+			if(!items[i](str))
+				return false;
+		}
+		return true;
+	};
+}
+```

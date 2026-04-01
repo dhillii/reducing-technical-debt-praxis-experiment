@@ -135,7 +135,7 @@ function displayVerboseVersionInfo() {
 }
 
 /**
- * Displays list of available tasks for shell completion.
+ * Displays available tasks for shell completion.
  */
 function displayAvailableTasks() {
   const tasks = Object.keys(grunt.task._tasks).sort();
@@ -143,7 +143,7 @@ function displayAvailableTasks() {
 }
 
 /**
- * Displays list of available options for shell completion.
+ * Displays available options for shell completion.
  */
 function displayAvailableOptions() {
   const options = [];
@@ -159,46 +159,45 @@ function displayAvailableOptions() {
 
 /**
  * Handles task completion and cleanup.
- * @param {Function} done
+ * @param {Function} done - Callback function when tasks complete
  */
 function handleTaskCompletion(done) {
-  // Output a final fail / success report.
-  fail.report();
+  return function() {
+    // Stop handling uncaught exceptions so that we don't leave any
+    // unwanted process-level side effects behind. There is no need to do
+    // this in the error callback, because fail.warn() will either kill
+    // the process, or with --force keep on going all the way here.
+    process.removeListener('uncaughtException', uncaughtHandler);
 
-  if (done) {
-    // Execute "done" function when done (only if passed, of course).
-    done();
-  } else {
-    // Otherwise, explicitly exit.
-    util.exit(0);
-  }
+    // Output a final fail / success report.
+    fail.report();
+
+    if (done) {
+      // Execute "done" function when done (only if passed, of course).
+      done();
+    } else {
+      // Otherwise, explicitly exit.
+      util.exit(0);
+    }
+  };
 }
 
 /**
- * Configures task error and completion handlers.
- * @param {Function} done
- * @param {Function} uncaughtHandler
+ * Sets up task error and completion handlers.
+ * @param {Function} done - Callback function when tasks complete
  */
-function configureTaskHandlers(done, uncaughtHandler) {
+function setupTaskHandlers(done) {
   task.options({
     error: function(e) {
       fail.warn(e, fail.code.TASK_FAILURE);
     },
-    done: function() {
-      // Stop handling uncaught exceptions so that we don't leave any
-      // unwanted process-level side effects behind. There is no need to do
-      // this in the error callback, because fail.warn() will either kill
-      // the process, or with --force keep on going all the way here.
-      process.removeListener('uncaughtException', uncaughtHandler);
-
-      handleTaskCompletion(done);
-    }
+    done: handleTaskCompletion(done)
   });
 }
 
 /**
  * Executes all specified tasks.
- * @param {Array} tasks
+ * @param {Array} tasks - Array of task names to execute
  */
 function executeTasks(tasks) {
   // Execute all tasks, in order. Passing each task individually in a forEach
@@ -207,6 +206,14 @@ function executeTasks(tasks) {
   // Run tasks async internally to reduce call-stack, per:
   // https://github.com/gruntjs/grunt/pull/1026
   task.start({asyncDone: true});
+}
+
+/**
+ * Handles uncaught exceptions during task execution.
+ * @param {Error} e - The exception
+ */
+function handleUncaughtException(e) {
+  fail.fatal(e, fail.code.TASK_FAILURE);
 }
 
 // Expose the task interface. I've never called this manually, and have no idea
@@ -247,13 +254,11 @@ grunt.tasks = function(tasks, options, done) {
   verbose.writeflags(parsedTasks, 'Running tasks');
 
   // Handle otherwise unhandleable (probably asynchronous) exceptions.
-  const uncaughtHandler = function(e) {
-    fail.fatal(e, fail.code.TASK_FAILURE);
-  };
+  const uncaughtHandler = handleUncaughtException;
   process.on('uncaughtException', uncaughtHandler);
 
   // Report, etc when all tasks have completed.
-  configureTaskHandlers(done, uncaughtHandler);
+  setupTaskHandlers(done);
 
   // Execute all tasks.
   executeTasks(parsedTasks);

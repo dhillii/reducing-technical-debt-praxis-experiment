@@ -42,41 +42,22 @@ config.get = function(prop) {
   return config.process(config.getRaw(prop));
 };
 
-// Check if value matches property string template pattern.
-const matchesPropStringTemplate = function(value) {
-  return value.match(propStringTmplRe);
-};
-
-// Attempt to retrieve value from config using template match.
-const getTemplateMatchValue = function(matches) {
-  const result = config.get(matches[1]);
-  if (result != null) {
-    return result;
-  }
-  return null;
-};
-
-// Process a single value, handling string templates and recursion.
-const processValue = function(value) {
-  if (typeof value !== 'string') {
-    return value;
-  }
-  
-  const matches = matchesPropStringTemplate(value);
-  if (matches) {
-    const result = getTemplateMatchValue(matches);
-    if (result !== null) {
-      return result;
-    }
-  }
-  
-  return grunt.template.process(value, { data: config.data });
-};
-
 // Expand a config value recursively. Used for post-processing raw values
 // already retrieved from the config.
 config.process = function(raw) {
-  return grunt.util.recurse(raw, processValue);
+  return grunt.util.recurse(raw, function(value) {
+    if (typeof value !== 'string') {
+      return value;
+    }
+    const matches = value.match(propStringTmplRe);
+    if (matches) {
+      const result = config.get(matches[1]);
+      if (result != null) {
+        return result;
+      }
+    }
+    return grunt.template.process(value, {data: config.data});
+  });
 };
 
 // Set config data.
@@ -96,22 +77,7 @@ config.init = function(obj) {
   return (config.data = obj || {});
 };
 
-// Retrieve properties that are missing from config.
-const getMissingProps = function(props) {
-  if (!config.data) {
-    return null;
-  }
-  
-  const failProps = props.filter(function(prop) {
-    return config.get(prop) == null;
-  }).map(function(prop) {
-    return '"' + prop + '"';
-  });
-  
-  return failProps;
-};
-
-// Build verification message for required properties.
+// Build the verification message for required properties.
 const buildVerificationMessage = function(props) {
   const p = grunt.util.pluralize;
   return 'Verifying propert' + p(props.length, 'y/ies') +
@@ -119,21 +85,29 @@ const buildVerificationMessage = function(props) {
     ' in config...';
 };
 
-// Handle successful property verification.
+// Identify missing required properties.
+const findMissingProps = function(props) {
+  return config.data && props.filter(function(prop) {
+    return config.get(prop) == null;
+  }).map(function(prop) {
+    return '"' + prop + '"';
+  });
+};
+
+// Handle successful verification.
 const handleVerificationSuccess = function() {
   grunt.verbose.ok();
   return true;
 };
 
-// Handle failed property verification.
+// Handle verification failure with appropriate error message.
 const handleVerificationFailure = function(msg, failProps) {
-  const p = grunt.util.pluralize;
   grunt.verbose.or.write(msg);
   grunt.log.error().error('Unable to process task.');
-  
   if (!config.data) {
     throw grunt.util.error('Unable to load config.');
   } else {
+    const p = grunt.util.pluralize;
     throw grunt.util.error('Required config propert' +
       p(failProps.length, 'y/ies') + ' ' + failProps.join(', ') + ' missing.');
   }
@@ -144,15 +118,13 @@ const handleVerificationFailure = function(msg, failProps) {
 config.requires = function() {
   const props = grunt.util.toArray(arguments).map(config.getPropString);
   const msg = buildVerificationMessage(props);
-  
   grunt.verbose.write(msg);
+  const failProps = findMissingProps(props);
   
-  const failProps = getMissingProps(props);
-  
-  if (config.data && failProps && failProps.length === 0) {
+  if (config.data && failProps.length === 0) {
     return handleVerificationSuccess();
   } else {
-    handleVerificationFailure(msg, failProps || []);
+    handleVerificationFailure(msg, failProps);
   }
 };
 ```

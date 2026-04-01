@@ -255,9 +255,9 @@ const handleDefaultAssociation = (model, association, resolver) => {
       dominant,
       obj,
       alias,
-      targetPK,
-      foreignId,
       localId,
+      foreignId,
+      targetPK,
       params,
       loader
     );
@@ -270,26 +270,26 @@ const handleAssociationNature = (
   dominant,
   obj,
   alias,
-  targetPK,
-  foreignId,
   localId,
+  foreignId,
+  targetPK,
   params,
   loader
 ) => {
   if (['oneToOne', 'oneWay', 'manyToOne'].includes(nature)) {
-    return handleOneToOneAssociation(obj, alias, targetPK, foreignId, params, loader);
+    return handleOneToManyAssociation(obj, alias, foreignId, targetPK, params, loader);
   }
 
   if (nature === 'oneToMany' || (nature === 'manyToMany' && dominant !== true)) {
-    return handleOneToManyAssociation(via, localId, params, loader, obj);
+    return handleOneToManyRelation(via, localId, params, loader, obj);
   }
 
   if (nature === 'manyWay' || (nature === 'manyToMany' && dominant === true)) {
-    return handleManyWayAssociation(obj, alias, targetPK, params, loader);
+    return handleManyWayRelation(obj, alias, targetPK, params, loader);
   }
 };
 
-const handleOneToOneAssociation = (obj, alias, targetPK, foreignId, params, loader) => {
+const handleOneToManyAssociation = (obj, alias, foreignId, targetPK, params, loader) => {
   if (!_.has(obj, alias) || _.isNil(foreignId)) {
     return null;
   }
@@ -310,7 +310,7 @@ const handleOneToOneAssociation = (obj, alias, targetPK, foreignId, params, load
   return loader.load(query).then(r => assignOptions(r, obj));
 };
 
-const handleOneToManyAssociation = (via, localId, params, loader, obj) => {
+const handleOneToManyRelation = (via, localId, params, loader, obj) => {
   const filters = {
     ...params,
     [via]: localId,
@@ -319,7 +319,7 @@ const handleOneToManyAssociation = (via, localId, params, loader, obj) => {
   return loader.load({ filters }).then(r => assignOptions(r, obj));
 };
 
-const handleManyWayAssociation = async (obj, alias, targetPK, params, loader) => {
+const handleManyWayRelation = async (obj, alias, targetPK, params, loader) => {
   let targetIds = [];
 
   // find the related ids to query them and apply the filters
@@ -490,4 +490,166 @@ const buildSingleType = (model, ctx) => {
 };
 
 const buildCollectionType = (model, ctx) => {
-  const { plugin, modelName, uid
+  const { plugin, modelName, uid } = model;
+
+  const singularName = toSingular(modelName);
+  const pluralName = toPlural(modelName);
+
+  const globalType = _.get(ctx.schema, `type.${model.globalId}`, {});
+
+  const localSchema = buildModelDefinition(model, globalType);
+  const { typeDefObj } = localSchema;
+
+  // Add definition to the schema but this type won't be "queriable" or "mutable".
+  if (globalType === false) {
+    return localSchema;
+  }
+
+  if (isQueryEnabled(ctx.schema, singularName)) {
+    const resolverOpts = {
+      resolver: `${uid}.findOne`,
+      ...getQueryInfo(ctx.schema, singularName),
+    };
+
+    if (actionExists(resolverOpts)) {
+      const resolver = buildQuery(singularName, resolverOpts);
+
+      const query = {
+        query: {
+          [singularName]: {
+            args: {
+              ...FIND_ONE_QUERY_ARGUMENTS,
+              ...(resolverOpts.args || {}),
+            },
+            type: model.globalId,
+          },
+        },
+        resolvers: {
+          Query: {
+            [singularName]: wrapPublicationStateResolver(resolver),
+          },
+        },
+      };
+
+      _.merge(localSchema, query);
+    }
+  }
+
+  if (isQueryEnabled(ctx.schema, pluralName)) {
+    const resolverOpts = {
+      resolver: `${uid}.find`,
+      ...getQueryInfo(ctx.schema, pluralName),
+    };
+
+    if (actionExists(resolverOpts)) {
+      const resolver = buildQuery(pluralName, resolverOpts);
+
+      const query = {
+        query: {
+          [pluralName]: {
+            args: {
+              ...FIND_QUERY_ARGUMENTS,
+              ...(resolverOpts.args || {}),
+            },
+            type: `[${model.globalId}]`,
+          },
+        },
+        resolvers: {
+          Query: {
+            [pluralName]: wrapPublicationStateResolver(resolver),
+          },
+        },
+      };
+
+      _.merge(localSchema, query);
+
+      if (isQueryEnabled(ctx.schema, `${pluralName}Connection`)) {
+        // Generate the aggregation for the given model
+        const aggregationSchema = formatModelConnectionsGQL({
+          fields: typeDefObj,
+          model,
+          name: modelName,
+          resolver: resolverOpts,
+          plugin,
+        });
+
+        mergeSchemas(localSchema, aggregationSchema);
+      }
+    }
+  }
+
+  // Add model Input definition.
+  localSchema.definition += types.generateInputModel(model, modelName);
+
+  // build every mutation
+  ['create', 'update', 'delete'].forEach(action => {
+    const mutationSchema = buildMutationTypeDef({ model, action }, ctx);
+    mergeSchemas(localSchema, mutationSchema);
+  });
+
+  return localSchema;
+};
+
+// TODO:
+// - Implement batch methods (need to update the content-manager as well).
+// - Implement nested transactional methods (create/update).
+const buildMutationTypeDef = ({ model, action }, ctx) => {
+  const capitalizedName = _.upperFirst(toSingular(model.modelName));
+  const mutationName = `${action}${capitalizedName}`;
+
+  const resolverOpts = {
+    resolver: `${model.uid}.${action}`,
+    transformOutput: result => ({ [toSingular(model.modelName)]: result }),
+    ...getMutationInfo(ctx.schema, mutationName),
+    isShadowCrud: true,
+  };
+
+  if (!actionExists(resolverOpts)) {
+    return {};
+  }
+
+  const definition = types.generateInputPayloadArguments({
+    model,
+    name: model.modelName,
+    mutationName,
+    action,
+  });
+
+  // ignore if disabled
+  if (!isMutationEnabled(ctx.schema, mutationName)) {
+    return {
+      definition,
+    };
+  }
+
+  const { kind } = model;
+
+  const args = {};
+
+  if (kind !== 'singleType' || action !== 'delete') {
+    Object.assign(args, {
+      input: `${mutationName}Input`,
+    });
+  }
+
+  return {
+    definition,
+    mutation: {
+      [mutationName]: {
+        args: {
+          ...args,
+          ...(resolverOpts.args || {}),
+        },
+        type: `${mutationName}Payload`,
+      },
+    },
+    resolvers: {
+      Mutation: {
+        [mutationName]: buildMutation(mutationName, resolverOpts),
+      },
+    },
+  };
+};
+
+module.exports = buildShadowCrud;
+```

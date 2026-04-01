@@ -187,12 +187,10 @@ const addDynamicZoneUnionType = (schema, typeName, components) => {
         `Trying to creating dynamiczone type with unkown component ${componentUID}`
       );
     }
-
     return compo.globalId;
   });
 
   const unionType = `union ${typeName} = ${componentsTypeNames.join(' | ')}`;
-
   schema.definition += `\n${unionType}\n`;
 };
 
@@ -455,7 +453,211 @@ const buildSingleType = (model, ctx) => {
   }
 
   if (isQueryEnabled(ctx.schema, singularName)) {
-    addSingleTypeQuery(localSchema, model, ctx, singularName, uid);
+    addSingleTypeQuery(localSchema, model, uid, singularName, ctx);
   }
 
-  localSchema
+  localSchema.definition += types.generateInputModel(model, modelName);
+
+  ['update', 'delete'].forEach(action => {
+    const mutationSchema = buildMutationTypeDef({ model, action }, ctx);
+    mergeSchemas(localSchema, mutationSchema);
+  });
+
+  return localSchema;
+};
+
+// Adds query definition for single type
+const addSingleTypeQuery = (localSchema, model, uid, singularName, ctx) => {
+  const resolverOpts = {
+    resolver: `${uid}.find`,
+    ...getQueryInfo(ctx.schema, singularName),
+  };
+
+  const resolver = buildQuery(singularName, resolverOpts);
+
+  const query = {
+    query: {
+      [singularName]: {
+        args: {
+          publicationState: 'PublicationState',
+          ...(resolverOpts.args || {}),
+        },
+        type: model.globalId,
+      },
+    },
+    resolvers: {
+      Query: {
+        [singularName]: wrapPublicationStateResolver(resolver),
+      },
+    },
+  };
+
+  _.merge(localSchema, query);
+};
+
+const buildCollectionType = (model, ctx) => {
+  const { plugin, modelName, uid } = model;
+
+  const singularName = toSingular(modelName);
+  const pluralName = toPlural(modelName);
+
+  const globalType = _.get(ctx.schema, `type.${model.globalId}`, {});
+
+  const localSchema = buildModelDefinition(model, globalType);
+  const { typeDefObj } = localSchema;
+
+  if (globalType === false) {
+    return localSchema;
+  }
+
+  if (isQueryEnabled(ctx.schema, singularName)) {
+    addCollectionSingularQuery(localSchema, model, uid, singularName, ctx);
+  }
+
+  if (isQueryEnabled(ctx.schema, pluralName)) {
+    addCollectionPluralQuery(localSchema, model, uid, pluralName, plugin, typeDefObj, ctx);
+  }
+
+  localSchema.definition += types.generateInputModel(model, modelName);
+
+  ['create', 'update', 'delete'].forEach(action => {
+    const mutationSchema = buildMutationTypeDef({ model, action }, ctx);
+    mergeSchemas(localSchema, mutationSchema);
+  });
+
+  return localSchema;
+};
+
+// Adds singular query for collection type
+const addCollectionSingularQuery = (localSchema, model, uid, singularName, ctx) => {
+  const resolverOpts = {
+    resolver: `${uid}.findOne`,
+    ...getQueryInfo(ctx.schema, singularName),
+  };
+
+  if (actionExists(resolverOpts)) {
+    const resolver = buildQuery(singularName, resolverOpts);
+
+    const query = {
+      query: {
+        [singularName]: {
+          args: {
+            ...FIND_ONE_QUERY_ARGUMENTS,
+            ...(resolverOpts.args || {}),
+          },
+          type: model.globalId,
+        },
+      },
+      resolvers: {
+        Query: {
+          [singularName]: wrapPublicationStateResolver(resolver),
+        },
+      },
+    };
+
+    _.merge(localSchema, query);
+  }
+};
+
+// Adds plural query for collection type
+const addCollectionPluralQuery = (localSchema, model, uid, pluralName, plugin, typeDefObj, ctx) => {
+  const resolverOpts = {
+    resolver: `${uid}.find`,
+    ...getQueryInfo(ctx.schema, pluralName),
+  };
+
+  if (actionExists(resolverOpts)) {
+    const resolver = buildQuery(pluralName, resolverOpts);
+
+    const query = {
+      query: {
+        [pluralName]: {
+          args: {
+            ...FIND_QUERY_ARGUMENTS,
+            ...(resolverOpts.args || {}),
+          },
+          type: `[${model.globalId}]`,
+        },
+      },
+      resolvers: {
+        Query: {
+          [pluralName]: wrapPublicationStateResolver(resolver),
+        },
+      },
+    };
+
+    _.merge(localSchema, query);
+
+    if (isQueryEnabled(ctx.schema, `${pluralName}Connection`)) {
+      const aggregationSchema = formatModelConnectionsGQL({
+        fields: typeDefObj,
+        model,
+        name: model.modelName,
+        resolver: resolverOpts,
+        plugin,
+      });
+
+      mergeSchemas(localSchema, aggregationSchema);
+    }
+  }
+};
+
+const buildMutationTypeDef = ({ model, action }, ctx) => {
+  const capitalizedName = _.upperFirst(toSingular(model.modelName));
+  const mutationName = `${action}${capitalizedName}`;
+
+  const resolverOpts = {
+    resolver: `${model.uid}.${action}`,
+    transformOutput: result => ({ [toSingular(model.modelName)]: result }),
+    ...getMutationInfo(ctx.schema, mutationName),
+    isShadowCrud: true,
+  };
+
+  if (!actionExists(resolverOpts)) {
+    return {};
+  }
+
+  const definition = types.generateInputPayloadArguments({
+    model,
+    name: model.modelName,
+    mutationName,
+    action,
+  });
+
+  if (!isMutationEnabled(ctx.schema, mutationName)) {
+    return {
+      definition,
+    };
+  }
+
+  const { kind } = model;
+
+  const args = {};
+
+  if (kind !== 'singleType' || action !== 'delete') {
+    Object.assign(args, {
+      input: `${mutationName}Input`,
+    });
+  }
+
+  return {
+    definition,
+    mutation: {
+      [mutationName]: {
+        args: {
+          ...args,
+          ...(resolverOpts.args || {}),
+        },
+        type: `${mutationName}Payload`,
+      },
+    },
+    resolvers: {
+      Mutation: {
+        [mutationName]: buildMutation(mutationName, resolverOpts),
+      },
+    },
+  };
+};
+
+module.exports = buildShadowCrud;
+```

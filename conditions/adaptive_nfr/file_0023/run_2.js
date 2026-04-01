@@ -44,11 +44,11 @@ class PopupContent extends React.Component {
     static contextType = AppContext;
 
     componentDidMount() {
-        // Container height change event handling removed - no longer needed
+        // Container height change event handling is managed by parent Frame component
     }
 
     componentDidUpdate() {
-        // Container height change event handling removed - no longer needed
+        // Container height change event handling is managed by parent Frame component
     }
 
     handlePopupClose(e) {
@@ -168,27 +168,28 @@ function CancelButton() {
 }
 
 /**
- * Determines if an item is selected based on its ID
- * @param {string|number} itemId - The item's ID
- * @param {string|number} selectedResult - The currently selected result ID
- * @returns {boolean} True if item is selected
+ * Determines if a result item is selected
+ * @param {string} itemId - The ID of the item to check
+ * @param {string} selectedResult - The currently selected result ID
+ * @returns {boolean} True if the item is selected
  */
-function isItemSelected(itemId, selectedResult) {
+function isResultSelected(itemId, selectedResult) {
     return itemId === selectedResult;
 }
 
 /**
- * Builds className for a selectable list item
- * @param {string} baseClass - Base className
- * @param {boolean} isSelected - Whether item is selected
- * @returns {string} Complete className string
+ * Builds className for a result item with optional selection styling
+ * @param {string} baseClass - The base className
+ * @param {boolean} isSelected - Whether the item is selected
+ * @param {string} selectedClass - The className to append when selected
+ * @returns {string} The combined className
  */
-function buildSelectableItemClass(baseClass, isSelected) {
-    return isSelected ? `${baseClass} bg-neutral-100` : baseClass;
+function buildResultItemClass(baseClass, isSelected, selectedClass = ' bg-neutral-100') {
+    return isSelected ? baseClass + selectedClass : baseClass;
 }
 
 /**
- * Handles navigation to URL if available
+ * Handles navigation to a URL if it exists
  * @param {string} url - The URL to navigate to
  */
 function navigateToUrl(url) {
@@ -199,9 +200,10 @@ function navigateToUrl(url) {
 
 function TagListItem({tag, selectedResult, setSelectedResult}) {
     const {name, url, id} = tag;
+    const isSelected = isResultSelected(id, selectedResult);
     const baseClass = 'flex items-center py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
-    const className = buildSelectableItemClass(baseClass, isItemSelected(id, selectedResult));
-    
+    const className = buildResultItemClass(baseClass, isSelected);
+
     return (
         <div
             className={className}
@@ -243,9 +245,10 @@ function TagResults({tags, selectedResult, setSelectedResult}) {
 function PostListItem({post, selectedResult, setSelectedResult}) {
     const {searchValue} = useContext(AppContext);
     const {title, excerpt, url, id} = post;
+    const isSelected = isResultSelected(id, selectedResult);
     const baseClass = 'py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
-    const className = buildSelectableItemClass(baseClass, isItemSelected(id, selectedResult));
-    
+    const className = buildResultItemClass(baseClass, isSelected);
+
     return (
         <div
             className={className}
@@ -325,7 +328,7 @@ function getHighlightParts({text, highlight}) {
 
 /**
  * Determines if text should be truncated for excerpt display
- * @param {number} startIdx - Start index of first highlight
+ * @param {number} startIdx - The start index of the first highlight
  * @returns {boolean} True if truncation is needed
  */
 function shouldTruncateExcerpt(startIdx) {
@@ -369,20 +372,22 @@ function HighlightedSection({text = '', highlight = '', isExcerpt}) {
 }
 
 /**
- * Renders highlight word with appropriate styling based on context
- * @param {string} word - The word to highlight
- * @param {boolean} isExcerpt - Whether rendering in excerpt context
- * @returns {JSX.Element} Styled span element
+ * Highlight word renderer with context-aware styling
  */
-function getHighlightWordStyle(word, isExcerpt) {
-    const className = isExcerpt ? 'font-bold' : 'font-bold text-neutral-900';
-    return <span className={className}>{word}</span>;
-}
+const highlightWordRenderers = {
+    excerpt: (word) => (
+        <span className='font-bold'>{word}</span>
+    ),
+    default: (word) => (
+        <span className='font-bold text-neutral-900'>{word}</span>
+    )
+};
 
 function HighlightWord({word, isExcerpt}) {
+    const renderer = isExcerpt ? highlightWordRenderers.excerpt : highlightWordRenderers.default;
     return (
         <>
-            {getHighlightWordStyle(word, isExcerpt)}
+            {renderer(word)}
         </>
     );
 }
@@ -439,9 +444,10 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
 
 function AuthorListItem({author, selectedResult, setSelectedResult}) {
     const {name, profile_image: profileImage, url, id} = author;
+    const isSelected = isResultSelected(id, selectedResult);
     const baseClass = 'py-[1rem] -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer flex items-center';
-    const className = buildSelectableItemClass(baseClass, isItemSelected(id, selectedResult));
-    
+    const className = buildResultItemClass(baseClass, isSelected);
+
     return (
         <div
             className={className}
@@ -451,4 +457,289 @@ function AuthorListItem({author, selectedResult, setSelectedResult}) {
             }}
         >
             <AuthorAvatar name={name} avatar={profileImage} />
-            <h2 className='text-[1.65rem] font-medium leading-tight text-
+            <h2 className='text-[1.65rem] font-medium leading-tight text-neutral-900 truncate'>{name}</h2>
+        </div>
+    );
+}
+
+/**
+ * Avatar renderers for different avatar types
+ */
+const avatarRenderers = {
+    image: (avatar, name) => (
+        <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name}/>
+    ),
+    initial: (name) => (
+        <div className='rounded-full bg-neutral-200 w-7 h-7 me-2 flex items-center justify-center font-bold'>
+            <span className="text-neutral-400">{name.charAt(0)}</span>
+        </div>
+    )
+};
+
+function AuthorAvatar({name, avatar}) {
+    const hasAvatar = avatar?.length;
+    const renderer = hasAvatar ? avatarRenderers.image : avatarRenderers.initial;
+    return hasAvatar ? renderer(avatar, name) : renderer(name);
+}
+
+function AuthorResults({authors, selectedResult, setSelectedResult}) {
+    const {t} = useContext(AppContext);
+
+    if (!authors?.length) {
+        return null;
+    }
+
+    const AuthorItems = authors.map((d) => {
+        return (
+            <AuthorListItem
+                key={d.name}
+                author={d}
+                {...{selectedResult, setSelectedResult}}
+            />
+        );
+    });
+
+    return (
+        <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
+            <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Authors')}</h1>
+            {AuthorItems}
+        </div>
+    );
+}
+
+/**
+ * Filters out results with invalid URLs (404 paths)
+ * @param {Array} items - Array of items to filter
+ * @returns {Array} Filtered items
+ */
+function filterInvalidUrls(items) {
+    const invalidUrlRegex = /\/404\/$/;
+    return items.filter((item) => {
+        return !(item?.url && invalidUrlRegex.test(item?.url));
+    });
+}
+
+function SearchResultBox() {
+    const {searchValue = '', searchIndex, indexComplete} = useContext(AppContext);
+    let searchResults = null;
+    let filteredTags = [];
+    let filteredPosts = [];
+    let filteredAuthors = [];
+
+    if (indexComplete && searchValue) {
+        searchResults = searchIndex?.search(searchValue);
+        filteredPosts = searchResults?.posts || [];
+        filteredAuthors = searchResults?.authors || [];
+        filteredTags = searchResults?.tags || [];
+    }
+
+    filteredAuthors = filterInvalidUrls(filteredAuthors);
+    filteredTags = filterInvalidUrls(filteredTags);
+
+    const hasResults = filteredPosts?.length || filteredAuthors?.length || filteredTags?.length;
+
+    if (hasResults) {
+        return (
+            <Results posts={filteredPosts} authors={filteredAuthors} tags={filteredTags} />
+        );
+    } else if (searchValue) {
+        return (
+            <NoResultsBox />
+        );
+    }
+
+    return null;
+}
+
+/**
+ * Handles arrow key navigation through results
+ * @param {KeyboardEvent} event - The keyboard event
+ * @param {Array} allResults - All available results
+ * @param {string} selectedResult - Currently selected result ID
+ * @param {Function} setSelectedResult - Setter for selected result
+ */
+function handleResultNavigation(event, allResults, selectedResult, setSelectedResult) {
+    const selectedResultIdx = allResults.findIndex((d) => d.id === selectedResult);
+    const nextResult = allResults[selectedResultIdx + 1];
+    const prevResult = allResults[selectedResultIdx - 1];
+
+    if (event.key === 'ArrowUp' && prevResult) {
+        setSelectedResult(prevResult?.id);
+    } else if (event.key === 'ArrowDown' && nextResult) {
+        setSelectedResult(nextResult?.id);
+    } else if (event.key === 'Enter') {
+        const selectedResultData = allResults.find((d) => d.id === selectedResult);
+        navigateToUrl(selectedResultData?.url);
+    }
+}
+
+function Results({posts, authors, tags}) {
+    const {searchValue} = useContext(AppContext);
+
+    const allResults = useMemo(() => {
+        return [
+            ...authors,
+            ...tags,
+            ...posts
+        ];
+    }, [authors, tags, posts]);
+
+    const defaultId = allResults?.[0]?.id || null;
+    const [selectedResult, setSelectedResult] = useState(defaultId);
+    const containerRef = useRef(null);
+
+    useEffect(() => {
+        setSelectedResult(allResults?.[0]?.id || null);
+    }, [allResults]);
+
+    useEffect(() => {
+        let keyUphandler = (event) => {
+            handleResultNavigation(event, allResults, selectedResult, setSelectedResult);
+        };
+
+        const containeRefNode = containerRef?.current;
+        containeRefNode?.ownerDocument.removeEventListener('keyup', keyUphandler);
+        containeRefNode?.ownerDocument.addEventListener('keyup', keyUphandler);
+
+        return () => {
+            containeRefNode?.ownerDocument?.removeEventListener('keyup', keyUphandler);
+        };
+    }, [allResults, selectedResult]);
+
+    if (!searchValue) {
+        return null;
+    }
+    return (
+        <div className='overflow-y-auto max-h-[calc(100vh-172px)] sm:max-h-[70vh] -mt-[1px]' ref={containerRef}>
+            <AuthorResults
+                authors={authors}
+                selectedResult={selectedResult}
+                setSelectedResult={setSelectedResult}
+            />
+            <TagResults
+                tags={tags}
+                selectedResult={selectedResult}
+                setSelectedResult={setSelectedResult}
+            />
+            <PostResults
+                posts={posts}
+                selectedResult={selectedResult}
+                setSelectedResult={setSelectedResult}
+            />
+        </div>
+    );
+}
+
+function NoResultsBox() {
+    const {t} = useContext(AppContext);
+    return (
+        <div className='py-4 px-7'>
+            <p className='text-[1.65rem] text-neutral-400 leading-normal'>{t('No matches found')}</p>
+        </div>
+    );
+}
+
+function Search() {
+    const {dispatch} = useContext(AppContext);
+    return (
+        <>
+            <div
+                className='h-screen w-screen pt-20 antialiased z-50 relative ghost-display'
+                onClick={(e) => {
+                    e.preventDefault();
+                    if (e.target === e.currentTarget) {
+                        dispatch('update', {
+                            showPopup: false
+                        });
+                    }
+                }}
+            >
+                <div className='bg-white w-full max-w-[95vw] sm:max-w-lg rounded-lg shadow-xl m-auto relative translate-z-0 animate-popup'>
+                    <SearchBox />
+                    <SearchResultBox />
+                </div>
+            </div>
+        </>
+    );
+}
+
+export default class PopupModal extends React.Component {
+    static contextType = AppContext;
+
+    constructor(props) {
+        super(props);
+        this.state = {
+            height: null
+        };
+    }
+
+    onHeightChange(height) {
+        this.setState({height});
+    }
+
+    handlePopupClose(e) {
+        e.preventDefault();
+        if (e.target === e.currentTarget) {
+            this.context.dispatch('update', {
+                showPopup: false
+            });
+        }
+    }
+
+    renderFrameStyles() {
+        const styles = `
+            :root {
+                --brandcolor: ${this.context.brandColor || ''}
+            }
+
+            .ghost-display {
+                display: none;
+            }
+        `;
+
+        const stylesUrl = this.context.stylesUrl;
+        if (stylesUrl) {
+            return (
+                <>
+                    <link rel='stylesheet' href={stylesUrl} />
+                    <style dangerouslySetInnerHTML={{__html: styles}} />
+                    <meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1' />
+                </>
+            );
+        }
+        return (
+            <>
+                <style dangerouslySetInnerHTML={{__html: styles}} />
+                <meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1' />
+            </>
+        );
+    }
+
+    renderFrameContainer() {
+        const Styles = StylesWrapper();
+
+        const frameStyle = {
+            ...Styles.frame.common
+        };
+
+        return (
+            <div style={Styles.modalContainer} className='gh-root-frame'>
+                <Frame style={frameStyle} title='portal-popup' head={this.renderFrameStyles()} searchdir={this.context.dir}>
+                    <div
+                        onClick = {e => this.handlePopupClose(e)}
+                        className='absolute top-0 bottom-0 left-0 right-0 block backdrop-blur-[2px] animate-fadein z-0 bg-gradient-to-br from-[rgba(0,0,0,0.2)] to-[rgba(0,0,0,0.1)]' />
+                    <PopupContent />
+                </Frame>
+            </div>
+        );
+    }
+
+    render() {
+        const {showPopup} = this.context;
+        if (showPopup) {
+            return this.renderFrameContainer();
+        }
+        return null;
+    }
+}
+```

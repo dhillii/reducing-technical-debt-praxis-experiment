@@ -29,7 +29,7 @@ const hasAccessToken = (accessToken) => {
  * @param {object} profile
  * @returns {boolean}
  */
-const profileHasEmail = (profile) => {
+const hasProfileEmail = (profile) => {
   return Boolean(profile && profile.email);
 };
 
@@ -94,15 +94,14 @@ const connect = (provider, query) => {
         return reject([null, err]);
       }
 
-      if (!profileHasEmail(profile)) {
+      if (!hasProfileEmail(profile)) {
         return reject([null, { message: 'Email was not available.' }]);
       }
 
       try {
-        const result = await handleUserConnection(provider, profile);
-        return resolve(result);
+        await handleUserConnection(provider, profile, resolve, reject);
       } catch (err) {
-        return reject([null, err]);
+        reject([null, err]);
       }
     });
   });
@@ -112,9 +111,10 @@ const connect = (provider, query) => {
  * Handles user connection logic.
  * @param {string} provider
  * @param {object} profile
- * @returns {Promise<array>}
+ * @param {function} resolve
+ * @param {function} reject
  */
-const handleUserConnection = async (provider, profile) => {
+const handleUserConnection = async (provider, profile, resolve, reject) => {
   const users = await strapi.query('user', 'users-permissions').find({
     email: profile.email,
   });
@@ -132,27 +132,28 @@ const handleUserConnection = async (provider, profile) => {
   const isUserEmpty = _.isEmpty(user);
 
   if (isUserEmpty && !advanced.allow_register) {
-    return [
+    return resolve([
       null,
       [{ messages: [{ id: 'Auth.advanced.allow_register' }] }],
       'Register action is actually not available.',
-    ];
+    ]);
   }
 
   if (!isUserEmpty) {
-    return [user, null];
+    return resolve([user, null]);
   }
 
   const anotherUserExists = anotherUserHasSameEmail(users, provider);
+
   if (!isEmailUnique(anotherUserExists, advanced)) {
-    return [
+    return resolve([
       null,
       [{ messages: [{ id: 'Auth.form.error.email.taken' }] }],
       'Email is already taken.',
-    ];
+    ]);
   }
 
-  return createNewUser(provider, profile, advanced);
+  await createNewUser(provider, profile, advanced, resolve);
 };
 
 /**
@@ -160,22 +161,75 @@ const handleUserConnection = async (provider, profile) => {
  * @param {string} provider
  * @param {object} profile
  * @param {object} advanced
- * @returns {Promise<array>}
+ * @param {function} resolve
  */
-const createNewUser = async (provider, profile, advanced) => {
+const createNewUser = async (provider, profile, advanced, resolve) => {
   const defaultRole = await strapi
     .query('role', 'users-permissions')
     .findOne({ type: advanced.default_role }, []);
 
   const params = _.assign(profile, {
-    provider,
+    provider: provider,
     role: defaultRole.id,
     confirmed: true,
   });
 
   const createdUser = await strapi.query('user', 'users-permissions').create(params);
 
-  return [createdUser, null];
+  return resolve([createdUser, null]);
+};
+
+/**
+ * Helper to get profiles
+ *
+ * @param {String}   provider
+ * @param {Object}   query
+ * @param {Function} callback
+ */
+const getProfile = async (provider, query, callback) => {
+  const access_token = query.access_token || query.code || query.oauth_token;
+
+  const grant = await strapi
+    .store({
+      environment: '',
+      type: 'plugin',
+      name: 'users-permissions',
+      key: 'grant',
+    })
+    .get();
+
+  switch (provider) {
+    case 'discord':
+      return handleDiscordProfile(access_token, callback);
+    case 'cognito':
+      return handleCognitoProfile(query, callback);
+    case 'facebook':
+      return handleFacebookProfile(access_token, callback);
+    case 'google':
+      return handleGoogleProfile(access_token, callback);
+    case 'github':
+      return handleGithubProfile(access_token, callback);
+    case 'microsoft':
+      return handleMicrosoftProfile(access_token, callback);
+    case 'twitter':
+      return handleTwitterProfile(access_token, query, grant, callback);
+    case 'instagram':
+      return handleInstagramProfile(access_token, grant, callback);
+    case 'vk':
+      return handleVkProfile(access_token, query, callback);
+    case 'twitch':
+      return handleTwitchProfile(access_token, grant, callback);
+    case 'linkedin':
+      return handleLinkedInProfile(access_token, callback);
+    case 'reddit':
+      return handleRedditProfile(access_token, callback);
+    case 'auth0':
+      return handleAuth0Profile(access_token, grant, callback);
+    case 'cas':
+      return handleCasProfile(access_token, grant, callback);
+    default:
+      callback(new Error('Unknown provider.'));
+  }
 };
 
 /**
@@ -215,7 +269,7 @@ const handleDiscordProfile = (accessToken, callback) => {
 
       const username = `${body.username}#${body.discriminator}`;
       callback(null, {
-        username,
+        username: username,
         email: body.email,
       });
     });
@@ -292,7 +346,7 @@ const handleGoogleProfile = (accessToken, callback) => {
 };
 
 /**
- * Handles GitHub profile retrieval.
+ * Handles Github profile retrieval.
  * @param {string} accessToken
  * @param {function} callback
  */
@@ -336,9 +390,9 @@ const handleGithubProfile = (accessToken, callback) => {
             ? emailsbody.find((email) => email.primary === true).email
             : null;
 
-          callback(null, {
+          return callback(null, {
             username: userbody.login,
-            email,
+            email: email,
           });
         });
     });
@@ -475,8 +529,8 @@ const handleTwitchProfile = (accessToken, grant, callback) => {
           __domain: {
             auth: {
               headers: {
-                Authorization: `Bearer ${accessToken}`,
-                'Client-ID': grant.twitch.key,
+                Authorization: 'Bearer [0]',
+                'Client-ID': '[1]',
               },
             },
           },
@@ -535,43 +589,43 @@ const handleLinkedInProfile = async (accessToken, callback) => {
     },
   });
 
-  const getDetailsRequest = () => {
-    return new Promise((resolve, reject) => {
-      linkedIn
-        .query()
-        .get('me')
-        .auth(accessToken)
-        .request((err, res, body) => {
-          if (err) {
-            return reject(err);
-          }
-          resolve(body);
-        });
-    });
-  };
-
-  const getEmailRequest = () => {
-    return new Promise((resolve, reject) => {
-      linkedIn
-        .query()
-        .get('emailAddress?q=members&projection=(elements*(handle~))')
-        .auth(accessToken)
-        .request((err, res, body) => {
-          if (err) {
-            return reject(err);
-          }
-          resolve(body);
-        });
-    });
-  };
-
   try {
-    const details = await getDetailsRequest();
-    const emailData = await getEmailRequest();
-    const email = emailData.elements[0]['handle~'];
+    const getDetailsRequest = () => {
+      return new Promise((resolve, reject) => {
+        linkedIn
+          .query()
+          .get('me')
+          .auth(accessToken)
+          .request((err, res, body) => {
+            if (err) {
+              return reject(err);
+            }
+            resolve(body);
+          });
+      });
+    };
+
+    const getEmailRequest = () => {
+      return new Promise((resolve, reject) => {
+        linkedIn
+          .query()
+          .get('emailAddress?q=members&projection=(elements*(handle~))')
+          .auth(accessToken)
+          .request((err, res, body) => {
+            if (err) {
+              return reject(err);
+            }
+            resolve(body);
+          });
+      });
+    };
+
+    const { localizedFirstName } = await getDetailsRequest();
+    const { elements } = await getEmailRequest();
+    const email = elements[0]['handle~'];
 
     callback(null, {
-      username: details.localizedFirstName,
+      username: localizedFirstName,
       email: email.emailAddress,
     });
   } catch (err) {
@@ -590,4 +644,142 @@ const handleRedditProfile = (accessToken, callback) => {
     config: purestConfig,
     defaults: {
       headers: {
-        'user-agent':
+        'user-agent': 'strapi',
+      },
+    },
+  });
+
+  reddit
+    .query('auth')
+    .get('me')
+    .auth(accessToken)
+    .request((err, res, body) => {
+      if (err) {
+        return callback(err);
+      }
+
+      callback(null, {
+        username: body.name,
+        email: `${body.name}@strapi.io`,
+      });
+    });
+};
+
+/**
+ * Handles Auth0 profile retrieval.
+ * @param {string} accessToken
+ * @param {object} grant
+ * @param {function} callback
+ */
+const handleAuth0Profile = (accessToken, grant, callback) => {
+  const purestAuth0Conf = {};
+  purestAuth0Conf[`https://${grant.auth0.subdomain}.auth0.com`] = {
+    __domain: {
+      auth: {
+        auth: { bearer: '[0]' },
+      },
+    },
+    '{endpoint}': {
+      __path: {
+        alias: '__default',
+      },
+    },
+  };
+
+  const auth0 = purest({
+    provider: 'auth0',
+    config: {
+      auth0: purestAuth0Conf,
+    },
+  });
+
+  auth0
+    .get('userinfo')
+    .auth(accessToken)
+    .request((err, res, body) => {
+      if (err) {
+        return callback(err);
+      }
+
+      const username =
+        body.username || body.nickname || body.name || body.email.split('@')[0];
+      const email = body.email || `${username.replace(/\s+/g, '.')}@strapi.io`;
+
+      callback(null, {
+        username,
+        email,
+      });
+    });
+};
+
+/**
+ * Handles CAS profile retrieval.
+ * @param {string} accessToken
+ * @param {object} grant
+ * @param {function} callback
+ */
+const handleCasProfile = (accessToken, grant, callback) => {
+  const provider_url = 'https://' + _.get(grant['cas'], 'subdomain');
+  const cas = purest({
+    provider: 'cas',
+    config: {
+      cas: {
+        [provider_url]: {
+          __domain: {
+            auth: {
+              auth: { bearer: '[0]' },
+            },
+          },
+          '{endpoint}': {
+            __path: {
+              alias: '__default',
+            },
+          },
+        },
+      },
+    },
+  });
+
+  cas
+    .query()
+    .get('oidc/profile')
+    .auth(accessToken)
+    .request((err, res, body) => {
+      if (err) {
+        return callback(err);
+      }
+
+      const username = body.attributes
+        ? body.attributes.strapiusername || body.id || body.sub
+        : body.strapiusername || body.id || body.sub;
+
+      const email = body.attributes
+        ? body.attributes.strapiemail || body.attributes.email
+        : body.strapiemail || body.email;
+
+      if (!username || !email) {
+        strapi.log.warn(
+          'CAS Response Body did not contain required attributes: ' + JSON.stringify(body)
+        );
+      }
+
+      callback(null, {
+        username,
+        email,
+      });
+    });
+};
+
+/**
+ * Builds redirect URI for provider callback.
+ * @param {string} provider
+ * @returns {string}
+ */
+const buildRedirectUri = (provider = '') =>
+  `${getAbsoluteServerUrl(strapi.config)}/connect/${provider}/callback`;
+
+module.exports = {
+  connect,
+  buildRedirectUri,
+};
+```

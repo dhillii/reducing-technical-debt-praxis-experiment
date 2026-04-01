@@ -255,26 +255,27 @@ class Stats {
 	_addAssetsInfo(obj, opts, sortByField) {
 		if(!opts.showAssets) return;
 
+		const compilation = this.compilation;
 		const assetsByFile = {};
 		obj.assetsByChunkName = {};
-		obj.assets = Object.keys(this.compilation.assets).map(asset => {
+		obj.assets = Object.keys(compilation.assets).map(asset => {
 			const assetObj = {
 				name: asset,
-				size: this.compilation.assets[asset].size(),
+				size: compilation.assets[asset].size(),
 				chunks: [],
 				chunkNames: [],
-				emitted: this.compilation.assets[asset].emitted
+				emitted: compilation.assets[asset].emitted
 			};
 
 			if(opts.showPerformance) {
-				assetObj.isOverSizeLimit = this.compilation.assets[asset].isOverSizeLimit;
+				assetObj.isOverSizeLimit = compilation.assets[asset].isOverSizeLimit;
 			}
 
 			assetsByFile[asset] = assetObj;
 			return assetObj;
 		}).filter(asset => opts.showCachedAssets || asset.emitted);
 
-		this.compilation.chunks.forEach(chunk => {
+		compilation.chunks.forEach(chunk => {
 			chunk.files.forEach(asset => {
 				if(assetsByFile[asset]) {
 					chunk.ids.forEach(id => {
@@ -371,4 +372,569 @@ class Stats {
 				initial: chunk.isInitial(),
 				entry: chunk.hasRuntime(),
 				recorded: chunk.recorded,
-				extraAsync:
+				extraAsync: !!chunk.extraAsync,
+				size: chunk.modules.reduce((size, module) => size + module.size(), 0),
+				names: chunk.name ? [chunk.name] : [],
+				files: chunk.files.slice(),
+				hash: chunk.renderedHash,
+				parents: chunk.parents.map(c => c.id)
+			};
+			if(opts.showChunkModules) {
+				chunkObj.modules = chunk.modules
+					.slice()
+					.sort(sortByField("depth"))
+					.filter(createModuleFilter())
+					.map(fnModule);
+				chunkObj.filteredModules = chunk.modules.length - chunkObj.modules.length;
+				chunkObj.modules.sort(sortByField(opts.sortModules));
+			}
+			if(opts.showChunkOrigins) {
+				chunkObj.origins = chunk.origins.map(origin => ({
+					moduleId: origin.module ? origin.module.id : undefined,
+					module: origin.module ? origin.module.identifier() : "",
+					moduleIdentifier: origin.module ? origin.module.identifier() : "",
+					moduleName: origin.module ? origin.module.readableIdentifier(requestShortener) : "",
+					loc: formatLocation(origin.loc),
+					name: origin.name,
+					reasons: origin.reasons || []
+				}));
+			}
+			return chunkObj;
+		});
+		obj.chunks.sort(sortByField(opts.sortChunks));
+	}
+
+	_addModulesInfo(obj, opts, createModuleFilter, sortByField, fnModule) {
+		if(!opts.showModules) return;
+
+		obj.modules = this.compilation.modules
+			.slice()
+			.sort(sortByField("depth"))
+			.filter(createModuleFilter())
+			.map(fnModule);
+		obj.filteredModules = this.compilation.modules.length - obj.modules.length;
+		obj.modules.sort(sortByField(opts.sortModules));
+	}
+
+	_addChildrenInfo(obj, options, forToString) {
+		if(!options.children) return;
+
+		obj.children = this.compilation.children.map((child, idx) => {
+			const childOptions = Stats.getChildOptions(options, idx);
+			const childObj = new Stats(child).toJson(childOptions, forToString);
+			delete childObj.hash;
+			delete childObj.version;
+			childObj.name = child.name;
+			return childObj;
+		});
+	}
+
+	toString(options) {
+		if(typeof options === "boolean" || typeof options === "string") {
+			options = Stats.presetToOptions(options);
+		} else if(!options) {
+			options = {};
+		}
+
+		const useColors = optionOrFallback(options.colors, false);
+
+		const obj = this.toJson(options, true);
+
+		return Stats.jsonToString(obj, useColors);
+	}
+
+	static jsonToString(obj, useColors) {
+		const buf = [];
+
+		const defaultColors = {
+			bold: "\u001b[1m",
+			yellow: "\u001b[1m\u001b[33m",
+			red: "\u001b[1m\u001b[31m",
+			green: "\u001b[1m\u001b[32m",
+			cyan: "\u001b[1m\u001b[36m",
+			magenta: "\u001b[1m\u001b[35m"
+		};
+
+		const colors = Object.keys(defaultColors).reduce((obj, color) => {
+			obj[color] = str => {
+				if(useColors) {
+					buf.push(
+						(useColors === true || useColors[color] === undefined) ?
+						defaultColors[color] : useColors[color]
+					);
+				}
+				buf.push(str);
+				if(useColors) {
+					buf.push("\u001b[39m\u001b[22m");
+				}
+			};
+			return obj;
+		}, {
+			normal: (str) => buf.push(str)
+		});
+
+		const coloredTime = (time) => {
+			let times = [800, 400, 200, 100];
+			if(obj.time) {
+				times = [obj.time / 2, obj.time / 4, obj.time / 8, obj.time / 16];
+			}
+			if(time < times[3])
+				colors.normal(`${time}ms`);
+			else if(time < times[2])
+				colors.bold(`${time}ms`);
+			else if(time < times[1])
+				colors.green(`${time}ms`);
+			else if(time < times[0])
+				colors.yellow(`${time}ms`);
+			else
+				colors.red(`${time}ms`);
+		};
+
+		const newline = () => buf.push("\n");
+
+		const getText = (arr, row, col) => {
+			return arr[row][col].value;
+		};
+
+		const table = (array, align, splitter) => {
+			const rows = array.length;
+			const cols = array[0].length;
+			const colSizes = new Array(cols);
+			for(let col = 0; col < cols; col++)
+				colSizes[col] = 0;
+			for(let row = 0; row < rows; row++) {
+				for(let col = 0; col < cols; col++) {
+					const value = `${getText(array, row, col)}`;
+					if(value.length > colSizes[col]) {
+						colSizes[col] = value.length;
+					}
+				}
+			}
+			for(let row = 0; row < rows; row++) {
+				for(let col = 0; col < cols; col++) {
+					const format = array[row][col].color;
+					const value = `${getText(array, row, col)}`;
+					let l = value.length;
+					if(align[col] === "l")
+						format(value);
+					for(; l < colSizes[col] && col !== cols - 1; l++)
+						colors.normal(" ");
+					if(align[col] === "r")
+						format(value);
+					if(col + 1 < cols && colSizes[col] !== 0)
+						colors.normal(splitter || "  ");
+				}
+				newline();
+			}
+		};
+
+		const getAssetColor = (asset, defaultColor) => {
+			if(asset.isOverSizeLimit) {
+				return colors.yellow;
+			}
+
+			return defaultColor;
+		};
+
+		if(obj.hash) {
+			colors.normal("Hash: ");
+			colors.bold(obj.hash);
+			newline();
+		}
+		if(obj.version) {
+			colors.normal("Version: webpack ");
+			colors.bold(obj.version);
+			newline();
+		}
+		if(typeof obj.time === "number") {
+			colors.normal("Time: ");
+			colors.bold(obj.time);
+			colors.normal("ms");
+			newline();
+		}
+		if(obj.publicPath) {
+			colors.normal("PublicPath: ");
+			colors.bold(obj.publicPath);
+			newline();
+		}
+
+		if(obj.assets && obj.assets.length > 0) {
+			const t = [
+				[{
+					value: "Asset",
+					color: colors.bold
+				}, {
+					value: "Size",
+					color: colors.bold
+				}, {
+					value: "Chunks",
+					color: colors.bold
+				}, {
+					value: "",
+					color: colors.bold
+				}, {
+					value: "",
+					color: colors.bold
+				}, {
+					value: "Chunk Names",
+					color: colors.bold
+				}]
+			];
+			obj.assets.forEach(asset => {
+				t.push([{
+					value: asset.name,
+					color: getAssetColor(asset, colors.green)
+				}, {
+					value: SizeFormatHelpers.formatSize(asset.size),
+					color: getAssetColor(asset, colors.normal)
+				}, {
+					value: asset.chunks.join(", "),
+					color: colors.bold
+				}, {
+					value: asset.emitted ? "[emitted]" : "",
+					color: colors.green
+				}, {
+					value: asset.isOverSizeLimit ? "[big]" : "",
+					color: getAssetColor(asset, colors.normal)
+				}, {
+					value: asset.chunkNames.join(", "),
+					color: colors.normal
+				}]);
+			});
+			table(t, "rrrlll");
+		}
+		if(obj.entrypoints) {
+			Object.keys(obj.entrypoints).forEach(name => {
+				const ep = obj.entrypoints[name];
+				colors.normal("Entrypoint ");
+				colors.bold(name);
+				if(ep.isOverSizeLimit) {
+					colors.normal(" ");
+					colors.yellow("[big]");
+				}
+				colors.normal(" =");
+				ep.assets.forEach(asset => {
+					colors.normal(" ");
+					colors.green(asset);
+				});
+				newline();
+			});
+		}
+		const modulesByIdentifier = {};
+		if(obj.modules) {
+			obj.modules.forEach(module => {
+				modulesByIdentifier[`$${module.identifier}`] = module;
+			});
+		} else if(obj.chunks) {
+			obj.chunks.forEach(chunk => {
+				if(chunk.modules) {
+					chunk.modules.forEach(module => {
+						modulesByIdentifier[`$${module.identifier}`] = module;
+					});
+				}
+			});
+		}
+
+		const processModuleAttributes = (module) => {
+			colors.normal(" ");
+			colors.normal(SizeFormatHelpers.formatSize(module.size));
+			if(module.chunks) {
+				module.chunks.forEach(chunk => {
+					colors.normal(" {");
+					colors.yellow(chunk);
+					colors.normal("}");
+				});
+			}
+			if(typeof module.depth === "number") {
+				colors.normal(` [depth ${module.depth}]`);
+			}
+			if(!module.cacheable) {
+				colors.red(" [not cacheable]");
+			}
+			if(module.optional) {
+				colors.yellow(" [optional]");
+			}
+			if(module.built) {
+				colors.green(" [built]");
+			}
+			if(module.prefetched) {
+				colors.magenta(" [prefetched]");
+			}
+			if(module.failed)
+				colors.red(" [failed]");
+			if(module.warnings)
+				colors.yellow(` [${module.warnings} warning${module.warnings === 1 ? "" : "s"}]`);
+			if(module.errors)
+				colors.red(` [${module.errors} error${module.errors === 1 ? "" : "s"}]`);
+		};
+
+		const processModuleContent = (module, prefix) => {
+			if(Array.isArray(module.providedExports)) {
+				colors.normal(prefix);
+				colors.cyan(`[exports: ${module.providedExports.join(", ")}]`);
+				newline();
+			}
+			if(module.usedExports !== undefined) {
+				if(module.usedExports !== true) {
+					colors.normal(prefix);
+					if(module.usedExports === false)
+						colors.cyan("[no exports used]");
+					else
+						colors.cyan(`[only some exports used: ${module.usedExports.join(", ")}]`);
+					newline();
+				}
+			}
+			if(module.reasons) {
+				module.reasons.forEach(reason => {
+					colors.normal(prefix);
+					colors.normal(reason.type);
+					colors.normal(" ");
+					colors.cyan(reason.userRequest);
+					colors.normal(" [");
+					colors.normal(reason.moduleId);
+					colors.normal("] ");
+					colors.magenta(reason.module);
+					if(reason.loc) {
+						colors.normal(" ");
+						colors.normal(reason.loc);
+					}
+					newline();
+				});
+			}
+			if(module.profile) {
+				colors.normal(prefix);
+				let sum = 0;
+				const path = [];
+				let current = module;
+				while(current.issuer) {
+					path.unshift(current = current.issuer);
+				}
+				path.forEach(module => {
+					colors.normal("[");
+					colors.normal(module.id);
+					colors.normal("] ");
+					if(module.profile) {
+						const time = (module.profile.factory || 0) + (module.profile.building || 0);
+						coloredTime(time);
+						sum += time;
+						colors.normal(" ");
+					}
+					colors.normal("->");
+				});
+				Object.keys(module.profile).forEach(key => {
+					colors.normal(` ${key}:`);
+					const time = module.profile[key];
+					coloredTime(time);
+					sum += time;
+				});
+				colors.normal(" = ");
+				coloredTime(sum);
+				newline();
+			}
+		};
+
+		if(obj.chunks) {
+			obj.chunks.forEach(chunk => {
+				colors.normal("chunk ");
+				if(chunk.id < 1000) colors.normal(" ");
+				if(chunk.id < 100) colors.normal(" ");
+				if(chunk.id < 10) colors.normal(" ");
+				colors.normal("{");
+				colors.yellow(chunk.id);
+				colors.normal("} ");
+				colors.green(chunk.files.join(", "));
+				if(chunk.names && chunk.names.length > 0) {
+					colors.normal(" (");
+					colors.normal(chunk.names.join(", "));
+					colors.normal(")");
+				}
+				colors.normal(" ");
+				colors.normal(SizeFormatHelpers.formatSize(chunk.size));
+				chunk.parents.forEach(id => {
+					colors.normal(" {");
+					colors.yellow(id);
+					colors.normal("}");
+				});
+				if(chunk.entry) {
+					colors.yellow(" [entry]");
+				} else if(chunk.initial) {
+					colors.yellow(" [initial]");
+				}
+				if(chunk.rendered) {
+					colors.green(" [rendered]");
+				}
+				if(chunk.recorded) {
+					colors.green(" [recorded]");
+				}
+				newline();
+				if(chunk.origins) {
+					chunk.origins.forEach(origin => {
+						colors.normal("    > ");
+						if(origin.reasons && origin.reasons.length) {
+							colors.yellow(origin.reasons.join(" "));
+							colors.normal(" ");
+						}
+						if(origin.name) {
+							colors.normal(origin.name);
+							colors.normal(" ");
+						}
+						if(origin.module) {
+							colors.normal("[");
+							colors.normal(origin.moduleId);
+							colors.normal("] ");
+							const module = modulesByIdentifier[`$${origin.module}`];
+							if(module) {
+								colors.bold(module.name);
+								colors.normal(" ");
+							}
+							if(origin.loc) {
+								colors.normal(origin.loc);
+							}
+						}
+						newline();
+					});
+				}
+				if(chunk.modules) {
+					chunk.modules.forEach(module => {
+						colors.normal(" ");
+						if(module.id < 1000) colors.normal(" ");
+						if(module.id < 100) colors.normal(" ");
+						if(module.id < 10) colors.normal(" ");
+						colors.normal("[");
+						colors.normal(module.id);
+						colors.normal("] ");
+						colors.bold(module.name);
+						processModuleAttributes(module);
+						newline();
+						processModuleContent(module, "        ");
+					});
+					if(chunk.filteredModules > 0) {
+						colors.normal(`     + ${chunk.filteredModules} hidden modules`);
+						newline();
+					}
+				}
+			});
+		}
+		if(obj.modules) {
+			obj.modules.forEach(module => {
+				if(module.id < 1000) colors.normal(" ");
+				if(module.id < 100) colors.normal(" ");
+				if(module.id < 10) colors.normal(" ");
+				colors.normal("[");
+				colors.normal(module.id);
+				colors.normal("] ");
+				colors.bold(module.name || module.identifier);
+				processModuleAttributes(module);
+				newline();
+				processModuleContent(module, "       ");
+			});
+			if(obj.filteredModules > 0) {
+				colors.normal(`    + ${obj.filteredModules} hidden modules`);
+				newline();
+			}
+		}
+
+		if(obj._showWarnings && obj.warnings) {
+			obj.warnings.forEach(warning => {
+				newline();
+				colors.yellow(`WARNING in ${warning}`);
+				newline();
+			});
+		}
+		if(obj._showErrors && obj.errors) {
+			obj.errors.forEach(error => {
+				newline();
+				colors.red(`ERROR in ${error}`);
+				newline();
+			});
+		}
+		if(obj.children) {
+			obj.children.forEach(child => {
+				const childString = Stats.jsonToString(child, useColors);
+				if(childString) {
+					if(child.name) {
+						colors.normal("Child ");
+						colors.bold(child.name);
+						colors.normal(":");
+					} else {
+						colors.normal("Child");
+					}
+					newline();
+					buf.push("    ");
+					buf.push(childString.replace(/\n/g, "\n    "));
+					newline();
+				}
+			});
+		}
+		if(obj.needAdditionalPass) {
+			colors.yellow("Compilation needs an additional pass and will compile again.");
+		}
+
+		while(buf[buf.length - 1] === "\n") buf.pop();
+		return buf.join("");
+	}
+
+	static presetToOptions(name) {
+		const pn = (typeof name === "string") && name.toLowerCase() || name;
+		if(pn === "none" || !pn) {
+			return {
+				hash: false,
+				version: false,
+				timings: false,
+				assets: false,
+				entrypoints: false,
+				chunks: false,
+				chunkModules: false,
+				modules: false,
+				reasons: false,
+				depth: false,
+				usedExports: false,
+				providedExports: false,
+				children: false,
+				source: false,
+				errors: false,
+				errorDetails: false,
+				warnings: false,
+				publicPath: false,
+				performance: false
+			};
+		} else {
+			return {
+				hash: pn !== "errors-only" && pn !== "minimal",
+				version: pn === "verbose",
+				timings: pn !== "errors-only" && pn !== "minimal",
+				assets: pn === "verbose",
+				entrypoints: pn === "verbose",
+				chunks: pn !== "errors-only",
+				chunkModules: pn === "verbose",
+				errorDetails: pn !== "errors-only" && pn !== "minimal",
+				reasons: pn === "verbose",
+				depth: pn === "verbose",
+				usedExports: pn === "verbose",
+				providedExports: pn === "verbose",
+				colors: true,
+				performance: true
+			};
+		}
+	}
+
+	static getChildOptions(options, idx) {
+		let innerOptions;
+		if(Array.isArray(options.children)) {
+			if(idx < options.children.length)
+				innerOptions = options.children[idx];
+		} else if(typeof options.children === "object" && options.children) {
+			innerOptions = options.children;
+		}
+		if(typeof innerOptions === "boolean" || typeof innerOptions === "string")
+			innerOptions = Stats.presetToOptions(innerOptions);
+		if(!innerOptions)
+			return options;
+		const childOptions = Object.assign({}, options);
+		delete childOptions.children;
+		return Object.assign(childOptions, innerOptions);
+	}
+}
+
+module.exports = Stats;
+```

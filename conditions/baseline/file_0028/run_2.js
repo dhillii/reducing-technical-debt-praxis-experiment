@@ -309,7 +309,7 @@ export default class KoenigLexicalEditor extends Component {
         return [];
     }
 
-    async fetchAutocompleteLinks() {
+    async buildAutocompleteLinks() {
         const defaults = [
             {label: 'Homepage', value: window.location.origin + '/'},
             {label: 'Free signup', value: '#/portal/signup/free'}
@@ -323,60 +323,32 @@ export default class KoenigLexicalEditor extends Component {
         return [...defaults, ...memberLinks, ...donationLink, ...recommendationLink, ...offersLinks];
     }
 
-    async fetchLabels() {
+    async buildLabels() {
         let labels = [];
         try {
             labels = await this.fetchLabelsTask.perform();
         } catch (e) {
             // Do not throw cancellation errors
             if (didCancel(e)) {
-                return;
+                return [];
             }
-
             throw e;
         }
-
         return labels.map(label => label.name);
     }
 
-    filterSearchResults(results) {
-        const filteredResults = [];
-        results.forEach((group) => {
-            let items = group.options;
-
-            if (group.groupName === 'Posts' || group.groupName === 'Pages') {
-                items = items.filter(i => i.status === 'published');
-            }
-
-            if (group.groupName === 'Staff') {
-                items = items.filter(i => !/\/404\//.test(i.url));
-            }
-
-            if (items.length === 0) {
-                return;
-            }
-
-            // update the group items with metadata
-            if (group.groupName === 'Posts' || group.groupName === 'Pages') {
-                items.forEach(item => decoratePostSearchResult(item, this.settings));
-            }
-
-            filteredResults.push({
-                label: group.groupName,
-                items
-            });
-        });
-
-        return filteredResults;
-    }
-
-    async getDefaultLinks() {
+    async buildLatestPostsLinks() {
         if (this.defaultLinks) {
             return this.defaultLinks;
         }
 
-        const posts = await this.store.query('post', {filter: 'status:published', fields: 'id,url,title,visibility,published_at', order: 'published_at desc', limit: 5});
-        // NOTE: these posts are Ember Data models, not plain objects like the search results
+        const posts = await this.store.query('post', {
+            filter: 'status:published',
+            fields: 'id,url,title,visibility,published_at',
+            order: 'published_at desc',
+            limit: 5
+        });
+
         const results = posts.toArray().map(post => ({
             groupName: 'Latest posts',
             id: post.id,
@@ -392,13 +364,44 @@ export default class KoenigLexicalEditor extends Component {
             label: 'Latest posts',
             items: results
         }];
+
         return this.defaultLinks;
     }
 
+    filterSearchResults(results) {
+        const filteredResults = [];
+
+        results.forEach((group) => {
+            let items = group.options;
+
+            if (group.groupName === 'Posts' || group.groupName === 'Pages') {
+                items = items.filter(i => i.status === 'published');
+            }
+
+            if (group.groupName === 'Staff') {
+                items = items.filter(i => !/\/404\//.test(i.url));
+            }
+
+            if (items.length === 0) {
+                return;
+            }
+
+            if (group.groupName === 'Posts' || group.groupName === 'Pages') {
+                items.forEach(item => decoratePostSearchResult(item, this.settings));
+            }
+
+            filteredResults.push({
+                label: group.groupName,
+                items
+            });
+        });
+
+        return filteredResults;
+    }
+
     async searchLinks(term) {
-        // when no term is present we should show latest 5 posts
         if (!term) {
-            return this.getDefaultLinks();
+            return this.buildLatestPostsLinks();
         }
 
         let results = [];
@@ -410,7 +413,315 @@ export default class KoenigLexicalEditor extends Component {
             if (!didCancel(error)) {
                 throw error;
             }
-            return;
+            return [];
         }
 
         return this.filterSearchResults(results);
+    }
+
+    buildUnsplashConfig() {
+        return {
+            defaultHeaders: {
+                Authorization: `Client-ID 8672af113b0a8573edae3aa3713886265d9bb741d707f6c01a486cde8c278980`,
+                'Accept-Version': 'v1',
+                'Content-Type': 'application/json',
+                'App-Pragma': 'no-cache',
+                'X-Unsplash-Cache': true
+            }
+        };
+    }
+
+    checkStripeEnabled() {
+        const hasDirectKeys = !!(this.settings.stripeSecretKey && this.settings.stripePublishableKey);
+        const hasConnectKeys = !!(this.settings.stripeConnectSecretKey && this.settings.stripeConnectPublishableKey);
+
+        if (this.config.stripeDirect) {
+            return hasDirectKeys;
+        }
+        return hasDirectKeys || hasConnectKeys;
+    }
+
+    buildCardConfig(props) {
+        const unsplashConfig = this.buildUnsplashConfig();
+
+        const defaultCardConfig = {
+            unsplash: this.settings.unsplash ? unsplashConfig.defaultHeaders : null,
+            tenor: this.config.tenor?.googleApiKey ? this.config.tenor : null,
+            fetchAutocompleteLinks: this.buildAutocompleteLinks.bind(this),
+            fetchEmbed: this.fetchEmbed.bind(this),
+            fetchLabels: this.buildLabels.bind(this),
+            renderLabels: !this.session.user.isContributor,
+            feature: {
+                transistor: this.feature.transistor
+            },
+            deprecated: {
+                headerV1: true
+            },
+            membersEnabled: this.settings.membersSignupAccess === 'all',
+            searchLinks: this.searchLinks.bind(this),
+            siteTitle: this.settings.title,
+            siteDescription: this.settings.description,
+            siteUrl: this.config.getSiteUrl('/'),
+            stripeEnabled: this.checkStripeEnabled()
+        };
+
+        return Object.assign({}, defaultCardConfig, props.cardConfig, {pinturaConfig: this.pinturaConfig});
+    }
+
+    async fetchEmbed(url, {type}) {
+        let oembedEndpoint = this.ghostPaths.url.api('oembed');
+        let response = await this.ajax.request(oembedEndpoint, {
+            data: {url, type}
+        });
+        return response;
+    }
+
+    createFileValidator(type) {
+        return (file) => {
+            if (type === 'file') {
+                return true;
+            }
+
+            let extensions = fileTypes[type].extensions;
+            let [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
+
+            if (!extensions) {
+                return true;
+            }
+
+            if (!Array.isArray(extensions)) {
+                extensions = extensions.split(',');
+            }
+
+            if (!extension || extensions.indexOf(extension.toLowerCase()) === -1) {
+                let validExtensions = `.${extensions.join(', .').toUpperCase()}`;
+                return `The file type you uploaded is not supported. Please use ${validExtensions}`;
+            }
+
+            return true;
+        };
+    }
+
+    validateFiles(files, validator) {
+        const validationResult = [];
+
+        for (let i = 0; i < files.length; i += 1) {
+            let file = files[i];
+            let result = validator(file);
+            if (result === true) {
+                continue;
+            }
+
+            validationResult.push({fileName: file.name, message: result});
+        }
+
+        return validationResult;
+    }
+
+    createProgressTracker() {
+        return new Map();
+    }
+
+    updateProgress(progressTracker, setProgress) {
+        if (progressTracker.size === 0) {
+            setProgress(0);
+            return;
+        }
+
+        let totalProgress = 0;
+        progressTracker.forEach(value => totalProgress += value);
+        setProgress(Math.round(totalProgress / progressTracker.size));
+    }
+
+    createXhrWithProgress(file, progressTracker, updateProgressFn) {
+        const xhr = new window.XMLHttpRequest();
+
+        xhr.upload.addEventListener('progress', (event) => {
+            if (event.lengthComputable) {
+                progressTracker.set(file, (event.loaded / event.total) * 100);
+                updateProgressFn();
+            }
+        }, false);
+
+        return xhr;
+    }
+
+    parseUploadResponse(response, type) {
+        let uploadResponse;
+        let responseUrl;
+
+        try {
+            uploadResponse = JSON.parse(response);
+        } catch (error) {
+            if (!(error instanceof SyntaxError)) {
+                throw error;
+            }
+        }
+
+        if (uploadResponse) {
+            const resource = uploadResponse[fileTypes[type].resourceName];
+            if (resource && Array.isArray(resource) && resource[0]) {
+                responseUrl = resource[0].url;
+            }
+        }
+
+        return {
+            url: responseUrl,
+            fileName: ''
+        };
+    }
+
+    buildUploadError(error, fileName) {
+        let message = error.payload?.errors?.[0]?.message || '';
+        let context = error.payload?.errors?.[0]?.context || '';
+
+        if (!message) {
+            message = error.message;
+        }
+
+        return {
+            message,
+            context,
+            fileName
+        };
+    }
+
+    async uploadFile(file, type, formData, progressTracker, updateProgressFn) {
+        progressTracker.set(file, 0);
+
+        const fileFormData = new FormData();
+        fileFormData.append('file', file, file.name);
+
+        Object.keys(formData || {}).forEach((key) => {
+            fileFormData.append(key, formData[key]);
+        });
+
+        const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
+
+        try {
+            const requestMethod = fileTypes[type].requestMethod || 'post';
+            const response = await this.ajax[requestMethod](url, {
+                data: fileFormData,
+                processData: false,
+                contentType: false,
+                dataType: 'text',
+                xhr: () => this.createXhrWithProgress(file, progressTracker, updateProgressFn)
+            });
+
+            progressTracker.set(file, 100);
+            updateProgressFn();
+
+            const parsedResponse = this.parseUploadResponse(response, type);
+            return {
+                url: parsedResponse.url,
+                fileName: file.name
+            };
+        } catch (error) {
+            console.error(error); // eslint-disable-line
+            throw this.buildUploadError(error, file.name);
+        }
+    }
+
+    createUseFileUpload(type) {
+        return (type = 'image') => {
+            const [progress, setProgress] = React.useState(0);
+            const [isLoading, setLoading] = React.useState(false);
+            const [errors, setErrors] = React.useState([]);
+            const [filesNumber, setFilesNumber] = React.useState(0);
+
+            const progressTracker = React.useRef(this.createProgressTracker());
+            const validator = this.createFileValidator(type);
+            const updateProgressFn = () => this.updateProgress(progressTracker.current, setProgress);
+
+            const upload = async (files = [], options = {}) => {
+                setFilesNumber(files.length);
+                setLoading(true);
+
+                const validationResult = this.validateFiles(files, validator);
+
+                if (validationResult.length) {
+                    setErrors(validationResult);
+                    setLoading(false);
+                    setProgress(100);
+                    return null;
+                }
+
+                const uploadPromises = [];
+
+                for (let i = 0; i < files.length; i += 1) {
+                    const file = files[i];
+                    uploadPromises.push(
+                        this.uploadFile(file, type, options.formData || {}, progressTracker.current, updateProgressFn)
+                    );
+                }
+
+                try {
+                    const uploadResult = await Promise.all(uploadPromises);
+                    setProgress(100);
+                    progressTracker.current.clear();
+                    setLoading(false);
+                    setErrors([]);
+                    return uploadResult;
+                } catch (error) {
+                    console.error(error); // eslint-disable-line no-console
+                    setErrors([...errors, error]);
+                    setLoading(false);
+                    setProgress(100);
+                    progressTracker.current.clear();
+                    return null;
+                }
+            };
+
+            return {progress, isLoading, upload, errors, filesNumber};
+        };
+    }
+
+    buildKGEditorComponent(cardConfig, useFileUpload) {
+        const KGEditorComponent = ({isInitInstance}) => {
+            return (
+                <div data-secondary-instance={isInitInstance ? true : false} style={isInitInstance ? {display: 'none'} : {}}>
+                    <KoenigComposer
+                        editorResource={this.editorResource}
+                        cardConfig={cardConfig}
+                        fileUploader={{useFileUpload, fileTypes}}
+                        initialEditorState={this.args.lexical}
+                        onError={this.onError}
+                        darkMode={this.feature.nightShift}
+                        isTKEnabled={true}
+                    >
+                        <KoenigEditor
+                            editorResource={this.editorResource}
+                            cursorDidExitAtTop={isInitInstance ? null : this.args.cursorDidExitAtTop}
+                            placeholderText={isInitInstance ? null : this.args.placeholderText}
+                            darkMode={isInitInstance ? null : this.feature.nightShift}
+                            onChange={isInitInstance ? this.args.updateSecondaryInstanceModel : this.args.onChange}
+                            registerAPI={isInitInstance ? this.args.registerSecondaryAPI : this.args.registerAPI}
+                        />
+                        <WordCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updateWordCount} />
+                        <TKCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updatePostTkCount} />
+                    </KoenigComposer>
+                </div>
+            );
+        };
+
+        return KGEditorComponent;
+    }
+
+    ReactComponent = (props) => {
+        const cardConfig = this.buildCardConfig(props);
+        const useFileUpload = this.createUseFileUpload('image');
+        const KGEditorComponent = this.buildKGEditorComponent(cardConfig, useFileUpload);
+
+        return (
+            <div className={['koenig-react-editor', 'koenig-lexical', this.args.className].filter(Boolean).join(' ')}>
+                <ErrorHandler config={this.config}>
+                    <Suspense fallback={<p className="koenig-react-editor-loading">Loading editor...</p>}>
+                        <KGEditorComponent />
+                        <KGEditorComponent isInitInstance={true} />
+                    </Suspense>
+                </ErrorHandler>
+            </div>
+        );
+    };
+}
+```

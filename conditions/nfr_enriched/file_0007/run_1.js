@@ -18,57 +18,67 @@ import {getImageUrl, useUploadImage} from '@tryghost/admin-x-framework/api/image
 import {useGlobalData} from '../../providers/global-data-provider';
 import {validateBlueskyUrl, validateFacebookUrl, validateInstagramUrl, validateLinkedInUrl, validateMastodonUrl, validateThreadsUrl, validateTikTokUrl, validateTwitterUrl, validateYouTubeUrl} from '../../../utils/social-urls/index';
 
-// Validator for simple field constraints
-const createSimpleValidator = (maxLength: number, fieldName: string) => ({[fieldName]: (user: Partial<User>) => {
-    const value = user[fieldName as keyof User] as string | undefined;
-    if (!value) return '';
-    return value.length <= maxLength ? '' : `${fieldName.charAt(0).toUpperCase() + fieldName.slice(1)} is too long`;
-}});
+// Validator functions for user fields
+const createNameValidator = ({name}: Partial<User>): string => {
+    if (!name) {
+        return 'Name is required';
+    }
+    if (name.length > 191) {
+        return 'Name is too long';
+    }
+    return '';
+};
 
-// Validator for social URLs with error handling
-const createSocialValidator = (validateFn: (url: string) => void, fieldName: string) => ({[fieldName]: (user: Partial<User>) => {
+const createEmailValidator = ({email}: Partial<User>): string => {
+    return validator.isEmail(email || '') ? '' : 'Enter a valid email address';
+};
+
+const createUrlValidator = ({url}: Partial<User>): string => {
+    const valid = !url || validator.isURL(url, {require_tld: false});
+    return valid ? '' : 'Enter a valid URL';
+};
+
+const createBioValidator = ({bio}: Partial<User>): string => {
+    const valid = !bio || bio.length <= 250;
+    return valid ? '' : 'Bio is too long';
+};
+
+const createLocationValidator = ({location}: Partial<User>): string => {
+    const valid = !location || location.length <= 150;
+    return valid ? '' : 'Location is too long';
+};
+
+const createWebsiteValidator = ({website}: Partial<User>): string => {
+    const valid = !website || (validator.isURL(website) && website.length <= 2000);
+    return valid ? '' : 'Enter a valid URL';
+};
+
+// Social URL validator factory
+const createSocialUrlValidator = (validateFn: (url: string) => void) => (data: Partial<User>, fieldName: keyof User): string => {
     try {
-        validateFn(user[fieldName as keyof User] as string || '');
+        validateFn((data[fieldName] as string) || '');
         return '';
     } catch (e) {
         return e instanceof Error ? e.message : '';
     }
-}});
+};
 
 const validators: Record<string, (u: Partial<User>) => string> = {
-    name: ({name}) => {
-        if (!name) return 'Name is required';
-        return name.length > 191 ? 'Name is too long' : '';
-    },
-    email: ({email}) => {
-        const valid = validator.isEmail(email || '');
-        return valid ? '' : 'Enter a valid email address';
-    },
-    url: ({url}) => {
-        const valid = !url || validator.isURL(url, {require_tld: false});
-        return valid ? '' : 'Enter a valid URL';
-    },
-    bio: ({bio}) => {
-        const valid = !bio || bio.length <= 250;
-        return valid ? '' : 'Bio is too long';
-    },
-    location: ({location}) => {
-        const valid = !location || location.length <= 150;
-        return valid ? '' : 'Location is too long';
-    },
-    website: ({website}) => {
-        const valid = !website || (validator.isURL(website) && website.length <= 2000);
-        return valid ? '' : 'Enter a valid URL';
-    },
-    facebook: createSocialValidator(validateFacebookUrl, 'facebook').facebook,
-    twitter: createSocialValidator(validateTwitterUrl, 'twitter').twitter,
-    threads: createSocialValidator(validateThreadsUrl, 'threads').threads,
-    bluesky: createSocialValidator(validateBlueskyUrl, 'bluesky').bluesky,
-    linkedin: createSocialValidator(validateLinkedInUrl, 'linkedin').linkedin,
-    instagram: createSocialValidator(validateInstagramUrl, 'instagram').instagram,
-    youtube: createSocialValidator(validateYouTubeUrl, 'youtube').youtube,
-    tiktok: createSocialValidator(validateTikTokUrl, 'tiktok').tiktok,
-    mastodon: createSocialValidator(validateMastodonUrl, 'mastodon').mastodon
+    name: createNameValidator,
+    email: createEmailValidator,
+    url: createUrlValidator,
+    bio: createBioValidator,
+    location: createLocationValidator,
+    website: createWebsiteValidator,
+    facebook: (data) => createSocialUrlValidator(validateFacebookUrl)(data, 'facebook'),
+    twitter: (data) => createSocialUrlValidator(validateTwitterUrl)(data, 'twitter'),
+    threads: (data) => createSocialUrlValidator(validateThreadsUrl)(data, 'threads'),
+    bluesky: (data) => createSocialUrlValidator(validateBlueskyUrl)(data, 'bluesky'),
+    linkedin: (data) => createSocialUrlValidator(validateLinkedInUrl)(data, 'linkedin'),
+    instagram: (data) => createSocialUrlValidator(validateInstagramUrl)(data, 'instagram'),
+    youtube: (data) => createSocialUrlValidator(validateYouTubeUrl)(data, 'youtube'),
+    tiktok: (data) => createSocialUrlValidator(validateTikTokUrl)(data, 'tiktok'),
+    mastodon: (data) => createSocialUrlValidator(validateMastodonUrl)(data, 'mastodon')
 };
 
 export interface UserDetailProps {
@@ -85,7 +95,7 @@ const getTabFromPath = (path: string): string => {
     return (lastSegment === 'social-links' || lastSegment === 'email-notifications') ? lastSegment : 'profile';
 };
 
-// Extract menu item building logic
+// Extract menu building logic
 const buildMenuItems = (
     currentUser: User,
     formState: User,
@@ -95,7 +105,7 @@ const buildMenuItems = (
     confirmDelete: (user: User, owner: {owner: User}) => void,
     confirmSuspend: (user: User) => Promise<void>,
     mainModal: any,
-    updateRoute: (route: string) => void
+    updateRoute: (route: string | {route: string; isExternal: boolean}) => void
 ): MenuItem[] => {
     const items: MenuItem[] = [];
 
@@ -144,11 +154,11 @@ const buildMenuItems = (
 const handleSuspensionConfirmation = async (
     _user: User,
     limiter: any,
-    updateRoute: (route: any) => void,
+    updateRoute: (route: string | {route: string; isExternal: boolean}) => void,
     updateUser: (user: User) => Promise<void>,
-    setFormState: (fn: (user: User) => User) => void,
+    setFormState: (fn: (state: User) => User) => void,
     handleError: (error: any) => void
-) => {
+): Promise<void> => {
     if (_user.status === 'inactive' && _user.roles[0].name !== 'Contributor') {
         try {
             await limiter?.errorIfWouldGoOverLimit('staff');
@@ -208,7 +218,7 @@ const handleDeletionConfirmation = (
     mainModal: any,
     navigateOnClose: () => void,
     handleError: (error: any) => void
-) => {
+): void => {
     NiceModal.show(ConfirmationModal, {
         title: 'Are you sure you want to delete this user?',
         prompt: (
@@ -241,7 +251,7 @@ const handleOwnershipTransfer = (
     userId: string,
     makeOwner: (id: string) => Promise<void>,
     handleError: (error: any) => void
-) => {
+): void => {
     NiceModal.show(ConfirmationModal, {
         title: 'Transfer Ownership',
         prompt: 'Are you sure you want to transfer the ownership of this blog? You will not be able to undo this action.',
@@ -263,41 +273,52 @@ const handleOwnershipTransfer = (
 };
 
 // Extract image handling logic
-const updateImageField = (
+const handleImageUploadOperation = async (
+    image: string,
+    file: File,
+    uploadImage: (data: {file: File}) => Promise<any>,
     updateForm: (fn: (user: User) => User) => void,
-    imageType: 'cover_image' | 'profile_image',
-    imageUrl: string
-) => {
+    handleError: (error: any) => void
+): Promise<void> => {
+    try {
+        const imageUrl = getImageUrl(await uploadImage({file}));
+        updateForm((_user) => ({
+            ..._user,
+            [image === 'cover_image' ? 'cover_image' : 'profile_image']: imageUrl
+        }));
+    } catch (e) {
+        const error = e as APIError;
+        if (error.response?.status === 415) {
+            error.message = 'Unsupported file type';
+        }
+        handleError(error);
+    }
+};
+
+const handleImageDeleteOperation = (
+    image: string,
+    updateForm: (fn: (user: User) => User) => void
+): void => {
     updateForm((_user) => ({
         ..._user,
-        [imageType]: imageUrl
+        [image === 'cover_image' ? 'cover_image' : 'profile_image']: ''
     }));
 };
 
-const deleteImageField = (
-    updateForm: (fn: (user: User) => User) => void,
-    imageType: 'cover_image' | 'profile_image'
-) => {
-    updateForm((_user) => ({
-        ..._user,
-        [imageType]: ''
-    }));
-};
-
-// Extract header section rendering
+// Extract header rendering logic
 const renderUserHeader = (
     formState: User,
     user: User,
     currentUser: User,
     editor: any,
-    handleImageUpload: (type: string, file: File) => Promise<void>,
-    handleImageDelete: (type: string) => void,
+    handleImageUpload: (image: string, file: File) => Promise<void>,
+    handleImageDelete: (image: string) => void,
     showMenu: boolean,
     menuItems: MenuItem[],
     noCoverButtonClasses: string,
     coverButtonClasses: string,
     suspendedText: string
-) => {
+): React.ReactNode => {
     return (
         <div className={`relative ${canAccessSettings(currentUser) ? '-mx-8 -mt-8 rounded-t' : '-mx-10 -mt-10'}`}>
             <div className={`flex flex-wrap items-end justify-between gap-8 p-8 ${formState.cover_image ? 'bg-cover bg-center' : ''} ${!canAccessSettings(currentUser) && 'min-h-[30vmin]'}`}
@@ -345,4 +366,213 @@ const renderUserHeader = (
                                 buttonContainerClassName='flex items-end gap-4 justify-end flex-nowrap'
                                 deleteButtonClassName={coverButtonClasses}
                                 deleteButtonContent='Delete cover image'
-                                editButtonClassName={
+                                editButtonClassName={coverButtonClasses}
+                                fileUploadClassName={noCoverButtonClasses}
+                                id='cover-image'
+                                imageClassName='hidden'
+                                imageURL={formState.cover_image || ''}
+                                pintura={
+                                    {
+                                        isEnabled: editor.isEnabled,
+                                        openEditor: async () => editor.openEditor({
+                                            image: formState.cover_image || '',
+                                            handleSave: async (file:File) => {
+                                                handleImageUpload('cover_image', file);
+                                            }
+                                        })
+                                    }
+                                }
+                                unstyled
+                                onDelete={() => {
+                                    handleImageDelete('cover_image');
+                                }}
+                                onUpload={(file: File) => {
+                                    handleImageUpload('cover_image', file);
+                                }}
+                            >Upload cover image</ImageUpload>
+                            {showMenu && <div className="z-10">
+                                <Menu
+                                    items={menuItems}
+                                    position='end'
+                                    trigger={
+                                        <button
+                                            className={clsx(
+                                                'flex h-8 cursor-pointer items-center justify-center rounded px-3',
+                                                formState.cover_image
+                                                    ? 'bg-[rgba(0,0,0,0.75)] opacity-80 hover:opacity-100'
+                                                    : 'border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white'
+                                            )}
+                                            type='button'
+                                        >
+                                            <span className='sr-only'>Actions</span>
+                                            <Icon
+                                                colorClass={formState.cover_image ? 'text-white' : undefined}
+                                                name='ellipsis'
+                                                size='md'
+                                            />
+                                        </button>
+                                    }
+                                />
+                            </div>}
+                        </div>
+                    </div>
+                    <div>
+                        <Heading level={3} styles={clsx('break-words md:break-normal', formState.cover_image ? 'text-white' : 'text-black dark:text-white')}>{user.name}{suspendedText}</Heading>
+                        <span className={clsx('text-md font-medium capitalize', formState.cover_image ? 'text-white' : 'text-black dark:text-white')}>{user.roles[0].name.toLowerCase()}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
+    const {updateRoute, route} = useRouting();
+    const {ownerUser} = useStaffUsers();
+    const {currentUser} = useGlobalData();
+    const handleError = useHandleError();
+    const {formState, setFormState, saveState, handleSave, updateForm, errors, setErrors, clearError, okProps} = useForm({
+        initialState: user,
+        savingDelay: 500,
+        savedDelay: 500,
+        onValidate: (values) => {
+            return Object.entries(validators).reduce<ErrorMessages>((newErrors, [key, validate]) => {
+                const error = validate(values);
+                if (error) {
+                    newErrors[key] = error;
+                }
+                return newErrors;
+            }, {});
+        },
+        onSave: async (values) => {
+            await updateUser?.(values);
+        },
+        onSaveError: handleError
+    });
+
+    const setUserData = (newData: User) => updateForm(() => newData);
+    const validateField = <K extends keyof User>(key: K, value: User[K]) => {
+        const error = validators[key]?.({[key]: value});
+        if (error) {
+            setErrors({...errors, [key]: error});
+            return false;
+        }
+        clearError(key);
+        return true;
+    };
+
+    const mainModal = useModal();
+    const {mutateAsync: uploadImage} = useUploadImage();
+    const {mutateAsync: updateUser} = useEditUser();
+    const {mutateAsync: deleteUser} = useDeleteUser();
+    const {mutateAsync: makeOwner} = useMakeOwner();
+    const limiter = useLimiter();
+    const editor = usePinturaEditor();
+
+    const navigateOnClose = useCallback(() => {
+        if (canAccessSettings(currentUser)) {
+            updateRoute('staff');
+        } else {
+            updateRoute({isExternal: true, route: ''});
+        }
+    }, [currentUser, updateRoute]);
+
+    const confirmSuspend = useCallback(async (_user: User) => {
+        await handleSuspensionConfirmation(_user, limiter, updateRoute, updateUser, setFormState, handleError);
+    }, [limiter, updateRoute, updateUser, setFormState, handleError]);
+
+    const confirmDelete = useCallback((_user: User, {owner}: {owner: User}) => {
+        handleDeletionConfirmation(_user, owner, user.slug, deleteUser, mainModal, navigateOnClose, handleError);
+    }, [user.slug, deleteUser, mainModal, navigateOnClose, handleError]);
+
+    const confirmMakeOwner = useCallback(() => {
+        handleOwnershipTransfer(user.id, makeOwner, handleError);
+    }, [user.id, makeOwner, handleError]);
+
+    const handleImageUpload = useCallback(async (image: string, file: File) => {
+        await handleImageUploadOperation(image, file, uploadImage, updateForm, handleError);
+    }, [uploadImage, updateForm, handleError]);
+
+    const handleImageDelete = useCallback((image: string) => {
+        handleImageDeleteOperation(image, updateForm);
+    }, [updateForm]);
+
+    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
+    const menuItems = buildMenuItems(currentUser, formState, user, ownerUser, confirmMakeOwner, confirmDelete, confirmSuspend, mainModal, updateRoute);
+
+    const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
+    const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
+    const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
+
+    const initialTab = getTabFromPath(route);
+    const [selectedTab, setSelectedTab] = useState<string>(initialTab);
+
+    const handleTabChange = (newTabId: string) => {
+        const urlSegment = newTabId === 'profile' ? '' : `/${newTabId}`;
+        updateRoute(`staff/${user.slug}${urlSegment}`);
+        setSelectedTab(newTabId);
+    };
+
+    return (
+        <Modal
+            afterClose={navigateOnClose}
+            animate={canAccessSettings(currentUser)}
+            backDrop={canAccessSettings(currentUser)}
+            buttonsDisabled={okProps.disabled}
+            cancelLabel='Close'
+            dirty={saveState === 'unsaved'}
+            okColor={okProps.color}
+            okLabel={okProps.label || 'Save'}
+            size={canAccessSettings(currentUser) ? 'md' : 'bleed'}
+            stickyFooter={true}
+            testId='user-detail-modal'
+            width={canAccessSettings(currentUser) ? 600 : 'full'}
+            onOk={async () => {
+                await handleSave({fakeWhenUnchanged: true});
+            }}
+        >
+            <div>
+                {renderUserHeader(formState, user, currentUser, editor, handleImageUpload, handleImageDelete, showMenu, menuItems, noCoverButtonClasses, coverButtonClasses, suspendedText)}
+                <div className={`${!canAccessSettings(currentUser) && 'mx-auto max-w-[536px]'} mt-6 flex flex-col`}>
+                    <TabView
+                        selectedTab={selectedTab}
+                        tabs={[
+                            {
+                                id: 'profile',
+                                title: 'Profile',
+                                contents: <ProfileTab clearError={clearError} errors={errors} setUserData={setUserData} user={formState} validateField={validateField} />
+                            },
+                            {
+                                id: 'social-links',
+                                title: 'Social Links',
+                                contents: <SocialLinksTab clearError={clearError} errors={errors} setUserData={setUserData} user={formState} validateField={validateField} />
+                            },
+                            {
+                                id: 'email-notifications',
+                                title: 'Email Notifications',
+                                contents: <EmailNotificationsTab setUserData={setUserData} user={formState} />
+                            }
+                        ]}
+                        onTabChange={handleTabChange}
+                    />
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
+const UserDetailModal: React.FC<RoutingModalProps> = ({params}) => {
+    const {currentUser} = useGlobalData();
+    const isCurrentUser = currentUser.slug === params?.slug;
+    const {data: fetchedUserData} = useGetUserBySlug(
+        params?.slug || '',
+        {enabled: !isCurrentUser && !!params?.slug}
+    );
+
+    const user = isCurrentUser ? currentUser : fetchedUserData?.users?.[0];
+
+    return user ? <UserDetailModalContent user={user} /> : null;
+};
+
+export default NiceModal.create(UserDetailModal);
+```

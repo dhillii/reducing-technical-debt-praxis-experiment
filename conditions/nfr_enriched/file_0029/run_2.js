@@ -214,59 +214,71 @@ export default class Analytics extends Component {
     }
 
     /**
-     * Cleans and normalizes link data
-     * @param {Object} link - Link object to clean
+     * Cleans and normalizes link data for display
+     * @param {Object} link - The link object to clean
      * @returns {Object} Cleaned link object
      */
     cleanLinkData(link) {
+        const cleanedUrl = this.utils.cleanTrackedUrl(link.to, false);
+        const cleanedTitle = this.utils.cleanTrackedUrl(link.to, true);
+
         return {
             ...link,
-            link: {
-                ...link.link,
-                originalTo: link.link.to,
-                to: this.utils.cleanTrackedUrl(link.link.to, false),
-                title: this.utils.cleanTrackedUrl(link.link.to, true)
-            }
+            originalTo: link.to,
+            to: cleanedUrl,
+            title: cleanedTitle
         };
     }
 
     /**
      * Aggregates links by title and sums click counts
-     * @param {Object} acc - Accumulator object
-     * @param {Object} link - Link to aggregate
-     * @returns {Object} Updated accumulator
+     * @param {Array} cleanedLinks - Array of cleaned link objects
+     * @returns {Object} Links aggregated by title
      */
-    aggregateLinkByTitle(acc, link) {
-        if (!acc[link.link.title]) {
-            acc[link.link.title] = link;
-        } else {
-            if (!acc[link.link.title].count) {
-                acc[link.link.title].count = {clicks: 0};
+    aggregateLinksByTitle(cleanedLinks) {
+        return cleanedLinks.reduce((acc, link) => {
+            const title = link.title;
+            if (!acc[title]) {
+                acc[title] = link;
+            } else {
+                if (!acc[title].count) {
+                    acc[title].count = {clicks: 0};
+                }
+                if (!acc[title].count.clicks) {
+                    acc[title].count.clicks = 0;
+                }
+                acc[title].count.clicks += (link.count?.clicks ?? 0);
             }
-            if (!acc[link.link.title].count.clicks) {
-                acc[link.link.title].count.clicks = 0;
-            }
-            acc[link.link.title].count.clicks += (link.count?.clicks ?? 0);
-        }
-        return acc;
+            return acc;
+        }, {});
     }
 
     /**
-     * Compares click counts for sorting
-     * @param {Object} a - First link
-     * @param {Object} b - Second link
-     * @returns {number} Sort order
+     * Sorts links by click count in descending order
+     * @param {Array} links - Array of link objects
+     * @returns {Array} Sorted links
      */
-    compareLinksByClicks(a, b) {
-        const aClicks = a.count?.clicks || 0;
-        const bClicks = b.count?.clicks || 0;
-        return bClicks - aClicks;
+    sortLinksByClicks(links) {
+        return links.sort((a, b) => {
+            const aClicks = a.count?.clicks || 0;
+            const bClicks = b.count?.clicks || 0;
+            return bClicks - aClicks;
+        });
     }
 
     updateLinkData(linksData) {
-        const cleanedLinks = linksData.map(link => this.cleanLinkData(link));
-        const linksByTitle = cleanedLinks.reduce((acc, link) => this.aggregateLinkByTitle(acc, link), {});
-        this.links = Object.values(linksByTitle).sort((a, b) => this.compareLinksByClicks(a, b));
+        const cleanedLinks = linksData.map((link) => {
+            return {
+                ...link,
+                link: this.cleanLinkData(link.link)
+            };
+        });
+
+        const linksByTitle = this.aggregateLinksByTitle(
+            cleanedLinks.map(item => item.link)
+        );
+
+        this.links = this.sortLinksByClicks(Object.values(linksByTitle));
     }
 
     async fetchReferrersStats() {
@@ -304,61 +316,25 @@ export default class Analytics extends Component {
 
     /**
      * Builds bulk update URL for link modifications
-     * @param {string} filter - Filter parameter
-     * @returns {string} Complete API URL
+     * @param {string} postId - The post ID
+     * @param {URL} currentLink - The current link URL
+     * @returns {string} Encoded bulk update URL
      */
-    buildBulkUpdateUrl(filter) {
-        return this.ghostPaths.url.api('links/bulk') + `?filter=${encodeURIComponent(filter)}`;
+    buildBulkUpdateUrl(postId, currentLink) {
+        const filter = `post_id:'${postId}'+to:'${currentLink}'`;
+        const baseUrl = this.ghostPaths.url.api('links/bulk');
+        return baseUrl + `?filter=${encodeURIComponent(filter)}`;
     }
 
     /**
-     * Builds links fetch URL with filter
-     * @param {string} filter - Filter parameter
-     * @returns {string} Complete API URL
+     * Builds stats URL for fetching links
+     * @param {string} postId - The post ID
+     * @returns {string} Encoded stats URL
      */
-    buildLinksFetchUrl(filter) {
-        return this.ghostPaths.url.api('links/') + `?filter=${encodeURIComponent(filter)}`;
-    }
-
-    /**
-     * Builds filter string for post links
-     * @returns {string} Filter parameter
-     */
-    buildPostLinksFilter() {
-        return `post_id:'${this.post.id}'`;
-    }
-
-    /**
-     * Builds filter string for updating specific link
-     * @param {string} currentLink - Current link URL
-     * @returns {string} Filter parameter
-     */
-    buildLinkUpdateFilter(currentLink) {
-        return `post_id:'${this.post.id}'+to:'${currentLink}'`;
-    }
-
-    /**
-     * Updates link in the links array
-     * @param {string} linkId - Link ID to update
-     * @param {string} newLink - New link URL
-     * @returns {Object} Updated link or original link
-     */
-    updateLinkInArray(linkId, newLink) {
-        let currentLink;
-        return this.links?.map((link) => {
-            if (link.link.link_id === linkId) {
-                currentLink = new URL(link.link.originalTo);
-                return {
-                    ...link,
-                    link: {
-                        ...link.link,
-                        to: this.utils.cleanTrackedUrl(newLink, false),
-                        title: this.utils.cleanTrackedUrl(newLink, true)
-                    }
-                };
-            }
-            return link;
-        });
+    buildLinksStatsUrl(postId) {
+        const filter = `post_id:'${postId}'`;
+        const baseUrl = this.ghostPaths.url.api('links/');
+        return baseUrl + `?filter=${encodeURIComponent(filter)}`;
     }
 
     @task
@@ -380,8 +356,7 @@ export default class Analytics extends Component {
             return link;
         });
 
-        const filter = this.buildLinkUpdateFilter(currentLink);
-        const bulkUpdateUrl = this.buildBulkUpdateUrl(filter);
+        const bulkUpdateUrl = this.buildBulkUpdateUrl(this.post.id, currentLink);
         yield this.ajax.put(bulkUpdateUrl, {
             data: {
                 bulk: {
@@ -392,8 +367,7 @@ export default class Analytics extends Component {
         });
 
         // Refresh links data
-        const linksFilter = this.buildPostLinksFilter();
-        const statsUrl = this.buildLinksFetchUrl(linksFilter);
+        const statsUrl = this.buildLinksStatsUrl(this.post.id);
         const result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
         this.showSuccess = this.updateLinkId;
@@ -417,8 +391,7 @@ export default class Analytics extends Component {
 
     @task
     *_fetchLinks() {
-        const filter = this.buildPostLinksFilter();
-        const statsUrl = this.buildLinksFetchUrl(filter);
+        const statsUrl = this.buildLinksStatsUrl(this.post.id);
         const result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
     }
@@ -430,17 +403,9 @@ export default class Analytics extends Component {
         return this._fetchMentions.perform();
     }
 
-    /**
-     * Builds filter string for post mentions
-     * @returns {string} Filter parameter
-     */
-    buildMentionsFilter() {
-        return `resource_id:'${this.post.id}'+resource_type:post`;
-    }
-
     @task
     *_fetchMentions() {
-        const filter = this.buildMentionsFilter();
+        const filter = `resource_id:'${this.post.id}'+resource_type:post`;
         this.mentions = yield this.store.query('mention', {limit: 5, order: 'created_at desc', filter});
     }
 
@@ -449,6 +414,7 @@ export default class Analytics extends Component {
         if (!this.post.emailOnly) {
             const result = yield this.store.query('post', {filter: 'status:published', limit: 1});
             const count = result.meta.pagination.total;
+
             this.postCount = count;
         }
     }
@@ -478,6 +444,103 @@ export default class Analytics extends Component {
     }
 
     /**
-     * Checks if animation should be skipped for element
-     * @param {HTMLElement} element - DOM element to check
-     * @returns {
+     * Determines if animation should be skipped for the given element
+     * @param {Element} element - The DOM element to check
+     * @returns {boolean} True if animation should be skipped
+     */
+    shouldSkipAnimation(element) {
+        if (!this.shouldAnimate) {
+            return true;
+        }
+
+        if (element.classList.contains('sent') && this.post.email.emailCount === this.previousSentCount) {
+            return true;
+        }
+
+        if (element.classList.contains('opened') && this.post.email.openedCount === this.previousOpenedCount) {
+            return true;
+        }
+
+        if (element.classList.contains('clicked') && this.post.count.clicks === this.previousClickedCount) {
+            return true;
+        }
+
+        if (element.classList.contains('feedback') && this.totalFeedback === this.previousFeedbackCount) {
+            return true;
+        }
+
+        if (element.classList.contains('conversions') && this.post.count.conversions === this.previousConversionsCount) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Builds CSS selector from element classes
+     * @param {Element} element - The DOM element
+     * @returns {string} CSS selector string
+     */
+    buildElementSelector(element) {
+        return Array.from(element.classList).map(className => `.${className}`).join('');
+    }
+
+    /**
+     * Animates new number appearance
+     * @param {string} selector - CSS selector for target elements
+     */
+    animateNewNumber(selector) {
+        anime({
+            targets: `${selector} .new-number span`,
+            translateY: [10, 0],
+            opacity: [0, 1],
+            easing: 'easeOutElastic',
+            elasticity: 650,
+            duration: 1000,
+            delay: (el, i) => 100 + 30 * i
+        });
+    }
+
+    /**
+     * Animates old number disappearance
+     * @param {string} selector - CSS selector for target elements
+     */
+    animateOldNumber(selector) {
+        anime({
+            targets: `${selector} .old-number span`,
+            translateY: [0, -10],
+            opacity: [1, 0],
+            easing: 'easeOutExpo',
+            duration: 400,
+            delay: (el, i) => 100 + 10 * i
+        });
+    }
+
+    @action
+    applyClasses(element) {
+        if (this.shouldSkipAnimation(element)) {
+            return;
+        }
+
+        const selector = this.buildElementSelector(element);
+        this.animateNewNumber(selector);
+        this.animateOldNumber(selector);
+    }
+
+    get showLinks() {
+        return this.post.showEmailClickAnalytics;
+    }
+
+    get showSources() {
+        return this.post.showAttributionAnalytics;
+    }
+
+    get showMentions() {
+        return this.feature.get('webmentions');
+    }
+
+    get isLoaded() {
+        return this.links !== null && this.sources !== null && this.mentions !== null;
+    }
+}
+```

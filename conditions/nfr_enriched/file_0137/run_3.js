@@ -69,8 +69,8 @@ const readFileBuffer = async (filePath) => {
   }
 };
 
-// Helper: Optimize and process image buffer
-const optimizeImageBuffer = async (buffer) => {
+// Helper: Optimize and process file buffer
+const optimizeFileBuffer = async (buffer) => {
   const { optimize } = strapi.plugins.upload.services['image-manipulation'];
   return await optimize(buffer);
 };
@@ -217,7 +217,7 @@ module.exports = {
 
   async enhanceFile(file, fileInfo = {}, metas = {}) {
     const readBuffer = await readFileBuffer(file.path);
-    const { buffer, info } = await optimizeImageBuffer(readBuffer);
+    const { buffer, info } = await optimizeFileBuffer(readBuffer);
 
     const formattedFile = this.formatFileInfo(
       {
@@ -292,9 +292,7 @@ module.exports = {
       ext: dbFile.ext,
     });
 
-    // execute delete function of the provider
     await deleteOldFileFormats(dbFile);
-
     await strapi.plugins.upload.provider.upload(fileData);
 
     // clear old formats

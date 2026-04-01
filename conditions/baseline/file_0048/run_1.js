@@ -135,12 +135,13 @@ class Tier {
             'year': this.yearlyPrice
         };
         
-        if (cadence in priceMap) {
-            return priceMap[cadence];
+        if (!(cadence in priceMap)) {
+            throw new ValidationError({
+                message: 'Invalid cadence'
+            });
         }
-        throw new ValidationError({
-            message: 'Invalid cadence'
-        });
+        
+        return priceMap[cadence];
     }
 
     /** @type {number|null} */
@@ -294,8 +295,8 @@ class Tier {
 
     static #validateAllData(data) {
         return {
-            name: validateName(data.name),
             slug: validateSlug(data.slug),
+            name: validateName(data.name),
             description: validateDescription(data.description),
             welcomePageURL: validateWelcomePageURL(data.welcomePageURL),
             status: validateStatus(data.status || 'active'),
@@ -477,3 +478,24 @@ function validateCreatedAt(value) {
 function validateUpdatedAt(value) {
     if (!value) {
         return null;
+    }
+    if (value instanceof Date) {
+        return value;
+    }
+    throw new ValidationError({
+        message: 'Tier created_at must be a date'
+    });
+}
+
+function validateBenefits(value) {
+    if (!value) {
+        return [];
+    }
+    if (!Array.isArray(value) || !value.every(item => typeof item === 'string')) {
+        throw new ValidationError({
+            message: 'Tier benefits must be a list of strings'
+        });
+    }
+    return value;
+}
+```

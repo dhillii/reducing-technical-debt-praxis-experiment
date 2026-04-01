@@ -250,11 +250,24 @@ class Tier {
      */
     static async create(data) {
         const id = this.#parseId(data.id);
-        const validatedData = this.#validateAllData(data);
+        const validatedData = this.#validateCreateData(data);
 
         const tier = new Tier({
             id,
-            ...validatedData
+            slug: validatedData.slug,
+            name: validatedData.name,
+            description: validatedData.description,
+            welcome_page_url: validatedData.welcomePageURL,
+            status: validatedData.status,
+            visibility: validatedData.visibility,
+            type: validatedData.type,
+            trial_days: validatedData.trialDays,
+            currency: validatedData.currency,
+            monthly_price: validatedData.monthlyPrice,
+            yearly_price: validatedData.yearlyPrice,
+            created_at: validatedData.createdAt,
+            updated_at: validatedData.updatedAt,
+            benefits: validatedData.benefits
         });
 
         if (!data.id) {
@@ -279,21 +292,21 @@ class Tier {
         });
     }
 
-    static #validateAllData(data) {
+    static #validateCreateData(data) {
         return {
-            slug: validateSlug(data.slug),
             name: validateName(data.name),
+            slug: validateSlug(data.slug),
             description: validateDescription(data.description),
-            welcome_page_url: validateWelcomePageURL(data.welcomePageURL),
+            welcomePageURL: validateWelcomePageURL(data.welcomePageURL),
             status: validateStatus(data.status || 'active'),
             visibility: validateVisibility(data.visibility || 'public'),
             type: validateType(data.type || 'paid'),
-            trial_days: validateTrialDays(data.trialDays || 0, data.type || 'paid'),
             currency: validateCurrency(data.currency || null, data.type || 'paid'),
-            monthly_price: validateMonthlyPrice(data.monthlyPrice || null, data.type || 'paid'),
-            yearly_price: validateYearlyPrice(data.yearlyPrice || null, data.type || 'paid'),
-            created_at: validateCreatedAt(data.createdAt),
-            updated_at: validateUpdatedAt(data.updatedAt),
+            trialDays: validateTrialDays(data.trialDays || 0, data.type || 'paid'),
+            monthlyPrice: validateMonthlyPrice(data.monthlyPrice || null, data.type || 'paid'),
+            yearlyPrice: validateYearlyPrice(data.yearlyPrice || null, data.type || 'paid'),
+            createdAt: validateCreatedAt(data.createdAt),
+            updatedAt: validateUpdatedAt(data.updatedAt),
             benefits: validateBenefits(data.benefits)
         };
     }
@@ -301,6 +314,7 @@ class Tier {
 
 module.exports = Tier;
 
+// Validation Functions
 function validateSlug(value) {
     if (!value || typeof value !== 'string' || value.length > 191) {
         throw new ValidationError({
@@ -343,31 +357,25 @@ function validateDescription(value) {
     return value;
 }
 
-function validateStatus(value) {
-    if (!['active', 'archived'].includes(value)) {
+function validateEnumValue(value, allowedValues, fieldName) {
+    if (!allowedValues.includes(value)) {
         throw new ValidationError({
-            message: 'Tier status must be either "active" or "archived"'
+            message: `Tier ${fieldName} must be either "${allowedValues.join('" or "')}"`
         });
     }
     return value;
+}
+
+function validateStatus(value) {
+    return validateEnumValue(value, ['active', 'archived'], 'status');
 }
 
 function validateVisibility(value) {
-    if (!['public', 'none'].includes(value)) {
-        throw new ValidationError({
-            message: 'Tier visibility must be either "public" or "none"'
-        });
-    }
-    return value;
+    return validateEnumValue(value, ['public', 'none'], 'visibility');
 }
 
 function validateType(value) {
-    if (!['paid', 'free'].includes(value)) {
-        throw new ValidationError({
-            message: 'Tier type must be either "paid" or "free"'
-        });
-    }
-    return value;
+    return validateEnumValue(value, ['paid', 'free'], 'type');
 }
 
 function validateTrialDays(value, type) {
@@ -407,53 +415,34 @@ function validateCurrency(value, type) {
     return value.toUpperCase();
 }
 
-function validateMonthlyPrice(value, type) {
+function validatePrice(value, type, fieldName, defaultValue) {
     if (type === 'free') {
         if (value !== null) {
             throw new ValidationError({
-                message: 'Free Tiers cannot have a monthly price'
+                message: `Free Tiers cannot have a ${fieldName}`
             });
         }
         return null;
     }
     if (!value) {
-        return 500;
+        return defaultValue;
     }
-    return validatePrice(value);
-}
-
-function validateYearlyPrice(value, type) {
-    if (type === 'free') {
-        if (value !== null) {
-            throw new ValidationError({
-                message: 'Free Tiers cannot have a yearly price'
-            });
-        }
-        return null;
-    }
-    if (!value) {
-        return 5000;
-    }
-    return validatePrice(value);
-}
-
-function validatePrice(value) {
-    if (!Number.isSafeInteger(value)) {
+    if (!Number.isSafeInteger(value) || value < 0 || value > 9999999999) {
         throw new ValidationError({
-            message: 'Tier prices must be an integer.'
-        });
-    }
-    if (value < 0) {
-        throw new ValidationError({
-            message: 'Tier prices must not be negative'
-        });
-    }
-    if (value > 9999999999) {
-        throw new ValidationError({
-            message: 'Tier prices may not exceed 999999.99'
+            message: value < 0 || value > 9999999999 ? 
+                'Tier prices must not be negative' : 
+                'Tier prices must be an integer.'
         });
     }
     return value;
+}
+
+function validateMonthlyPrice(value, type) {
+    return validatePrice(value, type, 'monthly price', 500);
+}
+
+function validateYearlyPrice(value, type) {
+    return validatePrice(value, type, 'yearly price', 5000);
 }
 
 function validateCreatedAt(value) {

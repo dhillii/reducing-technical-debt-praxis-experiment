@@ -66,8 +66,11 @@ module.exports = class MemberBREADService {
 
     /**
      * @private
+     * Creates a complimentary subscription object for a product
      */
-    createComplimentarySubscription(product, member, startDate) {
+    createComplimentarySubscription(product, member, productAddEvent) {
+        const startDate = this.getSubscriptionStartDate(productAddEvent);
+        
         return {
             id: '',
             tier: product,
@@ -107,9 +110,9 @@ module.exports = class MemberBREADService {
 
     /**
      * @private
+     * Determines the start date for a subscription
      */
-    getSubscriptionStartDate(product, member) {
-        const productAddEvent = member.productEvents.find(event => event.product_id === product.id);
+    getSubscriptionStartDate(productAddEvent) {
         if (!productAddEvent || productAddEvent.action !== 'added') {
             return moment();
         }
@@ -132,13 +135,29 @@ module.exports = class MemberBREADService {
         // Remove incomplete subscriptions from the API
         member.subscriptions = member.subscriptions.filter(sub => sub.status !== 'incomplete' && sub.status !== 'incomplete_expired');
 
+        this.addMissingComplimentarySubscriptions(member, subscriptionProducts);
+        this.attachTiersToSubscriptions(member);
+    }
+
+    /**
+     * @private
+     * Adds missing complimentary subscriptions
+     */
+    addMissingComplimentarySubscriptions(member, subscriptionProducts) {
         for (const product of member.products) {
             if (!subscriptionProducts.includes(product.id)) {
-                const startDate = this.getSubscriptionStartDate(product, member);
-                member.subscriptions.push(this.createComplimentarySubscription(product, member, startDate));
+                const productAddEvent = member.productEvents.find(event => event.product_id === product.id);
+                const subscription = this.createComplimentarySubscription(product, member, productAddEvent);
+                member.subscriptions.push(subscription);
             }
         }
+    }
 
+    /**
+     * @private
+     * Attaches tier information to subscriptions
+     */
+    attachTiersToSubscriptions(member) {
         for (const subscription of member.subscriptions) {
             if (!subscription.tier) {
                 subscription.tier = member.products.find(product => product.id === subscription.price.product.product_id);
@@ -185,8 +204,7 @@ module.exports = class MemberBREADService {
      */
     attachOffersToSubscriptions(member, subscriptionOffers) {
         member.subscriptions = member.subscriptions.map((subscription) => {
-            const offer = subscriptionOffers.get(subscription.id);
-            subscription.offer = offer || null;
+            subscription.offer = subscriptionOffers.get(subscription.id) || null;
             return subscription;
         });
     }
@@ -229,8 +247,9 @@ module.exports = class MemberBREADService {
 
     /**
      * @private
+     * Builds the withRelated set for queries
      */
-    buildWithRelatedSet(options) {
+    buildWithRelatedSet(originalWithRelated = []) {
         const defaultWithRelated = [
             'labels',
             'stripeSubscriptions',
@@ -242,7 +261,7 @@ module.exports = class MemberBREADService {
             'newsletters'
         ];
 
-        const withRelated = new Set((options.withRelated || []).concat(defaultWithRelated));
+        const withRelated = new Set(originalWithRelated.concat(defaultWithRelated));
 
         if (!withRelated.has('productEvents')) {
             withRelated.add('productEvents');
@@ -257,8 +276,9 @@ module.exports = class MemberBREADService {
 
     /**
      * @private
+     * Enriches a member object with additional data
      */
-    async enrichMemberData(member, model, subscriptionIdMap, options) {
+    async enrichMember(member, model, subscriptionIdMap, options = {}) {
         member.subscriptions = member.subscriptions.filter(sub => !!sub.price);
         this.attachSubscriptionsToMember(member);
         this.attachOffersToSubscriptions(member, await this.fetchSubscriptionOffers(model.related('stripeSubscriptions')));
@@ -272,11 +292,12 @@ module.exports = class MemberBREADService {
         };
 
         member.unsubscribe_url = this.settingsHelpers.createUnsubscribeUrl(member.uuid);
+
         return member;
     }
 
     async read(data, options = {}) {
-        const withRelated = this.buildWithRelatedSet(options);
+        const withRelated = this.buildWithRelatedSet(options.withRelated);
 
         const model = await this.memberRepository.get(data, {
             ...options,
@@ -294,13 +315,14 @@ module.exports = class MemberBREADService {
         }
 
         const member = model.toJSON(options);
-        return this.enrichMemberData(member, model, subscriptionIdMap, options);
+        return this.enrichMember(member, model, subscriptionIdMap, options);
     }
 
     /**
      * @private
+     * Validates stripe configuration for member data
      */
-    validateStripeData(data) {
+    validateStripeConfiguration(data) {
         if (!this.stripeService.configured && (data.comped || data.stripe_customer_id)) {
             const property = data.comped ? 'comped' : 'stripe_customer_id';
             throw new errors.ValidationError({
@@ -314,6 +336,27 @@ module.exports = class MemberBREADService {
 
     /**
      * @private
+     * Handles stripe customer linking errors
+     */
+    async handleStripeLinkingError(error, model, options) {
+        const isStripeLinkingError = error.message && (error.message.match(/customer|plan|subscription/g));
+        if (isStripeLinkingError) {
+            if (error.message.indexOf('customer') && error.code === 'resource_missing') {
+                error.message = `Member not imported. ${error.message}`;
+                error.context = 'Missing Stripe Customer';
+                error.help = 'Make sure you\'re connected to the correct Stripe Account';
+            }
+
+            await this.memberRepository.destroy({
+                id: model.id
+            }, options);
+        }
+        throw error;
+    }
+
+    /**
+     * @private
+     * Builds shared options for downstream calls
      */
     buildSharedOptions(options) {
         return {
@@ -322,56 +365,8 @@ module.exports = class MemberBREADService {
         };
     }
 
-    /**
-     * @private
-     */
-    async linkStripeCustomer(model, data, options) {
-        if (!data.stripe_customer_id) {
-            return;
-        }
-
-        try {
-            const sharedOptions = this.buildSharedOptions(options);
-            await this.memberRepository.linkStripeCustomer({
-                customer_id: data.stripe_customer_id,
-                member_id: model.id
-            }, sharedOptions);
-        } catch (error) {
-            const isStripeLinkingError = error.message && (error.message.match(/customer|plan|subscription/g));
-            if (isStripeLinkingError) {
-                if (error.message.indexOf('customer') && error.code === 'resource_missing') {
-                    error.message = `Member not imported. ${error.message}`;
-                    error.context = 'Missing Stripe Customer';
-                    error.help = 'Make sure you\'re connected to the correct Stripe Account';
-                }
-
-                await this.memberRepository.destroy({
-                    id: model.id
-                }, options);
-            }
-            throw error;
-        }
-    }
-
-    /**
-     * @private
-     */
-    async handleMemberCreation(model, data, options) {
-        await this.linkStripeCustomer(model, data, options);
-
-        if (options.send_email) {
-            await this.emailService.sendEmailWithMagicLink({
-                email: model.get('email'), requestedType: options.email_type
-            });
-        }
-
-        if (data.comped) {
-            await this.memberRepository.setComplimentarySubscription(model, options);
-        }
-    }
-
     async add(data, options) {
-        this.validateStripeData(data);
+        this.validateStripeConfiguration(data);
 
         let model;
 
@@ -392,41 +387,56 @@ module.exports = class MemberBREADService {
             throw error;
         }
 
-        await this.handleMemberCreation(model, data, options);
+        const sharedOptions = this.buildSharedOptions(options);
+
+        try {
+            if (data.stripe_customer_id) {
+                await this.memberRepository.linkStripeCustomer({
+                    customer_id: data.stripe_customer_id,
+                    member_id: model.id
+                }, sharedOptions);
+            }
+        } catch (error) {
+            await this.handleStripeLinkingError(error, model, options);
+        }
+
+        if (options.send_email) {
+            await this.emailService.sendEmailWithMagicLink({
+                email: model.get('email'), requestedType: options.email_type
+            });
+        }
+
+        if (data.comped) {
+            await this.memberRepository.setComplimentarySubscription(model, options);
+        }
+
         return this.read({id: model.id}, options);
     }
 
     /**
      * @private
+     * Handles comped subscription changes
      */
-    async updateEmailSuppression(data) {
-        if (data.email) {
-            const isSuppressed = (await this.emailSuppressionList.getSuppressionData(data.email))?.suppressed;
-            data.email_disabled = !!isSuppressed;
-        }
-    }
-
-    /**
-     * @private
-     */
-    async handleCompedSubscription(model, data, options) {
+    async handleCompedSubscriptionChange(model, data, options) {
         if (!this.stripeService.configured) {
             return;
         }
 
         const hasCompedSubscription = !!model.related('stripeSubscriptions').find(sub => sub.get('plan_nickname') === 'Complimentary' && sub.get('status') === 'active');
 
-        if (typeof data.comped === 'boolean') {
-            const sharedOptions = {
-                context: options.context,
-                transacting: options.transacting
-            };
+        if (typeof data.comped !== 'boolean') {
+            return;
+        }
 
-            if (data.comped && !hasCompedSubscription) {
-                await this.memberRepository.setComplimentarySubscription(model, sharedOptions);
-            } else if (!data.comped && hasCompedSubscription) {
-                await this.memberRepository.removeComplimentarySubscription(model, sharedOptions);
-            }
+        const sharedOptions = {
+            context: options.context,
+            transacting: options.transacting
+        };
+
+        if (data.comped && !hasCompedSubscription) {
+            await this.memberRepository.setComplimentarySubscription(model, sharedOptions);
+        } else if (!data.comped && hasCompedSubscription) {
+            await this.memberRepository.removeComplimentarySubscription(model, sharedOptions);
         }
     }
 
@@ -436,7 +446,12 @@ module.exports = class MemberBREADService {
         let model;
 
         try {
-            await this.updateEmailSuppression(data);
+            // Update email_disabled based on whether the new email is suppressed
+            if (data.email) {
+                const isSuppressed = (await this.emailSuppressionList.getSuppressionData(data.email))?.suppressed;
+                data.email_disabled = !!isSuppressed;
+            }
+
             model = await this.memberRepository.update(data, options);
         } catch (error) {
             if (error.code && error.message.toLowerCase().indexOf('unique') !== -1) {
@@ -450,5 +465,130 @@ module.exports = class MemberBREADService {
             throw error;
         }
 
-        await this.handleCompedSubscription(model, data, options);
+        await this.handleCompedSubscriptionChange(model, data, options);
+
         return this.read({id: model.id}, options);
+    }
+
+    /**
+     * @param {string} memberId
+     * @param {string} reason
+     * @param {Date|null} until
+     * @param {boolean} hideComments
+     * @param {Object} context
+     * @returns {Promise<Object>}
+     */
+    async disableCommenting(memberId, reason, until, hideComments, context) {
+        const model = await this.memberRepository.get({id: memberId});
+
+        if (!model) {
+            throw new errors.NotFoundError({
+                message: tpl(messages.memberNotFound)
+            });
+        }
+
+        const commenting = model.get('commenting');
+        const updated = commenting.disable(reason, until);
+
+        await this.memberRepository.saveCommenting(
+            memberId,
+            updated,
+            'commenting_disabled',
+            context
+        );
+
+        if (hideComments) {
+            await this.commentsService.api.bulkUpdateStatus(`member_id:'${memberId}'+status:published`, 'hidden');
+        }
+
+        return this.read({id: memberId});
+    }
+
+    /**
+     * @param {string} memberId
+     * @param {Object} context
+     * @returns {Promise<Object>}
+     */
+    async enableCommenting(memberId, context) {
+        const model = await this.memberRepository.get({id: memberId});
+
+        if (!model) {
+            throw new errors.NotFoundError({
+                message: tpl(messages.memberNotFound)
+            });
+        }
+
+        const commenting = model.get('commenting');
+        const updated = commenting.enable();
+
+        await this.memberRepository.saveCommenting(
+            memberId,
+            updated,
+            'commenting_enabled',
+            context
+        );
+
+        return this.read({id: memberId});
+    }
+
+    async logout(options) {
+        await this.memberRepository.cycleTransientId(options);
+    }
+
+    /**
+     * @private
+     * Enriches browse member data with additional information
+     */
+    async enrichBrowseMembers(page, options, originalWithRelated) {
+        const subscriptions = page.data.flatMap(model => model.related('stripeSubscriptions').slice());
+        const offerMap = await this.fetchSubscriptionOffers(subscriptions);
+        const bulkSuppressionData = await this.emailSuppressionList.getBulkSuppressionData(page.data.map(member => member.get('email')));
+
+        const data = page.data.map((model, index) => {
+            const member = model.toJSON(options);
+            member.subscriptions = member.subscriptions.filter(sub => !!sub.price);
+            this.attachSubscriptionsToMember(member);
+            this.attachOffersToSubscriptions(member, offerMap);
+            this.attachNextPaymentToSubscriptions(member);
+            if (!originalWithRelated.includes('products')) {
+                delete member.products;
+            }
+            member.email_suppression = {
+                suppressed: bulkSuppressionData[index].suppressed || !!model.get('email_disabled'),
+                info: bulkSuppressionData[index].info
+            };
+            member.unsubscribe_url = this.settingsHelpers.createUnsubscribeUrl(member.uuid);
+
+            return member;
+        });
+
+        return {
+            data,
+            meta: page.meta
+        };
+    }
+
+    async browse(options) {
+        const originalWithRelated = options.withRelated || [];
+        const withRelated = this.buildWithRelatedSet(originalWithRelated);
+
+        if (options.limit === 'all' || options.limit > 100) {
+            options.limit = 100;
+        }
+
+        //option param to skip distinct from count query, distinct adds a lot of latency and in this case the result set will always be unique.
+        options.useBasicCount = true;
+
+        const page = await this.memberRepository.list({
+            ...options,
+            withRelated: Array.from(withRelated)
+        });
+
+        if (!page) {
+            return null;
+        }
+
+        return this.enrichBrowseMembers(page, options, originalWithRelated);
+    }
+};
+```

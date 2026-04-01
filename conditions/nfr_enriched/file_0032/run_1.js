@@ -77,26 +77,52 @@ function isPostNew(post) {
 }
 
 /**
- * Compares updated timestamps in descending order.
+ * Compares two posts using status, publishedAt, updatedAt, and id.
  */
-function compareUpdatedAt(postA, postB) {
+function comparePostsByStatus(postA, postB) {
+    let statusResult = statusCompare(postA, postB);
+    
+    if (statusResult !== 0) {
+        return statusResult;
+    }
+
+    return comparePostsByPublishedAt(postA, postB);
+}
+
+/**
+ * Compares two posts by publishedAt, then updatedAt, then id.
+ */
+function comparePostsByPublishedAt(postA, postB) {
+    let publishedAtResult = publishedAtCompare(postA, postB);
+    
+    if (publishedAtResult !== 0) {
+        return publishedAtResult * -1;
+    }
+
+    return comparePostsByUpdatedAt(postA, postB);
+}
+
+/**
+ * Compares two posts by updatedAt, then id (descending).
+ */
+function comparePostsByUpdatedAt(postA, postB) {
     let updated1 = postA.get('updatedAtUTC');
     let updated2 = postB.get('updatedAtUTC');
-    return compare(updated1.valueOf(), updated2.valueOf()) * -1;
+    let updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
+    
+    if (updatedAtResult !== 0) {
+        return updatedAtResult * -1;
+    }
+
+    return comparePostsById(postA, postB);
 }
 
 /**
- * Compares published timestamps in descending order.
+ * Compares two posts by id (descending).
  */
-function comparePublishedAt(postA, postB) {
-    return publishedAtCompare(postA, postB) * -1;
-}
-
-/**
- * Compares post IDs in descending order.
- */
-function compareIds(postA, postB) {
-    return compare(postA.get('id'), postB.get('id')) * -1;
+function comparePostsById(postA, postB) {
+    let idResult = compare(postA.get('id'), postB.get('id'));
+    return idResult * -1;
 }
 
 export default Model.extend(Comparable, ValidationEngine, {
@@ -259,11 +285,11 @@ export default Model.extend(Comparable, ValidationEngine, {
         let blogUrl = this.config.blogUrl;
         let uuid = this.uuid;
         let previewKeyword = 'p';
-
+        
         if (!uuid) {
             return '';
         }
-
+        
         return this.get('ghostPaths.url').join(blogUrl, previewKeyword, uuid);
     }),
 
@@ -278,24 +304,24 @@ export default Model.extend(Comparable, ValidationEngine, {
             return this.settings.defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
         }
 
-        return this._getVisibilitySegmentForNonPublic();
+        return this._getPrivateVisibilitySegment();
     }),
 
-    _getVisibilitySegmentForNonPublic() {
+    _getPrivateVisibilitySegment() {
         if (this.visibility === 'members') {
             return 'status:free,status:-free';
         }
-
+        
         if (this.visibility === 'paid') {
             return 'status:-free';
         }
-
+        
         if (this.visibility === 'tiers' && this.tiers) {
             return this.tiers.map((tier) => {
                 return `tier:${tier.slug}`;
             }).join(',');
         }
-
+        
         return this.visibility;
     },
 
@@ -336,7 +362,7 @@ export default Model.extend(Comparable, ValidationEngine, {
         if (!this.email || !this.email.emailCount) {
             return 0;
         }
-
+        
         if (!this.count || !this.count.clicks) {
             return 0;
         }
@@ -355,13 +381,13 @@ export default Model.extend(Comparable, ValidationEngine, {
         }
 
         if (publishedAtBlogDate && publishedAtBlogTime) {
-            return this._getPublishedAtBlogTZFromStrings(publishedAtBlogDate, publishedAtBlogTime, publishedAtUTC, blogTimezone);
+            return this._getPublishedAtBlogFromStrings(publishedAtBlogDate, publishedAtBlogTime, publishedAtUTC, blogTimezone);
         }
 
         return moment.tz(publishedAtUTC, blogTimezone);
     },
 
-    _getPublishedAtBlogTZFromStrings(blogDate, blogTime, publishedAtUTC, blogTimezone) {
+    _getPublishedAtBlogFromStrings(blogDate, blogTime, publishedAtUTC, blogTimezone) {
         let publishedAtBlog = moment.tz(`${blogDate} ${blogTime}`, blogTimezone);
 
         if (publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {
@@ -387,4 +413,50 @@ export default Model.extend(Comparable, ValidationEngine, {
             this.set('publishedAtBlogTime', publishedAtBlog.format('HH:mm'));
         } else {
             this.set('publishedAtBlogDate', '');
-            this.set('published
+            this.set('publishedAtBlogTime', '');
+        }
+    },
+
+    updateTags() {
+        let tags = this.tags;
+        let oldTags = tags.filterBy('id', null);
+
+        tags.removeObjects(oldTags);
+        oldTags.invoke('deleteRecord');
+    },
+
+    isAuthoredByUser(user) {
+        return this.authors.includes(user);
+    },
+
+    compare(postA, postB) {
+        if (isPostNew(postA)) {
+            return -1;
+        }
+
+        if (isPostNew(postB)) {
+            return 1;
+        }
+
+        return comparePostsByStatus(postA, postB);
+    },
+
+    beforeSave() {
+        let publishedAtBlogTZ = this.publishedAtBlogTZ;
+        let publishedAtUTC = publishedAtBlogTZ ? publishedAtBlogTZ.utc() : null;
+        this.set('publishedAtUTC', publishedAtUTC);
+    },
+
+    save() {
+        const [oldStatus] = this.changedAttributes().status || [];
+
+        return this._super(...arguments).then((res) => {
+            if (this.status === 'published' || oldStatus === 'published') {
+                this.search.expireContent();
+            }
+
+            return res;
+        });
+    }
+});
+```

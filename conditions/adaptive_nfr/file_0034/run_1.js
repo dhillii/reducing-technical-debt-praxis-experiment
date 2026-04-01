@@ -214,7 +214,8 @@ export default class PublishOptions {
             'tiers': () => this.post.visibilitySegment
         };
 
-        const filterOrFn = visibilityFilterMap[this.post.visibility];
+        const visibility = this.post.visibility;
+        const filterOrFn = visibilityFilterMap[visibility];
 
         if (typeof filterOrFn === 'function') {
             return filterOrFn();
@@ -302,6 +303,18 @@ export default class PublishOptions {
     *fetchRequiredDataTask() {
         const promises = [];
 
+        this._addMemberCountPromise(promises);
+        this._addLimitCheckPromises(promises);
+        this._addNewsletterPromise(promises);
+
+        yield Promise.all(promises);
+    }
+
+    /**
+     * Adds member count fetch promise to the promises array
+     * @param {Array} promises - Array to collect promises
+     */
+    _addMemberCountPromise(promises) {
         // total # of members - used to enable/disable email
         // Only Admins/Owners have permission to browse members and get a count
         // for Editors/Authors set member count to 1 so email isn't disabled for not having any members
@@ -312,17 +325,26 @@ export default class PublishOptions {
         } else {
             this.totalMemberCount = 1;
         }
+    }
 
-        // limits
+    /**
+     * Adds limit check promises to the promises array
+     * @param {Array} promises - Array to collect promises
+     */
+    _addLimitCheckPromises(promises) {
         promises.push(this._checkSendingLimit());
         promises.push(this._checkPublishingLimit());
+    }
 
+    /**
+     * Adds newsletter query promise to the promises array
+     * @param {Array} promises - Array to collect promises
+     */
+    _addNewsletterPromise(promises) {
         // newsletters
         if (!this.user.isContributor) {
             promises.push(this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'}));
         }
-
-        yield Promise.all(promises);
     }
 
     // saving ------------------------------------------------------------------

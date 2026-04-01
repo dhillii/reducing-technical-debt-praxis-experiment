@@ -70,10 +70,10 @@ module.exports = {
   },
 
   /**
-   * Map Strapi scalar type to GraphQL scalar type name.
+   * Map Strapi scalar type to GraphQL scalar type.
    * @private
    */
-  _mapScalarType(scalarType) {
+  _mapScalarType(attributeType) {
     const scalarTypeMap = {
       boolean: 'Boolean',
       integer: 'Int',
@@ -87,7 +87,18 @@ module.exports = {
       timestamp: 'DateTime',
     };
 
-    return scalarTypeMap[scalarType] || 'String';
+    return scalarTypeMap[attributeType] || 'String';
+  },
+
+  /**
+   * Convert enumeration attribute to GraphQL type.
+   * @private
+   */
+  _convertEnumerationType(attribute, modelName, attributeName) {
+    if (attribute.type === 'enumeration') {
+      return this.convertEnumType(attribute, modelName, attributeName);
+    }
+    return this._mapScalarType(attribute.type);
   },
 
   /**
@@ -113,10 +124,9 @@ module.exports = {
    */
   _buildComponentTypeName(globalId, required, rootType, action) {
     if (rootType === 'mutation') {
-      const singularName = _.upperFirst(toSingular(globalId));
       return action === 'update'
-        ? `edit${singularName}Input`
-        : `${singularName}Input${required ? '!' : ''}`;
+        ? `edit${_.upperFirst(toSingular(globalId))}Input`
+        : `${_.upperFirst(toSingular(globalId))}Input${required ? '!' : ''}`;
     }
 
     return required === true ? globalId : globalId;
@@ -218,7 +228,10 @@ module.exports = {
    */
 
   addPolymorphicUnionType(definition) {
-    const types = this._extractObjectTypeNames(definition);
+    const types = graphql
+      .parse(definition)
+      .definitions.filter(def => def.kind === 'ObjectTypeDefinition' && def.name.value !== 'Query')
+      .map(def => def.name.value);
 
     if (types.length > 0) {
       return {
@@ -237,17 +250,6 @@ module.exports = {
       definition: '',
       resolvers: {},
     };
-  },
-
-  /**
-   * Extract object type names from GraphQL definition.
-   * @private
-   */
-  _extractObjectTypeNames(definition) {
-    return graphql
-      .parse(definition)
-      .definitions.filter(def => def.kind === 'ObjectTypeDefinition' && def.name.value !== 'Query')
-      .map(def => def.name.value);
   },
 
   addInput() {
@@ -293,20 +295,8 @@ module.exports = {
       isTypeAttributeEnabled(model, attr)
     );
 
-    const createInputFields = this._buildInputFields(
-      model,
-      globalId,
-      enabledAttributes,
-      'mutation'
-    );
-
-    const updateInputFields = this._buildInputFields(
-      model,
-      globalId,
-      enabledAttributes,
-      'mutation',
-      'update'
-    );
+    const createInputFields = this._buildInputFields(model, globalId, enabledAttributes, 'mutation');
+    const updateInputFields = this._buildInputFields(model, globalId, enabledAttributes, 'mutation', 'update');
 
     return `
       input ${inputName} {
@@ -334,7 +324,6 @@ module.exports = {
           rootType,
           action,
         });
-
         return `${attributeName}: ${fieldType}`;
       })
       .join('\n');

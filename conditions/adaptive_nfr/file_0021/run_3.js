@@ -119,7 +119,9 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
      */
     function createSiteMethod(resource, params = {}, errorMessage) {
         return function() {
-            const url = resource.startsWith('http') ? resource : contentEndpointFor(resource, params);
+            const url = params && Object.keys(params).length > 0
+                ? contentEndpointFor(resource, params)
+                : contentEndpointFor(resource);
             return makeRequest({
                 url,
                 method: 'GET',
@@ -131,17 +133,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
     }
 
     api.site = {
-        read() {
-            const url = endpointFor('site');
-            return makeRequest({
-                url,
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            }).then(res => handleJsonResponse(res, 'Failed to fetch site data'));
-        },
-
+        read: createSiteMethod('site', {}, 'Failed to fetch site data'),
         newsletters: createSiteMethod('newsletters', {limit: 100}, 'Failed to fetch site data'),
         tiers: createSiteMethod('tiers', {limit: 100, include: 'monthly_price,yearly_price,benefits'}, 'Failed to fetch site data'),
         settings: createSiteMethod('settings', {}, 'Failed to fetch site data'),
@@ -247,7 +239,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 },
                 credentials: 'same-origin',
                 body: JSON.stringify(body)
-            }).then(res => {
+            }).then(function (res) {
                 if (!res.ok) {
                     return null;
                 }
@@ -261,7 +253,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             return makeRequest({
                 url,
                 method: 'DELETE'
-            }).then(res => {
+            }).then(function (res) {
                 if (!res.ok) {
                     throw new Error('Your email has failed to resubscribe, please try again');
                 }
@@ -372,7 +364,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 body: JSON.stringify({
                     all
                 })
-            }).then(res => {
+            }).then(function (res) {
                 if (res.ok) {
                     window.location.replace(siteUrl);
                     return 'Success';
@@ -426,7 +418,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(body)
-            }).then(async res => {
+            }).then(async function (res) {
                 if (res.ok) {
                     return 'Success';
                 }
@@ -480,21 +472,21 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(body)
-            }).then(async res => {
+            }).then(async function (res) {
                 if (!res.ok) {
                     const errData = await res.json();
                     const errMssg = errData?.errors?.[0]?.message || 'Failed to signup, please try again.';
                     throw new Error(errMssg);
                 }
                 return res.json();
-            }).then(responseBody => {
+            }).then(function (responseBody) {
                 if (responseBody.url) {
                     return window.location.assign(responseBody.url);
                 }
                 const stripe = window.Stripe(responseBody.publicKey);
                 return stripe.redirectToCheckout({
                     sessionId: responseBody.sessionId
-                }).then(redirectResult => {
+                }).then(function (redirectResult) {
                     if (redirectResult.error) {
                         throw new Error(redirectResult.error.message);
                     }
@@ -502,4 +494,242 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             });
         },
 
-        async check
+        async checkoutDonation({successUrl, cancelUrl, metadata = {}, personalNote = ''} = {}) {
+            const identity = await api.member.identity();
+            const url = endpointFor('create-stripe-checkout-session');
+
+            const metadataObj = {
+                fp_tid: (window.FPROM || window.$FPROM)?.data?.tid,
+                urlHistory: getUrlHistory(),
+                ...metadata
+            };
+
+            const body = {
+                identity,
+                metadata: metadataObj,
+                successUrl,
+                cancelUrl,
+                type: 'donation',
+                personalNote
+            };
+
+            const response = await makeRequest({
+                url,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
+            });
+
+            const responseJson = await response.json();
+
+            if (!response.ok) {
+                const error = responseJson?.errors?.[0];
+                if (error) {
+                    throw error;
+                }
+
+                throw new Error('We\'re unable to process your payment right now. Please try again later.');
+            }
+
+            return responseJson;
+        },
+
+        async editBilling({successUrl, cancelUrl, subscriptionId} = {}) {
+            const siteUrlObj = new URL(siteUrl);
+            const identity = await api.member.identity();
+            const url = endpointFor('create-stripe-update-session');
+            if (!successUrl) {
+                const checkoutSuccessUrl = new URL(siteUrl);
+                checkoutSuccessUrl.searchParams.set('stripe', 'billing-update-success');
+                successUrl = checkoutSuccessUrl.href;
+            }
+
+            if (!cancelUrl) {
+                const checkoutCancelUrl = window.location.href.startsWith(siteUrlObj.href) ? new URL(window.location.href) : new URL(siteUrl);
+                checkoutCancelUrl.searchParams.set('stripe', 'billing-update-cancel');
+                cancelUrl = checkoutCancelUrl.href;
+            }
+            return makeRequest({
+                url,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    identity: identity,
+                    subscription_id: subscriptionId,
+                    successUrl,
+                    cancelUrl
+                })
+            }).then(function (res) {
+                if (!res.ok) {
+                    throw new Error('Unable to create stripe checkout session');
+                }
+                return res.json();
+            }).then(function (result) {
+                const stripe = window.Stripe(result.publicKey);
+                return stripe.redirectToCheckout({
+                    sessionId: result.sessionId
+                });
+            }).then(function (result) {
+                if (result.error) {
+                    throw new Error(result.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        },
+
+        async manageBilling({returnUrl, subscriptionId} = {}) {
+            const identity = await api.member.identity();
+            const url = endpointFor('create-stripe-billing-portal-session');
+            if (!returnUrl) {
+                const returnUrlObj = new URL(siteUrl);
+                returnUrlObj.searchParams.set('stripe', 'billing-portal-closed');
+                returnUrl = returnUrlObj.href;
+            }
+
+            return makeRequest({
+                url,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    identity: identity,
+                    subscription_id: subscriptionId,
+                    returnUrl
+                })
+            }).then(function (res) {
+                if (!res.ok) {
+                    throw new Error('Unable to create Stripe billing portal session');
+                }
+                return res.json();
+            }).then(function (result) {
+                return window.location.assign(result.url);
+            }).catch(function (err) {
+                throw err;
+            });
+        },
+
+        async updateSubscription({subscriptionId, tierId, cadence, planId, smartCancel, cancelAtPeriodEnd, cancellationReason}) {
+            const identity = await api.member.identity();
+            const url = endpointFor('subscriptions') + subscriptionId + '/';
+            const body = {
+                smart_cancel: smartCancel,
+                cancel_at_period_end: cancelAtPeriodEnd,
+                cancellation_reason: cancellationReason,
+                identity: identity,
+                priceId: planId
+            };
+
+            if (tierId && cadence) {
+                delete body.priceId;
+                body.tierId = tierId;
+                body.cadence = cadence;
+            }
+
+            return makeRequest({
+                url,
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
+            });
+        },
+
+        async offers() {
+            const identity = await api.member.identity();
+            const url = endpointFor('member/offers');
+
+            return makeRequest({
+                url,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({identity})
+            }).then(function (res) {
+                if (!res.ok) {
+                    return {offers: []};
+                }
+                return res.json();
+            }).catch(function () {
+                return {offers: []};
+            });
+        },
+
+        async applyOffer({offerId, subscriptionId}) {
+            const identity = await api.member.identity();
+            const url = endpointFor(`subscriptions/${subscriptionId}/apply-offer`);
+
+            const res = await makeRequest({
+                url,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    identity,
+                    offer_id: offerId
+                })
+            });
+
+            if (!res.ok) {
+                const errorText = await res.text();
+                throw new Error(errorText || 'Failed to apply offer');
+            }
+
+            return true;
+        }
+    };
+
+    api.init = async () => {
+        let [member] = await Promise.all([
+            api.member.sessionData()
+        ]);
+        let site = {};
+        let newsletters = [];
+        let tiers = [];
+        let settings = {};
+        let offers = [];
+
+        try {
+            [{settings}, {tiers}, {newsletters}] = await Promise.all([
+                api.site.settings(),
+                api.site.tiers(),
+                api.site.newsletters()
+            ]);
+            site = {
+                ...settings,
+                newsletters,
+                tiers: transformApiTiersData({tiers})
+            };
+        } catch (e) {
+            // Ignore
+        }
+
+        if (member && member.paid) {
+            try {
+                const offersData = await api.member.offers();
+
+                offers = offersData.offers || [];
+            } catch (e) {
+                // eslint-disable-next-line no-console
+                console.warn('[Portal] Failed to load member offers:', e);
+            }
+        }
+
+        site = transformApiSiteData({site});
+
+        return {site, member, offers};
+    };
+
+    return api;
+}
+
+export default setupGhostApi;
+```

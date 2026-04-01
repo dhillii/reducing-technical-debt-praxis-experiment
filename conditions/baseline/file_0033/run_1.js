@@ -364,7 +364,7 @@ class ajaxService extends AjaxService {
         }
     }
 
-    _handleErrorResponse(status, headers, payload, request) {
+    _getErrorResponse(status, headers, payload) {
         for (const handler of ERROR_HANDLERS) {
             if (this[handler.check](status, headers, payload)) {
                 return new handler.ErrorClass(payload);
@@ -383,15 +383,11 @@ class ajaxService extends AjaxService {
         const isAuthenticated = this.get('session.isAuthenticated');
         const isUnauthorized = this.isUnauthorizedError(status, headers, payload);
         const isForbidden = isForbiddenError(status, headers, payload);
-        const isAuthorizationFailed = isForbidden && payload.errors?.[0].message === 'Authorization failed';
+        const isForbiddenAuthError = isForbidden && payload.errors?.[0].message === 'Authorization failed';
 
-        if (isAuthenticated && isGhostRequest && (isUnauthorized || isAuthorizationFailed)) {
+        if (isAuthenticated && isGhostRequest && (isUnauthorized || isForbiddenAuthError)) {
             this.skipSessionDeletion = true;
             this.session.invalidate();
-        }
-
-        if (isGhostRequest) {
-            this._responseServer = headers.server;
         }
     }
 
@@ -408,9 +404,14 @@ class ajaxService extends AjaxService {
 
         this._checkVersionMismatch(headers);
 
-        const errorResponse = this._handleErrorResponse(status, headers, payload, request);
+        const errorResponse = this._getErrorResponse(status, headers, payload);
         if (errorResponse) {
             return errorResponse;
+        }
+
+        const isGhostRequest = GHOST_REQUEST.test(request.url);
+        if (isGhostRequest) {
+            this._responseServer = headers.server;
         }
 
         this._handleSessionInvalidation(status, headers, payload, request);
@@ -444,4 +445,51 @@ class ajaxService extends AjaxService {
         return isTwoFactorTokenRequiredError(status, payload);
     }
 
-    isVersionMismatchError(status, headers, payload
+    isVersionMismatchError(status, headers, payload) {
+        return isVersionMismatchError(status, payload);
+    }
+
+    isServerUnreachableError(status) {
+        return isServerUnreachableError(status);
+    }
+
+    isRequestEntityTooLargeError(status) {
+        return isRequestEntityTooLargeError(status);
+    }
+
+    isUnsupportedMediaTypeError(status) {
+        return isUnsupportedMediaTypeError(status);
+    }
+
+    isDataImportError(status) {
+        return isDataImportError(status);
+    }
+
+    isMaintenanceError(status, headers, payload) {
+        return isMaintenanceError(status, payload);
+    }
+
+    isThemeValidationError(status, headers, payload) {
+        return isThemeValidationError(status, payload);
+    }
+
+    isHostLimitError(status, headers, payload) {
+        return isHostLimitError(status, payload);
+    }
+
+    isEmailError(status, headers, payload) {
+        return isEmailError(status, payload);
+    }
+
+    isAcceptedResponse(status) {
+        return isAcceptedResponse(status);
+    }
+}
+
+// we need to reopen so that internal methods use the correct contentType
+ajaxService.reopen({
+    contentType: 'application/json; charset=UTF-8'
+});
+
+export default ajaxService;
+```

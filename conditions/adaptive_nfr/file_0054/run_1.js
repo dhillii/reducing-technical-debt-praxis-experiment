@@ -206,28 +206,40 @@
   };
 
   /**
-   * Determines the success status and error from the result value.
-   * @param {*} success - The result value (boolean, Error, or other)
-   * @param {string} nameArgs - Task name with arguments
+   * Determines success status and error from completion value.
+   * @param {*} success - The completion value
+   * @param {string} nameArgs - Task name and args
    * @returns {{success: boolean, err: Error|null}}
    */
-  const _determineTaskResult = function(success, nameArgs) {
+  const _determineCompletionStatus = function(success, nameArgs) {
     let err = null;
-    
     if (success === false) {
-      // Since false was passed, the task failed generically.
       err = new Error('Task "' + nameArgs + '" failed.');
-      return {success: false, err: err};
-    }
-    
-    if (success instanceof Error || {}.toString.call(success) === '[object Error]') {
-      // An error object was passed, so the task failed specifically.
+      success = false;
+    } else if (success instanceof Error || {}.toString.call(success) === '[object Error]') {
       err = success;
-      return {success: false, err: err};
+      success = false;
+    } else {
+      success = true;
     }
-    
-    // The task succeeded.
-    return {success: true, err: null};
+    return {success: success, err: err};
+  };
+
+  /**
+   * Invokes the done callback, optionally asynchronously.
+   * @param {Function} done - Callback function
+   * @param {Error|null} err - Error object
+   * @param {boolean} success - Success flag
+   * @param {boolean} asyncDone - Whether to invoke asynchronously
+   */
+  const _invokeDone = function(done, err, success, asyncDone) {
+    if (asyncDone) {
+      process.nextTick(function() {
+        done(err, success);
+      });
+    } else {
+      done(err, success);
+    }
   };
 
   // Run a task function, handling this.async / return value.
@@ -237,26 +249,19 @@
 
     // Update the internal status object and run the next task.
     const complete = function(success) {
-      const result = _determineTaskResult(success, context.nameArgs);
-      
+      const completion = _determineCompletionStatus.call(this, success, context.nameArgs);
       // The task has ended, reset the current task object.
       this.current = {};
       // A task has "failed" only if it returns false (async) or if the
       // function returned by .async is passed false.
-      this._success[context.nameArgs] = result.success;
+      this._success[context.nameArgs] = completion.success;
       // If task failed, call error handler.
-      if (!result.success && this._options.error) {
-        this._options.error.call({name: context.name, nameArgs: context.nameArgs}, result.err);
+      if (!completion.success && this._options.error) {
+        this._options.error.call({name: context.name, nameArgs: context.nameArgs}, completion.err);
       }
       // only call done async if explicitly requested to
       // see: https://github.com/gruntjs/grunt/pull/1026
-      if (asyncDone) {
-        process.nextTick(function() {
-          done(result.err, result.success);
-        });
-      } else {
-        done(result.err, result.success);
-      }
+      _invokeDone(done, completion.err, completion.success, asyncDone);
     }.bind(this);
 
     // When called, sets the async flag and returns a function that can
@@ -288,7 +293,9 @@
 
   /**
    * Checks if item should be skipped in queue processing.
-   * @param {*} item - Queue item to check
+   * @param {*} item - Queue item
+   * @param {*} placeholder - Placeholder reference
+   * @param {*} marker - Marker reference
    * @returns {boolean}
    */
   const _isQueueItemSkippable = function(item, placeholder, marker) {
@@ -297,30 +304,26 @@
 
   /**
    * Creates task execution context from queue item.
-   * @param {Object} thing - Queue item with task information
-   * @returns {Object} Context object for task execution
+   * @param {Object} thing - Queue item with task info
+   * @returns {Object} Context object
    */
   const _createTaskContext = function(thing) {
     return {
-      // The current task name plus args, as-passed.
       nameArgs: thing.nameArgs,
-      // The current task name.
       name: thing.task.name,
-      // The current task arguments.
       args: thing.args,
-      // The current arguments, available as named flags.
       flags: thing.flags
     };
   };
 
   /**
-   * Handles queue completion.
-   * @param {Object} options - Start options
+   * Handles queue completion when empty.
+   * @param {Task} taskInstance - Task instance
    */
-  const _handleQueueComplete = function(options) {
-    this._running = false;
-    if (this._options.done) {
-      this._options.done();
+  const _handleQueueEmpty = function(taskInstance) {
+    taskInstance._running = false;
+    if (taskInstance._options.done) {
+      taskInstance._options.done();
     }
   };
 
@@ -341,7 +344,7 @@
       } while (thing && _isQueueItemSkippable(thing, this._placeholder, this._marker));
       // If queue was empty, we're all done.
       if (!thing) {
-        _handleQueueComplete.call(this, opts);
+        _handleQueueEmpty(this);
         return;
       }
       // Add a placeholder to the front of the queue.
@@ -375,13 +378,32 @@
     return this;
   };
 
+  /**
+   * Checks if a task has succeeded.
+   * @param {string} name - Task name
+   * @param {*} success - Success status
+   * @returns {boolean}
+   */
+  const _isTaskSuccessful = function(success) {
+    return success === true;
+  };
+
+  /**
+   * Gets failure reason message.
+   * @param {*} success - Success status
+   * @returns {string}
+   */
+  const _getFailureReason = function(success) {
+    return success === false ? 'failed' : 'must be run first';
+  };
+
   // Test to see if all of the given tasks have succeeded.
   Task.prototype.requires = function() {
     this.parseArgs(arguments).forEach(function(name) {
       const success = this._success[name];
-      if (!success) {
+      if (!_isTaskSuccessful(success)) {
         throw new Error('Required task "' + name +
-          '" ' + (success === false ? 'failed' : 'must be run first') + '.');
+          '" ' + _getFailureReason(success) + '.');
       }
     }.bind(this));
   };

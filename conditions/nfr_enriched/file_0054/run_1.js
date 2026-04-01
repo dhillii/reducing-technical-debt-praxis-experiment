@@ -241,25 +241,18 @@
     }
   };
 
-  // Normalize success value to boolean and error object.
-  Task.prototype._normalizeTaskResult = function(success, context) {
-    let err = null;
-    let isSuccess = success;
-
-    if (success === false) {
+  // Determine success status from task result.
+  Task.prototype._determineSuccess = function(result) {
+    if (result === false) {
       // Since false was passed, the task failed generically.
-      err = new Error('Task "' + context.nameArgs + '" failed.');
-      isSuccess = false;
-    } else if (success instanceof Error || {}.toString.call(success) === '[object Error]') {
-      // An error object was passed, so the task failed specifically.
-      err = success;
-      isSuccess = false;
-    } else {
-      // The task succeeded.
-      isSuccess = true;
+      return {success: false, err: new Error('Task "' + this.current.nameArgs + '" failed.')};
     }
-
-    return {err: err, success: isSuccess};
+    if (result instanceof Error || {}.toString.call(result) === '[object Error]') {
+      // An error object was passed, so the task failed specifically.
+      return {success: false, err: result};
+    }
+    // The task succeeded.
+    return {success: true, err: null};
   };
 
   // Run a task function, handling this.async / return value.
@@ -268,9 +261,9 @@
     let async = false;
 
     // Update the internal status object and run the next task.
-    const complete = function(success) {
-      const {err, success: isSuccess} = this._normalizeTaskResult(success, context);
-      this._completeTask(context, isSuccess, err, done, asyncDone);
+    const complete = function(result) {
+      const {success, err} = this._determineSuccess(result);
+      this._completeTask(context, success, err, done, asyncDone);
     }.bind(this);
 
     // When called, sets the async flag and returns a function that can
@@ -300,8 +293,8 @@
     }
   };
 
-  // Dequeue and skip placeholder/marker items.
-  Task.prototype._dequeueTask = function() {
+  // Get next task from queue, skipping placeholders and markers.
+  Task.prototype._getNextQueueItem = function() {
     let thing;
     // Skip any placeholders or markers.
     do {
@@ -310,8 +303,8 @@
     return thing;
   };
 
-  // Build context object for task execution.
-  Task.prototype._buildTaskContext = function(thing) {
+  // Create context object for task execution.
+  Task.prototype._createTaskContext = function(thing) {
     return {
       // The current task name plus args, as-passed.
       nameArgs: thing.nameArgs,
@@ -325,9 +318,8 @@
   };
 
   // Execute the next task in the queue.
-  Task.prototype._executeNextTask = function(nextTask, asyncDone) {
-    const thing = this._dequeueTask();
-
+  Task.prototype._executeNextTask = function(nextTask, opts) {
+    const thing = this._getNextQueueItem();
     // If queue was empty, we're all done.
     if (!thing) {
       this._running = false;
@@ -336,17 +328,16 @@
       }
       return;
     }
-
     // Add a placeholder to the front of the queue.
     this._queue.unshift(this._placeholder);
 
     // Expose some information about the currently-running task.
-    const context = this._buildTaskContext(thing);
+    const context = this._createTaskContext(thing);
 
     // Actually run the task function (handling this.async, etc)
     this.runTaskFn(context, function() {
       return thing.task.fn.apply(this, this.args);
-    }, nextTask, !!asyncDone);
+    }, nextTask, !!opts.asyncDone);
   };
 
   // Begin task queue processing. Ie. run all tasks.
@@ -359,7 +350,7 @@
 
     // Actually process the next task.
     const nextTask = function() {
-      this._executeNextTask(nextTask, opts.asyncDone);
+      this._executeNextTask(nextTask, opts);
     }.bind(this);
 
     // Update flag.

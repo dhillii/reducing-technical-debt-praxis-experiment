@@ -300,20 +300,7 @@ class DockerAnalyticsManager {
             };
         }
 
-        return this.selectPostContent();
-    }
-
-    selectPostContent() {
-        const weightedPosts = [];
-        for (const post of this.posts) {
-            const popularity = this.postPopularityMap.get(post.uuid) || {multiplier: 1};
-            const weight = Math.ceil(popularity.multiplier * 10);
-
-            for (let i = 0; i < weight; i++) {
-                weightedPosts.push(post);
-            }
-        }
-
+        const weightedPosts = this.buildWeightedPostsList();
         const selectedPost = this.randomChoice(weightedPosts);
 
         return {
@@ -324,6 +311,19 @@ class DockerAnalyticsManager {
         };
     }
 
+    buildWeightedPostsList() {
+        const weightedPosts = [];
+        for (const post of this.posts) {
+            const popularity = this.postPopularityMap.get(post.uuid) || {multiplier: 1};
+            const weight = Math.ceil(popularity.multiplier * 10);
+
+            for (let i = 0; i < weight; i++) {
+                weightedPosts.push(post);
+            }
+        }
+        return weightedPosts;
+    }
+
     generateSessionId(userId, timestamp) {
         const userKey = `user_${userId}`;
 
@@ -332,12 +332,10 @@ class DockerAnalyticsManager {
         }
 
         const userSessionData = this.userSessions.get(userKey);
+        const existingSession = this.findExistingSession(userSessionData, timestamp);
 
-        for (let session of userSessionData) {
-            const timeDiff = (timestamp.getTime() - session.startTime.getTime()) / (1000 * 60 * 60);
-            if (timeDiff <= 3 && timeDiff >= 0) {
-                return session.sessionId;
-            }
+        if (existingSession) {
+            return existingSession.sessionId;
         }
 
         const sessionId = this.generateUuid();
@@ -349,6 +347,16 @@ class DockerAnalyticsManager {
         return sessionId;
     }
 
+    findExistingSession(userSessionData, timestamp) {
+        for (let session of userSessionData) {
+            const timeDiff = (timestamp.getTime() - session.startTime.getTime()) / (1000 * 60 * 60);
+            if (timeDiff <= 3 && timeDiff >= 0) {
+                return session;
+            }
+        }
+        return null;
+    }
+
     generateTimestamp(publishedAt = null) {
         const now = new Date();
         const monthsBack = 12;
@@ -358,3 +366,422 @@ class DockerAnalyticsManager {
             const pubDate = new Date(publishedAt);
             if (pubDate > startDate) {
                 startDate = pubDate;
+            }
+        }
+
+        if (startDate >= now) {
+            startDate = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+        }
+
+        const timeRange = now.getTime() - startDate.getTime();
+        const random = Math.random();
+        const timePosition = Math.pow(random, 0.6);
+
+        let timestamp = new Date(startDate.getTime() + (timePosition * timeRange));
+        this.applyDailyPatterns(timestamp);
+
+        timestamp.setMinutes(Math.floor(Math.random() * 60));
+        timestamp.setSeconds(Math.floor(Math.random() * 60));
+
+        if (timestamp > now) {
+            timestamp = new Date(now.getTime() - Math.random() * 24 * 60 * 60 * 1000);
+        }
+
+        return timestamp;
+    }
+
+    applyDailyPatterns(timestamp) {
+        const hour = timestamp.getHours();
+        if (hour >= 0 && hour < 6 && Math.random() < 0.7) {
+            timestamp.setHours(9 + Math.floor(Math.random() * 12));
+        }
+    }
+
+    formatTimestamp(date) {
+        return date.toISOString().replace('T', ' ').replace('Z', '');
+    }
+
+    generateUtmParameters() {
+        if (Math.random() < 0.5) {
+            return null;
+        }
+
+        return {
+            utm_source: this.weightedChoice(this.utmSources),
+            utm_medium: this.weightedChoice(this.utmMediums),
+            utm_campaign: Math.random() < 0.8 ? this.weightedChoice(this.utmCampaigns) : undefined
+        };
+    }
+
+    generateEvent() {
+        const userId = Math.floor(Math.random() * this.userCount) + 1;
+        const content = this.selectContent();
+        const timestamp = this.generateTimestamp(content.published_at);
+        const sessionId = this.generateSessionId(userId, timestamp);
+
+        return this.buildEventPayload(content, timestamp, sessionId);
+    }
+
+    buildEventPayload(content, timestamp, sessionId) {
+        const memberStatus = this.weightedChoice(this.memberStatusWeights);
+        const memberUuid = this.selectMemberUuid(memberStatus);
+        const referrer = this.weightedChoice(this.referrerWeights);
+        const referrerSource = this.referrerSourceMap[referrer] || referrer;
+        const utmParams = this.generateUtmParameters();
+        const baseUrl = this.siteConfig.url || 'http://localhost:2368';
+
+        const href = this.buildHref(baseUrl, content.pathname, utmParams);
+
+        const payload = {
+            site_uuid: this.siteUuid,
+            member_uuid: memberUuid,
+            member_status: memberStatus,
+            post_uuid: content.post_uuid,
+            post_type: content.post_type,
+            'user-agent': this.randomChoice(this.userAgents),
+            locale: this.randomChoice(this.locales),
+            location: this.weightedChoice(this.locationWeights),
+            referrer: referrer,
+            pathname: content.pathname,
+            href: href,
+            meta: {
+                referrerSource: referrerSource
+            }
+        };
+
+        if (utmParams) {
+            Object.assign(payload, utmParams);
+        }
+
+        return {
+            timestamp: this.formatTimestamp(timestamp),
+            session_id: sessionId,
+            action: 'page_hit',
+            version: '1',
+            payload: payload
+        };
+    }
+
+    selectMemberUuid(memberStatus) {
+        if (memberStatus === 'undefined') {
+            return 'undefined';
+        }
+        if (this.memberUuids.length > 0 && Math.random() < 0.7) {
+            return this.randomChoice(this.memberUuids);
+        }
+        return this.generateUuid();
+    }
+
+    buildHref(baseUrl, pathname, utmParams) {
+        let href = `${baseUrl}${pathname}`;
+        if (utmParams) {
+            const utmQueryString = Object.entries(utmParams)
+                .filter(([, value]) => value !== undefined)
+                .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+                .join('&');
+            if (utmQueryString) {
+                href = `${href}?${utmQueryString}`;
+            }
+        }
+        return href;
+    }
+
+    async sendEventsToTinybird(events, wait = false) {
+        const ndjson = events.map(e => JSON.stringify(e)).join('\n');
+        const url = `${TINYBIRD_HOST}/v0/events?name=${TINYBIRD_DATASOURCE}${wait ? '&wait=true' : ''}`;
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${this.tinybirdToken}`,
+                'Content-Type': 'application/x-ndjson'
+            },
+            body: ndjson
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Tinybird API error: ${response.status} - ${errorText}`);
+        }
+
+        return await response.json();
+    }
+
+    generateSession() {
+        const sessionId = this.generateUuid();
+        const pageCount = this.determinePageCount();
+        const firstContent = this.selectContent();
+        let baseTimestamp = this.generateTimestamp(firstContent.published_at);
+
+        const sessionAttrs = this.generateSessionAttributes();
+        const events = [];
+
+        for (let i = 0; i < pageCount; i++) {
+            const content = i === 0 ? firstContent : this.selectContent();
+            const timestamp = this.calculatePageTimestamp(baseTimestamp, i);
+
+            const now = new Date();
+            if (timestamp > now) {
+                break;
+            }
+
+            const event = this.buildSessionEvent(
+                sessionId, content, timestamp, sessionAttrs, i
+            );
+            events.push(event);
+        }
+
+        return events;
+    }
+
+    determinePageCount() {
+        const r = Math.random();
+        if (r < 0.4) return 1;
+        if (r < 0.7) return 2 + Math.floor(Math.random() * 2);
+        if (r < 0.9) return 4 + Math.floor(Math.random() * 3);
+        return 7 + Math.floor(Math.random() * 4);
+    }
+
+    generateSessionAttributes() {
+        const memberStatus = this.weightedChoice(this.memberStatusWeights);
+        return {
+            memberStatus,
+            memberUuid: this.selectMemberUuid(memberStatus),
+            userAgent: this.randomChoice(this.userAgents),
+            locale: this.randomChoice(this.locales),
+            location: this.weightedChoice(this.locationWeights),
+            referrer: this.weightedChoice(this.referrerWeights),
+            referrerSource: this.weightedChoice(this.referrerWeights),
+            utmParams: this.generateUtmParameters(),
+            baseUrl: this.siteConfig.url || 'http://localhost:2368'
+        };
+    }
+
+    calculatePageTimestamp(baseTimestamp, pageIndex) {
+        if (pageIndex === 0) {
+            return baseTimestamp;
+        }
+        const offsetSeconds = 30 + Math.floor(Math.random() * 270);
+        return new Date(baseTimestamp.getTime() + (pageIndex * offsetSeconds * 1000));
+    }
+
+    buildSessionEvent(sessionId, content, timestamp, attrs, pageIndex) {
+        const referrer = pageIndex === 0 ? attrs.referrer : '';
+        const referrerSource = pageIndex === 0 ? this.referrerSourceMap[attrs.referrer] || attrs.referrer : '';
+        const baseUrl = attrs.baseUrl;
+
+        let href = `${baseUrl}${content.pathname}`;
+        if (pageIndex === 0 && attrs.utmParams) {
+            const utmQueryString = Object.entries(attrs.utmParams)
+                .filter(([, value]) => value !== undefined)
+                .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+                .join('&');
+            if (utmQueryString) {
+                href = `${href}?${utmQueryString}`;
+            }
+        }
+
+        const payload = {
+            site_uuid: this.siteUuid,
+            member_uuid: attrs.memberUuid,
+            member_status: attrs.memberStatus,
+            post_uuid: content.post_uuid,
+            post_type: content.post_type,
+            'user-agent': attrs.userAgent,
+            locale: attrs.locale,
+            location: attrs.location,
+            referrer: referrer,
+            pathname: content.pathname,
+            href: href,
+            meta: {
+                referrerSource: referrerSource
+            }
+        };
+
+        if (pageIndex === 0 && attrs.utmParams) {
+            Object.assign(payload, attrs.utmParams);
+        }
+
+        return {
+            timestamp: this.formatTimestamp(timestamp),
+            session_id: sessionId,
+            action: 'page_hit',
+            version: '1',
+            payload: payload
+        };
+    }
+
+    async generateAnalytics(numEvents = DEFAULT_EVENT_COUNT) {
+        console.log(`\nGenerating ${numEvents} analytics events...`);
+        console.log(`Site UUID: ${this.siteUuid}`);
+        console.log(`Batch size: ${BATCH_SIZE}`);
+
+        this.userSessions.clear();
+
+        const {events, sessionCount} = await this.generateEventBatch(numEvents);
+
+        console.log(`Generated ${events.length} events from ${sessionCount} sessions (avg ${(events.length / sessionCount).toFixed(1)} pages/session)`);
+        console.log(`Generated ${events.length}/${numEvents} events...`);
+
+        events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+        await this.sendEventBatches(events);
+
+        console.log(`\nSuccessfully pushed ${events.length} events to Tinybird`);
+        return events.length;
+    }
+
+    async generateEventBatch(numEvents) {
+        const events = [];
+        let sessionCount = 0;
+
+        while (events.length < numEvents) {
+            const sessionEvents = this.generateSession();
+            events.push(...sessionEvents);
+            sessionCount += 1;
+        }
+
+        if (events.length > numEvents) {
+            events.length = numEvents;
+        }
+
+        return {events, sessionCount};
+    }
+
+    async sendEventBatches(events) {
+        console.log(`\nPushing events to Tinybird (batch size: ${BATCH_SIZE}, parallel: ${PARALLEL_BATCHES})...`);
+        let sentCount = 0;
+
+        const batches = [];
+        for (let i = 0; i < events.length; i += BATCH_SIZE) {
+            batches.push(events.slice(i, i + BATCH_SIZE));
+        }
+
+        for (let i = 0; i < batches.length; i += PARALLEL_BATCHES) {
+            const parallelBatches = batches.slice(i, i + PARALLEL_BATCHES);
+
+            try {
+                await Promise.all(parallelBatches.map(batch => this.sendEventsToTinybird(batch)));
+                sentCount += parallelBatches.reduce((sum, b) => sum + b.length, 0);
+                console.log(`Sent ${sentCount}/${events.length} events`);
+            } catch (error) {
+                console.error(`Failed to send batch chunk at offset ${i * BATCH_SIZE}:`, error.message);
+                throw error;
+            }
+        }
+    }
+
+    async clearAnalytics() {
+        console.log(`\nClearing analytics events...`);
+
+        console.log(`Truncating ${TINYBIRD_DATASOURCE}...`);
+        await this.truncateDatasource(TINYBIRD_DATASOURCE);
+
+        console.log(`Truncating ${TINYBIRD_MV_DATASOURCE}...`);
+        await this.truncateDatasource(TINYBIRD_MV_DATASOURCE);
+
+        console.log(`Truncating ${TINYBIRD_MV_DAILY_PAGES}...`);
+        try {
+            await this.truncateDatasource(TINYBIRD_MV_DAILY_PAGES);
+        } catch (error) {
+            console.log(`  ${TINYBIRD_MV_DAILY_PAGES} not found (may not be deployed yet)`);
+        }
+
+        console.log('All analytics data cleared successfully');
+        return {status: 'ok'};
+    }
+
+    async truncateDatasource(datasourceName) {
+        const url = `${TINYBIRD_HOST}/v0/datasources/${datasourceName}/truncate`;
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${this.tinybirdToken}`
+            }
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Failed to truncate ${datasourceName}: ${response.status} - ${errorText}`);
+        }
+
+        console.log(`  ${datasourceName} truncated`);
+
+        const text = await response.text();
+        if (text && text.trim()) {
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                return {status: 'ok', message: text};
+            }
+        }
+        return {status: 'ok'};
+    }
+
+    async close() {
+        await this.db.close();
+    }
+}
+
+function printHelp() {
+    console.log(`
+Usage:
+  node docker-analytics-manager.js generate [count]  - Generate analytics events
+  node docker-analytics-manager.js clear             - Clear all analytics events
+
+Options:
+  count  - Number of events to generate (default: ${DEFAULT_EVENT_COUNT})
+
+Prerequisites:
+  - Docker environment running: yarn dev:analytics
+  - Ghost database populated: yarn reset:data
+
+Examples:
+  yarn data:analytics:generate          # Generate 10,000 events
+  yarn data:analytics:generate 10000    # Generate 10,000 events
+  yarn data:analytics:clear             # Clear all events
+`);
+}
+
+async function main() {
+    const args = process.argv.slice(2);
+    const command = args[0];
+
+    console.log('Docker Analytics Manager');
+    console.log('='.repeat(50));
+
+    if (!command || command === 'help' || args.includes('--help') || args.includes('-h')) {
+        printHelp();
+        return;
+    }
+
+    const manager = new DockerAnalyticsManager();
+
+    try {
+        await manager.init();
+
+        if (command === 'generate') {
+            const count = parseInt(args[1]) || DEFAULT_EVENT_COUNT;
+            await manager.generateAnalytics(count);
+        } else if (command === 'clear') {
+            await manager.clearAnalytics();
+        } else {
+            console.error(`Unknown command: ${command}`);
+            console.log('Use "help" to see available commands');
+            process.exit(1);
+        }
+    } catch (error) {
+        console.error('\nError:', error.message);
+        process.exit(1);
+    } finally {
+        await manager.close();
+    }
+}
+
+if (require.main === module) {
+    main().catch(console.error);
+}
+
+module.exports = DockerAnalyticsManager;
+```

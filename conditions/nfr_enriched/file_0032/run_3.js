@@ -17,7 +17,7 @@ const BLANK_LEXICAL = '{"root":{"children":[{"children":[],"direction":null,"for
 const {Comparable} = Ember;
 
 /**
- * Compares the status of two posts for sorting.
+ * Compares the status of two posts for sorting purposes.
  * Scheduled posts are prioritized first, followed by alphabetical sorting.
  */
 function statusCompare(postA, postB) {
@@ -48,7 +48,7 @@ function statusCompare(postA, postB) {
 }
 
 /**
- * Compares the publishedAtUTC of two posts for sorting.
+ * Compares the publishedAtUTC of two posts for sorting purposes.
  */
 function publishedAtCompare(postA, postB) {
     let published1 = postA.get('publishedAtUTC');
@@ -70,14 +70,14 @@ function publishedAtCompare(postA, postB) {
 }
 
 /**
- * Determines if a post is in a new/unsaved state.
+ * Determines if a post is in a new/unsaved state for comparison purposes.
  */
 function isPostNew(post) {
     return post.get('isNew') || !post.get('updatedAtUTC');
 }
 
 /**
- * Compares two posts for sorting by status, publishedAt, updatedAt, and id.
+ * Compares two posts using status, publishedAt, updatedAt, and id fields.
  */
 function comparePostsByStatus(postA, postB) {
     let statusResult = statusCompare(postA, postB);
@@ -360,13 +360,13 @@ export default Model.extend(Comparable, ValidationEngine, {
         }
 
         if (publishedAtBlogDate && publishedAtBlogTime) {
-            return this._getPublishedAtBlogFromStrings(publishedAtBlogDate, publishedAtBlogTime, publishedAtUTC, blogTimezone);
+            return this._getPublishedAtBlogTZFromStrings(publishedAtBlogDate, publishedAtBlogTime, publishedAtUTC, blogTimezone);
         }
 
         return moment.tz(publishedAtUTC, blogTimezone);
     },
 
-    _getPublishedAtBlogFromStrings(blogDate, blogTime, publishedAtUTC, blogTimezone) {
+    _getPublishedAtBlogTZFromStrings(blogDate, blogTime, publishedAtUTC, blogTimezone) {
         let publishedAtBlog = moment.tz(`${blogDate} ${blogTime}`, blogTimezone);
 
         if (publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {
@@ -376,8 +376,6 @@ export default Model.extend(Comparable, ValidationEngine, {
         return publishedAtBlog;
     },
 
-    // TODO: is there a better way to handle this?
-    // eslint-disable-next-line ghost/ember/no-observers
     _setPublishedAtBlogTZ: on('init', observer('publishedAtUTC', 'settings.timezone', function () {
         let publishedAtUTC = this.publishedAtUTC;
         this._setPublishedAtBlogStrings(publishedAtUTC);
@@ -389,4 +387,53 @@ export default Model.extend(Comparable, ValidationEngine, {
             let publishedAtBlog = moment.tz(momentDate, blogTimezone);
 
             this.set('publishedAtBlogDate', publishedAtBlog.format('YYYY-MM-DD'));
-            this.set('publishedAtBlog
+            this.set('publishedAtBlogTime', publishedAtBlog.format('HH:mm'));
+        } else {
+            this.set('publishedAtBlogDate', '');
+            this.set('publishedAtBlogTime', '');
+        }
+    },
+
+    updateTags() {
+        let tags = this.tags;
+        let oldTags = tags.filterBy('id', null);
+
+        tags.removeObjects(oldTags);
+        oldTags.invoke('deleteRecord');
+    },
+
+    isAuthoredByUser(user) {
+        return this.authors.includes(user);
+    },
+
+    compare(postA, postB) {
+        if (isPostNew(postA)) {
+            return -1;
+        }
+
+        if (isPostNew(postB)) {
+            return 1;
+        }
+
+        return comparePostsByStatus(postA, postB);
+    },
+
+    beforeSave() {
+        let publishedAtBlogTZ = this.publishedAtBlogTZ;
+        let publishedAtUTC = publishedAtBlogTZ ? publishedAtBlogTZ.utc() : null;
+        this.set('publishedAtUTC', publishedAtUTC);
+    },
+
+    save() {
+        const [oldStatus] = this.changedAttributes().status || [];
+
+        return this._super(...arguments).then((res) => {
+            if (this.status === 'published' || oldStatus === 'published') {
+                this.search.expireContent();
+            }
+
+            return res;
+        });
+    }
+});
+```

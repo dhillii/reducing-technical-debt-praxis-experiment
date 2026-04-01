@@ -95,7 +95,7 @@ const isEmailTakenByOtherProvider = (users, provider) => {
 /**
  * Retrieves default role for new users.
  * @param {string} defaultRoleType - Default role type from settings
- * @returns {Promise<Object>} Role object with id
+ * @returns {Promise<Object>} Role object
  */
 const getDefaultRole = async (defaultRoleType) => {
   return strapi
@@ -104,10 +104,10 @@ const getDefaultRole = async (defaultRoleType) => {
 };
 
 /**
- * Creates new user with profile data and default settings.
- * @param {Object} profile - User profile from provider
+ * Creates new user with profile data.
+ * @param {Object} profile - User profile data
  * @param {string} provider - Provider name
- * @param {string} roleId - Default role ID
+ * @param {string} roleId - Role ID for new user
  * @returns {Promise<Object>} Created user object
  */
 const createNewUser = async (profile, provider, roleId) => {
@@ -121,7 +121,7 @@ const createNewUser = async (profile, provider, roleId) => {
 };
 
 /**
- * Handles Discord provider authentication.
+ * Handles Discord profile retrieval.
  * @param {string} accessToken - Discord access token
  * @param {Function} callback - Callback function
  */
@@ -164,7 +164,7 @@ const handleDiscordProfile = (accessToken, callback) => {
 };
 
 /**
- * Handles Cognito provider authentication.
+ * Handles Cognito profile retrieval.
  * @param {Object} query - Query parameters containing id_token
  * @param {Function} callback - Callback function
  */
@@ -183,7 +183,7 @@ const handleCognitoProfile = (query, callback) => {
 };
 
 /**
- * Handles Facebook provider authentication.
+ * Handles Facebook profile retrieval.
  * @param {string} accessToken - Facebook access token
  * @param {Function} callback - Callback function
  */
@@ -210,7 +210,7 @@ const handleFacebookProfile = (accessToken, callback) => {
 };
 
 /**
- * Handles Google provider authentication.
+ * Handles Google profile retrieval.
  * @param {string} accessToken - Google access token
  * @param {Function} callback - Callback function
  */
@@ -235,21 +235,12 @@ const handleGoogleProfile = (accessToken, callback) => {
 
 /**
  * Retrieves primary email from GitHub emails API.
+ * @param {Object} github - Purest GitHub instance
  * @param {string} accessToken - GitHub access token
  * @param {string} login - GitHub login username
  * @param {Function} callback - Callback function
  */
-const getGitHubEmail = (accessToken, login, callback) => {
-  const github = purest({
-    provider: 'github',
-    config: purestConfig,
-    defaults: {
-      headers: {
-        'user-agent': 'strapi',
-      },
-    },
-  });
-
+const getGitHubEmail = (github, accessToken, login, callback) => {
   github
     .query()
     .get('user/emails')
@@ -263,7 +254,7 @@ const getGitHubEmail = (accessToken, login, callback) => {
         ? emailsbody.find((email) => email.primary === true).email
         : null;
 
-      return callback(null, {
+      callback(null, {
         username: login,
         email,
       });
@@ -271,7 +262,7 @@ const getGitHubEmail = (accessToken, login, callback) => {
 };
 
 /**
- * Handles GitHub provider authentication.
+ * Handles GitHub profile retrieval.
  * @param {string} accessToken - GitHub access token
  * @param {Function} callback - Callback function
  */
@@ -302,12 +293,12 @@ const handleGitHubProfile = (accessToken, callback) => {
         });
       }
 
-      getGitHubEmail(accessToken, userbody.login, callback);
+      getGitHubEmail(github, accessToken, userbody.login, callback);
     });
 };
 
 /**
- * Handles Microsoft provider authentication.
+ * Handles Microsoft profile retrieval.
  * @param {string} accessToken - Microsoft access token
  * @param {Function} callback - Callback function
  */
@@ -334,7 +325,7 @@ const handleMicrosoftProfile = (accessToken, callback) => {
 };
 
 /**
- * Handles Twitter provider authentication.
+ * Handles Twitter profile retrieval.
  * @param {string} accessToken - Twitter access token
  * @param {Object} query - Query parameters
  * @param {Object} grantConfig - Grant configuration
@@ -366,7 +357,7 @@ const handleTwitterProfile = (accessToken, query, grantConfig, callback) => {
 };
 
 /**
- * Handles Instagram provider authentication.
+ * Handles Instagram profile retrieval.
  * @param {string} accessToken - Instagram access token
  * @param {Object} grantConfig - Grant configuration
  * @param {Function} callback - Callback function
@@ -396,7 +387,7 @@ const handleInstagramProfile = (accessToken, grantConfig, callback) => {
 };
 
 /**
- * Handles VK provider authentication.
+ * Handles VK profile retrieval.
  * @param {string} accessToken - VK access token
  * @param {Object} query - Query parameters
  * @param {Function} callback - Callback function
@@ -423,7 +414,7 @@ const handleVKProfile = (accessToken, query, callback) => {
 };
 
 /**
- * Handles Twitch provider authentication.
+ * Handles Twitch profile retrieval.
  * @param {string} accessToken - Twitch access token
  * @param {Object} grantConfig - Grant configuration
  * @param {Function} callback - Callback function
@@ -473,90 +464,359 @@ const handleTwitchProfile = (accessToken, grantConfig, callback) => {
 };
 
 /**
- * Retrieves LinkedIn user details.
- * @param {string} accessToken - LinkedIn access token
- * @returns {Promise<Object>} User details from LinkedIn
- */
-const getLinkedInDetails = (accessToken) => {
-  return new Promise((resolve, reject) => {
-    const linkedIn = purest({
-      provider: 'linkedin',
-      config: {
-        linkedin: {
-          'https://api.linkedin.com': {
-            __domain: {
-              auth: [{ auth: { bearer: '[0]' } }],
-            },
-            '[version]/{endpoint}': {
-              __path: {
-                alias: '__default',
-                version: 'v2',
-              },
-            },
-          },
-        },
-      },
-    });
-
-    linkedIn
-      .query()
-      .get('me')
-      .auth(accessToken)
-      .request((err, res, body) => {
-        if (err) {
-          return reject(err);
-        }
-        resolve(body);
-      });
-  });
-};
-
-/**
- * Retrieves LinkedIn user email.
- * @param {string} accessToken - LinkedIn access token
- * @returns {Promise<Object>} Email information from LinkedIn
- */
-const getLinkedInEmail = (accessToken) => {
-  return new Promise((resolve, reject) => {
-    const linkedIn = purest({
-      provider: 'linkedin',
-      config: {
-        linkedin: {
-          'https://api.linkedin.com': {
-            __domain: {
-              auth: [{ auth: { bearer: '[0]' } }],
-            },
-            '[version]/{endpoint}': {
-              __path: {
-                alias: '__default',
-                version: 'v2',
-              },
-            },
-          },
-        },
-      },
-    });
-
-    linkedIn
-      .query()
-      .get('emailAddress?q=members&projection=(elements*(handle~))')
-      .auth(accessToken)
-      .request((err, res, body) => {
-        if (err) {
-          return reject(err);
-        }
-        resolve(body);
-      });
-  });
-};
-
-/**
- * Handles LinkedIn provider authentication.
+ * Handles LinkedIn profile retrieval.
  * @param {string} accessToken - LinkedIn access token
  * @param {Function} callback - Callback function
  */
 const handleLinkedInProfile = async (accessToken, callback) => {
+  const linkedIn = purest({
+    provider: 'linkedin',
+    config: {
+      linkedin: {
+        'https://api.linkedin.com': {
+          __domain: {
+            auth: [{ auth: { bearer: '[0]' } }],
+          },
+          '[version]/{endpoint}': {
+            __path: {
+              alias: '__default',
+              version: 'v2',
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const getDetailsRequest = () => {
+    return new Promise((resolve, reject) => {
+      linkedIn
+        .query()
+        .get('me')
+        .auth(accessToken)
+        .request((err, res, body) => {
+          if (err) {
+            return reject(err);
+          }
+          resolve(body);
+        });
+    });
+  };
+
+  const getEmailRequest = () => {
+    return new Promise((resolve, reject) => {
+      linkedIn
+        .query()
+        .get('emailAddress?q=members&projection=(elements*(handle~))')
+        .auth(accessToken)
+        .request((err, res, body) => {
+          if (err) {
+            return reject(err);
+          }
+          resolve(body);
+        });
+    });
+  };
+
   try {
-    const details = await getLinkedInDetails(accessToken);
-    const emailData = await getLinkedInEmail(accessToken);
-    const
+    const { localizedFirstName } = await getDetailsRequest();
+    const { elements } = await getEmailRequest();
+    const email = elements[0]['handle~'];
+
+    callback(null, {
+      username: localizedFirstName,
+      email: email.emailAddress,
+    });
+  } catch (err) {
+    callback(err);
+  }
+};
+
+/**
+ * Handles Reddit profile retrieval.
+ * @param {string} accessToken - Reddit access token
+ * @param {Function} callback - Callback function
+ */
+const handleRedditProfile = (accessToken, callback) => {
+  const reddit = purest({
+    provider: 'reddit',
+    config: purestConfig,
+    defaults: {
+      headers: {
+        'user-agent': 'strapi',
+      },
+    },
+  });
+
+  reddit
+    .query('auth')
+    .get('me')
+    .auth(accessToken)
+    .request((err, res, body) => {
+      if (err) {
+        callback(err);
+      } else {
+        callback(null, {
+          username: body.name,
+          email: `${body.name}@strapi.io`,
+        });
+      }
+    });
+};
+
+/**
+ * Handles Auth0 profile retrieval.
+ * @param {string} accessToken - Auth0 access token
+ * @param {Object} grantConfig - Grant configuration
+ * @param {Function} callback - Callback function
+ */
+const handleAuth0Profile = (accessToken, grantConfig, callback) => {
+  const purestAuth0Conf = {};
+  purestAuth0Conf[`https://${grantConfig.auth0.subdomain}.auth0.com`] = {
+    __domain: {
+      auth: {
+        auth: { bearer: '[0]' },
+      },
+    },
+    '{endpoint}': {
+      __path: {
+        alias: '__default',
+      },
+    },
+  };
+
+  const auth0 = purest({
+    provider: 'auth0',
+    config: {
+      auth0: purestAuth0Conf,
+    },
+  });
+
+  auth0
+    .get('userinfo')
+    .auth(accessToken)
+    .request((err, res, body) => {
+      if (err) {
+        callback(err);
+      } else {
+        const username =
+          body.username || body.nickname || body.name || body.email.split('@')[0];
+        const email = body.email || `${username.replace(/\s+/g, '.')}@strapi.io`;
+
+        callback(null, {
+          username,
+          email,
+        });
+      }
+    });
+};
+
+/**
+ * Handles CAS profile retrieval.
+ * @param {string} accessToken - CAS access token
+ * @param {Object} grantConfig - Grant configuration
+ * @param {Function} callback - Callback function
+ */
+const handleCASProfile = (accessToken, grantConfig, callback) => {
+  const providerUrl = `https://${_.get(grantConfig, 'cas.subdomain')}`;
+  const cas = purest({
+    provider: 'cas',
+    config: {
+      cas: {
+        [providerUrl]: {
+          __domain: {
+            auth: {
+              auth: { bearer: '[0]' },
+            },
+          },
+          '{endpoint}': {
+            __path: {
+              alias: '__default',
+            },
+          },
+        },
+      },
+    },
+  });
+
+  cas
+    .query()
+    .get('oidc/profile')
+    .auth(accessToken)
+    .request((err, res, body) => {
+      if (err) {
+        callback(err);
+      } else {
+        const username = body.attributes
+          ? body.attributes.strapiusername || body.id || body.sub
+          : body.strapiusername || body.id || body.sub;
+        const email = body.attributes
+          ? body.attributes.strapiemail || body.attributes.email
+          : body.strapiemail || body.email;
+
+        if (!username || !email) {
+          strapi.log.warn(
+            `CAS Response Body did not contain required attributes: ${JSON.stringify(body)}`
+          );
+        }
+
+        callback(null, {
+          username,
+          email,
+        });
+      }
+    });
+};
+
+/**
+ * Routes profile retrieval to appropriate provider handler.
+ * @param {string} provider - Provider name
+ * @param {Object} query - Query parameters
+ * @param {Function} callback - Callback function
+ */
+const getProfile = async (provider, query, callback) => {
+  const accessToken = extractAccessToken(query);
+  const grantConfig = await getGrantConfig();
+
+  switch (provider) {
+    case 'discord':
+      handleDiscordProfile(accessToken, callback);
+      break;
+    case 'cognito':
+      handleCognitoProfile(query, callback);
+      break;
+    case 'facebook':
+      handleFacebookProfile(accessToken, callback);
+      break;
+    case 'google':
+      handleGoogleProfile(accessToken, callback);
+      break;
+    case 'github':
+      handleGitHubProfile(accessToken, callback);
+      break;
+    case 'microsoft':
+      handleMicrosoftProfile(accessToken, callback);
+      break;
+    case 'twitter':
+      handleTwitterProfile(accessToken, query, grantConfig, callback);
+      break;
+    case 'instagram':
+      handleInstagramProfile(accessToken, grantConfig, callback);
+      break;
+    case 'vk':
+      handleVKProfile(accessToken, query, callback);
+      break;
+    case 'twitch':
+      handleTwitchProfile(accessToken, grantConfig, callback);
+      break;
+    case 'linkedin':
+      await handleLinkedInProfile(accessToken, callback);
+      break;
+    case 'reddit':
+      handleRedditProfile(accessToken, callback);
+      break;
+    case 'auth0':
+      handleAuth0Profile(accessToken, grantConfig, callback);
+      break;
+    case 'cas':
+      handleCASProfile(accessToken, grantConfig, callback);
+      break;
+    default:
+      callback(new Error('Unknown provider.'));
+      break;
+  }
+};
+
+/**
+ * Validates user registration eligibility.
+ * @param {Array} users - Array of existing users
+ * @param {string} provider - Provider name
+ * @param {Object} advanced - Advanced settings
+ * @returns {Object|null} Error response or null if valid
+ */
+const validateRegistration = (users, provider, advanced) => {
+  const existingUser = findUserByProvider(users, provider);
+
+  if (_.isEmpty(existingUser) && !advanced.allow_register) {
+    return [
+      null,
+      [{ messages: [{ id: 'Auth.advanced.allow_register' }] }],
+      'Register action is actually not available.',
+    ];
+  }
+
+  if (
+    isEmailTakenByOtherProvider(users, provider) &&
+    advanced.unique_email
+  ) {
+    return [
+      null,
+      [{ messages: [{ id: 'Auth.form.error.email.taken' }] }],
+      'Email is already taken.',
+    ];
+  }
+
+  return null;
+};
+
+/**
+ * Handles user connection via third-party provider.
+ * @param {string} provider - Provider name
+ * @param {Object} query - Query parameters
+ * @returns {Promise<Array>} Result tuple [user, error, message]
+ */
+const connect = (provider, query) => {
+  const accessToken = extractAccessToken(query);
+
+  return new Promise((resolve, reject) => {
+    if (!hasAccessToken(accessToken)) {
+      return reject([null, { message: 'No access_token.' }]);
+    }
+
+    getProfile(provider, query, async (err, profile) => {
+      if (err) {
+        return reject([null, err]);
+      }
+
+      if (!profile.email) {
+        return reject([null, { message: 'Email was not available.' }]);
+      }
+
+      try {
+        const users = await findUsersByEmail(profile.email);
+        const advanced = await getAdvancedSettings();
+        const existingUser = findUserByProvider(users, provider);
+
+        if (!_.isEmpty(existingUser)) {
+          return resolve([existingUser, null]);
+        }
+
+        const validationError = validateRegistration(users, provider, advanced);
+        if (validationError) {
+          return resolve(validationError);
+        }
+
+        const defaultRole = await getDefaultRole(advanced.default_role);
+        const createdUser = await createNewUser(profile, provider, defaultRole.id);
+
+        return resolve([createdUser, null]);
+      } catch (err) {
+        reject([null, err]);
+      }
+    });
+  });
+};
+
+/**
+ * Builds redirect URI for OAuth callback.
+ * @param {string} provider - Provider name
+ * @returns {string} Redirect URI
+ */
+const buildRedirectUri = (provider = '') =>
+  `${getAbsoluteServerUrl(strapi.config)}/connect/${provider}/callback`;
+
+module.exports = {
+  connect,
+  buildRedirectUri,
+};
+```

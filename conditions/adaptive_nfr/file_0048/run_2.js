@@ -445,17 +445,17 @@ function validateCurrency(value, type) {
  * Validates price constraints
  * @private
  */
-function validatePrice(value, type, priceType) {
+function validatePrice(value, type, fieldName) {
     if (type === 'free') {
         if (value !== null) {
             throw new ValidationError({
-                message: `Free Tiers cannot have a ${priceType} price`
+                message: `Free Tiers cannot have a ${fieldName}`
             });
         }
         return null;
     }
     if (!value) {
-        return priceType === 'monthly' ? 500 : 5000;
+        return fieldName === 'monthly price' ? 500 : 5000;
     }
     if (!Number.isSafeInteger(value)) {
         throw new ValidationError({
@@ -476,20 +476,16 @@ function validatePrice(value, type, priceType) {
 }
 
 function validateMonthlyPrice(value, type) {
-    return validatePrice(value, type, 'monthly');
+    return validatePrice(value, type, 'monthly price');
 }
 
 function validateYearlyPrice(value, type) {
-    return validatePrice(value, type, 'yearly');
+    return validatePrice(value, type, 'yearly price');
 }
 
-/**
- * Validates date values
- * @private
- */
-function validateDate(value, isRequired = false) {
+function validateCreatedAt(value) {
     if (!value) {
-        return isRequired ? new Date() : null;
+        return new Date();
     }
     if (value instanceof Date) {
         return value;
@@ -499,12 +495,16 @@ function validateDate(value, isRequired = false) {
     });
 }
 
-function validateCreatedAt(value) {
-    return validateDate(value, true);
-}
-
 function validateUpdatedAt(value) {
-    return validateDate(value, false);
+    if (!value) {
+        return null;
+    }
+    if (value instanceof Date) {
+        return value;
+    }
+    throw new ValidationError({
+        message: 'Tier created_at must be a date'
+    });
 }
 
 function validateBenefits(value) {

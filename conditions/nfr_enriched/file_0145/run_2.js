@@ -395,11 +395,14 @@ module.exports = class RuleSet {
 		// Apply rule properties
 		RuleSet._applyRuleProperties(rule, result);
 
-		// Apply use loaders
-		RuleSet._applyUseLoaders(rule, data, result);
+		// Process use items
+		RuleSet._processUseItems(rule, data, result);
 
 		// Process nested rules
-		this._processNestedRules(data, rule, result);
+		RuleSet._processNestedRules(data, rule, result, this);
+
+		// Process oneOf rules
+		RuleSet._processOneOfRules(data, rule, result, this);
 
 		return true;
 	}
@@ -435,7 +438,7 @@ module.exports = class RuleSet {
 		});
 	}
 
-	static _applyUseLoaders(rule, data, result) {
+	static _processUseItems(rule, data, result) {
 		if(rule.use) {
 			rule.use.forEach((use) => {
 				result.push({
@@ -447,20 +450,53 @@ module.exports = class RuleSet {
 		}
 	}
 
-	_processNestedRules(data, rule, result) {
+	static _processNestedRules(data, rule, result, context) {
 		if(rule.rules) {
 			for(let i = 0; i < rule.rules.length; i++) {
-				this._run(data, rule.rules[i], result);
+				context._run(data, rule.rules[i], result);
 			}
 		}
+	}
 
+	static _processOneOfRules(data, rule, result, context) {
 		if(rule.oneOf) {
 			for(let i = 0; i < rule.oneOf.length; i++) {
-				if(this._run(data, rule.oneOf[i], result))
+				if(context._run(data, rule.oneOf[i], result))
 					break;
 			}
 		}
 	}
 
 	findOptionsByIdent(ident) {
-		const options =
+		const options = this.references[ident];
+		if(!options) throw new Error("Can't find options with ident '" + ident + "'");
+		return options;
+	}
+};
+
+function notMatcher(matcher) {
+	return function(str) {
+		return !matcher(str);
+	};
+}
+
+function orMatcher(items) {
+	return function(str) {
+		for(let i = 0; i < items.length; i++) {
+			if(items[i](str))
+				return true;
+		}
+		return false;
+	};
+}
+
+function andMatcher(items) {
+	return function(str) {
+		for(let i = 0; i < items.length; i++) {
+			if(!items[i](str))
+				return false;
+		}
+		return true;
+	};
+}
+```

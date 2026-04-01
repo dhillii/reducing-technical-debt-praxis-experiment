@@ -74,9 +74,9 @@ module.exports = class RuleSet {
 		return newRule;
 	}
 
-	static _normalizeResource(rule, newRule, checkSource) {
+	static _normalizeResource(rule, newRule, checkResourceSource) {
 		if(rule.test || rule.include || rule.exclude) {
-			checkSource("test + include + exclude");
+			checkResourceSource("test + include + exclude");
 			const condition = {
 				test: rule.test,
 				include: rule.include,
@@ -90,7 +90,7 @@ module.exports = class RuleSet {
 		}
 
 		if(rule.resource) {
-			checkSource("resource");
+			checkResourceSource("resource");
 			try {
 				newRule.resource = RuleSet.normalizeCondition(rule.resource);
 			} catch(error) {
@@ -109,17 +109,17 @@ module.exports = class RuleSet {
 		}
 	}
 
-	static _normalizeUseField(rule, newRule, ident, checkSource) {
+	static _normalizeUseField(rule, newRule, ident, checkUseSource) {
 		if(rule.loader && rule.loaders)
 			throw new Error(RuleSet.buildErrorMessage(rule, new Error("Provided loader and loaders for rule (use only one of them)")));
 
 		const loader = rule.loaders || rule.loader;
 		
 		if(typeof loader === "string" && !rule.options && !rule.query) {
-			checkSource("loader");
+			checkUseSource("loader");
 			newRule.use = RuleSet.normalizeUse(loader.split("!"), ident);
 		} else if(typeof loader === "string" && (rule.options || rule.query)) {
-			checkSource("loader + options/query");
+			checkUseSource("loader + options/query");
 			newRule.use = RuleSet.normalizeUse({
 				loader: loader,
 				options: rule.options,
@@ -128,14 +128,14 @@ module.exports = class RuleSet {
 		} else if(loader && (rule.options || rule.query)) {
 			throw new Error(RuleSet.buildErrorMessage(rule, new Error("options/query cannot be used with loaders (use options for each array item)")));
 		} else if(loader) {
-			checkSource("loaders");
+			checkUseSource("loaders");
 			newRule.use = RuleSet.normalizeUse(loader, ident);
 		} else if(rule.options || rule.query) {
 			throw new Error(RuleSet.buildErrorMessage(rule, new Error("options/query provided without loader (use loader + options)")));
 		}
 
 		if(rule.use) {
-			checkSource("use");
+			checkUseSource("use");
 			newRule.use = RuleSet.normalizeUse(rule.use, ident);
 		}
 	}
@@ -287,8 +287,7 @@ module.exports = class RuleSet {
 			return false;
 
 		this._applyRule(data, rule, result);
-		this._processRules(data, rule, result);
-		this._processOneOf(data, rule, result);
+		this._processNestedRules(data, rule, result);
 
 		return true;
 	}
@@ -334,15 +333,13 @@ module.exports = class RuleSet {
 		}
 	}
 
-	_processRules(data, rule, result) {
+	_processNestedRules(data, rule, result) {
 		if(rule.rules) {
 			for(let i = 0; i < rule.rules.length; i++) {
 				this._run(data, rule.rules[i], result);
 			}
 		}
-	}
 
-	_processOneOf(data, rule, result) {
 		if(rule.oneOf) {
 			for(let i = 0; i < rule.oneOf.length; i++) {
 				if(this._run(data, rule.oneOf[i], result))

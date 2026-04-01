@@ -33,7 +33,7 @@ const messages = {
  */
 
 /**
- * Normalizes withRelated options by replacing 'author' with 'authors'
+ * Normalizes withRelated options by converting 'author' to 'authors'
  * @param {Array} withRelated - The withRelated array from options
  */
 function normalizeAuthorRelation(withRelated) {
@@ -45,13 +45,12 @@ function normalizeAuthorRelation(withRelated) {
 }
 
 /**
- * Checks if authors should be fetched for update operations
- * @param {boolean} forUpdate - Whether this is a forUpdate operation
+ * Checks if authors should be added to withRelated for forUpdate operations
  * @param {string} fnName - The function name being called
+ * @param {boolean} forUpdate - Whether this is a forUpdate operation
  * @param {Array} withRelated - The withRelated array
- * @returns {boolean} True if authors should be added to withRelated
  */
-function shouldFetchAuthorsForUpdate(forUpdate, fnName, withRelated) {
+function shouldAddAuthorsForUpdate(fnName, forUpdate, withRelated) {
     return forUpdate &&
         ['onFetching', 'onFetchingCollection'].indexOf(fnName) !== -1 &&
         withRelated.indexOf('authors') === -1;
@@ -60,7 +59,7 @@ function shouldFetchAuthorsForUpdate(forUpdate, fnName, withRelated) {
 /**
  * Checks if authors were requested in original options
  * @param {Object} originalOptions - The original options object
- * @returns {boolean} True if authors were requested
+ * @returns {boolean}
  */
 function authorsWereRequested(originalOptions) {
     return originalOptions && 
@@ -89,43 +88,129 @@ function extractAuthorQuery(author) {
  * Checks if user already exists in authors set
  * @param {Array} authorsToSet - Array of authors to be set
  * @param {string} userId - User ID to check
- * @returns {boolean} True if user exists
+ * @returns {boolean}
  */
-function authorExists(authorsToSet, userId) {
+function userExistsInAuthors(authorsToSet, userId) {
     return _.find(authorsToSet, {id: userId});
 }
 
 /**
- * Determines permission based on contributor role and action
- * @param {string} action - The action being performed
- * @param {Function} isChangingAuthors - Predicate function
- * @param {Function} isCoAuthor - Predicate function
- * @param {Function} isOwner - Predicate function
- * @returns {boolean|null} Permission result or null if no match
+ * Determines if primary author is being changed
+ * @param {Object} unsafeAttrs - Unsafe attributes
+ * @param {Object} postModel - The post model
+ * @returns {boolean}
  */
-function getContributorPermission(action, isChangingAuthors, isCoAuthor, isOwner) {
-    const permissionMap = {
-        'edit': () => !isChangingAuthors() && isCoAuthor(),
-        'add': () => isOwner(),
-        'destroy': () => false
-    };
-    return permissionMap[action] ? permissionMap[action]() : null;
+function isChangingAuthors(unsafeAttrs, postModel) {
+    if (!unsafeAttrs.authors) {
+        return false;
+    }
+
+    if (!unsafeAttrs.authors.length) {
+        return true;
+    }
+
+    return unsafeAttrs.authors[0].id !== postModel.related('authors').models[0].id;
 }
 
 /**
- * Determines permission based on author role and action
- * @param {string} action - The action being performed
- * @param {Function} isCoAuthor - Predicate function
- * @param {Function} isChangingAuthors - Predicate function
- * @param {Function} isOwner - Predicate function
- * @returns {boolean|null} Permission result or null if no match
+ * Checks if user is the owner of the post
+ * @param {Object} unsafeAttrs - Unsafe attributes
+ * @param {string} contextUser - Current user ID
+ * @returns {boolean}
  */
-function getAuthorPermission(action, isCoAuthor, isChangingAuthors, isOwner) {
-    const permissionMap = {
-        'edit': () => isCoAuthor() && !isChangingAuthors(),
-        'add': () => isOwner()
-    };
-    return permissionMap[action] ? permissionMap[action]() : null;
+function isOwner(unsafeAttrs, contextUser) {
+    if (!unsafeAttrs.authors) {
+        return false;
+    }
+
+    return unsafeAttrs.authors.length && unsafeAttrs.authors[0].id === contextUser;
+}
+
+/**
+ * Checks if user is the primary author
+ * @param {Object} postModel - The post model
+ * @param {string} contextUser - Current user ID
+ * @returns {boolean}
+ */
+function isPrimaryAuthor(postModel, contextUser) {
+    return contextUser === postModel.related('authors').models[0].id;
+}
+
+/**
+ * Checks if user is a co-author
+ * @param {Object} postModel - The post model
+ * @param {string} contextUser - Current user ID
+ * @returns {boolean}
+ */
+function isCoAuthor(postModel, contextUser) {
+    return postModel.related('authors').models.map(author => author.id).includes(contextUser);
+}
+
+/**
+ * Permission strategy for contributor role
+ * @param {boolean} isEdit - Whether action is edit
+ * @param {boolean} isAdd - Whether action is add
+ * @param {boolean} isDestroy - Whether action is destroy
+ * @param {Object} context - User context
+ * @param {Object} unsafeAttrs - Unsafe attributes
+ * @param {Object} postModel - The post model
+ * @returns {boolean}
+ */
+function getContributorPermission(isEdit, isAdd, isDestroy, context, unsafeAttrs, postModel) {
+    if (isEdit) {
+        return !isChangingAuthors(unsafeAttrs, postModel) && isCoAuthor(postModel, context.user);
+    }
+    if (isAdd) {
+        return isOwner(unsafeAttrs, context.user);
+    }
+    if (isDestroy) {
+        return isPrimaryAuthor(postModel, context.user);
+    }
+    return false;
+}
+
+/**
+ * Permission strategy for author role
+ * @param {boolean} isEdit - Whether action is edit
+ * @param {boolean} isAdd - Whether action is add
+ * @param {Object} context - User context
+ * @param {Object} unsafeAttrs - Unsafe attributes
+ * @param {Object} postModel - The post model
+ * @returns {boolean}
+ */
+function getAuthorPermission(isEdit, isAdd, context, unsafeAttrs, postModel) {
+    if (isEdit) {
+        return isCoAuthor(postModel, context.user) && !isChangingAuthors(unsafeAttrs, postModel);
+    }
+    if (isAdd) {
+        return isOwner(unsafeAttrs, context.user);
+    }
+    return false;
+}
+
+/**
+ * Determines user permission based on role and action
+ * @param {boolean} isContributor - Whether user is contributor
+ * @param {boolean} isAuthor - Whether user is author
+ * @param {boolean} isEdit - Whether action is edit
+ * @param {boolean} isAdd - Whether action is add
+ * @param {boolean} isDestroy - Whether action is destroy
+ * @param {Object} context - User context
+ * @param {Object} unsafeAttrs - Unsafe attributes
+ * @param {Object} postModel - The post model
+ * @returns {boolean}
+ */
+function determineUserPermission(isContributor, isAuthor, isEdit, isAdd, isDestroy, context, unsafeAttrs, postModel) {
+    if (isContributor) {
+        return getContributorPermission(isEdit, isAdd, isDestroy, context, unsafeAttrs, postModel);
+    }
+    if (isAuthor) {
+        return getAuthorPermission(isEdit, isAdd, context, unsafeAttrs, postModel);
+    }
+    if (postModel) {
+        return isPrimaryAuthor(postModel, context.user);
+    }
+    return false;
 }
 
 module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
@@ -144,7 +229,7 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
 
                 normalizeAuthorRelation(options.withRelated);
 
-                if (shouldFetchAuthorsForUpdate(options.forUpdate, fnName, options.withRelated)) {
+                if (shouldAddAuthorsForUpdate(fnName, options.forUpdate, options.withRelated)) {
                     options.withRelated.push('authors');
                 }
 
@@ -281,7 +366,7 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                             let userId = user ? user.id : ownerUser.id;
 
                             // CASE: avoid attaching duplicate authors relation
-                            if (!authorExists(authorsToSet, userId.id)) {
+                            if (!userExistsInAuthors(authorsToSet, userId)) {
                                 authorsToSet[index] = {};
                                 authorsToSet[index].id = userId;
                             }
@@ -388,6 +473,9 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             const postModel = postModelOrId;
             let origArgs;
             const {isContributor, isAuthor} = setIsRoles(loadedPermissions);
+            let isEdit;
+            let isAdd;
+            let isDestroy;
 
             // If we passed in an id instead of a model, get the model
             // then check the permissions
@@ -400,3 +488,59 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                     .then(function then(foundPostModel) {
                         if (!foundPostModel) {
                             throw new errors.NotFoundError({
+                                message: tpl(messages.postNotFound)
+                            });
+                        }
+
+                        // Build up the original args but substitute with actual model
+                        const newArgs = [foundPostModel].concat(origArgs);
+                        return self.permissible.apply(self, newArgs);
+                    });
+            }
+
+            isEdit = (action === 'edit');
+            isAdd = (action === 'add');
+            isDestroy = (action === 'destroy');
+
+            hasUserPermission = determineUserPermission(
+                isContributor,
+                isAuthor,
+                isEdit,
+                isAdd,
+                isDestroy,
+                context,
+                unsafeAttrs,
+                postModel
+            );
+
+            if (hasUserPermission && hasApiKeyPermission) {
+                return Post.permissible.call(
+                    this,
+                    postModelOrId,
+                    action, context,
+                    unsafeAttrs,
+                    loadedPermissions,
+                    hasUserPermission,
+                    hasApiKeyPermission
+                ).then(({excludedAttrs}) => {
+                    // @TODO: we need a concept for making a diff between incoming authors and existing authors
+                    // @TODO: for now we simply re-use the new concept of `excludedAttrs`
+                    // We only check the primary author of `authors`, any other change will be ignored.
+                    if (isContributor || isAuthor) {
+                        return {
+                            excludedAttrs: ['authors'].concat(excludedAttrs)
+                        };
+                    }
+                    return {excludedAttrs};
+                });
+            }
+
+            return Promise.reject(new errors.NoPermissionError({
+                message: tpl(messages.notEnoughPermission)
+            }));
+        }
+    });
+
+    return Model;
+};
+```

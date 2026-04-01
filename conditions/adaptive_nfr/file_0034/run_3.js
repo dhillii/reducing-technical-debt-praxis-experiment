@@ -102,9 +102,9 @@ export default class PublishOptions {
 
     get publishTypeOptions() {
         return [{
-            value: 'publish+send', // internal
-            label: 'Publish and email', // shown in expanded options
-            display: 'Publish and email', // shown in option title
+            value: 'publish+send',
+            label: 'Publish and email',
+            display: 'Publish and email',
             disabled: this.emailDisabled
         }, {
             value: 'publish',
@@ -182,39 +182,54 @@ export default class PublishOptions {
     }
 
     /**
-     * Determines the default recipient filter based on post visibility and settings
-     * @returns {string|null} The recipient filter string or null
+     * Maps post visibility to recipient filter strings
+     * @private
      */
+    _visibilityToRecipientFilterMap = {
+        'public': 'status:free,status:-free',
+        'members': 'status:free,status:-free',
+        'paid': 'status:-free'
+    };
+
+    /**
+     * Determines the recipient filter based on post visibility
+     * @private
+     */
+    _getFilterByVisibility() {
+        const visibility = this.post.visibility;
+        
+        if (visibility === 'tiers') {
+            return this.post.visibilitySegment;
+        }
+
+        return this._visibilityToRecipientFilterMap[visibility] || visibility;
+    }
+
+    /**
+     * Determines if default recipient filter should use visibility-based logic
+     * @private
+     */
+    _shouldUseVisibilityFilter() {
+        const recipients = this.settings.editorDefaultEmailRecipients;
+        const filter = this.settings.editorDefaultEmailRecipientsFilter;
+        const usuallyNobody = recipients === 'filter' && filter === null;
+        
+        return recipients === 'visibility' || usuallyNobody;
+    }
+
     get defaultRecipientFilter() {
         const recipients = this.settings.editorDefaultEmailRecipients;
         const filter = this.settings.editorDefaultEmailRecipientsFilter;
-
-        const usuallyNobody = recipients === 'filter' && filter === null;
 
         if (recipients === 'disabled') {
             return null;
         }
 
-        if (recipients === 'visibility' || usuallyNobody) {
-            return this._getVisibilityBasedFilter();
+        if (this._shouldUseVisibilityFilter()) {
+            return this._getFilterByVisibility();
         }
 
         return filter;
-    }
-
-    /**
-     * Maps post visibility to recipient filter string
-     * @returns {string|null} The visibility-based recipient filter
-     */
-    _getVisibilityBasedFilter() {
-        const visibilityFilterMap = {
-            'public': 'status:free,status:-free',
-            'members': 'status:free,status:-free',
-            'paid': 'status:-free',
-            'tiers': this.post.visibilitySegment
-        };
-
-        return visibilityFilterMap[this.post.visibility] || this.post.visibility;
     }
 
     get fullRecipientFilter() {
@@ -256,35 +271,34 @@ export default class PublishOptions {
         this.setupTask.perform();
     }
 
-    @task
-    *setupTask() {
-        yield this.fetchRequiredDataTask.perform();
-
-        // TODO: set up initial state / defaults
-
-        this.newsletter = this.defaultNewsletter;
-
-        this._initializePublishType();
+    /**
+     * Determines if publish type should be set to 'publish' based on email availability
+     * @private
+     */
+    _shouldDisableEmailPublishing() {
+        return this.emailUnavailable || this.emailDisabled;
     }
 
     /**
-     * Initializes the publish type based on email availability and post state
+     * Determines if publish type should be set to 'publish' for "Usually nobody" default
+     * @private
+     */
+    _isUsuallyNobodyDefault() {
+        return this.settings.editorDefaultEmailRecipients === 'filter'
+            && this.settings.editorDefaultEmailRecipientsFilter === null;
+    }
+
+    /**
+     * Initializes publish type based on post state and settings
+     * @private
      */
     _initializePublishType() {
-        if (this.emailUnavailable || this.emailDisabled) {
+        if (this._shouldDisableEmailPublishing()) {
             this.publishType = 'publish';
-            return;
         }
 
-        // When default recipients is set to "Usually nobody":
-        // Set publish type to "Publish" but keep email recipients matching post visibility
-        // to avoid multiple clicks to turn on emailing
-        if (
-            this.settings.editorDefaultEmailRecipients === 'filter' &&
-            this.settings.editorDefaultEmailRecipientsFilter === null
-        ) {
+        if (this._isUsuallyNobodyDefault()) {
             this.publishType = 'publish';
-            return;
         }
 
         if (this.post.isSent) {
@@ -293,16 +307,20 @@ export default class PublishOptions {
     }
 
     @task
-    *fetchRequiredDataTask() {
-        const promises = this._buildFetchPromises();
-        yield Promise.all(promises);
+    *setupTask() {
+        yield this.fetchRequiredDataTask.perform();
+
+        // TODO: set up initial state / defaults
+
+        this.newsletter = this.defaultNewsletter;
+        this._initializePublishType();
     }
 
     /**
-     * Builds array of promises for required data fetching
-     * @returns {Promise[]} Array of promises to fetch members, limits, and newsletters
+     * Collects promises for required data fetching
+     * @private
      */
-    _buildFetchPromises() {
+    _collectDataFetchPromises() {
         const promises = [];
 
         // total # of members - used to enable/disable email
@@ -326,6 +344,12 @@ export default class PublishOptions {
         }
 
         return promises;
+    }
+
+    @task
+    *fetchRequiredDataTask() {
+        const promises = this._collectDataFetchPromises();
+        yield Promise.all(promises);
     }
 
     // saving ------------------------------------------------------------------
@@ -381,6 +405,31 @@ export default class PublishOptions {
     // Here we apply those changes from the selected publish options but keep
     // track of the previous values in case saving fails. We can't use ED's
     // rollbackAttributes() because it would also rollback any other unsaved edits
+
+    /**
+     * Applies scheduled publish date to post model
+     * @private
+     */
+    _applyScheduledDate() {
+        this.post.publishedAtUTC = this.scheduledAtUTC;
+    }
+
+    /**
+     * Applies publish status to post model
+     * @private
+     */
+    _applyPublishStatus() {
+        this.post.status = this.isScheduled ? 'scheduled' : 'published';
+    }
+
+    /**
+     * Applies email-only flag to post model
+     * @private
+     */
+    _applyEmailOnlyFlag() {
+        this.post.emailOnly = this.publishType === 'send';
+    }
+
     _applyModelChanges() {
         const willEmail = this.willEmail;
 
@@ -398,14 +447,14 @@ export default class PublishOptions {
             this._originalModelValues[property] = this.post[property];
         });
 
-        this.post.status = this.isScheduled ? 'scheduled' : 'published';
+        this._applyPublishStatus();
 
         if (this.isScheduled) {
-            this.post.publishedAtUTC = this.scheduledAtUTC;
+            this._applyScheduledDate();
         }
 
         if (willEmail) {
-            this.post.emailOnly = this.publishType === 'send';
+            this._applyEmailOnlyFlag();
         }
     }
 

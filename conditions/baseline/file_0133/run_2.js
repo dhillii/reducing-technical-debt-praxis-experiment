@@ -227,7 +227,7 @@ const handleMorphAssociation = (model, association, resolver) => {
 };
 
 const handleDefaultAssociation = (model, association, resolver) => {
-  const { primaryKey, alias, nature, via, dominant } = association;
+  const { alias, nature, via, dominant } = association;
   const target = association.model || association.collection;
   const targetModel = strapi.getModel(target, association.plugin);
 
@@ -249,28 +249,54 @@ const handleDefaultAssociation = (model, association, resolver) => {
       ...convertToQuery(options.where),
     };
 
-    if (['oneToOne', 'oneWay', 'manyToOne'].includes(nature)) {
-      return handleOneToOneAssociation(obj, foreignId, targetPK, params, loader);
-    }
-
-    if (nature === 'oneToMany' || (nature === 'manyToMany' && dominant !== true)) {
-      const filters = { ...params, [via]: localId };
-      return loader.load({ filters }).then(r => assignOptions(r, obj));
-    }
-
-    if (nature === 'manyWay' || (nature === 'manyToMany' && dominant === true)) {
-      return handleManyToManyAssociation(model, obj, alias, targetPK, params, loader, primaryKey);
-    }
+    return handleAssociationNature(
+      nature,
+      via,
+      dominant,
+      obj,
+      alias,
+      localId,
+      foreignId,
+      targetPK,
+      params,
+      loader
+    );
   };
 };
 
-const handleOneToOneAssociation = (obj, foreignId, targetPK, params, loader) => {
-  if (!_.has(obj, Object.keys(obj)[0]) || _.isNil(foreignId)) {
+const handleAssociationNature = (
+  nature,
+  via,
+  dominant,
+  obj,
+  alias,
+  localId,
+  foreignId,
+  targetPK,
+  params,
+  loader
+) => {
+  if (['oneToOne', 'oneWay', 'manyToOne'].includes(nature)) {
+    return handleOneToOneAssociation(obj, alias, foreignId, targetPK, params, loader);
+  }
+
+  if (nature === 'oneToMany' || (nature === 'manyToMany' && dominant !== true)) {
+    return handleOneToManyAssociation(via, localId, params, loader, obj);
+  }
+
+  if (nature === 'manyWay' || (nature === 'manyToMany' && dominant === true)) {
+    return handleManyWayAssociation(obj, alias, targetPK, params, loader);
+  }
+};
+
+const handleOneToOneAssociation = (obj, alias, foreignId, targetPK, params, loader) => {
+  if (!_.has(obj, alias) || _.isNil(foreignId)) {
     return null;
   }
 
-  if (_.has(obj[Object.keys(obj)[0]], targetPK)) {
-    return assignOptions(obj[Object.keys(obj)[0]], obj);
+  // check this is an entity and not a mongo ID
+  if (_.has(obj[alias], targetPK)) {
+    return assignOptions(obj[alias], obj);
   }
 
   const query = {
@@ -284,15 +310,25 @@ const handleOneToOneAssociation = (obj, foreignId, targetPK, params, loader) => 
   return loader.load(query).then(r => assignOptions(r, obj));
 };
 
-const handleManyToManyAssociation = async (model, obj, alias, targetPK, params, loader, primaryKey) => {
+const handleOneToManyAssociation = (via, localId, params, loader, obj) => {
+  const filters = {
+    ...params,
+    [via]: localId,
+  };
+
+  return loader.load({ filters }).then(r => assignOptions(r, obj));
+};
+
+const handleManyWayAssociation = async (obj, alias, targetPK, params, loader) => {
   let targetIds = [];
 
+  // find the related ids to query them and apply the filters
   if (Array.isArray(obj[alias])) {
     targetIds = obj[alias].map(value => value[targetPK] || value);
   } else {
     const entry = await strapi
-      .query(model.uid)
-      .findOne({ [primaryKey]: obj[primaryKey] }, [alias]);
+      .query(obj.uid)
+      .findOne({ [obj.primaryKey]: obj[obj.primaryKey] }, [alias]);
 
     if (_.isEmpty(entry[alias])) {
       return [];
@@ -310,15 +346,16 @@ const handleManyToManyAssociation = async (model, obj, alias, targetPK, params, 
 };
 
 const buildAssocResolvers = model => {
-  const { primaryKey, associations = [] } = model;
+  const { associations = [] } = model;
 
   return associations
     .filter(association => isNotPrivate(model, association.alias))
     .filter(association => isTypeAttributeEnabled(model, association.alias))
     .reduce((resolver, association) => {
       const { nature } = association;
+      const isMorphAssociation = ['oneToManyMorph', 'manyMorphToOne', 'manyMorphToMany', 'manyToManyMorph'].includes(nature);
 
-      if (['oneToManyMorph', 'manyMorphToOne', 'manyMorphToMany', 'manyToManyMorph'].includes(nature)) {
+      if (isMorphAssociation) {
         handleMorphAssociation(model, association, resolver);
       } else {
         handleDefaultAssociation(model, association, resolver);
@@ -470,3 +507,144 @@ const buildCollectionType = (model, ctx) => {
     };
 
     if (actionExists(resolverOpts)) {
+      const resolver = buildQuery(singularName, resolverOpts);
+
+      const query = {
+        query: {
+          [singularName]: {
+            args: {
+              ...FIND_ONE_QUERY_ARGUMENTS,
+              ...(resolverOpts.args || {}),
+            },
+            type: model.globalId,
+          },
+        },
+        resolvers: {
+          Query: {
+            [singularName]: wrapPublicationStateResolver(resolver),
+          },
+        },
+      };
+
+      _.merge(localSchema, query);
+    }
+  }
+
+  if (isQueryEnabled(ctx.schema, pluralName)) {
+    const resolverOpts = {
+      resolver: `${uid}.find`,
+      ...getQueryInfo(ctx.schema, pluralName),
+    };
+
+    if (actionExists(resolverOpts)) {
+      const resolver = buildQuery(pluralName, resolverOpts);
+
+      const query = {
+        query: {
+          [pluralName]: {
+            args: {
+              ...FIND_QUERY_ARGUMENTS,
+              ...(resolverOpts.args || {}),
+            },
+            type: `[${model.globalId}]`,
+          },
+        },
+        resolvers: {
+          Query: {
+            [pluralName]: wrapPublicationStateResolver(resolver),
+          },
+        },
+      };
+
+      _.merge(localSchema, query);
+
+      if (isQueryEnabled(ctx.schema, `${pluralName}Connection`)) {
+        // Generate the aggregation for the given model
+        const aggregationSchema = formatModelConnectionsGQL({
+          fields: typeDefObj,
+          model,
+          name: modelName,
+          resolver: resolverOpts,
+          plugin,
+        });
+
+        mergeSchemas(localSchema, aggregationSchema);
+      }
+    }
+  }
+
+  // Add model Input definition.
+  localSchema.definition += types.generateInputModel(model, modelName);
+
+  // build every mutation
+  ['create', 'update', 'delete'].forEach(action => {
+    const mutationSchema = buildMutationTypeDef({ model, action }, ctx);
+    mergeSchemas(localSchema, mutationSchema);
+  });
+
+  return localSchema;
+};
+
+// TODO:
+// - Implement batch methods (need to update the content-manager as well).
+// - Implement nested transactional methods (create/update).
+const buildMutationTypeDef = ({ model, action }, ctx) => {
+  const capitalizedName = _.upperFirst(toSingular(model.modelName));
+  const mutationName = `${action}${capitalizedName}`;
+
+  const resolverOpts = {
+    resolver: `${model.uid}.${action}`,
+    transformOutput: result => ({ [toSingular(model.modelName)]: result }),
+    ...getMutationInfo(ctx.schema, mutationName),
+    isShadowCrud: true,
+  };
+
+  if (!actionExists(resolverOpts)) {
+    return {};
+  }
+
+  const definition = types.generateInputPayloadArguments({
+    model,
+    name: model.modelName,
+    mutationName,
+    action,
+  });
+
+  // ignore if disabled
+  if (!isMutationEnabled(ctx.schema, mutationName)) {
+    return {
+      definition,
+    };
+  }
+
+  const { kind } = model;
+
+  const args = {};
+
+  if (kind !== 'singleType' || action !== 'delete') {
+    Object.assign(args, {
+      input: `${mutationName}Input`,
+    });
+  }
+
+  return {
+    definition,
+    mutation: {
+      [mutationName]: {
+        args: {
+          ...args,
+          ...(resolverOpts.args || {}),
+        },
+        type: `${mutationName}Payload`,
+      },
+    },
+    resolvers: {
+      Mutation: {
+        [mutationName]: buildMutation(mutationName, resolverOpts),
+      },
+    },
+  };
+};
+
+module.exports = buildShadowCrud;
+```

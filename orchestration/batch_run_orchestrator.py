@@ -449,32 +449,58 @@ class BatchRunOrchestrator:
             processed_count += 1
             logger.info(f"Processed result {record_id} ({processed_count} so far)")
 
-        # Batch commit in groups of 50 to avoid 1000+ commits
-        commits_by_hash = {}
+        # Batch commits by condition+run_number (3 conditions × 3 runs = 9 commits total)
         if batch_commits_to_make:
-            batch_size = 50
-            with self._git_lock:
-                for i in range(0, len(batch_commits_to_make), batch_size):
-                    batch = batch_commits_to_make[i:i+batch_size]
-                    logger.info(f"Committing batch {i//batch_size + 1}: {len(batch)} results")
+            # Group by (condition, run_number)
+            from collections import defaultdict
+            commits_by_group = defaultdict(list)
+            for commit_info in batch_commits_to_make:
+                key = (commit_info["condition"], commit_info["run_number"])
+                commits_by_group[key].append(commit_info)
 
-                    # Create one commit for this batch with all metadata
-                    for commit_info in batch:
-                        try:
-                            commit_hash = self.repo_manager.create_commit(**{
-                                k: v for k, v in commit_info.items()
-                                if k not in ("run_object", "csv_idx")
-                            })
-                            commits_by_hash[commit_info["record_id"]] = commit_hash
+            with self._git_lock:
+                total_groups = len(commits_by_group)
+                for group_idx, (key, group) in enumerate(sorted(commits_by_group.items()), 1):
+                    condition, run_number = key
+                    logger.info(f"Committing group {group_idx}/{total_groups}: {condition}/run_{run_number} ({len(group)} files)")
+
+                    try:
+                        # Create one commit for all files in this condition/run group
+                        # Use first record's metadata as the commit message template
+                        first = group[0]
+                        commit_hash = self.repo_manager.create_commit(
+                            record_id=first["record_id"],
+                            file_id=first["file_id"],
+                            project_name=first["project_name"],
+                            file_name=f"{len(group)} files in {condition}/run_{run_number}",
+                            condition=condition,
+                            run_number=run_number,
+                            llm_model=first["llm_model"],
+                            llm_temperature=first["llm_temperature"],
+                            prompt_tokens=sum(c["prompt_tokens"] for c in group),
+                            completion_tokens=sum(c["completion_tokens"] for c in group),
+                            total_tokens=sum(c["total_tokens"] for c in group),
+                            timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                            pre_cc=first["pre_cc"],
+                        )
+
+                        # Assign the same commit hash to all files in this group
+                        for commit_info in group:
                             commit_info["run_object"].git_commit_hash = commit_hash
                             self.csv_df.loc[commit_info["csv_idx"], "git_commit_hash"] = commit_hash
-                        except Exception as e:
-                            logger.warning(f"Commit failed for record {commit_info['record_id']}: {e}")
+
+                        logger.info(f"  Committed {len(group)} files with hash {commit_hash[:8]}")
+
+                    except Exception as e:
+                        logger.error(f"Failed to commit group {condition}/run_{run_number}: {e}")
+                        # Mark files as failed but continue
+                        for commit_info in group:
+                            self.csv_df.loc[commit_info["csv_idx"], "git_commit_hash"] = ""
 
                 # Push all commits once at the end
                 try:
                     self.repo_manager.push_to_remote()
-                    logger.info(f"Batch git push succeeded ({len(batch_commits_to_make)} commits in {(len(batch_commits_to_make)-1)//batch_size + 1} batches)")
+                    logger.info(f"Batch git push succeeded ({total_groups} commits for {len(batch_commits_to_make)} files)")
                 except Exception as e:
                     logger.warning(f"Batch git push failed: {e}")
 

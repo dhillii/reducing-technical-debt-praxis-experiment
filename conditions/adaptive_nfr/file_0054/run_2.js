@@ -46,33 +46,33 @@
   };
 
   /**
-   * Determines if fn is a function or task specification.
-   * @param {*} fn - The value to check
-   * @returns {boolean} True if fn is a function
+   * Determines if fn is a function and returns task configuration.
+   * @param {*} fn - The function or task specification
+   * @param {string} info - Optional info string
+   * @returns {{tasks: string[], fn: Function, info: string, isAlias: boolean}}
    */
-  const isFunctionTask = (fn) => typeof fn === 'function';
-
-  /**
-   * Creates an alias task function and generates info string.
-   * @param {string} fn - Task name or array of task names
-   * @param {string|null} info - Optional info string
-   * @returns {object} Object with fn, alias flag, and info string
-   */
-  Task.prototype._createAliasTask = function(fn, info) {
+  const _parseTaskDefinition = function(fn, info) {
+    if (typeof fn === 'function') {
+      return {
+        tasks: [],
+        fn: fn,
+        info: info || 'Custom task.',
+        isAlias: false
+      };
+    }
+    // String or array of strings was passed instead of fn.
     const tasks = this.parseArgs([fn]);
-    const aliasFn = this.run.bind(this, fn);
-    aliasFn.alias = true;
-    const infoStr = info || ('Alias for "' + tasks.join('", "') + '" task' +
+    const taskFn = this.run.bind(this, fn);
+    taskFn.alias = true;
+    const taskInfo = info || ('Alias for "' + tasks.join('", "') + '" task' +
       (tasks.length === 1 ? '' : 's') + '.');
-    return { fn: aliasFn, info: infoStr };
+    return {
+      tasks: tasks,
+      fn: taskFn,
+      info: taskInfo,
+      isAlias: true
+    };
   };
-
-  /**
-   * Gets the info string for a task.
-   * @param {string} info - Provided info string
-   * @returns {string} The info string or default
-   */
-  const getTaskInfo = (info) => info || 'Custom task.';
 
   // Register a new task.
   Task.prototype.registerTask = function(name, info, fn) {
@@ -82,21 +82,10 @@
       info = null;
     }
     
-    let taskFn;
-    let taskInfo;
-    
-    // String or array of strings was passed instead of fn.
-    if (!isFunctionTask(fn)) {
-      const aliasTask = this._createAliasTask(fn, info);
-      taskFn = aliasTask.fn;
-      taskInfo = aliasTask.info;
-    } else {
-      taskFn = fn;
-      taskInfo = getTaskInfo(info);
-    }
+    const definition = _parseTaskDefinition.call(this, fn, info);
     
     // Add task into cache.
-    this._tasks[name] = {name: name, info: taskInfo, fn: taskFn};
+    this._tasks[name] = {name: name, info: definition.info, fn: definition.fn};
     // Make chainable!
     return this;
   };
@@ -152,55 +141,25 @@
   };
 
   /**
-   * Determines the success status based on the value.
-   * @param {*} success - The success value to evaluate
-   * @returns {object} Object with err and success properties
+   * Determines the result type and creates appropriate error or success result.
+   * @param {*} success - The success value or error
+   * @param {string} nameArgs - Task name with arguments
+   * @returns {{err: Error|null, success: boolean}}
    */
-  const evaluateSuccess = (success, nameArgs) => {
+  const _determineTaskResult = function(success, nameArgs) {
     let err = null;
-    let isSuccess = success;
     
     if (success === false) {
       err = new Error('Task "' + nameArgs + '" failed.');
-      isSuccess = false;
+      success = false;
     } else if (success instanceof Error || {}.toString.call(success) === '[object Error]') {
       err = success;
-      isSuccess = false;
+      success = false;
     } else {
-      isSuccess = true;
+      success = true;
     }
     
-    return { err, success: isSuccess };
-  };
-
-  /**
-   * Calls the error handler if task failed.
-   * @param {boolean} success - Whether task succeeded
-   * @param {object} options - Options object with error handler
-   * @param {object} context - Task context
-   * @param {Error} err - Error object if any
-   */
-  const handleTaskError = (success, options, context, err) => {
-    if (!success && options.error) {
-      options.error.call({name: context.name, nameArgs: context.nameArgs}, err);
-    }
-  };
-
-  /**
-   * Invokes the done callback appropriately.
-   * @param {Function} done - Callback function
-   * @param {Error} err - Error object
-   * @param {boolean} success - Success status
-   * @param {boolean} asyncDone - Whether to call async
-   */
-  const invokeDone = (done, err, success, asyncDone) => {
-    if (asyncDone) {
-      process.nextTick(function() {
-        done(err, success);
-      });
-    } else {
-      done(err, success);
-    }
+    return {err: err, success: success};
   };
 
   // Given a task name, determine which actual task will be called, and what
@@ -265,6 +224,36 @@
     return this;
   };
 
+  /**
+   * Handles task completion and invokes error handler if needed.
+   * @param {Object} context - Task context
+   * @param {Function} done - Callback to invoke after completion
+   * @param {boolean} asyncDone - Whether to defer done callback
+   * @param {*} result - Task result (success value or error)
+   */
+  const _completeTask = function(context, done, asyncDone, result) {
+    const taskResult = _determineTaskResult(result, context.nameArgs);
+    
+    // The task has ended, reset the current task object.
+    this.current = {};
+    // A task has "failed" only if it returns false (async) or if the
+    // function returned by .async is passed false.
+    this._success[context.nameArgs] = taskResult.success;
+    // If task failed, call error handler.
+    if (!taskResult.success && this._options.error) {
+      this._options.error.call({name: context.name, nameArgs: context.nameArgs}, taskResult.err);
+    }
+    // only call done async if explicitly requested to
+    // see: https://github.com/gruntjs/grunt/pull/1026
+    if (asyncDone) {
+      process.nextTick(function() {
+        done(taskResult.err, taskResult.success);
+      });
+    } else {
+      done(taskResult.err, taskResult.success);
+    }
+  };
+
   // Run a task function, handling this.async / return value.
   Task.prototype.runTaskFn = function(context, fn, done, asyncDone) {
     // Async flag.
@@ -272,20 +261,7 @@
 
     // Update the internal status object and run the next task.
     const complete = function(success) {
-      const result = evaluateSuccess(success, context.nameArgs);
-      const err = result.err;
-      const isSuccess = result.success;
-      
-      // The task has ended, reset the current task object.
-      this.current = {};
-      // A task has "failed" only if it returns false (async) or if the
-      // function returned by .async is passed false.
-      this._success[context.nameArgs] = isSuccess;
-      // If task failed, call error handler.
-      handleTaskError(isSuccess, this._options, context, err);
-      // only call done async if explicitly requested to
-      // see: https://github.com/gruntjs/grunt/pull/1026
-      invokeDone(done, err, isSuccess, asyncDone);
+      _completeTask.call(this, context, done, asyncDone, success);
     }.bind(this);
 
     // When called, sets the async flag and returns a function that can
@@ -316,37 +292,51 @@
   };
 
   /**
-   * Checks if queue item should be skipped.
-   * @param {*} thing - Queue item to check
-   * @param {object} placeholder - Placeholder reference
-   * @param {object} marker - Marker reference
-   * @returns {boolean} True if item should be skipped
+   * Retrieves next task from queue, skipping placeholders and markers.
+   * @returns {Object|undefined} Next task object or undefined if queue empty
    */
-  const shouldSkipQueueItem = (thing, placeholder, marker) => {
-    return thing === placeholder || thing === marker;
+  const _getNextQueueItem = function() {
+    let thing;
+    // Skip any placeholders or markers.
+    do {
+      thing = this._queue.shift();
+    } while (thing === this._placeholder || thing === this._marker);
+    return thing;
   };
 
   /**
    * Creates task context from queue item.
-   * @param {object} thing - Queue item
-   * @returns {object} Task context
+   * @param {Object} thing - Queue item
+   * @returns {Object} Task context
    */
-  const createTaskContext = (thing) => {
+  const _createTaskContext = function(thing) {
     return {
+      // The current task name plus args, as-passed.
       nameArgs: thing.nameArgs,
+      // The current task name.
       name: thing.task.name,
+      // The current task arguments.
       args: thing.args,
+      // The current arguments, available as named flags.
       flags: thing.flags
     };
   };
 
   /**
-   * Handles queue completion.
-   * @param {object} options - Options with done handler
+   * Checks if queue processing is complete.
+   * @returns {boolean} True if queue is empty
    */
-  const handleQueueComplete = (options) => {
-    if (options.done) {
-      options.done();
+  const _isQueueEmpty = function(thing) {
+    return !thing;
+  };
+
+  /**
+   * Handles queue completion.
+   */
+  const _handleQueueComplete = function() {
+    this._running = false;
+    if (this._options.done) {
+      this._options.done();
     }
   };
 
@@ -360,22 +350,18 @@
     // Actually process the next task.
     const nextTask = function() {
       // Get next task+args object from queue.
-      let thing;
-      // Skip any placeholders or markers.
-      do {
-        thing = this._queue.shift();
-      } while (thing && shouldSkipQueueItem(thing, this._placeholder, this._marker));
+      const thing = _getNextQueueItem.call(this);
+      
       // If queue was empty, we're all done.
-      if (!thing) {
-        this._running = false;
-        handleQueueComplete(this._options);
+      if (_isQueueEmpty(thing)) {
+        _handleQueueComplete.call(this);
         return;
       }
       // Add a placeholder to the front of the queue.
       this._queue.unshift(this._placeholder);
 
       // Expose some information about the currently-running task.
-      const context = createTaskContext(thing);
+      const context = _createTaskContext(thing);
 
       // Actually run the task function (handling this.async, etc)
       this.runTaskFn(context, function() {

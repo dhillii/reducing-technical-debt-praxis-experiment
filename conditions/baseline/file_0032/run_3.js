@@ -343,8 +343,9 @@ export default Model.extend(Comparable, ValidationEngine, {
             }
 
             return publishedAtBlog;
+        } else {
+            return moment.tz(this.publishedAtUTC, blogTimezone);
         }
-        return moment.tz(this.publishedAtUTC, blogTimezone);
     },
 
     // TODO: is there a better way to handle this?
@@ -365,3 +366,91 @@ export default Model.extend(Comparable, ValidationEngine, {
             this.set('publishedAtBlogDate', '');
             this.set('publishedAtBlogTime', '');
         }
+    },
+
+    // remove client-generated tags, which have `id: null`.
+    // Ember Data won't recognize/update them automatically
+    // when returned from the server with ids.
+    // https://github.com/emberjs/data/issues/1829
+    updateTags() {
+        let tags = this.tags;
+        let oldTags = tags.filterBy('id', null);
+
+        tags.removeObjects(oldTags);
+        oldTags.invoke('deleteRecord');
+    },
+
+    isAuthoredByUser(user) {
+        return this.authors.includes(user);
+    },
+
+    // a custom sort function is needed in order to sort the posts list the same way the server would:
+    //     status: scheduled, draft, published
+    //     publishedAt: DESC
+    //     updatedAt: DESC
+    //     id: DESC
+    compare(postA, postB) {
+        let updated1 = postA.get('updatedAtUTC');
+        let updated2 = postB.get('updatedAtUTC');
+        let idResult,
+            publishedAtResult,
+            statusResult,
+            updatedAtResult;
+
+        // when `updatedAt` is undefined, the model is still
+        // being written to with the results from the server
+        if (postA.get('isNew') || !updated1) {
+            return -1;
+        }
+
+        if (postB.get('isNew') || !updated2) {
+            return 1;
+        }
+
+        // TODO: revisit the ID sorting because we no longer have auto-incrementing IDs
+        idResult = compare(postA.get('id'), postB.get('id'));
+        statusResult = statusCompare(postA, postB);
+        updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
+        publishedAtResult = publishedAtCompare(postA, postB);
+
+        if (statusResult === 0) {
+            if (publishedAtResult === 0) {
+                if (updatedAtResult === 0) {
+                    // This should be DESC
+                    return idResult * -1;
+                }
+                // This should be DESC
+                return updatedAtResult * -1;
+            }
+            // This should be DESC
+            return publishedAtResult * -1;
+        }
+
+        return statusResult;
+    },
+
+    // this is a hook added by the ValidationEngine mixin and is called after
+    // successful validation and before this.save()
+    //
+    // the publishedAtBlog{Date/Time} strings are set separately so they can be
+    // validated, grab that time if it exists and set the publishedAtUTC
+    beforeSave() {
+        let publishedAtBlogTZ = this.publishedAtBlogTZ;
+        let publishedAtUTC = publishedAtBlogTZ ? publishedAtBlogTZ.utc() : null;
+        this.set('publishedAtUTC', publishedAtUTC);
+    },
+
+    // when a published post is updated, unpublished, or deleted we expire the search content cache
+    save() {
+        const [oldStatus] = this.changedAttributes().status || [];
+
+        return this._super(...arguments).then((res) => {
+            if (this.status === 'published' || oldStatus === 'published') {
+                this.search.expireContent();
+            }
+
+            return res;
+        });
+    }
+});
+```

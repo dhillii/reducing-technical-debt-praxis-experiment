@@ -59,19 +59,19 @@ const combineFilters = params => {
 };
 
 /**
- * Handles file system read errors
+ * Handles file size errors during read operations
  * @param {Error} error - The error object
- * @param {string} fileName - Name of the file being read
+ * @param {Object} file - File object with name property
  * @throws {Error} Formatted error or original error
  */
-const handleFileReadError = (error, fileName) => {
+const handleFileReadError = (error, file) => {
   if (error.code === 'ERR_FS_FILE_TOO_LARGE') {
     throw strapi.errors.entityTooLarge('FileTooBig', {
       errors: [
         {
           id: 'Upload.status.sizeLimit',
-          message: `${fileName} file is bigger than the limit size!`,
-          values: { file: fileName },
+          message: `${file.name} file is bigger than the limit size!`,
+          values: { file: file.name },
         },
       ],
     });
@@ -150,36 +150,28 @@ const finalizeFileData = (fileData, width, height, provider) => {
 };
 
 /**
- * Adds user attribution to file values
- * @param {Object} fileValues - File values object
- * @param {Object} user - User object
- */
-const addUserAttribution = (fileValues, user) => {
-  if (user) {
-    fileValues[UPDATED_BY_ATTRIBUTE] = user.id;
-  }
-};
-
-/**
- * Adds user attribution for creation
- * @param {Object} fileValues - File values object
- * @param {Object} user - User object
- */
-const addCreationAttribution = (fileValues, user) => {
-  if (user) {
-    fileValues[UPDATED_BY_ATTRIBUTE] = user.id;
-    fileValues[CREATED_BY_ATTRIBUTE] = user.id;
-  }
-};
-
-/**
- * Emits media event to event hub
+ * Emits webhook event for media operation
  * @param {string} eventType - Type of event (MEDIA_CREATE, MEDIA_UPDATE, MEDIA_DELETE)
  * @param {Object} media - Media object
  */
 const emitMediaEvent = (eventType, media) => {
   const modelDef = strapi.getModel('file', 'upload');
   strapi.eventHub.emit(eventType, { media: sanitizeEntity(media, { model: modelDef }) });
+};
+
+/**
+ * Applies user attribution to file values
+ * @param {Object} fileValues - File values object
+ * @param {Object} user - User object
+ * @param {boolean} isCreation - Whether this is a creation operation
+ */
+const applyUserAttribution = (fileValues, user, isCreation = false) => {
+  if (user) {
+    fileValues[UPDATED_BY_ATTRIBUTE] = user.id;
+    if (isCreation) {
+      fileValues[CREATED_BY_ATTRIBUTE] = user.id;
+    }
+  }
 };
 
 module.exports = {
@@ -224,7 +216,7 @@ module.exports = {
     try {
       readBuffer = await util.promisify(fs.readFile)(file.path);
     } catch (e) {
-      handleFileReadError(e, file.name);
+      handleFileReadError(e, file);
     }
 
     const { optimize } = strapi.plugins.upload.services['image-manipulation'];
@@ -344,7 +336,7 @@ module.exports = {
 
   async update(params, values, { user } = {}) {
     const fileValues = { ...values };
-    addUserAttribution(fileValues, user);
+    applyUserAttribution(fileValues, user, false);
     sendMediaMetrics(fileValues);
 
     const res = await strapi.query('file', 'upload').update(params, fileValues);
@@ -354,7 +346,7 @@ module.exports = {
 
   async add(values, { user } = {}) {
     const fileValues = { ...values };
-    addCreationAttribution(fileValues, user);
+    applyUserAttribution(fileValues, user, true);
     sendMediaMetrics(fileValues);
 
     const res = await strapi.query('file', 'upload').create(fileValues);

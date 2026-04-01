@@ -64,35 +64,18 @@ function DollarIcon({...props}) {
     );
 }
 
-/**
- * Decorates a post search result with visibility metadata
- */
 export function decoratePostSearchResult(item, settings) {
     const date = moment.utc(item.publishedAt).tz(settings.timezone).format('D MMM YYYY');
     item.metaText = date;
 
-    if (settings.membersEnabled && item.visibility) {
-        applyVisibilityIcon(item);
+    if (!settings.membersEnabled || !item.visibility) {
+        return;
     }
-}
 
-/**
- * Applies appropriate icon and title based on post visibility
- */
-function applyVisibilityIcon(item) {
     const visibilityConfig = {
-        members: {
-            icon: LockIcon,
-            title: 'Members only'
-        },
-        paid: {
-            icon: DollarIcon,
-            title: 'Paid-members only'
-        },
-        tiers: {
-            icon: DollarIcon,
-            title: 'Specific tiers only'
-        }
+        members: {icon: LockIcon, title: 'Members only'},
+        paid: {icon: DollarIcon, title: 'Paid-members only'},
+        tiers: {icon: DollarIcon, title: 'Specific tiers only'}
     };
 
     const config = visibilityConfig[item.visibility];
@@ -112,7 +95,6 @@ export async function offerUrls() {
     try {
         offers = await this.fetchOffersTask.perform();
     } catch (e) {
-        // No-op: if offers are not available (e.g. missing permissions), return an empty array
         return [];
     }
 
@@ -176,6 +158,167 @@ const TKCountPlugin = ({editorResource, ...props}) => {
     return <_TKCountPlugin {...props} />;
 };
 
+// Helper: Build default autocomplete links
+function buildDefaultAutocompleteLinks() {
+    return [
+        {label: 'Homepage', value: window.location.origin + '/'},
+        {label: 'Free signup', value: '#/portal/signup/free'}
+    ];
+}
+
+// Helper: Build member-specific links
+function buildMemberLinks(membersUtils) {
+    if (!membersUtils.paidMembersEnabled) {
+        return [];
+    }
+    return [
+        {label: 'Paid signup', value: '#/portal/signup'},
+        {label: 'Upgrade or change plan', value: '#/portal/account/plans'}
+    ];
+}
+
+// Helper: Build donation link if enabled
+function buildDonationLink(settings) {
+    if (!settings.donationsEnabled) {
+        return [];
+    }
+    return [{label: 'Tips and donations', value: '#/portal/support'}];
+}
+
+// Helper: Build recommendation link if enabled
+function buildRecommendationLink(settings) {
+    if (!settings.recommendationsEnabled) {
+        return [];
+    }
+    return [{label: 'Recommendations', value: '#/portal/recommendations'}];
+}
+
+// Helper: Validate file extension
+function validateFileExtension(file, type) {
+    if (type === 'file') {
+        return true;
+    }
+
+    const extensions = fileTypes[type].extensions;
+    const [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
+
+    if (!extensions) {
+        return true;
+    }
+
+    const extArray = Array.isArray(extensions) ? extensions : extensions.split(',');
+
+    if (!extension || extArray.indexOf(extension.toLowerCase()) === -1) {
+        const validExtensions = `.${extArray.join(', .').toUpperCase()}`;
+        return `The file type you uploaded is not supported. Please use ${validExtensions}`;
+    }
+
+    return true;
+}
+
+// Helper: Parse upload response
+function parseUploadResponse(response, type) {
+    let uploadResponse;
+    let responseUrl;
+
+    try {
+        uploadResponse = JSON.parse(response);
+    } catch (error) {
+        if (!(error instanceof SyntaxError)) {
+            throw error;
+        }
+    }
+
+    if (uploadResponse) {
+        const resource = uploadResponse[fileTypes[type].resourceName];
+        if (resource && Array.isArray(resource) && resource[0]) {
+            responseUrl = resource[0].url;
+        }
+    }
+
+    return {
+        url: responseUrl,
+        fileName: null
+    };
+}
+
+// Helper: Extract error message from response
+function extractErrorMessage(error) {
+    const message = error.payload?.errors?.[0]?.message || error.message || '';
+    const context = error.payload?.errors?.[0]?.context || '';
+    return {message, context};
+}
+
+// Helper: Build unsplash config
+function buildUnsplashConfig() {
+    return {
+        defaultHeaders: {
+            Authorization: `Client-ID 8672af113b0a8573edae3aa3713886265d9bb741d707f6c01a486cde8c278980`,
+            'Accept-Version': 'v1',
+            'Content-Type': 'application/json',
+            'App-Pragma': 'no-cache',
+            'X-Unsplash-Cache': true
+        }
+    };
+}
+
+// Helper: Check if Stripe is enabled
+function checkStripeEnabled(settings, config) {
+    const hasDirectKeys = !!(settings.stripeSecretKey && settings.stripePublishableKey);
+    const hasConnectKeys = !!(settings.stripeConnectSecretKey && settings.stripeConnectPublishableKey);
+
+    if (config.stripeDirect) {
+        return hasDirectKeys;
+    }
+    return hasDirectKeys || hasConnectKeys;
+}
+
+// Helper: Filter search results by group type
+function filterSearchResultsByGroup(group, settings) {
+    let items = group.options;
+
+    if (group.groupName === 'Posts' || group.groupName === 'Pages') {
+        items = items.filter(i => i.status === 'published');
+    }
+
+    if (group.groupName === 'Staff') {
+        items = items.filter(i => !/\/404\//.test(i.url));
+    }
+
+    if (items.length === 0) {
+        return null;
+    }
+
+    if (group.groupName === 'Posts' || group.groupName === 'Pages') {
+        items.forEach(item => decoratePostSearchResult(item, settings));
+    }
+
+    return {
+        label: group.groupName,
+        items
+    };
+}
+
+// Helper: Build default card config
+function buildDefaultCardConfig(settings, config, session, feature, unsplashConfig, checkStripeEnabledFn) {
+    return {
+        unsplash: settings.unsplash ? unsplashConfig.defaultHeaders : null,
+        tenor: config.tenor?.googleApiKey ? config.tenor : null,
+        renderLabels: !session.user.isContributor,
+        feature: {
+            transistor: feature.transistor
+        },
+        deprecated: {
+            headerV1: true
+        },
+        membersEnabled: settings.membersSignupAccess === 'all',
+        siteTitle: settings.title,
+        siteDescription: settings.description,
+        siteUrl: config.getSiteUrl('/'),
+        stripeEnabled: checkStripeEnabledFn()
+    };
+}
+
 export default class KoenigLexicalEditor extends Component {
     @service ajax;
     @service feature;
@@ -228,7 +371,6 @@ export default class KoenigLexicalEditor extends Component {
             return null;
         }
 
-        // load the script from admin root if relative
         if (importUrl.startsWith('/')) {
             importUrl = window.location.origin + this.ghostPaths.adminRoot.replace(/\/$/, '') + importUrl;
         }
@@ -242,7 +384,6 @@ export default class KoenigLexicalEditor extends Component {
             return null;
         }
 
-        // load the css from admin root if relative
         if (cssImportUrl.startsWith('/')) {
             cssImportUrl = window.location.origin + this.ghostPaths.adminRoot.replace(/\/$/, '') + cssImportUrl;
         }
@@ -251,7 +392,6 @@ export default class KoenigLexicalEditor extends Component {
 
     @action
     onError(error) {
-        // ensure we're still showing errors in development
         console.error(error); // eslint-disable-line
 
         if (this.config.sentry_dsn) {
@@ -264,7 +404,6 @@ export default class KoenigLexicalEditor extends Component {
                 }
             });
         }
-        // don't rethrow, Lexical will attempt to gracefully recover
     }
 
     @task({restartable: false})
@@ -273,9 +412,6 @@ export default class KoenigLexicalEditor extends Component {
             return this.offers;
         }
 
-        // Only fetch active signup offers for use in link dropdowns
-        // - Archived offers (status:archived) should not appear
-        // - Retention offers (redemption_type:retention) are only triggered during cancellation flows, not via offer links
         this.offers = yield this.store.query('offer', {filter: 'status:active+redemption_type:signup'});
 
         return this.offers;
@@ -291,100 +427,75 @@ export default class KoenigLexicalEditor extends Component {
         return this.labels;
     }
 
-    /**
-     * Builds default autocomplete links (homepage, portal signup)
-     */
-    buildDefaultAutocompleteLinks() {
-        return [
-            {label: 'Homepage', value: window.location.origin + '/'},
-            {label: 'Free signup', value: '#/portal/signup/free'}
-        ];
-    }
+    // Helper: Fetch embed data
+    fetchEmbed = async (url, {type}) => {
+        let oembedEndpoint = this.ghostPaths.url.api('oembed');
+        let response = await this.ajax.request(oembedEndpoint, {
+            data: {url, type}
+        });
+        return response;
+    };
 
-    /**
-     * Builds member-related autocomplete links
-     */
-    buildMemberAutocompleteLinks() {
-        if (!this.membersUtils.paidMembersEnabled) {
-            return [];
-        }
-
-        return [
-            {
-                label: 'Paid signup',
-                value: '#/portal/signup'
-            },
-            {
-                label: 'Upgrade or change plan',
-                value: '#/portal/account/plans'
-            }
-        ];
-    }
-
-    /**
-     * Builds donation autocomplete link if enabled
-     */
-    buildDonationAutocompleteLink() {
-        if (!this.settings.donationsEnabled) {
-            return [];
-        }
-
-        return [{
-            label: 'Tips and donations',
-            value: '#/portal/support'
-        }];
-    }
-
-    /**
-     * Builds recommendation autocomplete link if enabled
-     */
-    buildRecommendationAutocompleteLink() {
-        if (!this.settings.recommendationsEnabled) {
-            return [];
-        }
-
-        return [{
-            label: 'Recommendations',
-            value: '#/portal/recommendations'
-        }];
-    }
-
-    /**
-     * Fetches all autocomplete links from various sources
-     */
-    async fetchAutocompleteLinks() {
-        const defaults = this.buildDefaultAutocompleteLinks();
-        const memberLinks = this.buildMemberAutocompleteLinks();
-        const donationLink = this.buildDonationAutocompleteLink();
-        const recommendationLink = this.buildRecommendationAutocompleteLink();
+    // Helper: Fetch autocomplete links
+    fetchAutocompleteLinks = async () => {
+        const defaults = buildDefaultAutocompleteLinks();
+        const memberLinks = buildMemberLinks(this.membersUtils);
+        const donationLink = buildDonationLink(this.settings);
+        const recommendationLink = buildRecommendationLink(this.settings);
         const offersLinks = await offerUrls.call(this);
 
         return [...defaults, ...memberLinks, ...donationLink, ...recommendationLink, ...offersLinks];
-    }
+    };
 
-    /**
-     * Fetches labels from store and returns label names
-     */
-    async fetchLabels() {
+    // Helper: Fetch labels
+    fetchLabels = async () => {
         let labels = [];
         try {
             labels = await this.fetchLabelsTask.perform();
         } catch (e) {
-            // Do not throw cancellation errors
             if (didCancel(e)) {
-                return [];
+                return;
             }
-
             throw e;
         }
 
         return labels.map(label => label.name);
-    }
+    };
 
-    /**
-     * Fetches latest published posts for link search
-     */
-    async fetchLatestPosts() {
+    // Helper: Search links
+    searchLinks = async (term) => {
+        if (!term) {
+            return this.getDefaultLinks();
+        }
+
+        let results = [];
+
+        try {
+            results = await this.search.searchTask.perform(term);
+        } catch (error) {
+            if (!didCancel(error)) {
+                throw error;
+            }
+            return;
+        }
+
+        const filteredResults = [];
+        results.forEach((group) => {
+            const filtered = filterSearchResultsByGroup(group, this.settings);
+            if (filtered) {
+                filteredResults.push(filtered);
+            }
+        });
+
+        return filteredResults;
+    };
+
+    // Helper: Get default links
+    getDefaultLinks = async () => {
+        if (this.defaultLinks) {
+            return this.defaultLinks;
+        }
+
         const posts = await this.store.query('post', {
             filter: 'status:published',
             fields: 'id,url,title,visibility,published_at',
@@ -403,29 +514,211 @@ export default class KoenigLexicalEditor extends Component {
 
         results.forEach(item => decoratePostSearchResult(item, this.settings));
 
-        return [{
+        this.defaultLinks = [{
             label: 'Latest posts',
             items: results
         }];
-    }
+        return this.defaultLinks;
+    };
 
-    /**
-     * Filters search results by group type and status
-     */
-    filterSearchResults(results) {
-        const filteredResults = [];
+    // Helper: Create file upload hook
+    createFileUploadHook = (type = 'image') => {
+        const [progress, setProgress] = React.useState(0);
+        const [isLoading, setLoading] = React.useState(false);
+        const [errors, setErrors] = React.useState([]);
+        const [filesNumber, setFilesNumber] = React.useState(0);
 
-        results.forEach((group) => {
-            let items = group.options;
+        const progressTracker = React.useRef(new Map());
 
-            if (group.groupName === 'Posts' || group.groupName === 'Pages') {
-                items = items.filter(i => i.status === 'published');
-            }
-
-            if (group.groupName === 'Staff') {
-                items = items.filter(i => !/\/404\//.test(i.url));
-            }
-
-            if (items.length === 0) {
+        const updateProgress = () => {
+            if (progressTracker.current.size === 0) {
+                setProgress(0);
                 return;
             }
+
+            let totalProgress = 0;
+            progressTracker.current.forEach(value => totalProgress += value);
+            setProgress(Math.round(totalProgress / progressTracker.current.size));
+        };
+
+        const validate = (files = []) => {
+            const validationResult = [];
+
+            for (let i = 0; i < files.length; i += 1) {
+                const file = files[i];
+                const result = validateFileExtension(file, type);
+                if (result === true) {
+                    continue;
+                }
+
+                validationResult.push({fileName: file.name, message: result});
+            }
+
+            return validationResult;
+        };
+
+        const uploadFile = async (file, {formData = {}} = {}) => {
+            progressTracker.current[file] = 0;
+
+            const fileFormData = new FormData();
+            fileFormData.append('file', file, file.name);
+
+            Object.keys(formData || {}).forEach((key) => {
+                fileFormData.append(key, formData[key]);
+            });
+
+            const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
+
+            try {
+                const requestMethod = fileTypes[type].requestMethod || 'post';
+                const response = await this.ajax[requestMethod](url, {
+                    data: fileFormData,
+                    processData: false,
+                    contentType: false,
+                    dataType: 'text',
+                    xhr: () => {
+                        const xhr = new window.XMLHttpRequest();
+
+                        xhr.upload.addEventListener('progress', (event) => {
+                            if (event.lengthComputable) {
+                                progressTracker.current.set(file, (event.loaded / event.total) * 100);
+                                updateProgress();
+                            }
+                        }, false);
+
+                        return xhr;
+                    }
+                });
+
+                progressTracker.current.set(file, 100);
+                updateProgress();
+
+                const parsed = parseUploadResponse(response, type);
+                return {
+                    url: parsed.url,
+                    fileName: file.name
+                };
+            } catch (error) {
+                console.error(error); // eslint-disable-line
+
+                const {message, context} = extractErrorMessage(error);
+
+                const errorResult = {
+                    message,
+                    context,
+                    fileName: file.name
+                };
+
+                throw errorResult;
+            }
+        };
+
+        const upload = async (files = [], options = {}) => {
+            setFilesNumber(files.length);
+            setLoading(true);
+
+            const validationResult = validate(files);
+
+            if (validationResult.length) {
+                setErrors(validationResult);
+                setLoading(false);
+                setProgress(100);
+
+                return null;
+            }
+
+            const uploadPromises = [];
+
+            for (let i = 0; i < files.length; i += 1) {
+                const file = files[i];
+                uploadPromises.push(uploadFile(file, options));
+            }
+
+            try {
+                const uploadResult = await Promise.all(uploadPromises);
+                setProgress(100);
+                progressTracker.current.clear();
+
+                setLoading(false);
+                setErrors([]);
+
+                return uploadResult;
+            } catch (error) {
+                console.error(error); // eslint-disable-line no-console
+
+                setErrors([...errors, error]);
+                setLoading(false);
+                setProgress(100);
+                progressTracker.current.clear();
+
+                return null;
+            }
+        };
+
+        return {progress, isLoading, upload, errors, filesNumber};
+    };
+
+    // Helper: Create KG Editor component
+    createKGEditorComponent = (isInitInstance) => {
+        return (
+            <div data-secondary-instance={isInitInstance ? true : false} style={isInitInstance ? {display: 'none'} : {}}>
+                <KoenigComposer
+                    editorResource={this.editorResource}
+                    cardConfig={this.buildCardConfig()}
+                    fileUploader={{useFileUpload: this.createFileUploadHook, fileTypes}}
+                    initialEditorState={this.args.lexical}
+                    onError={this.onError}
+                    darkMode={this.feature.nightShift}
+                    isTKEnabled={true}
+                >
+                    <KoenigEditor
+                        editorResource={this.editorResource}
+                        cursorDidExitAtTop={isInitInstance ? null : this.args.cursorDidExitAtTop}
+                        placeholderText={isInitInstance ? null : this.args.placeholderText}
+                        darkMode={isInitInstance ? null : this.feature.nightShift}
+                        onChange={isInitInstance ? this.args.updateSecondaryInstanceModel : this.args.onChange}
+                        registerAPI={isInitInstance ? this.args.registerSecondaryAPI : this.args.registerAPI}
+                    />
+                    <WordCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updateWordCount} />
+                    <TKCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updatePostTkCount} />
+                </KoenigComposer>
+            </div>
+        );
+    };
+
+    // Helper: Build card config
+    buildCardConfig = () => {
+        const unsplashConfig = buildUnsplashConfig();
+        const checkStripeEnabledFn = () => checkStripeEnabled(this.settings, this.config);
+        const defaultCardConfig = buildDefaultCardConfig(
+            this.settings,
+            this.config,
+            this.session,
+            this.feature,
+            unsplashConfig,
+            checkStripeEnabledFn
+        );
+
+        return Object.assign({}, defaultCardConfig, this.args.cardConfig, {
+            fetchAutocompleteLinks: this.fetchAutocompleteLinks,
+            fetchEmbed: this.fetchEmbed,
+            fetchLabels: this.fetchLabels,
+            searchLinks: this.searchLinks,
+            pinturaConfig: this.pinturaConfig
+        });
+    };
+
+    ReactComponent = (props) => {
+        return (
+            <div className={['koenig-react-editor', 'koenig-lexical', this.args.className].filter(Boolean).join(' ')}>
+                <ErrorHandler config={this.config}>
+                    <Suspense fallback={<p className="koenig-react-editor-loading">Loading editor...</p>}>
+                        {this.createKGEditorComponent(false)}
+                        {this.createKGEditorComponent(true)}
+                    </Suspense>
+                </ErrorHandler>
+            </div>
+        );
+    };
+}
+```

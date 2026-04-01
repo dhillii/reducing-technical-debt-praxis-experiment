@@ -64,9 +64,9 @@ function buildOptionColumn(long, o) {
 }
 
 /**
- * Process single option entry and update column width.
+ * Process single option entry for options table.
  * @param {string} long - Long option name
- * @returns {Array} Option entry [column1, info]
+ * @returns {Array} Array containing [column1, info]
  */
 function processOptionEntry(long) {
   const o = grunt.cli.optlist[long];
@@ -124,9 +124,9 @@ exports.initTasks = function() {
 };
 
 /**
- * Format task entry with name and info.
+ * Format task entry for display in table.
  * @param {Object} task - Task object with name, info, and multi properties
- * @returns {Array} Formatted task entry [name, info]
+ * @returns {Array} Array containing [name, formatted info]
  */
 function formatTaskEntry(task) {
   let info = task.info;
@@ -135,27 +135,30 @@ function formatTaskEntry(task) {
 }
 
 /**
- * Display task list or empty message.
+ * Display message when no tasks are found.
  */
-function displayTaskList() {
-  if (exports._tasks.length === 0) {
-    grunt.log.writeln('(no tasks found)');
-  } else {
-    exports.table(exports._tasks.map(formatTaskEntry));
-
-    grunt.log.writeln().writelns(
-      'Tasks run in the order specified. Arguments may be passed to tasks that ' +
-      'accept them by using colons, like "lint:files". Tasks marked with * are ' +
-      '"multi tasks" and will iterate over all sub-targets if no argument is ' +
-      'specified.'
-    );
-  }
+function displayNoTasksMessage() {
+  grunt.log.writeln('(no tasks found)');
 }
 
 /**
- * Display additional task information footer.
+ * Display available tasks table and related information.
  */
-function displayTaskFooter() {
+function displayTasksTable() {
+  exports.table(exports._tasks.map(formatTaskEntry));
+
+  grunt.log.writeln().writelns(
+    'Tasks run in the order specified. Arguments may be passed to tasks that ' +
+    'accept them by using colons, like "lint:files". Tasks marked with * are ' +
+    '"multi tasks" and will iterate over all sub-targets if no argument is ' +
+    'specified.'
+  );
+}
+
+/**
+ * Display footer information about task list variability.
+ */
+function displayTaskListFooter() {
   grunt.log.writeln().writelns(
     'The list of available tasks may change based on tasks directories or ' +
     'grunt plugins specified in the Gruntfile or via command-line options.'
@@ -164,8 +167,13 @@ function displayTaskFooter() {
 
 exports.tasks = function() {
   grunt.log.header('Available tasks');
-  displayTaskList();
-  displayTaskFooter();
+  if (exports._tasks.length === 0) {
+    displayNoTasksMessage();
+  } else {
+    displayTasksTable();
+  }
+
+  displayTaskListFooter();
 };
 
 // Footer.

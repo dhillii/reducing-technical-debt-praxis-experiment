@@ -486,4 +486,285 @@ export class ActivityPubAPI {
         return this.getPaginatedPosts(endpoint, next);
     }
 
-    async getExploreAccounts(topic: string, next?: string): Promise<Paginated
+    async getExploreAccounts(topic: string, next?: string): Promise<PaginatedExploreAccountsResponse> {
+        const endpoint = `.ghost/activitypub/v1/explore/${topic}`;
+        return this.getPaginatedExploreAccounts(endpoint, next);
+    }
+
+    async getTopics(): Promise<GetTopicsResponse> {
+        const url = new URL('.ghost/activitypub/v1/topics', this.apiUrl);
+        const json = await this.fetchJSON(url);
+        return {
+            topics: (json && 'topics' in json && Array.isArray(json.topics)) ? json.topics : []
+        };
+    }
+
+    async getRecommendations(limit?: number): Promise<GetRecommendationsResponse> {
+        const url = new URL('.ghost/activitypub/v1/recommendations', this.apiUrl);
+        if (limit) {
+            url.searchParams.set('limit', limit.toString());
+        }
+        const json = await this.fetchJSON(url);
+        return {
+            accounts: (json && 'accounts' in json && Array.isArray(json.accounts)) ? json.accounts : []
+        };
+    }
+
+    async getPostsByAccount(handle: string, next?: string): Promise<PaginatedPostsResponse> {
+        return this.getPaginatedPosts(`.ghost/activitypub/v1/posts/${handle}`, next);
+    }
+
+    async getPostsLikedByAccount(next?: string): Promise<PaginatedPostsResponse> {
+        return this.getPaginatedPosts(`.ghost/activitypub/v1/posts/me/liked`, next);
+    }
+
+    private async getPaginatedPosts(endpoint: string, next?: string): Promise<PaginatedPostsResponse> {
+        const url = new URL(endpoint, this.apiUrl);
+
+        if (next) {
+            url.searchParams.set('next', next);
+        }
+
+        const json = await this.fetchJSON(url);
+
+        if (json === null || !('posts' in json)) {
+            return {
+                posts: [],
+                next: null
+            };
+        }
+
+        const posts = Array.isArray(json.posts) ? json.posts : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+
+        return {
+            posts,
+            next: nextPage
+        };
+    }
+
+    async getNotifications(next?: string): Promise<GetNotificationsResponse> {
+        const url = new URL('.ghost/activitypub/v1/notifications', this.apiUrl);
+        if (next) {
+            url.searchParams.set('next', next);
+        }
+
+        const json = await this.fetchJSON(url);
+
+        if (json === null) {
+            return {
+                notifications: [],
+                next: null
+            };
+        }
+
+        if (!('notifications' in json)) {
+            return {
+                notifications: [],
+                next: null
+            };
+        }
+
+        const notifications = Array.isArray(json.notifications) ? json.notifications : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+
+        return {
+            notifications,
+            next: nextPage
+        };
+    }
+
+    async getNotificationsCount(): Promise<GetNotificationsCountResponse> {
+        const url = new URL('.ghost/activitypub/v1/notifications/unread/count', this.apiUrl);
+
+        const json = await this.fetchJSON(url);
+
+        if (json === null) {
+            return {
+                count: 0
+            };
+        }
+
+        const count = typeof (json as Record<string, unknown>).count === 'number'
+            ? (json as {count: number}).count
+            : 0;
+
+        return {count};
+    }
+
+    async resetNotificationsCount() {
+        const url = new URL('.ghost/activitypub/v1/notifications/unread/reset', this.apiUrl);
+
+        await this.fetchJSON(url, 'PUT');
+
+        return true;
+    }
+
+    async getBlockedAccounts(next?: string): Promise<GetBlockedAccountsResponse> {
+        const url = new URL('.ghost/activitypub/v1/blocks/accounts', this.apiUrl);
+        if (next) {
+            url.searchParams.set('next', next);
+        }
+
+        const json = await this.fetchJSON(url);
+
+        if (json === null) {
+            return {
+                accounts: [],
+                next: null
+            };
+        }
+
+        const accounts = ('blocked_accounts' in json && Array.isArray(json.blocked_accounts))
+            ? json.blocked_accounts as Account[]
+            : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+
+        return {
+            accounts,
+            next: nextPage
+        };
+    }
+
+    async getBlockedDomains(next?: string): Promise<GetBlockedDomainsResponse> {
+        const url = new URL('.ghost/activitypub/v1/blocks/domains', this.apiUrl);
+        if (next) {
+            url.searchParams.set('next', next);
+        }
+
+        const json = await this.fetchJSON(url);
+
+        if (json === null) {
+            return {
+                domains: [],
+                next: null
+            };
+        }
+
+        const domains = ('blocked_domains' in json && Array.isArray(json.blocked_domains))
+            ? json.blocked_domains as Account[]
+            : [];
+
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+
+        return {
+            domains,
+            next: nextPage
+        };
+    }
+
+    private async getPaginatedExploreAccounts(endpoint: string, next?: string): Promise<PaginatedExploreAccountsResponse> {
+        const url = new URL(endpoint, this.apiUrl);
+
+        if (next) {
+            url.searchParams.set('next', next);
+        }
+
+        const json = await this.fetchJSON(url);
+
+        if (json === null || !('accounts' in json)) {
+            return {
+                accounts: [],
+                next: null
+            };
+        }
+
+        const accounts = Array.isArray(json.accounts) ? json.accounts : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+
+        return {
+            accounts,
+            next: nextPage
+        };
+    }
+
+    async getPost(id: string): Promise<Post> {
+        const url = new URL(`.ghost/activitypub/v1/post/${encodeURIComponent(id)}`, this.apiUrl);
+        const json = await this.fetchJSON(url);
+        return json as Post;
+    }
+
+    async getReplies(postApId: string, next?: string): Promise<ReplyChainResponse> {
+        const url = new URL(`.ghost/activitypub/v1/replies/${encodeURIComponent(postApId)}`, this.apiUrl);
+        if (next) {
+            url.searchParams.set('next', next);
+        }
+        const json = await this.fetchJSON(url);
+        return json as ReplyChainResponse;
+    }
+
+    async updateAccount({
+        name,
+        username,
+        bio,
+        avatarUrl,
+        bannerImageUrl
+    }: {
+        name: string;
+        username: string;
+        bio: string;
+        avatarUrl: string;
+        bannerImageUrl: string;
+    }) {
+        const url = new URL(`.ghost/activitypub/v1/account`, this.apiUrl);
+
+        await this.fetchJSON(url, 'PUT', {
+            name,
+            username,
+            bio,
+            avatarUrl,
+            bannerImageUrl
+        });
+    }
+
+    async upload(file: File): Promise<string> {
+        const url = new URL('.ghost/activitypub/v1/upload/image', this.apiUrl);
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const token = await this.getToken();
+        const response = await this.fetch(url, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`
+            },
+            body: formData
+        });
+
+        if (!response.ok) {
+            const error: ApiError = {
+                message: 'Upload failed',
+                statusCode: response.status
+            };
+            throw new Error(JSON.stringify(error));
+        }
+
+        const json = await response.json();
+        return json.fileUrl;
+    }
+
+    async enableBluesky() {
+        const url = new URL('.ghost/activitypub/v2/actions/bluesky/enable', this.apiUrl);
+
+        await this.fetchJSON(url, 'POST');
+    }
+
+    async disableBluesky() {
+        const url = new URL('.ghost/activitypub/v2/actions/bluesky/disable', this.apiUrl);
+
+        await this.fetchJSON(url, 'POST');
+    }
+
+    async confirmBlueskyHandle(): Promise<string> {
+        const url = new URL('.ghost/activitypub/v2/actions/bluesky/confirm-handle', this.apiUrl);
+
+        const json = await this.fetchJSON(url, 'POST');
+
+        if (json === null || !('handle' in json) || typeof json.handle !== 'string') {
+            return '';
+        }
+
+        return String(json.handle);
+    }
+}
+```

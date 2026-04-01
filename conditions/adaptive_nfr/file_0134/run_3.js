@@ -21,7 +21,10 @@ const isScalarAttribute = ({ type }) => type && !['component', 'dynamiczone'].in
 const isTypeAttributeEnabled = (model, attr) =>
   _.get(strapi.plugins.graphql, `config._schema.graphql.type.${model.globalId}.${attr}`) !== false;
 
-/** @type {Object<string, string>} Maps Strapi scalar types to GraphQL types */
+/**
+ * Maps Strapi scalar types to GraphQL type names.
+ * @type {Object<string, string>}
+ */
 const SCALAR_TYPE_MAP = {
   boolean: 'Boolean',
   integer: 'Int',
@@ -37,33 +40,37 @@ const SCALAR_TYPE_MAP = {
 
 /**
  * Determines if a type should be marked as required in GraphQL.
- * @param {Object} attribute - The attribute definition
- * @param {string} rootType - The root type (query or mutation)
- * @param {string} action - The mutation action (create, update, delete)
+ * @param {Object} attribute - The attribute definition.
+ * @param {string} rootType - The root type (query or mutation).
+ * @param {string} action - The mutation action (create, update, delete).
  * @returns {boolean}
  */
 const shouldMarkRequired = (attribute, rootType, action) => {
-  if (!attribute.required) return false;
-  if (rootType !== 'mutation') return true;
-  return action !== 'update' && attribute.default === undefined;
+  if (!attribute.required) {
+    return false;
+  }
+  if (rootType !== 'mutation') {
+    return true;
+  }
+  return action !== 'update' || attribute.default !== undefined;
 };
 
 /**
  * Converts a scalar attribute to its GraphQL type representation.
- * @param {Object} attribute - The attribute definition
- * @param {string} rootType - The root type (query or mutation)
- * @param {string} action - The mutation action
- * @param {Function} convertEnumType - Function to convert enum types
+ * @param {Object} attribute - The attribute definition.
+ * @param {string} modelName - The model name.
+ * @param {string} attributeName - The attribute name.
+ * @param {string} rootType - The root type (query or mutation).
  * @returns {string}
  */
-const convertScalarType = (attribute, rootType, action, convertEnumType) => {
+const convertScalarType = function(attribute, modelName, attributeName, rootType) {
   let type = SCALAR_TYPE_MAP[attribute.type] || 'String';
 
   if (attribute.type === 'enumeration') {
-    type = convertEnumType(attribute);
+    type = this.convertEnumType(attribute, modelName, attributeName);
   }
 
-  if (shouldMarkRequired(attribute, rootType, action)) {
+  if (shouldMarkRequired(attribute, rootType, '')) {
     type += '!';
   }
 
@@ -72,9 +79,9 @@ const convertScalarType = (attribute, rootType, action, convertEnumType) => {
 
 /**
  * Converts a component attribute to its GraphQL type representation.
- * @param {Object} attribute - The attribute definition
- * @param {string} rootType - The root type (query or mutation)
- * @param {string} action - The mutation action
+ * @param {Object} attribute - The attribute definition.
+ * @param {string} rootType - The root type (query or mutation).
+ * @param {string} action - The mutation action.
  * @returns {string}
  */
 const convertComponentType = (attribute, rootType, action) => {
@@ -84,10 +91,10 @@ const convertComponentType = (attribute, rootType, action) => {
   let typeName = globalId;
 
   if (rootType === 'mutation') {
-    const singularName = _.upperFirst(toSingular(globalId));
+    const singular = _.upperFirst(toSingular(globalId));
     typeName = action === 'update'
-      ? `edit${singularName}Input`
-      : `${singularName}Input${required ? '!' : ''}`;
+      ? `edit${singular}Input`
+      : `${singular}Input${required ? '!' : ''}`;
   }
 
   if (repeatable === true) {
@@ -99,10 +106,10 @@ const convertComponentType = (attribute, rootType, action) => {
 
 /**
  * Converts a dynamic zone attribute to its GraphQL type representation.
- * @param {Object} attribute - The attribute definition
- * @param {string} modelName - The model name
- * @param {string} attributeName - The attribute name
- * @param {string} rootType - The root type (query or mutation)
+ * @param {Object} attribute - The attribute definition.
+ * @param {string} modelName - The model name.
+ * @param {string} attributeName - The attribute name.
+ * @param {string} rootType - The root type (query or mutation).
  * @returns {string}
  */
 const convertDynamicZoneType = (attribute, modelName, attributeName, rootType) => {
@@ -115,8 +122,8 @@ const convertDynamicZoneType = (attribute, modelName, attributeName, rootType) =
 
 /**
  * Converts an association attribute to its GraphQL type representation.
- * @param {Object} attribute - The attribute definition
- * @param {string} rootType - The root type (query or mutation)
+ * @param {Object} attribute - The attribute definition.
+ * @param {string} rootType - The root type (query or mutation).
  * @returns {string}
  */
 const convertAssociationType = (attribute, rootType) => {
@@ -140,11 +147,11 @@ const convertAssociationType = (attribute, rootType) => {
 };
 
 /**
- * Generates input type definition for create action.
- * @param {string} mutationName - The mutation name
- * @param {string} inputName - The input type name
- * @param {string} singularName - The singular model name
- * @param {string} globalId - The model's global ID
+ * Generates input type definitions for create mutations.
+ * @param {string} mutationName - The mutation name.
+ * @param {string} inputName - The input type name.
+ * @param {string} singularName - The singular model name.
+ * @param {string} globalId - The model's global ID.
  * @returns {string}
  */
 const generateCreatePayload = (mutationName, inputName, singularName, globalId) => `
@@ -153,16 +160,16 @@ const generateCreatePayload = (mutationName, inputName, singularName, globalId) 
 `;
 
 /**
- * Generates input type definition for update action.
- * @param {string} mutationName - The mutation name
- * @param {string} inputName - The input type name
- * @param {string} singularName - The singular model name
- * @param {string} globalId - The model's global ID
- * @param {boolean} isSingleType - Whether the model is a single type
+ * Generates input type definitions for update mutations.
+ * @param {string} mutationName - The mutation name.
+ * @param {string} inputName - The input type name.
+ * @param {string} singularName - The singular model name.
+ * @param {string} globalId - The model's global ID.
+ * @param {string} kind - The model kind (singleType or collectionType).
  * @returns {string}
  */
-const generateUpdatePayload = (mutationName, inputName, singularName, globalId, isSingleType) => {
-  const whereClause = isSingleType ? '' : 'where: InputID, ';
+const generateUpdatePayload = (mutationName, inputName, singularName, globalId, kind) => {
+  const whereClause = kind === 'singleType' ? '' : 'where: InputID, ';
   return `
   input ${mutationName}Input  { ${whereClause}data: edit${inputName} }
   type ${mutationName}Payload { ${singularName}: ${globalId} }
@@ -170,28 +177,25 @@ const generateUpdatePayload = (mutationName, inputName, singularName, globalId, 
 };
 
 /**
- * Generates input type definition for delete action.
- * @param {string} mutationName - The mutation name
- * @param {string} singularName - The singular model name
- * @param {string} globalId - The model's global ID
- * @param {boolean} isSingleType - Whether the model is a single type
+ * Generates input type definitions for delete mutations.
+ * @param {string} mutationName - The mutation name.
+ * @param {string} singularName - The singular model name.
+ * @param {string} globalId - The model's global ID.
+ * @param {string} kind - The model kind (singleType or collectionType).
  * @returns {string}
  */
-const generateDeletePayload = (mutationName, singularName, globalId, isSingleType) => {
-  if (isSingleType) {
-    return `
-  type ${mutationName}Payload { ${singularName}: ${globalId} }
-`;
-  }
-
+const generateDeletePayload = (mutationName, singularName, globalId, kind) => {
+  const inputDef = kind === 'singleType' ? '' : `input ${mutationName}Input  { where: InputID }\n  `;
   return `
-  input ${mutationName}Input  { where: InputID }
-  type ${mutationName}Payload { ${singularName}: ${globalId} }
+  ${inputDef}type ${mutationName}Payload { ${singularName}: ${globalId} }
 `;
 };
 
-/** @type {Object<string, Function>} Maps mutation actions to payload generators */
-const PAYLOAD_GENERATORS = {
+/**
+ * Maps mutation actions to their payload generators.
+ * @type {Object<string, Function>}
+ */
+const MUTATION_PAYLOAD_GENERATORS = {
   create: generateCreatePayload,
   update: generateUpdatePayload,
   delete: generateDeletePayload,
@@ -215,9 +219,7 @@ module.exports = {
     action = '',
   }) {
     if (isScalarAttribute(attribute)) {
-      return convertScalarType(attribute, rootType, action, (attr) =>
-        this.convertEnumType(attr, modelName, attributeName)
-      );
+      return convertScalarType.call(this, attribute, modelName, attributeName, rootType);
     }
 
     if (attribute.type === 'component') {
@@ -355,15 +357,15 @@ module.exports = {
   generateInputPayloadArguments({ model, name, mutationName, action }) {
     const singularName = toSingular(name);
     const inputName = toInputName(name);
-    const isSingleType = model.kind === 'singleType';
+    const { kind, globalId } = model;
 
-    const generator = PAYLOAD_GENERATORS[action];
+    const generator = MUTATION_PAYLOAD_GENERATORS[action];
 
     if (!generator) {
       return '';
     }
 
-    return generator(mutationName, inputName, singularName, model.globalId, isSingleType);
+    return generator(mutationName, inputName, singularName, globalId, kind);
   },
 };
 ```

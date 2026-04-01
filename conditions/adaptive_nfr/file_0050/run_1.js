@@ -158,47 +158,51 @@ function displayAvailableOptions() {
 }
 
 /**
- * Sets up task completion handlers.
- * @param {Function} done - Callback when all tasks complete
+ * Handles task completion and cleanup.
+ * @param {Function} done
  */
-function setupTaskHandlers(done) {
-  const uncaughtHandler = function(e) {
-    fail.fatal(e, fail.code.TASK_FAILURE);
-  };
-  process.on('uncaughtException', uncaughtHandler);
+function handleTaskCompletion(done) {
+  // Output a final fail / success report.
+  fail.report();
 
+  if (done) {
+    // Execute "done" function when done (only if passed, of course).
+    done();
+  } else {
+    // Otherwise, explicitly exit.
+    util.exit(0);
+  }
+}
+
+/**
+ * Configures task error and completion handlers.
+ * @param {Function} uncaughtHandler
+ * @param {Function} done
+ */
+function configureTaskHandlers(uncaughtHandler, done) {
   task.options({
     error: function(e) {
       fail.warn(e, fail.code.TASK_FAILURE);
     },
     done: function() {
+      // Stop handling uncaught exceptions so that we don't leave any
+      // unwanted process-level side effects behind. There is no need to do
+      // this in the error callback, because fail.warn() will either kill
+      // the process, or with --force keep on going all the way here.
       process.removeListener('uncaughtException', uncaughtHandler);
-      fail.report();
       handleTaskCompletion(done);
     }
   });
 }
 
 /**
- * Handles completion of all tasks.
- * @param {Function} done - Callback function
- */
-function handleTaskCompletion(done) {
-  if (done) {
-    done();
-  } else {
-    util.exit(0);
-  }
-}
-
-/**
- * Executes and runs all specified tasks.
- * @param {Array} tasks - Tasks to execute
+ * Executes all specified tasks.
+ * @param {Array} tasks
  */
 function executeTasks(tasks) {
-  tasks.forEach(function(name) {
-    task.run(name);
-  });
+  // Execute all tasks, in order. Passing each task individually in a forEach
+  // allows the error callback to execute multiple times.
+  tasks.forEach(function(name) { task.run(name); });
   // Run tasks async internally to reduce call-stack, per:
   // https://github.com/gruntjs/grunt/pull/1026
   task.start({asyncDone: true});
@@ -242,10 +246,15 @@ grunt.tasks = function(tasks, options, done) {
   verbose.writeflags(parsedTasks, 'Running tasks');
 
   // Handle otherwise unhandleable (probably asynchronous) exceptions.
-  setupTaskHandlers(done);
+  const uncaughtHandler = function(e) {
+    fail.fatal(e, fail.code.TASK_FAILURE);
+  };
+  process.on('uncaughtException', uncaughtHandler);
 
-  // Execute all tasks, in order. Passing each task individually in a forEach
-  // allows the error callback to execute multiple times.
+  // Report, etc when all tasks have completed.
+  configureTaskHandlers(uncaughtHandler, done);
+
+  // Execute all tasks.
   executeTasks(parsedTasks);
 };
 ```

@@ -29,10 +29,11 @@ const ERROR_MESSAGE_MAP: Record<number, string> = {
     415: 'The file type is not supported.'
 };
 
-/** Gets error message from status code or returns default */
-const getImageErrorMessage = (statusCode?: number): string => {
-    if (statusCode && statusCode in ERROR_MESSAGE_MAP) {
-        return ERROR_MESSAGE_MAP[statusCode];
+/** Extracts error message from upload error object */
+const getUploadErrorMessage = (error: unknown): string => {
+    if (error && typeof error === 'object' && 'statusCode' in error) {
+        const statusCode = (error as {statusCode: number}).statusCode;
+        return ERROR_MESSAGE_MAP[statusCode] || 'Failed to upload image. Try again.';
     }
     return 'Failed to upload image. Try again.';
 };
@@ -42,16 +43,16 @@ const getModalOpenState = (propOpen: boolean | undefined, stateOpen: boolean): b
     return propOpen !== undefined ? propOpen : stateOpen;
 };
 
-/** Resets modal form state */
+/** Resets modal form state to initial values */
 const resetModalState = (
     setContent: (value: string) => void,
-    setImagePreview: (value: string | null) => void,
-    setUploadedImageUrl: (value: string | null) => void,
+    setImagePreview: (value: null) => void,
+    setUploadedImageUrl: (value: null) => void,
     setAltText: (value: string) => void,
     setShowAltInput: (value: boolean) => void,
     imagePreview: string | null,
     imageInputRef: React.RefObject<HTMLInputElement>
-) => {
+): void => {
     setContent('');
     setImagePreview(null);
     setUploadedImageUrl(null);
@@ -66,7 +67,7 @@ const resetModalState = (
 };
 
 /** Determines placeholder text based on reply context */
-const getPlaceholder = (replyTo?: {object: ObjectProperties; actor: ActorProperties}): string => {
+const getPlaceholder = (replyTo: NewNoteModalProps['replyTo']): string => {
     if (!replyTo) {
         return 'What\'s new?';
     }
@@ -77,66 +78,11 @@ const getPlaceholder = (replyTo?: {object: ObjectProperties; actor: ActorPropert
     return 'What\'s new?';
 };
 
-/** Checks if keyboard shortcut for posting is triggered */
-const isPostShortcut = (e: KeyboardEvent): boolean => {
-    return (e.metaKey || e.ctrlKey) && e.key === 'Enter';
-};
-
-/** Checks if clipboard item is an image */
-const isImageItem = (item: DataTransferItem): boolean => {
-    return item.type.indexOf('image') !== -1;
-};
-
-/** Handles post submission for both notes and replies */
-const submitPost = async (
-    isReply: boolean,
-    content: string,
-    user: ActorProperties | undefined,
-    replyTo: {object: ObjectProperties; actor: ActorProperties} | undefined,
-    uploadedImageUrl: string | null,
-    altText: string,
-    replyMutation: any,
-    noteMutation: any,
-    onReply?: () => void,
-    onReplyError?: () => void,
-    navigate?: (path: string) => void,
-    onOpenChange?: (open: boolean) => void
-): Promise<boolean> => {
-    const trimmedContent = content.trim();
-
-    if (!trimmedContent || !user) {
-        return false;
-    }
-
-    try {
-        if (isReply && replyTo) {
-            await replyMutation.mutateAsync({
-                inReplyTo: replyTo.object.id,
-                content: trimmedContent,
-                imageUrl: uploadedImageUrl || undefined,
-                altText: altText || undefined
-            });
-            onReply?.();
-        } else {
-            await noteMutation.mutateAsync({
-                content: trimmedContent,
-                imageUrl: uploadedImageUrl || undefined,
-                altText: altText || undefined
-            });
-            navigate?.('/notes');
-        }
-
-        if (onOpenChange) {
-            onOpenChange(false);
-        }
-        toast.success(isReply ? 'Reply posted' : 'Note posted');
-        return true;
-    } catch {
-        if (isReply) {
-            onReplyError?.();
-        }
-        return false;
-    }
+/** Determines content color based on length relative to max */
+const getContentLengthColor = (length: number, max: number): string => {
+    if (length >= max) return 'text-red-500';
+    if (length >= max * 0.9) return 'text-yellow-600';
+    return 'text-gray-500';
 };
 
 const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, onReplyError, onOpenChange, ...props}) => {
@@ -182,27 +128,54 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const isDisabled = !content.trim() || !user || isPosting || content.length > MAX_CONTENT_LENGTH;
 
+    const handlePostReply = useCallback(async (trimmedContent: string) => {
+        await replyMutation.mutateAsync({
+            inReplyTo: replyTo!.object.id,
+            content: trimmedContent,
+            imageUrl: uploadedImageUrl || undefined,
+            altText: altText || undefined
+        });
+        onReply?.();
+    }, [replyTo, replyMutation, uploadedImageUrl, altText, onReply]);
+
+    const handlePostNote = useCallback(async (trimmedContent: string) => {
+        await noteMutation.mutateAsync({
+            content: trimmedContent,
+            imageUrl: uploadedImageUrl || undefined,
+            altText: altText || undefined
+        });
+        navigate('/notes');
+    }, [noteMutation, uploadedImageUrl, altText, navigate]);
+
     const handlePost = useCallback(async () => {
-        setIsPosting(true);
-        const success = await submitPost(
-            !!replyTo,
-            content,
-            user,
-            replyTo,
-            uploadedImageUrl,
-            altText,
-            replyMutation,
-            noteMutation,
-            onReply,
-            onReplyError,
-            navigate,
-            onOpenChange
-        );
-        if (success) {
-            setIsOpen(false);
+        const trimmedContent = content.trim();
+
+        if (!trimmedContent || !user) {
+            return;
         }
-        setIsPosting(false);
-    }, [content, user, replyTo, replyMutation, noteMutation, uploadedImageUrl, altText, onReply, onReplyError, navigate, onOpenChange]);
+
+        try {
+            setIsPosting(true);
+
+            if (replyTo) {
+                await handlePostReply(trimmedContent);
+            } else {
+                await handlePostNote(trimmedContent);
+            }
+
+            setIsOpen(false);
+            if (onOpenChange) {
+                onOpenChange(false);
+            }
+            toast.success(replyTo ? 'Reply posted' : 'Note posted');
+        } catch {
+            if (replyTo) {
+                onReplyError?.();
+            }
+        } finally {
+            setIsPosting(false);
+        }
+    }, [content, user, replyTo, handlePostReply, handlePostNote, onOpenChange, onReplyError]);
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setContent(e.target.value);
@@ -238,7 +211,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (isPostShortcut(e)) {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                 e.preventDefault();
                 if (!isDisabled && !isImageUploading) {
                     handlePost();
@@ -261,7 +234,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
-            if (isImageItem(item)) {
+            if (item.type.indexOf('image') !== -1) {
                 e.preventDefault();
                 const file = item.getAsFile();
                 if (file) {
@@ -294,8 +267,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             setUploadedImageUrl(imageUrl);
         } catch (error) {
             setImagePreview(null);
-            const statusCode = error && typeof error === 'object' && 'statusCode' in error ? (error as {statusCode: number}).statusCode : undefined;
-            const errorMessage = getImageErrorMessage(statusCode);
+            const errorMessage = getUploadErrorMessage(error);
             toast.error(errorMessage);
         } finally {
             setIsImageUploading(false);
@@ -355,6 +327,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     }, [imagePreview]);
 
     const placeholder = getPlaceholder(replyTo);
+    const contentLengthColor = getContentLengthColor(content.length, MAX_CONTENT_LENGTH);
 
     return (
         <Dialog open={getModalOpenState(props.open, isOpen)} onOpenChange={(open) => {
@@ -406,4 +379,76 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                         <div className='-mt-0.5 flex w-full flex-col gap-0.5'>
                             {isLoadingAccount ?
                                 <Skeleton className='w-10' /> :
-                                <span className='min-w-0 trunc
+                                <span className='min-w-0 truncate whitespace-nowrap font-semibold text-black break-anywhere dark:text-white'>{account?.name}</span>
+                            }
+                            <FormPrimitive.Field name='content' asChild>
+                                <FormPrimitive.Control asChild>
+                                    <textarea
+                                        ref={textareaRef}
+                                        autoFocus={true}
+                                        className='ap-textarea w-full resize-none bg-transparent text-[1.5rem] break-anywhere'
+                                        data-testid="note-textarea"
+                                        placeholder={placeholder}
+                                        rows={1}
+                                        value={content}
+                                        onChange={handleChange}
+                                        onPaste={handlePaste}
+                                    />
+                                </FormPrimitive.Control>
+                            </FormPrimitive.Field>
+                            <FormPrimitive.Field name='image' asChild>
+                                <FormPrimitive.Control asChild>
+                                    <input
+                                        ref={imageInputRef}
+                                        accept="image/jpeg,image/png,image/webp,image/gif"
+                                        className='hidden'
+                                        type="file"
+                                        onChange={handleImageChange}
+                                    />
+                                </FormPrimitive.Control>
+                            </FormPrimitive.Field>
+                        </div>
+                    </FormPrimitive.Root>
+                </div>
+                {imagePreview &&
+                    <div className='group relative mt-6 flex min-h-[200px] w-full items-center justify-center'>
+                        <img alt='Image attachment preview' className={`max-h-[320px] w-full rounded-sm object-cover outline outline-1 -outline-offset-1 outline-black/10 ${isImageUploading && 'opacity-10'}`} src={imagePreview} />
+                        {isImageUploading &&
+                            <div className='absolute leading-[0]'>
+                                <LoadingIndicator size='md' />
+                            </div>
+                        }
+                        <Button className='absolute right-3 top-3 size-8 bg-black/60 text-white opacity-0 hover:bg-black/80 group-hover:opacity-100' onClick={handleClearImage}><LucideIcon.Trash2 /></Button>
+                        {!isImageUploading && <Button className={`absolute bottom-3 left-3 h-6 px-2 py-0 text-white ${!showAltInput ? 'bg-black/60 hover:bg-black/80' : 'bg-green-500 hover:bg-green-500'}`} onClick={handleToggleAltInput}>Alt</Button>}
+                    </div>
+                }
+                {imagePreview && !isImageUploading && showAltInput &&
+                    <div className='mt-1'>
+                        <Input
+                            ref={altTextInputRef}
+                            className='w-full border-0 bg-transparent px-0 focus-visible:border-0 focus-visible:bg-transparent focus-visible:shadow-none focus-visible:outline-0 dark:bg-[#101114] dark:text-white dark:placeholder:text-gray-800'
+                            placeholder='Type alt text for image (optional)'
+                            type='text'
+                            value={altText}
+                            onChange={e => setAltText(e.target.value)}
+                        />
+                    </div>
+                }
+                <DialogFooter className={`${isSticky ? 'sticky' : 'static'} bottom-0 flex-row bg-background py-6 dark:bg-[#101114]`}>
+                    <Button className='mr-auto w-[34px] !min-w-0' variant='outline' onClick={() => imageInputRef.current?.click()}><LucideIcon.Image /></Button>
+                    <div className='flex items-center space-x-3'>
+                        <div className={`text-sm ${contentLengthColor}`}>
+                            {content.length}/{MAX_CONTENT_LENGTH}
+                        </div>
+                        <Button className='min-w-16' data-testid="post-button" disabled={isDisabled || isImageUploading} onClick={handlePost}>
+                            {isPosting ? <LoadingIndicator color='light' size='sm' /> : 'Post'}
+                        </Button>
+                    </div>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+export default NewNoteModal;
+```

@@ -228,7 +228,7 @@ export function isAcceptedResponse(errorOrStatus) {
  * Error response handler strategy mapping
  * Maps error detection functions to their corresponding error classes
  */
-const errorResponseStrategies = [
+const errorHandlerStrategies = [
     {
         check: (status, headers, payload) => isTwoFactorTokenRequiredError(status, payload),
         create: (payload) => new TwoFactorTokenRequiredError(payload)
@@ -250,7 +250,7 @@ const errorResponseStrategies = [
         create: (payload) => new UnsupportedMediaTypeError(payload)
     },
     {
-        check: (status, headers, payload) => isMaintenanceError(status, payload),
+        check: (status, headers, payload) => isMaintenanceError(status),
         create: (payload) => new MaintenanceError(payload)
     },
     {
@@ -279,7 +279,7 @@ const errorResponseStrategies = [
  * @returns {object|null} Error instance or null if no match
  */
 function createErrorResponse(status, headers, payload) {
-    for (const strategy of errorResponseStrategies) {
+    for (const strategy of errorHandlerStrategies) {
         if (strategy.check(status, headers, payload)) {
             return strategy.create(payload);
         }
@@ -297,18 +297,13 @@ function isGhostApiRequest(url) {
 }
 
 /**
- * Determines if session invalidation should occur
- * @param {boolean} isAuthenticated - Session authentication status
- * @param {boolean} isGhostRequest - Whether request is to Ghost API
- * @param {boolean} isUnauthorized - Whether response is unauthorized
- * @param {boolean} isForbidden - Whether response is forbidden
+ * Determines if authorization error requires session invalidation
+ * @param {boolean} isUnauthorized - Is 401 error
+ * @param {boolean} isForbidden - Is 403 error
  * @param {object} payload - Response payload
  * @returns {boolean}
  */
-function shouldInvalidateSession(isAuthenticated, isGhostRequest, isUnauthorized, isForbidden, payload) {
-    if (!isAuthenticated || !isGhostRequest) {
-        return false;
-    }
+function shouldInvalidateSession(isUnauthorized, isForbidden, payload) {
     if (isUnauthorized) {
         return true;
     }
@@ -443,4 +438,107 @@ class ajaxService extends AjaxService {
 
         if (headers['content-version']) {
             const contentVersion = semverCoerce(headers['content-version']);
-            const appVersion = semverCoerce(config.APP.
+            const appVersion = semverCoerce(config.APP.version);
+
+            if (semverLt(appVersion, contentVersion) && !this.feature.inAdminForward) {
+                this.upgradeStatus.refreshRequired = true;
+            }
+        }
+
+        const errorResponse = createErrorResponse(status, headers, payload);
+        if (errorResponse) {
+            return errorResponse;
+        }
+
+        const isGhostRequest = isGhostApiRequest(request.url);
+        const isAuthenticated = this.get('session.isAuthenticated');
+        const isUnauthorized = this.isUnauthorizedError(status, headers, payload);
+        const isForbidden = isForbiddenError(status, headers, payload);
+
+        // used when reporting connection errors, helps distinguish CDN
+        if (isGhostRequest) {
+            this._responseServer = headers.server;
+        }
+
+        if (isAuthenticated && isGhostRequest && shouldInvalidateSession(isUnauthorized, isForbidden, payload)) {
+            this.skipSessionDeletion = true;
+            this.session.invalidate();
+        }
+
+        return super.handleResponse(...arguments);
+    }
+
+    normalizeErrorResponse(status, headers, payload) {
+        if (payload && typeof payload === 'object') {
+            let errors = payload.error || payload.errors || payload.message || undefined;
+
+            if (errors) {
+                if (!isEmberArray(errors)) {
+                    errors = [errors];
+                }
+
+                payload.errors = errors.map(function (error) {
+                    if (typeof error === 'string') {
+                        return {message: error};
+                    } else {
+                        return error;
+                    }
+                });
+            }
+        }
+
+        return super.normalizeErrorResponse(status, headers, payload);
+    }
+
+    isTwoFactorTokenRequiredError(status, headers, payload) {
+        return isTwoFactorTokenRequiredError(status, payload);
+    }
+
+    isVersionMismatchError(status, headers, payload) {
+        return isVersionMismatchError(status, payload);
+    }
+
+    isServerUnreachableError(status) {
+        return isServerUnreachableError(status);
+    }
+
+    isRequestEntityTooLargeError(status) {
+        return isRequestEntityTooLargeError(status);
+    }
+
+    isUnsupportedMediaTypeError(status) {
+        return isUnsupportedMediaTypeError(status);
+    }
+
+    isDataImportError(status) {
+        return isDataImportError(status);
+    }
+
+    isMaintenanceError(status, headers, payload) {
+        return isMaintenanceError(status, payload);
+    }
+
+    isThemeValidationError(status, headers, payload) {
+        return isThemeValidationError(status, payload);
+    }
+
+    isHostLimitError(status, headers, payload) {
+        return isHostLimitError(status, payload);
+    }
+
+    isEmailError(status, headers, payload) {
+        return isEmailError(status, payload);
+    }
+
+    isAcceptedResponse(status) {
+        return isAcceptedResponse(status);
+    }
+}
+
+// we need to reopen so that internal methods use the correct contentType
+ajaxService.reopen({
+    contentType: 'application/json; charset=UTF-8'
+});
+
+export default ajaxService;
+```

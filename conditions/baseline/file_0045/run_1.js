@@ -55,42 +55,41 @@ class PostsExporter {
         const labels = (await this.#models.Label.findAll()).models;
         const tiers = (await this.#models.Product.findAll()).models;
 
-        const settings = this.#buildSettings(newsletters);
-        const mapped = posts.data.map((post) => this.#mapPost(post, newsletters, labels, tiers, settings));
+        const membersEnabled = this.#settingsHelpers.isMembersEnabled();
+        const membersTrackSources = membersEnabled && this.#settingsCache.get('members_track_sources');
+        const paidMembersEnabled = membersEnabled && this.#settingsHelpers.arePaidMembersEnabled();
+        const trackOpens = this.#settingsCache.get('email_track_opens');
+        const trackClicks = this.#settingsCache.get('email_track_clicks');
+        const hasNewslettersWithFeedback = !!newsletters.find(newsletter => newsletter.get('feedback_enabled'));
+
+        const mapped = posts.data.map((post) => {
+            return this.#mapPost(post, newsletters, labels, tiers, membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback);
+        });
 
         if (mapped.length) {
-            this.#removeUnusedColumns(mapped, newsletters, settings);
+            this.#removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
         }
 
         return mapped;
     }
 
-    #buildSettings(newsletters) {
-        const membersEnabled = this.#settingsHelpers.isMembersEnabled();
-        return {
-            membersEnabled,
-            membersTrackSources: membersEnabled && this.#settingsCache.get('members_track_sources'),
-            paidMembersEnabled: membersEnabled && this.#settingsHelpers.arePaidMembersEnabled(),
-            trackOpens: this.#settingsCache.get('email_track_opens'),
-            trackClicks: this.#settingsCache.get('email_track_clicks'),
-            hasNewslettersWithFeedback: !!newsletters.find(newsletter => newsletter.get('feedback_enabled'))
-        };
-    }
-
-    #mapPost(post, newsletters, labels, tiers, settings) {
+    #mapPost(post, newsletters, labels, tiers, membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback) {
         let email = post.related('email');
 
+        // Weird bookshelf thing fix
         if (!email.id) {
             email = null;
         }
 
-        const published = !['draft', 'scheduled'].includes(post.get('status'));
-        if (!published) {
+        let published = true;
+        if (post.get('status') === 'draft' || post.get('status') === 'scheduled') {
+            // Manually clear it to avoid including information for a post that was reverted to draft
             email = null;
+            published = false;
         }
 
-        const feedbackEnabled = email && email.get('feedback_enabled') && settings.hasNewslettersWithFeedback;
-        const showEmailClickAnalytics = settings.trackClicks && email && email.get('track_clicks');
+        const feedbackEnabled = email && email.get('feedback_enabled') && hasNewslettersWithFeedback;
+        const showEmailClickAnalytics = trackClicks && email && email.get('track_clicks');
 
         return {
             id: post.get('id'),
@@ -107,39 +106,39 @@ class PostsExporter {
             email_recipients: email ? this.humanReadableEmailRecipientFilter(email?.get('recipient_filter'), labels, tiers) : null,
             newsletter_name: newsletters.length > 1 && post.get('newsletter_id') && email ? newsletters.find(newsletter => newsletter.get('id') === post.get('newsletter_id'))?.get('name') : null,
             sends: email?.get('email_count') ?? null,
-            opens: settings.trackOpens ? (email?.get('opened_count') ?? null) : null,
+            opens: trackOpens ? (email?.get('opened_count') ?? null) : null,
             clicks: showEmailClickAnalytics ? (post.get('count__clicks') ?? 0) : null,
-            signups: settings.membersTrackSources && published ? (post.get('count__signups') ?? 0) : null,
-            paid_conversions: settings.membersTrackSources && settings.paidMembersEnabled && published ? (post.get('count__paid_conversions') ?? 0) : null,
+            signups: membersTrackSources && published ? (post.get('count__signups') ?? 0) : null,
+            paid_conversions: membersTrackSources && paidMembersEnabled && published ? (post.get('count__paid_conversions') ?? 0) : null,
             feedback_more_like_this: feedbackEnabled ? (post.get('count__positive_feedback') ?? 0) : null,
             feedback_less_like_this: feedbackEnabled ? (post.get('count__negative_feedback') ?? 0) : null
         };
     }
 
-    #removeUnusedColumns(mapped, newsletters, settings) {
+    #removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled) {
         const removeableColumns = [];
 
         if (newsletters.length <= 1) {
             removeableColumns.push('newsletter_name');
         }
 
-        if (!settings.membersEnabled) {
+        if (!membersEnabled) {
             removeableColumns.push('email_recipients', 'sends', 'opens', 'clicks', 'feedback_more_like_this', 'feedback_less_like_this');
-        } else if (!settings.hasNewslettersWithFeedback) {
+        } else if (!hasNewslettersWithFeedback) {
             removeableColumns.push('feedback_more_like_this', 'feedback_less_like_this');
         }
 
-        if (settings.membersEnabled && !settings.trackClicks) {
+        if (membersEnabled && !trackClicks) {
             removeableColumns.push('clicks');
         }
 
-        if (settings.membersEnabled && !settings.trackOpens) {
+        if (membersEnabled && !trackOpens) {
             removeableColumns.push('opens');
         }
 
-        if (!settings.membersTrackSources || !settings.membersEnabled) {
+        if (!membersTrackSources || !membersEnabled) {
             removeableColumns.push('signups', 'paid_conversions');
-        } else if (!settings.paidMembersEnabled) {
+        } else if (!paidMembersEnabled) {
             removeableColumns.push('paid_conversions');
         }
 
@@ -151,26 +150,36 @@ class PostsExporter {
     }
 
     mapPostStatus(status, hasEmail) {
-        const statusMap = {
-            'draft': 'draft',
-            'scheduled': 'scheduled',
-            'sent': 'emailed only',
-            'published': hasEmail ? 'published and emailed' : 'published only'
-        };
+        if (status === 'draft') {
+            return 'draft';
+        }
 
-        return statusMap[status] ?? status;
+        if (status === 'scheduled') {
+            return 'scheduled';
+        }
+
+        if (status === 'sent') {
+            return 'emailed only';
+        }
+
+        if (status === 'published') {
+            return hasEmail ? 'published and emailed' : 'published only';
+        }
+        return status;
     }
 
     postAccessToString(post) {
         const visibility = post.get('visibility');
-        const visibilityMap = {
-            'public': 'Public',
-            'members': 'Members-only',
-            'paid': 'Paid members-only'
-        };
+        if (visibility === 'public') {
+            return 'Public';
+        }
 
-        if (visibilityMap[visibility]) {
-            return visibilityMap[visibility];
+        if (visibility === 'members') {
+            return 'Members-only';
+        }
+
+        if (visibility === 'paid') {
+            return 'Paid members-only';
         }
 
         if (visibility === 'tiers') {
@@ -178,6 +187,7 @@ class PostsExporter {
             if (tiers.length === 0) {
                 return 'Specific tiers: none';
             }
+
             return 'Specific tiers: ' + tiers.map(tier => tier.get('name')).join(', ');
         }
 
@@ -192,6 +202,7 @@ class PostsExporter {
      * @returns
      */
     humanReadableEmailRecipientFilter(recipientFilter, allLabels, allTiers) {
+        // Examples: "label:test"; "label:test,label:batch1"; "status:-free,label:test", "all"
         if (recipientFilter === 'all') {
             return 'All subscribers';
         }
@@ -223,9 +234,9 @@ class PostsExporter {
         } else {
             for (const key of Object.keys(filter)) {
                 if (key === 'label' && typeof filter.label === 'string') {
-                    strings.push(this.#getLabelName(filter.label, allLabels));
+                    strings.push(this.#getLabelString(filter.label, allLabels));
                 } else if (key === 'tier' && typeof filter.tier === 'string') {
-                    strings.push(this.#getTierName(filter.tier, allTiers));
+                    strings.push(this.#getTierString(filter.tier, allTiers));
                 } else if (key === 'status') {
                     strings.push(...this.#getStatusStrings(filter.status));
                 }
@@ -235,12 +246,12 @@ class PostsExporter {
         return strings;
     }
 
-    #getLabelName(labelSlug, allLabels) {
+    #getLabelString(labelSlug, allLabels) {
         const label = allLabels.find(l => l.get('slug') === labelSlug);
         return label ? label.get('name') : labelSlug;
     }
 
-    #getTierName(tierSlug, allTiers) {
+    #getTierString(tierSlug, allTiers) {
         const tier = allTiers.find(l => l.get('slug') === tierSlug);
         return tier ? tier.get('name') : tierSlug;
     }
@@ -248,13 +259,12 @@ class PostsExporter {
     #getStatusStrings(status) {
         const strings = [];
         if (typeof status === 'string') {
-            const statusMap = {
-                'free': 'Free subscribers',
-                'paid': 'Paid subscribers',
-                'comped': 'Complimentary subscribers'
-            };
-            if (statusMap[status]) {
-                strings.push(statusMap[status]);
+            if (status === 'free') {
+                strings.push('Free subscribers');
+            } else if (status === 'paid') {
+                strings.push('Paid subscribers');
+            } else if (status === 'comped') {
+                strings.push('Complimentary subscribers');
             }
         } else {
             if (status.$ne === 'free') {

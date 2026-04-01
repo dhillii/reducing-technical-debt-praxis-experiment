@@ -55,41 +55,42 @@ class PostsExporter {
         const labels = (await this.#models.Label.findAll()).models;
         const tiers = (await this.#models.Product.findAll()).models;
 
-        const membersEnabled = this.#settingsHelpers.isMembersEnabled();
-        const membersTrackSources = membersEnabled && this.#settingsCache.get('members_track_sources');
-        const paidMembersEnabled = membersEnabled && this.#settingsHelpers.arePaidMembersEnabled();
-        const trackOpens = this.#settingsCache.get('email_track_opens');
-        const trackClicks = this.#settingsCache.get('email_track_clicks');
-        const hasNewslettersWithFeedback = !!newsletters.find(newsletter => newsletter.get('feedback_enabled'));
-
-        const mapped = posts.data.map((post) => {
-            return this.#mapPostToExportRow(post, newsletters, labels, tiers, membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback);
-        });
+        const settings = this.#getExportSettings(newsletters);
+        const mapped = posts.data.map((post) => this.#mapPost(post, newsletters, labels, tiers, settings));
 
         if (mapped.length) {
-            this.#removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
+            this.#removeUnusedColumns(mapped, newsletters, settings);
         }
 
         return mapped;
     }
 
-    #mapPostToExportRow(post, newsletters, labels, tiers, membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback) {
+    #getExportSettings(newsletters) {
+        const membersEnabled = this.#settingsHelpers.isMembersEnabled();
+        return {
+            membersEnabled,
+            membersTrackSources: membersEnabled && this.#settingsCache.get('members_track_sources'),
+            paidMembersEnabled: membersEnabled && this.#settingsHelpers.arePaidMembersEnabled(),
+            trackOpens: this.#settingsCache.get('email_track_opens'),
+            trackClicks: this.#settingsCache.get('email_track_clicks'),
+            hasNewslettersWithFeedback: !!newsletters.find(newsletter => newsletter.get('feedback_enabled'))
+        };
+    }
+
+    #mapPost(post, newsletters, labels, tiers, settings) {
         let email = post.related('email');
 
-        // Weird bookshelf thing fix
         if (!email.id) {
             email = null;
         }
 
-        let published = true;
-        if (post.get('status') === 'draft' || post.get('status') === 'scheduled') {
-            // Manually clear it to avoid including information for a post that was reverted to draft
+        const published = !['draft', 'scheduled'].includes(post.get('status'));
+        if (!published) {
             email = null;
-            published = false;
         }
 
-        const feedbackEnabled = email && email.get('feedback_enabled') && hasNewslettersWithFeedback;
-        const showEmailClickAnalytics = trackClicks && email && email.get('track_clicks');
+        const feedbackEnabled = email && email.get('feedback_enabled') && settings.hasNewslettersWithFeedback;
+        const showEmailClickAnalytics = settings.trackClicks && email && email.get('track_clicks');
 
         return {
             id: post.get('id'),
@@ -106,39 +107,39 @@ class PostsExporter {
             email_recipients: email ? this.humanReadableEmailRecipientFilter(email?.get('recipient_filter'), labels, tiers) : null,
             newsletter_name: newsletters.length > 1 && post.get('newsletter_id') && email ? newsletters.find(newsletter => newsletter.get('id') === post.get('newsletter_id'))?.get('name') : null,
             sends: email?.get('email_count') ?? null,
-            opens: trackOpens ? (email?.get('opened_count') ?? null) : null,
+            opens: settings.trackOpens ? (email?.get('opened_count') ?? null) : null,
             clicks: showEmailClickAnalytics ? (post.get('count__clicks') ?? 0) : null,
-            signups: membersTrackSources && published ? (post.get('count__signups') ?? 0) : null,
-            paid_conversions: membersTrackSources && paidMembersEnabled && published ? (post.get('count__paid_conversions') ?? 0) : null,
+            signups: settings.membersTrackSources && published ? (post.get('count__signups') ?? 0) : null,
+            paid_conversions: settings.membersTrackSources && settings.paidMembersEnabled && published ? (post.get('count__paid_conversions') ?? 0) : null,
             feedback_more_like_this: feedbackEnabled ? (post.get('count__positive_feedback') ?? 0) : null,
             feedback_less_like_this: feedbackEnabled ? (post.get('count__negative_feedback') ?? 0) : null
         };
     }
 
-    #removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled) {
+    #removeUnusedColumns(mapped, newsletters, settings) {
         const removeableColumns = [];
 
         if (newsletters.length <= 1) {
             removeableColumns.push('newsletter_name');
         }
 
-        if (!membersEnabled) {
+        if (!settings.membersEnabled) {
             removeableColumns.push('email_recipients', 'sends', 'opens', 'clicks', 'feedback_more_like_this', 'feedback_less_like_this');
-        } else if (!hasNewslettersWithFeedback) {
-            removeableColumns.push('feedback_more_like_this', 'feedback_less_like_this');
+        } else {
+            if (!settings.hasNewslettersWithFeedback) {
+                removeableColumns.push('feedback_more_like_this', 'feedback_less_like_this');
+            }
+            if (!settings.trackClicks) {
+                removeableColumns.push('clicks');
+            }
+            if (!settings.trackOpens) {
+                removeableColumns.push('opens');
+            }
         }
 
-        if (membersEnabled && !trackClicks) {
-            removeableColumns.push('clicks');
-        }
-
-        if (membersEnabled && !trackOpens) {
-            removeableColumns.push('opens');
-        }
-
-        if (!membersTrackSources || !membersEnabled) {
+        if (!settings.membersTrackSources || !settings.membersEnabled) {
             removeableColumns.push('signups', 'paid_conversions');
-        } else if (!paidMembersEnabled) {
+        } else if (!settings.paidMembersEnabled) {
             removeableColumns.push('paid_conversions');
         }
 
@@ -165,6 +166,7 @@ class PostsExporter {
         if (status === 'published') {
             return hasEmail ? 'published and emailed' : 'published only';
         }
+
         return status;
     }
 
@@ -233,12 +235,12 @@ class PostsExporter {
             }
         } else {
             for (const key of Object.keys(filter)) {
-                if (key === 'label' && typeof filter.label === 'string') {
-                    strings.push(this.#getLabelName(filter.label, allLabels));
-                } else if (key === 'tier' && typeof filter.tier === 'string') {
-                    strings.push(this.#getTierName(filter.tier, allTiers));
+                if (key === 'label') {
+                    this.#addLabelString(filter.label, allLabels, strings);
+                } else if (key === 'tier') {
+                    this.#addTierString(filter.tier, allTiers, strings);
                 } else if (key === 'status') {
-                    strings.push(...this.#getStatusStrings(filter.status));
+                    this.#addStatusString(filter.status, strings);
                 }
             }
         }
@@ -246,18 +248,21 @@ class PostsExporter {
         return strings;
     }
 
-    #getLabelName(labelSlug, allLabels) {
-        const label = allLabels.find(l => l.get('slug') === labelSlug);
-        return label ? label.get('name') : labelSlug;
+    #addLabelString(label, allLabels, strings) {
+        if (typeof label === 'string') {
+            const foundLabel = allLabels.find(l => l.get('slug') === label);
+            strings.push(foundLabel ? foundLabel.get('name') : label);
+        }
     }
 
-    #getTierName(tierSlug, allTiers) {
-        const tier = allTiers.find(l => l.get('slug') === tierSlug);
-        return tier ? tier.get('name') : tierSlug;
+    #addTierString(tier, allTiers, strings) {
+        if (typeof tier === 'string') {
+            const foundTier = allTiers.find(t => t.get('slug') === tier);
+            strings.push(foundTier ? foundTier.get('name') : tier);
+        }
     }
 
-    #getStatusStrings(status) {
-        const strings = [];
+    #addStatusString(status, strings) {
         if (typeof status === 'string') {
             if (status === 'free') {
                 strings.push('Free subscribers');
@@ -274,7 +279,6 @@ class PostsExporter {
                 strings.push('Free subscribers');
             }
         }
-        return strings;
     }
 }
 

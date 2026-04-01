@@ -147,58 +147,30 @@ const convertAssociationType = (attribute, rootType) => {
 };
 
 /**
- * Generates mutation input and payload definitions for create action.
- * @param {string} mutationName - The mutation name.
- * @param {string} singularName - The singular model name.
- * @param {string} inputName - The input type name.
- * @param {string} globalId - The model global ID.
- * @returns {string}
- */
-const generateCreatePayload = (mutationName, singularName, inputName, globalId) => `
-  input ${mutationName}Input { data: ${inputName} }
-  type ${mutationName}Payload { ${singularName}: ${globalId} }
-`;
-
-/**
- * Generates mutation input and payload definitions for update action.
- * @param {string} mutationName - The mutation name.
- * @param {string} singularName - The singular model name.
- * @param {string} inputName - The input type name.
- * @param {string} globalId - The model global ID.
- * @param {string} kind - The model kind (singleType or collectionType).
- * @returns {string}
- */
-const generateUpdatePayload = (mutationName, singularName, inputName, globalId, kind) => {
-  const whereClause = kind === 'singleType' ? '' : 'where: InputID, ';
-  return `
-  input ${mutationName}Input  { ${whereClause}data: edit${inputName} }
-  type ${mutationName}Payload { ${singularName}: ${globalId} }
-`;
-};
-
-/**
- * Generates mutation input and payload definitions for delete action.
- * @param {string} mutationName - The mutation name.
- * @param {string} singularName - The singular model name.
- * @param {string} globalId - The model global ID.
- * @param {string} kind - The model kind (singleType or collectionType).
- * @returns {string}
- */
-const generateDeletePayload = (mutationName, singularName, globalId, kind) => {
-  const inputDef = kind === 'singleType' ? '' : `input ${mutationName}Input  { where: InputID }\n  `;
-  return `
-  ${inputDef}type ${mutationName}Payload { ${singularName}: ${globalId} }
-`;
-};
-
-/**
- * Strategy map for generating mutation payloads by action type.
+ * Payload configuration for mutation actions.
  * @type {Object<string, Function>}
  */
-const PAYLOAD_GENERATORS = {
-  create: generateCreatePayload,
-  update: generateUpdatePayload,
-  delete: generateDeletePayload,
+const MUTATION_PAYLOAD_GENERATORS = {
+  create: ({ mutationName, inputName, singularName, globalId }) => `
+    input ${mutationName}Input { data: ${inputName} }
+    type ${mutationName}Payload { ${singularName}: ${globalId} }
+  `,
+  update: ({ mutationName, inputName, singularName, globalId, kind }) => {
+    const whereClause = kind === 'singleType' ? '' : 'where: InputID, ';
+    return `
+      input ${mutationName}Input  { ${whereClause}data: edit${inputName} }
+      type ${mutationName}Payload { ${singularName}: ${globalId} }
+    `;
+  },
+  delete: ({ mutationName, singularName, globalId, kind }) => {
+    const inputDef = kind === 'singleType'
+      ? ''
+      : `input ${mutationName}Input  { where: InputID }`;
+    return `
+      ${inputDef}
+      type ${mutationName}Payload { ${singularName}: ${globalId} }
+    `;
+  },
 };
 
 module.exports = {
@@ -210,7 +182,6 @@ module.exports = {
    * @param {String} attribute.attributeName Name of the attribute.
    * @return String
    */
-
   convertType({
     attribute = {},
     modelName = '',
@@ -240,7 +211,6 @@ module.exports = {
    * @param {String} field Name of the attribute.
    * @return String
    */
-
   convertEnumType(definition, model, field) {
     return definition.enumName
       ? definition.enumName
@@ -252,7 +222,6 @@ module.exports = {
    *
    * @return void
    */
-
   getScalars() {
     return {
       JSON: GraphQLJSON,
@@ -269,7 +238,6 @@ module.exports = {
    *
    * @return string
    */
-
   addPolymorphicUnionType(definition) {
     const types = graphql
       .parse(definition)
@@ -357,19 +325,19 @@ module.exports = {
   generateInputPayloadArguments({ model, name, mutationName, action }) {
     const singularName = toSingular(name);
     const inputName = toInputName(name);
-    const { kind, globalId } = model;
-
-    const generator = PAYLOAD_GENERATORS[action];
+    const generator = MUTATION_PAYLOAD_GENERATORS[action];
 
     if (!generator) {
       return '';
     }
 
-    if (action === 'delete') {
-      return generator(mutationName, singularName, globalId, kind);
-    }
-
-    return generator(mutationName, singularName, inputName, globalId, kind);
+    return generator({
+      mutationName,
+      inputName,
+      singularName,
+      globalId: model.globalId,
+      kind: model.kind,
+    });
   },
 };
 ```

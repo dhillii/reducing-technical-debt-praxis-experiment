@@ -61,20 +61,78 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [imagePreview]);
 
-    const clearImage = useCallback(() => {
+    const handleImageUploadError = useCallback((error: unknown) => {
         setImagePreview(null);
-        setUploadedImageUrl(null);
-        setAltText('');
-        setShowAltInput(false);
-        if (imagePreview) {
-            URL.revokeObjectURL(imagePreview);
-        }
-        if (imageInputRef.current) {
-            imageInputRef.current.value = '';
-        }
-    }, [imagePreview]);
+        let errorMessage = 'Failed to upload image. Try again.';
 
-    // Sync external open prop with internal state
+        if (error && typeof error === 'object' && 'statusCode' in error) {
+            const statusCode = (error as {statusCode: number}).statusCode;
+            if (statusCode === 413) {
+                errorMessage = 'Image size exceeds limit.';
+            } else if (statusCode === 415) {
+                errorMessage = 'The file type is not supported.';
+            }
+        }
+        toast.error(errorMessage);
+    }, []);
+
+    const handleImageUpload = useCallback(async (file: File) => {
+        try {
+            setIsImageUploading(true);
+            const imageUrl = await uploadFile(file);
+            setUploadedImageUrl(imageUrl);
+        } catch (error) {
+            handleImageUploadError(error);
+        } finally {
+            setIsImageUploading(false);
+        }
+    }, [handleImageUploadError]);
+
+    const performPost = useCallback(async (trimmedContent: string) => {
+        const postData = {
+            content: trimmedContent,
+            imageUrl: uploadedImageUrl || undefined,
+            altText: altText || undefined
+        };
+
+        if (replyTo) {
+            await replyMutation.mutateAsync({
+                inReplyTo: replyTo.object.id,
+                ...postData
+            });
+            onReply?.();
+        } else {
+            await noteMutation.mutateAsync(postData);
+            navigate('/notes');
+        }
+    }, [replyTo, replyMutation, noteMutation, uploadedImageUrl, altText, onReply, navigate]);
+
+    const handlePost = useCallback(async () => {
+        const trimmedContent = content.trim();
+
+        if (!trimmedContent || !user) {
+            return;
+        }
+
+        try {
+            setIsPosting(true);
+            await performPost(trimmedContent);
+            setIsOpen(false);
+            onOpenChange?.(false);
+            toast.success(replyTo ? 'Reply posted' : 'Note posted');
+        } catch {
+            onReplyError?.();
+        } finally {
+            setIsPosting(false);
+        }
+    }, [content, user, replyTo, performPost, onOpenChange, onReplyError]);
+
+    const isDisabled = !content.trim() || !user || isPosting || content.length > MAX_CONTENT_LENGTH;
+
+    const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setContent(e.target.value);
+    };
+
     useEffect(() => {
         if (props.open !== undefined) {
             setIsOpen(props.open);
@@ -93,49 +151,6 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [isOpen, props.open, getModalIsOpen]);
 
-    const isDisabled = !content.trim() || !user || isPosting || content.length > MAX_CONTENT_LENGTH;
-
-    const handlePost = useCallback(async () => {
-        const trimmedContent = content.trim();
-
-        if (!trimmedContent || !user) {
-            return;
-        }
-
-        try {
-            setIsPosting(true);
-
-            const postData = {
-                content: trimmedContent,
-                imageUrl: uploadedImageUrl || undefined,
-                altText: altText || undefined
-            };
-
-            if (replyTo) {
-                await replyMutation.mutateAsync({
-                    inReplyTo: replyTo.object.id,
-                    ...postData
-                });
-                onReply?.();
-            } else {
-                await noteMutation.mutateAsync(postData);
-                navigate('/notes');
-            }
-
-            setIsOpen(false);
-            onOpenChange?.(false);
-            toast.success(replyTo ? 'Reply posted' : 'Note posted');
-        } catch {
-            onReplyError?.();
-        } finally {
-            setIsPosting(false);
-        }
-    }, [content, user, replyTo, replyMutation, noteMutation, uploadedImageUrl, altText, onReply, onReplyError, navigate, onOpenChange]);
-
-    const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        setContent(e.target.value);
-    };
-
     useEffect(() => {
         if (textareaRef.current) {
             textareaRef.current.style.height = 'auto';
@@ -143,7 +158,6 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [content]);
 
-    // Focus textarea when modal opens
     useEffect(() => {
         const modalIsOpen = getModalIsOpen();
         if (modalIsOpen && textareaRef.current) {
@@ -154,7 +168,6 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [isOpen, props.open, getModalIsOpen]);
 
-    // Focus alt text input when it becomes visible
     useEffect(() => {
         if (showAltInput && altTextInputRef.current) {
             const timeoutId = setTimeout(() => {
@@ -205,7 +218,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                 break;
             }
         }
-    }, []);
+    }, [handleImageUpload]);
 
     useEffect(() => {
         const modalIsOpen = getModalIsOpen();
@@ -214,32 +227,6 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             return () => document.removeEventListener('paste', handlePaste);
         }
     }, [isOpen, props.open, handlePaste, getModalIsOpen]);
-
-    const handleImageUpload = async (file: File) => {
-        try {
-            setIsImageUploading(true);
-            const imageUrl = await uploadFile(file);
-            setUploadedImageUrl(imageUrl);
-        } catch (error) {
-            setImagePreview(null);
-            const errorMessage = getImageErrorMessage(error);
-            toast.error(errorMessage);
-        } finally {
-            setIsImageUploading(false);
-        }
-    };
-
-    const getImageErrorMessage = (error: unknown): string => {
-        if (error && typeof error === 'object' && 'statusCode' in error) {
-            switch ((error as {statusCode: number}).statusCode) {
-                case 413:
-                    return 'Image size exceeds limit.';
-                case 415:
-                    return 'The file type is not supported.';
-            }
-        }
-        return 'Failed to upload image. Try again.';
-    };
 
     const handleImageChange = async (e: ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
@@ -262,7 +249,17 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const handleClearImage = (e: React.MouseEvent) => {
         e.stopPropagation();
-        clearImage();
+        setImagePreview(null);
+        setUploadedImageUrl(null);
+        setAltText('');
+        setShowAltInput(false);
+        if (imagePreview) {
+            URL.revokeObjectURL(imagePreview);
+        }
+
+        if (imageInputRef.current) {
+            imageInputRef.current.value = '';
+        }
     };
 
     const handleToggleAltInput = (e: React.MouseEvent) => {
@@ -378,4 +375,37 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                                 <LoadingIndicator size='md' />
                             </div>
                         }
-                        <Button className='absolute right-3 top-3 size-8 bg-black/60 text-white opacity-0 hover:bg-black/80 group-hover:opacity-100' onClick={handleClearImage}><Luc
+                        <Button className='absolute right-3 top-3 size-8 bg-black/60 text-white opacity-0 hover:bg-black/80 group-hover:opacity-100' onClick={handleClearImage}><LucideIcon.Trash2 /></Button>
+                        {!isImageUploading && <Button className={`absolute bottom-3 left-3 h-6 px-2 py-0 text-white ${!showAltInput ? 'bg-black/60 hover:bg-black/80' : 'bg-green-500 hover:bg-green-500'}`} onClick={handleToggleAltInput}>Alt</Button>}
+                    </div>
+                }
+                {imagePreview && !isImageUploading && showAltInput &&
+                    <div className='mt-1'>
+                        <Input
+                            ref={altTextInputRef}
+                            className='w-full border-0 bg-transparent px-0 focus-visible:border-0 focus-visible:bg-transparent focus-visible:shadow-none focus-visible:outline-0 dark:bg-[#101114] dark:text-white dark:placeholder:text-gray-800'
+                            placeholder='Type alt text for image (optional)'
+                            type='text'
+                            value={altText}
+                            onChange={e => setAltText(e.target.value)}
+                        />
+                    </div>
+                }
+                <DialogFooter className={`${isSticky ? 'sticky' : 'static'} bottom-0 flex-row bg-background py-6 dark:bg-[#101114]`}>
+                    <Button className='mr-auto w-[34px] !min-w-0' variant='outline' onClick={() => imageInputRef.current?.click()}><LucideIcon.Image /></Button>
+                    <div className='flex items-center space-x-3'>
+                        <div className={`text-sm ${getCharacterCountColor()}`}>
+                            {content.length}/{MAX_CONTENT_LENGTH}
+                        </div>
+                        <Button className='min-w-16' data-testid="post-button" disabled={isDisabled || isImageUploading} onClick={handlePost}>
+                            {isPosting ? <LoadingIndicator color='light' size='sm' /> : 'Post'}
+                        </Button>
+                    </div>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+export default NewNoteModal;
+```

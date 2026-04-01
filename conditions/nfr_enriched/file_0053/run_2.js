@@ -76,26 +76,26 @@ exports.usage = function() {
 exports.initOptions = function() {
   exports._options = Object.keys(grunt.cli.optlist).map(function(long) {
     const option = grunt.cli.optlist[long];
-    const col1 = buildOptionString(long, option);
+    const col1 = buildOptionColumn(long, option);
     exports.initCol1(col1);
     return [col1, option.info];
   });
 };
 
 /**
- * Constructs the option string for display (e.g., "--option, -o").
+ * Constructs the first column text for an option in the help table.
  * @param {string} long - The long option name
  * @param {Object} option - The option configuration object
- * @returns {string} The formatted option string
+ * @returns {string} The formatted option column text
  */
-function buildOptionString(long, option) {
+function buildOptionColumn(long, option) {
   const prefix = '--' + (option.negate ? 'no-' : '') + long;
-  const shortForm = option.short ? ', -' + option.short : '';
-  return prefix + shortForm;
+  const suffix = option.short ? ', -' + option.short : '';
+  return prefix + suffix;
 }
 
 /**
- * Displays the options table.
+ * Displays the options section of the help output.
  */
 exports.options = function() {
   grunt.log.header('Options');
@@ -103,7 +103,7 @@ exports.options = function() {
 };
 
 /**
- * Displays footer information about options.
+ * Displays the footer note for the options section.
  */
 exports.optionsFooter = function() {
   grunt.log.writeln().writelns(
@@ -117,14 +117,14 @@ exports.optionsFooter = function() {
  */
 exports.initTasks = function() {
   grunt.task.init([], {help: true});
-  exports._tasks = collectRegisteredTasks();
+  exports._tasks = collectTasks();
 };
 
 /**
- * Collects all registered tasks and updates column width.
+ * Collects all registered tasks and updates column width accordingly.
  * @returns {Array} Array of task objects
  */
-function collectRegisteredTasks() {
+function collectTasks() {
   const tasks = [];
   Object.keys(grunt.task._tasks).forEach(function(name) {
     exports.initCol1(name);
@@ -135,7 +135,7 @@ function collectRegisteredTasks() {
 }
 
 /**
- * Displays the available tasks table and related information.
+ * Displays the available tasks section of the help output.
  */
 exports.tasks = function() {
   grunt.log.header('Available tasks');
@@ -151,14 +151,14 @@ exports.tasks = function() {
 };
 
 /**
- * Displays message when no tasks are found.
+ * Displays a message when no tasks are found.
  */
 function displayNoTasksMessage() {
   grunt.log.writeln('(no tasks found)');
 }
 
 /**
- * Displays the formatted tasks table.
+ * Displays the table of available tasks.
  */
 function displayTasksTable() {
   const taskRows = exports._tasks.map(function(task) {
@@ -168,7 +168,7 @@ function displayTasksTable() {
 }
 
 /**
- * Formats a single task row for table display.
+ * Formats a single task row for the tasks table.
  * @param {Object} task - The task object
  * @returns {Array} Array containing [taskName, taskInfo]
  */
@@ -181,7 +181,7 @@ function formatTaskRow(task) {
 }
 
 /**
- * Displays footer information about tasks.
+ * Displays the footer information for the tasks section.
  */
 function displayTasksFooter() {
   grunt.log.writeln().writelns(
@@ -193,7 +193,7 @@ function displayTasksFooter() {
 }
 
 /**
- * Displays disclaimer about task availability.
+ * Displays a disclaimer about task availability.
  */
 function displayTasksDisclaimer() {
   grunt.log.writeln().writelns(
@@ -203,7 +203,7 @@ function displayTasksDisclaimer() {
 }
 
 /**
- * Displays the help footer with link to documentation.
+ * Displays the help footer with a link to the Grunt documentation.
  */
 exports.footer = function() {
   grunt.log.writeln().writeln('For more information, see http://gruntjs.com/');

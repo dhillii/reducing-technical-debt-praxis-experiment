@@ -33,9 +33,9 @@ const validateLengthField = (value: string | undefined, maxLength: number, field
 };
 
 /** @internal Wraps social URL validators with error handling */
-const createSocialValidator = (validator: (url: string) => void) => (url: string | undefined): string => {
+const createSocialValidator = (validateFn: (url: string) => void) => (url: string | undefined): string => {
     try {
-        validator(url || '');
+        validateFn(url || '');
         return '';
     } catch (e) {
         return e instanceof Error ? e.message : '';
@@ -44,12 +44,8 @@ const createSocialValidator = (validator: (url: string) => void) => (url: string
 
 const validators: Record<string, (u: Partial<User>) => string> = {
     name: ({name}) => {
-        if (!name) {
-            return 'Name is required';
-        }
-        if (name.length > 191) {
-            return 'Name is too long';
-        }
+        if (!name) return 'Name is required';
+        if (name.length > 191) return 'Name is too long';
         return '';
     },
     email: ({email}) => {
@@ -288,50 +284,46 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     };
 
-    /** @internal Determines if current user can access user management menu */
-    const canShowMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
+    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
+    let menuItems: MenuItem[] = [];
 
-    /** @internal Builds menu items based on user permissions and roles */
-    const buildMenuItems = (): MenuItem[] => {
-        const items: MenuItem[] = [];
+    if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
+        menuItems.push({
+            id: 'make-owner',
+            label: 'Make owner',
+            onClick: confirmMakeOwner
+        });
+    }
 
-        if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
-            items.push({
-                id: 'make-owner',
-                label: 'Make owner',
-                onClick: confirmMakeOwner
-            });
-        }
+    if (formState.id !== currentUser.id && (
+        (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
+        (isEditorUser(currentUser) && isAuthorOrContributor(user))
+    )) {
+        const suspendUserLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
 
-        const canManageUser = formState.id !== currentUser.id && (
-            (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
-            (isEditorUser(currentUser) && isAuthorOrContributor(user))
-        );
-
-        if (canManageUser) {
-            const suspendUserLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
-            items.push({
-                id: 'delete-user',
-                label: 'Delete user',
-                onClick: () => confirmDelete(user, {owner: ownerUser})
-            }, {
-                id: 'suspend-user',
-                label: suspendUserLabel,
-                onClick: () => confirmSuspend(formState)
-            });
-        }
-
-        items.push({
-            id: 'view-user-activity',
-            label: 'View user activity',
+        menuItems.push({
+            id: 'delete-user',
+            label: 'Delete user',
             onClick: () => {
-                mainModal.remove();
-                updateRoute(`history/view/${formState.id}`);
+                confirmDelete(user, {owner: ownerUser});
+            }
+        }, {
+            id: 'suspend-user',
+            label: suspendUserLabel,
+            onClick: () => {
+                confirmSuspend(formState);
             }
         });
+    }
 
-        return items;
-    };
+    menuItems.push({
+        id: 'view-user-activity',
+        label: 'View user activity',
+        onClick: () => {
+            mainModal.remove();
+            updateRoute(`history/view/${formState.id}`);
+        }
+    });
 
     const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
     const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
@@ -346,10 +338,171 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         setSelectedTab(newTabId);
     };
 
-    const menuItems = buildMenuItems();
-
     return (
         <Modal
             afterClose={navigateOnClose}
             animate={canAccessSettings(currentUser)}
-            backDrop={canAccessSettings(
+            backDrop={canAccessSettings(currentUser)}
+            buttonsDisabled={okProps.disabled}
+            cancelLabel='Close'
+            dirty={saveState === 'unsaved'}
+            okColor={okProps.color}
+            okLabel={okProps.label || 'Save'}
+            size={canAccessSettings(currentUser) ? 'md' : 'bleed'}
+            stickyFooter={true}
+            testId='user-detail-modal'
+            width={canAccessSettings(currentUser) ? 600 : 'full'}
+            onOk={async () => {
+                await (handleSave({fakeWhenUnchanged: true}));
+            }}
+        >
+            <div>
+                <div className={`relative ${canAccessSettings(currentUser) ? '-mx-8 -mt-8 rounded-t' : '-mx-10 -mt-10'}`}>
+                    <div className={`flex flex-wrap items-end justify-between gap-8 p-8 ${formState.cover_image ? 'bg-cover bg-center' : ''} ${!canAccessSettings(currentUser) && 'min-h-[30vmin]'}`}
+                        style={{
+                            backgroundImage: formState.cover_image ? `url(${formState.cover_image})` : 'none'
+                        }}>
+                        <div className='flex w-full flex-col gap-2'>
+                            <div className='flex flex-nowrap items-start justify-between gap-3'>
+                                <div>
+                                    <ImageUpload
+                                        deleteButtonClassName='md:invisible absolute pr-3 -right-2 -top-2 flex h-8 w-10 cursor-pointer items-center justify-end rounded-full bg-[rgba(0,0,0,0.75)] text-white group-hover:!visible'
+                                        deleteButtonContent={<Icon colorClass='text-white' name='trash' size='sm' />}
+                                        editButtonClassName='md:invisible absolute right-[22px] -top-2 flex h-8 w-8 cursor-pointer items-center justify-center text-white group-hover:!visible z-20'
+                                        fileUploadClassName='rounded-full bg-black flex items-center justify-center opacity-80 transition hover:opacity-100 -ml-2 cursor-pointer h-[80px] w-[80px]'
+                                        fileUploadProps={{dragIndicatorClassName: 'rounded-full'}}
+                                        id='avatar'
+                                        imageClassName='w-full h-full object-cover rounded-full shrink-0'
+                                        imageContainerClassName='relative group bg-cover bg-center -ml-1 h-16 w-16 md:h-18 md:w-18 shrink-0'
+                                        imageURL={formState.profile_image ?? undefined}
+                                        pintura={
+                                            {
+                                                isEnabled: editor.isEnabled,
+                                                openEditor: async () => editor.openEditor({
+                                                    image: formState.profile_image || '',
+                                                    handleSave: async (file:File) => {
+                                                        handleImageUpload('profile_image', file);
+                                                    }
+                                                })
+                                            }
+                                        }
+                                        unstyled={true}
+                                        width='80px'
+                                        onDelete={() => {
+                                            handleImageDelete('profile_image');
+                                        }}
+                                        onUpload={(file: File) => {
+                                            handleImageUpload('profile_image', file);
+                                        }}
+                                    >
+                                        <Icon colorClass='black' name='user-add' size='lg' />
+                                    </ImageUpload>
+                                </div>
+                                <div className='flex flex-nowrap items-start gap-3'>
+                                    <ImageUpload
+                                        buttonContainerClassName='flex items-end gap-4 justify-end flex-nowrap'
+                                        deleteButtonClassName={coverButtonClasses}
+                                        deleteButtonContent='Delete cover image'
+                                        editButtonClassName={coverButtonClasses}
+                                        fileUploadClassName={noCoverButtonClasses}
+                                        id='cover-image'
+                                        imageClassName='hidden'
+                                        imageURL={formState.cover_image || ''}
+                                        pintura={
+                                            {
+                                                isEnabled: editor.isEnabled,
+                                                openEditor: async () => editor.openEditor({
+                                                    image: formState.cover_image || '',
+                                                    handleSave: async (file:File) => {
+                                                        handleImageUpload('cover_image', file);
+                                                    }
+                                                })
+                                            }
+                                        }
+                                        unstyled
+                                        onDelete={() => {
+                                            handleImageDelete('cover_image');
+                                        }}
+                                        onUpload={(file: File) => {
+                                            handleImageUpload('cover_image', file);
+                                        }}
+                                    >Upload cover image</ImageUpload>
+                                    {showMenu && <div className="z-10">
+                                        <Menu
+                                            items={menuItems}
+                                            position='end'
+                                            trigger={
+                                                <button
+                                                    className={clsx(
+                                                        'flex h-8 cursor-pointer items-center justify-center rounded px-3',
+                                                        formState.cover_image
+                                                            ? 'bg-[rgba(0,0,0,0.75)] opacity-80 hover:opacity-100'
+                                                            : 'border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white'
+                                                    )}
+                                                    type='button'
+                                                >
+                                                    <span className='sr-only'>Actions</span>
+                                                    <Icon
+                                                        colorClass={formState.cover_image ? 'text-white' : undefined}
+                                                        name='ellipsis'
+                                                        size='md'
+                                                    />
+                                                </button>
+                                            }
+                                        />
+                                    </div>}
+                                </div>
+                            </div>
+                            <div>
+                                <Heading level={3} styles={clsx('break-words md:break-normal', formState.cover_image ? 'text-white' : 'text-black dark:text-white')}>{user.name}{suspendedText}</Heading>
+                                <span className={clsx('text-md font-medium capitalize', formState.cover_image ? 'text-white' : 'text-black dark:text-white')}>{user.roles[0].name.toLowerCase()}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div className={`${!canAccessSettings(currentUser) && 'mx-auto max-w-[536px]'} mt-6 flex flex-col`}>
+                    <TabView
+                        selectedTab={selectedTab}
+                        tabs={[
+                            {
+                                id: 'profile',
+                                title: 'Profile',
+                                contents: <ProfileTab clearError={clearError} errors={errors} setUserData={setUserData} user={formState} validateField={validateField} />
+                            },
+                            {
+                                id: 'social-links',
+                                title: 'Social Links',
+                                contents: <SocialLinksTab clearError={clearError} errors={errors} setUserData={setUserData} user={formState} validateField={validateField} />
+                            },
+                            {
+                                id: 'email-notifications',
+                                title: 'Email Notifications',
+                                contents: <EmailNotificationsTab setUserData={setUserData} user={formState} />
+                            }
+                        ]}
+                        onTabChange={handleTabChange}
+                    />
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
+const UserDetailModal: React.FC<RoutingModalProps> = ({params}) => {
+    const {currentUser} = useGlobalData();
+    const isCurrentUser = currentUser.slug === params?.slug;
+    const {data: fetchedUserData} = useGetUserBySlug(
+        params?.slug || '',
+        {enabled: !isCurrentUser && !!params?.slug}
+    );
+    const user = isCurrentUser ? currentUser : fetchedUserData?.users?.[0];
+
+    if (user) {
+        return <UserDetailModalContent user={user} />;
+    } else {
+        return null;
+    }
+};
+
+export default NiceModal.create(UserDetailModal);
+```

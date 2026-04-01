@@ -80,7 +80,18 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
         updateRoute('/');
     };
 
-    // Handles confirmation for default/legacy theme upload attempt
+    // Validates if theme can be uploaded based on name and existing themes
+    const validateThemeUpload = (themeFileName: string): {valid: boolean; reason?: string} => {
+        if (isDefaultOrLegacyTheme({name: themeFileName})) {
+            return {valid: false, reason: 'default'};
+        }
+        if (themes.map(t => t.name).includes(themeFileName)) {
+            return {valid: false, reason: 'exists'};
+        }
+        return {valid: true};
+    };
+
+    // Shows confirmation modal for default/legacy theme
     const showDefaultThemeError = (themeFileName: string) => {
         NiceModal.show(ConfirmationModal, {
             title: 'Upload failed',
@@ -98,7 +109,7 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
         });
     };
 
-    // Handles confirmation for overwriting existing theme
+    // Shows confirmation modal for existing theme overwrite
     const showOverwriteConfirmation = (themeFileName: string, onConfirm: () => Promise<void>) => {
         NiceModal.show(ConfirmationModal, {
             title: 'Overwrite theme',
@@ -114,10 +125,8 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
             okColor: 'red',
             onOk: async (confirmModal) => {
                 setUploading(true);
-                const existingThemeNames = themes.map(t => t.name);
-                const index = existingThemeNames.indexOf(themeFileName);
+                const index = themes.map(t => t.name).indexOf(themeFileName);
                 themes.splice(index, 1);
-
                 await onConfirm();
                 setUploading(false);
                 setCurrentTab('installed');
@@ -126,7 +135,6 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
         });
     };
 
-    // Processes theme upload and shows appropriate modal
     const handleThemeUpload = async ({
         file,
         onActivate
@@ -161,7 +169,6 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
                     handleUpload();
                 }
             });
-            return;
         }
 
         if (!data) {
@@ -169,13 +176,9 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
         }
 
         const uploadedTheme = data.themes[0];
-        const modalConfig = buildThemeInstalledModalConfig(uploadedTheme, onActivate);
+        const hasErrors = uploadedTheme?.errors?.length;
+        const hasWarnings = uploadedTheme?.warnings?.length;
 
-        NiceModal.show(ThemeInstalledModal, modalConfig);
-    };
-
-    // Builds configuration for theme installed modal based on upload result
-    const buildThemeInstalledModalConfig = (uploadedTheme: Theme, onActivate?: () => void) => {
         let title = 'Upload successful';
         let prompt = <>
             <strong>{uploadedTheme.name}</strong> uploaded
@@ -188,9 +191,7 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
             </>;
         }
 
-        if (uploadedTheme?.errors?.length || uploadedTheme.warnings?.length) {
-            const hasErrors = uploadedTheme?.errors?.length;
-
+        if (hasErrors || hasWarnings) {
             title = `Upload successful with ${hasErrors ? 'errors' : 'warnings'}`;
             prompt = <>
                 The theme <strong>&quot;{uploadedTheme.name}&quot;</strong> was installed but we detected some {hasErrors ? 'errors' : 'warnings'}.
@@ -204,27 +205,43 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
             }
         }
 
-        return {
+        NiceModal.show(ThemeInstalledModal, {
             title,
             prompt,
             installedTheme: uploadedTheme,
-            onActivate
-        };
+            onActivate: onActivate
+        });
     };
 
     const onThemeUpload = async (file: File) => {
         const themeFileName = file?.name.replace(/\.zip$/, '');
-        const existingThemeNames = themes.map(t => t.name);
+        const validation = validateThemeUpload(themeFileName);
 
-        if (isDefaultOrLegacyTheme({name: themeFileName})) {
-            showDefaultThemeError(themeFileName);
-        } else if (existingThemeNames.includes(themeFileName)) {
-            showOverwriteConfirmation(themeFileName, () => handleThemeUpload({file, onActivate: onClose}));
+        if (!validation.valid) {
+            if (validation.reason === 'default') {
+                showDefaultThemeError(themeFileName);
+            } else if (validation.reason === 'exists') {
+                await showOverwriteConfirmation(themeFileName, () => handleThemeUpload({file, onActivate: onClose}));
+            }
         } else {
             setCurrentTab('installed');
             handleThemeUpload({file, onActivate: onClose});
         }
     };
+
+    const left =
+    <div className='hidden md:!visible md:!block'>
+        <TabView
+            border={false}
+            selectedTab={currentTab}
+            tabs={[
+                {id: 'official', title: 'Official themes'},
+                {id: 'installed', title: 'Installed'}
+            ]}
+            onTabChange={(id: string) => {
+                setCurrentTab(id);
+            }} />
+    </div>;
 
     const handleUpload = () => {
         if (!uploadConfig) {
@@ -246,20 +263,6 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
             });
         }
     };
-
-    const left =
-    <div className='hidden md:!visible md:!block'>
-        <TabView
-            border={false}
-            selectedTab={currentTab}
-            tabs={[
-                {id: 'official', title: 'Official themes'},
-                {id: 'installed', title: 'Installed'}
-            ]}
-            onTabChange={(id: string) => {
-                setCurrentTab(id);
-            }} />
-    </div>;
 
     const right =
         <div className='flex items-center gap-14'>
@@ -312,108 +315,318 @@ type ChangeThemeModalProps = {
     themeRef?: string | null;
 };
 
-// Builds configuration for marketplace theme installation confirmation
-const buildMarketplaceInstallConfig = (themeName: string, willOverwrite: boolean, themeToOverwrite: Theme | undefined) => {
-    let prompt = <>By clicking below, <strong>{themeName}</strong> will automatically be activated as the theme for your site.
-        {willOverwrite &&
-        <>
-            <br/>
-            <br/>
-            This will overwrite your existing version of <strong>{themeName}</strong>{themeToOverwrite?.active ? ' which is your active theme' : ''}. All custom changes will be lost.
-        </>
-        }
-    </>;
+// Extracts theme name from ref string
+const extractThemeNameFromRef = (themeRef: string): string => {
+    return themeRef.split('/')[1];
+};
 
+// Determines if theme will overwrite existing theme
+const getThemeOverwriteInfo = (themeName: string, themes: Theme[] | undefined): {willOverwrite: boolean; index: number; themeToOverwrite?: Theme} => {
+    const existingThemeNames = themes?.map(t => t.name.toLowerCase()) || [];
+    const index = existingThemeNames.indexOf(themeName.toLowerCase());
     return {
-        title: 'Install Theme',
-        prompt,
-        okLabel: 'Install',
-        cancelLabel: 'Cancel',
-        okRunningLabel: 'Installing...',
-        okColor: 'black'
+        willOverwrite: index !== -1,
+        index,
+        themeToOverwrite: themes?.[index]
     };
 };
 
-// Handles installation of theme from marketplace URL
-const useMarketplaceThemeInstallation = (
-    source: string | null | undefined,
-    themeRef: string | null | undefined,
+// Builds prompt message for marketplace theme installation
+const buildMarketplaceInstallPrompt = (themeName: string, overwriteInfo: {willOverwrite: boolean; themeToOverwrite?: Theme}): React.ReactNode => {
+    let prompt = <>By clicking below, <strong>{themeName}</strong> will automatically be activated as the theme for your site.</>;
+    
+    if (overwriteInfo.willOverwrite) {
+        prompt = <>
+            {prompt}
+            <br/>
+            <br/>
+            This will overwrite your existing version of <strong>{themeName}</strong>{overwriteInfo.themeToOverwrite?.active ? ' which is your active theme' : ''}. All custom changes will be lost.
+        </>;
+    }
+    
+    return prompt;
+};
+
+// Handles marketplace theme installation flow
+const handleMarketplaceInstallation = async (
+    themeName: string,
+    themeRef: string,
     themes: Theme[] | undefined,
-    isMounted: boolean,
-    installedFromMarketplace: boolean,
-    setInstalledFromMarketplace: (value: boolean) => void,
-    modal: NiceModalHandler<Record<string, unknown>>,
-    checkThemeLimitError: (name: string) => Promise<string | null>,
     installTheme: (ref: string) => Promise<ThemesInstallResponseType>,
     activateTheme: (name: string) => Promise<void>,
     updateRoute: (route: string) => void,
-    handleError: (error: unknown) => void
+    handleError: (error: unknown) => void,
+    modal: NiceModalHandler<Record<string, unknown>>
 ) => {
-    useEffect(() => {
-        const handleUrlInstallation = async () => {
-            if (source && themeRef && !installedFromMarketplace && isMounted) {
-                const themeName = themeRef.split('/')[1];
-
-                const limitError = await checkThemeLimitError(themeName);
-                if (limitError) {
-                    modal.remove();
-                    return;
+    const overwriteInfo = getThemeOverwriteInfo(themeName, themes);
+    
+    NiceModal.show(ConfirmationModal, {
+        title: 'Install Theme',
+        prompt: buildMarketplaceInstallPrompt(themeName, overwriteInfo),
+        okLabel: 'Install',
+        cancelLabel: 'Cancel',
+        okRunningLabel: 'Installing...',
+        okColor: 'black',
+        onOk: async (confirmModal) => {
+            try {
+                if (overwriteInfo.willOverwrite && themes) {
+                    themes.splice(overwriteInfo.index, 1);
                 }
-
-                const existingThemeNames = themes?.map(t => t.name) || [];
-                const willOverwrite = existingThemeNames.includes(themeName.toLowerCase());
-                const index = existingThemeNames.indexOf(themeName.toLowerCase());
-                const themeToOverwrite = themes?.[index];
-
-                const config = buildMarketplaceInstallConfig(themeName, willOverwrite, themeToOverwrite);
-
-                NiceModal.show(ConfirmationModal, {
-                    ...config,
-                    onOk: async (confirmModal) => {
-                        let data: ThemesInstallResponseType | undefined;
-                        setInstalledFromMarketplace(true);
-                        try {
-                            if (willOverwrite && themes) {
-                                themes.splice(index, 1);
-                            }
-                            data = await installTheme(themeRef);
-                            if (data?.themes[0]) {
-                                await activateTheme(data.themes[0].name);
-                                showToast({
-                                    title: 'Theme activated',
-                                    type: 'success',
-                                    message: <div><span className='capitalize'>{data.themes[0].name}</span> is now your active theme</div>
-                                });
-                            }
-                            confirmModal?.remove();
-                            updateRoute('');
-                        } catch (e) {
-                            handleError(e);
-                        }
-                    }
-                });
+                const data = await installTheme(themeRef);
+                if (data?.themes[0]) {
+                    await activateTheme(data.themes[0].name);
+                    showToast({
+                        title: 'Theme activated',
+                        type: 'success',
+                        message: <div><span className='capitalize'>{data.themes[0].name}</span> is now your active theme</div>
+                    });
+                }
+                confirmModal?.remove();
+                updateRoute('');
+            } catch (e) {
+                handleError(e);
             }
-        };
-
-        handleUrlInstallation();
-    }, [themeRef, source, installTheme, handleError, activateTheme, updateRoute, themes, installedFromMarketplace, checkThemeLimitError, modal, isMounted, setInstalledFromMarketplace]);
+        }
+    });
 };
 
-// Builds configuration for theme installation result modal
-const buildInstallationResultConfig = (selectedTheme: OfficialTheme, newlyInstalledTheme: Theme) => {
-    let title = 'Success';
+// Builds prompt for theme installation confirmation
+const buildInstallPrompt = (selectedTheme: OfficialTheme, installedTheme: Theme | InstalledTheme | undefined): React.ReactNode => {
+    return (
+        <>
+            This will overwrite your existing version of {selectedTheme.name}{installedTheme?.active ? ', which is your active theme' : ''}. All custom changes will be lost.
+        </>
+    );
+};
+
+// Builds success prompt after installation
+const buildSuccessPrompt = (theme: Theme | InstalledTheme, isActive: boolean): React.ReactNode => {
     let prompt = <>
-        <strong>{newlyInstalledTheme.name}</strong> has been successfully installed.
+        <strong>{theme.name}</strong> has been successfully installed.
     </>;
 
-    if (!newlyInstalledTheme.active) {
+    if (!isActive) {
         prompt = <>
             {prompt}{' '}
             Do you want to activate it now?
         </>;
     }
 
-    if (newlyInstalledTheme.errors?.length || newlyInstalledTheme.warnings?.length) {
-        const hasErrors = newlyInstalledTheme.errors?.length;
+    return prompt;
+};
 
-        title = `
+// Builds prompt for installation with errors/warnings
+const buildInstallationIssuesPrompt = (theme: Theme | InstalledTheme, hasErrors: boolean, isActive: boolean): React.ReactNode => {
+    let prompt = <>
+        The theme <strong>&quot;{theme.name}&quot;</strong> was installed successfully but we detected some {hasErrors ? 'errors' : 'warnings'}.
+    </>;
+
+    if (!isActive) {
+        prompt = <>
+            {prompt}
+            You are still able to activate and use the theme but it is recommended to contact the theme developer fix these {hasErrors ? 'errors' : 'warnings'} before you do so.
+        </>;
+    }
+
+    return prompt;
+};
+
+const ChangeThemeModal: React.FC<ChangeThemeModalProps> = ({source, themeRef}) => {
+    const [currentTab, setCurrentTab] = useState('official');
+    const [selectedTheme, setSelectedTheme] = useState<OfficialTheme|null>(null);
+    const [previewMode, setPreviewMode] = useState('desktop');
+    const [isInstalling, setInstalling] = useState(false);
+    const [installedFromMarketplace, setInstalledFromMarketplace] = useState(false);
+    const [isMounted, setIsMounted] = useState(false);
+    const {updateRoute} = useRouting();
+
+    const modal = useModal();
+    const {data: {themes} = {}} = useBrowseThemes();
+    const {mutateAsync: installTheme} = useInstallTheme();
+    const {mutateAsync: activateTheme} = useActivateTheme();
+    const {checkThemeLimitError} = useCheckThemeLimitError();
+    const handleError = useHandleError();
+
+    const onSelectTheme = (theme: OfficialTheme|null) => {
+        setSelectedTheme(theme);
+    };
+
+    useEffect(() => {
+        setIsMounted(true);
+    }, []);
+
+    useEffect(() => {
+        const handleUrlInstallation = async () => {
+            if (source && themeRef && !installedFromMarketplace && isMounted) {
+                const themeName = extractThemeNameFromRef(themeRef);
+                const limitError = await checkThemeLimitError(themeName);
+                
+                if (limitError) {
+                    modal.remove();
+                    return;
+                }
+
+                setInstalledFromMarketplace(true);
+                await handleMarketplaceInstallation(
+                    themeName,
+                    themeRef,
+                    themes,
+                    installTheme,
+                    activateTheme,
+                    updateRoute,
+                    handleError,
+                    modal
+                );
+            }
+        };
+
+        handleUrlInstallation();
+    }, [themeRef, source, installTheme, handleError, activateTheme, updateRoute, themes, installedFromMarketplace, checkThemeLimitError, modal, isMounted]);
+
+    if (!themes) {
+        return;
+    }
+
+    let installedTheme: Theme|InstalledTheme|undefined;
+    let onInstall;
+    
+    if (selectedTheme) {
+        installedTheme = themes.find(theme => theme.name.toLowerCase() === selectedTheme!.name.toLowerCase());
+        
+        const performInstallation = async () => {
+            let title = 'Success';
+            let prompt = <></>;
+
+            if (isDefaultOrLegacyTheme(selectedTheme)) {
+                title = 'Activate theme';
+                prompt = <>By clicking below, <strong>{selectedTheme.name}</strong> will automatically be activated as the theme for your site.</>;
+            } else {
+                setInstalling(true);
+                let data: ThemesInstallResponseType | undefined;
+                try {
+                    data = await installTheme(selectedTheme.ref);
+                } catch (e) {
+                    handleError(e);
+                } finally {
+                    setInstalling(false);
+                }
+
+                if (!data) {
+                    return;
+                }
+
+                const newlyInstalledTheme = data.themes[0];
+                const hasErrors = newlyInstalledTheme.errors?.length;
+                const hasWarnings = newlyInstalledTheme.warnings?.length;
+
+                title = 'Success';
+                prompt = buildSuccessPrompt(newlyInstalledTheme, newlyInstalledTheme.active);
+
+                if (hasErrors || hasWarnings) {
+                    title = `Installed with ${hasErrors ? 'errors' : 'warnings'}`;
+                    prompt = buildInstallationIssuesPrompt(newlyInstalledTheme, !!hasErrors, newlyInstalledTheme.active);
+                }
+
+                installedTheme = newlyInstalledTheme;
+            }
+
+            NiceModal.show(ThemeInstalledModal, {
+                title,
+                prompt,
+                installedTheme: installedTheme!,
+                onActivate: () => {
+                    updateRoute('');
+                }
+            });
+        };
+
+        onInstall = async () => {
+            const limitError = await checkThemeLimitError(selectedTheme.name);
+            if (limitError) {
+                NiceModal.show(LimitModal, {
+                    prompt: limitError,
+                    onOk: () => updateRoute({route: '/pro', isExternal: true})
+                });
+                return;
+            }
+
+            if (installedTheme && !isDefaultOrLegacyTheme(selectedTheme)) {
+                return new Promise<void>((resolve) => {
+                    NiceModal.show(ConfirmationModal, {
+                        title: 'Overwrite theme',
+                        prompt: buildInstallPrompt(selectedTheme, installedTheme),
+                        okLabel: 'Overwrite',
+                        okRunningLabel: 'Installing...',
+                        cancelLabel: 'Cancel',
+                        okColor: 'red',
+                        onOk: async (confirmModal) => {
+                            confirmModal?.remove();
+                            await performInstallation();
+                            resolve();
+                        }
+                    });
+                });
+            } else {
+                return performInstallation();
+            }
+        };
+    }
+
+    return (
+        <Modal
+            afterClose={() => {
+                updateRoute('');
+            }}
+            animate={false}
+            cancelLabel=''
+            footer={false}
+            padding={false}
+            size='full'
+            testId='theme-modal'
+            title=''
+            scrolling
+            onCancel={() => {
+                modal.remove();
+                updateRoute('');
+            }}
+        >
+            <div className='flex h-full justify-between'>
+                <div className='grow'>
+                    {selectedTheme &&
+                        <ThemePreview
+                            installedTheme={installedTheme}
+                            isInstalling={isInstalling}
+                            selectedTheme={selectedTheme}
+                            onBack={() => {
+                                setSelectedTheme(null);
+                            }}
+                            onClose={() => {
+                                updateRoute('');
+                            }}
+                            onInstall={onInstall} />
+                    }
+                    <ThemeToolbar
+                        currentTab={currentTab}
+                        modal={modal}
+                        previewMode={previewMode}
+                        selectedTheme={selectedTheme}
+                        setCurrentTab={setCurrentTab}
+                        setPreviewMode={setPreviewMode}
+                        setSelectedTheme={setSelectedTheme}
+                        themes={themes}
+                    />
+                    {!selectedTheme &&
+                        <ThemeModalContent
+                            currentTab={currentTab}
+                            themes={themes}
+                            onSelectTheme={onSelectTheme}
+                        />
+                    }
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
+export default ChangeThemeModal;
+```

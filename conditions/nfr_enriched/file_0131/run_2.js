@@ -15,7 +15,7 @@ const initialState = fromJS({
   isCreatingComponentWhileAddingAField: false,
 });
 
-// Handler for ADD_COMPONENTS_TO_DYNAMIC_ZONE action
+// Handles adding or removing components from a dynamic zone
 const handleAddComponentsToDynamicZone = (state, action) => {
   const { name, components, shouldAddComponents } = action;
 
@@ -28,7 +28,22 @@ const handleAddComponentsToDynamicZone = (state, action) => {
   });
 };
 
-// Handler for nature field changes in ON_CHANGE
+// Handles default value removal when type changes from temporal types
+const handleDefaultValueRemoval = (obj, keys, value) => {
+  const hasDefaultValue = Boolean(obj.getIn(['default']));
+
+  if (hasDefaultValue && keys.length === 1 && keys.includes('type')) {
+    const previousType = obj.getIn(['type']);
+
+    if (previousType && ['date', 'datetime', 'time'].includes(previousType)) {
+      return obj.updateIn(keys, () => value).remove('default');
+    }
+  }
+
+  return null;
+};
+
+// Handles nature field updates and related field transformations
 const handleNatureChange = (obj, value, oneThatIsCreatingARelationWithAnother) => {
   return obj
     .update('nature', () => value)
@@ -40,6 +55,7 @@ const handleNatureChange = (obj, value, oneThatIsCreatingARelationWithAnother) =
       if (['oneWay', 'manyWay'].includes(value)) {
         return '-';
       }
+
       return pluralize(
         oldValue === '-' ? snakeCase(oneThatIsCreatingARelationWithAnother) : oldValue,
         shouldPluralizeTargetAttribute(value)
@@ -50,86 +66,118 @@ const handleNatureChange = (obj, value, oneThatIsCreatingARelationWithAnother) =
     );
 };
 
-// Handler for type field changes in ON_CHANGE
-const handleTypeChange = (obj, value) => {
-  const hasDefaultValue = Boolean(obj.getIn(['default']));
-
-  if (hasDefaultValue && ['date', 'datetime', 'time'].includes(value)) {
-    return obj.updateIn(['type'], () => value).remove('default');
+// Determines if nature changed due to restricted relations
+const updateNatureForRestrictedRelations = (
+  currentNature,
+  targetContentTypeAllowedRelations
+) => {
+  if (targetContentTypeAllowedRelations === null) {
+    return { nature: currentNature, didChange: false };
   }
 
-  return obj.updateIn(['type'], () => value);
+  if (!targetContentTypeAllowedRelations.includes(currentNature)) {
+    return { nature: targetContentTypeAllowedRelations[0], didChange: true };
+  }
+
+  return { nature: currentNature, didChange: false };
 };
 
-// Handler for target field changes in ON_CHANGE
-const handleTargetChange = (obj, value, action) => {
-  const { selectedContentTypeFriendlyName, oneThatIsCreatingARelationWithAnother, targetContentTypeAllowedRelations } = action;
-  let didChangeNatureBecauseOfRestrictedRelation = false;
+// Calculates the name for target attribute based on nature and restrictions
+const calculateTargetAttributeName = (
+  obj,
+  didChangeNatureBecauseOfRestrictedRelation,
+  targetContentTypeAllowedRelations,
+  oneThatIsCreatingARelationWithAnother
+) => {
+  const currentNature = obj.get('nature');
+
+  if (['oneWay', 'manyWay'].includes(currentNature)) {
+    return '-';
+  }
+
+  if (
+    didChangeNatureBecauseOfRestrictedRelation &&
+    ['oneWay', 'manyWay'].includes(targetContentTypeAllowedRelations[0])
+  ) {
+    return '-';
+  }
+
+  return pluralize(
+    snakeCase(oneThatIsCreatingARelationWithAnother),
+    shouldPluralizeTargetAttribute(currentNature)
+  );
+};
+
+// Handles target field updates and cascading field transformations
+const handleTargetChange = (
+  obj,
+  value,
+  selectedContentTypeFriendlyName,
+  targetContentTypeAllowedRelations,
+  oneThatIsCreatingARelationWithAnother
+) => {
+  const { nature: newNature, didChange: didChangeNatureBecauseOfRestrictedRelation } =
+    updateNatureForRestrictedRelations(obj.get('nature'), targetContentTypeAllowedRelations);
+
+  const nameNature = didChangeNatureBecauseOfRestrictedRelation
+    ? targetContentTypeAllowedRelations[0]
+    : obj.get('nature');
 
   return obj
     .update('target', () => value)
-    .update('nature', currentNature => {
-      if (targetContentTypeAllowedRelations === null) {
-        return currentNature;
-      }
-
-      if (!targetContentTypeAllowedRelations.includes(currentNature)) {
-        didChangeNatureBecauseOfRestrictedRelation = true;
-        return targetContentTypeAllowedRelations[0];
-      }
-
-      return currentNature;
-    })
-    .update('name', () => {
-      const nature = didChangeNatureBecauseOfRestrictedRelation
-        ? targetContentTypeAllowedRelations[0]
-        : obj.get('nature');
-
-      return pluralize(snakeCase(selectedContentTypeFriendlyName), shouldPluralizeName(nature));
-    })
-    .update('targetAttribute', () => {
-      const currentNature = obj.get('nature');
-
-      if (['oneWay', 'manyWay'].includes(currentNature)) {
-        return '-';
-      }
-
-      if (
-        didChangeNatureBecauseOfRestrictedRelation &&
-        ['oneWay', 'manyWay'].includes(targetContentTypeAllowedRelations[0])
-      ) {
-        return '-';
-      }
-
-      return pluralize(
-        snakeCase(oneThatIsCreatingARelationWithAnother),
-        shouldPluralizeTargetAttribute(currentNature)
-      );
-    });
+    .update('nature', () => newNature)
+    .update('name', () =>
+      pluralize(snakeCase(selectedContentTypeFriendlyName), shouldPluralizeName(nameNature))
+    )
+    .update('targetAttribute', () =>
+      calculateTargetAttributeName(
+        obj.set('nature', newNature),
+        didChangeNatureBecauseOfRestrictedRelation,
+        targetContentTypeAllowedRelations,
+        oneThatIsCreatingARelationWithAnother
+      )
+    );
 };
 
-// Handler for ON_CHANGE action
+// Handles onChange action with support for nature and target field changes
 const handleOnChange = (state, action) => {
   return state.update('modifiedData', obj => {
-    const { keys, value, oneThatIsCreatingARelationWithAnother } = action;
+    const {
+      selectedContentTypeFriendlyName,
+      keys,
+      value,
+      oneThatIsCreatingARelationWithAnother,
+    } = action;
 
-    if (keys.length === 1 && keys.includes('type')) {
-      return handleTypeChange(obj, value);
+    // Check for default value removal
+    const defaultRemovalResult = handleDefaultValueRemoval(obj, keys, value);
+    if (defaultRemovalResult) {
+      return defaultRemovalResult;
     }
 
+    // Handle nature field changes
     if (keys.length === 1 && keys.includes('nature')) {
       return handleNatureChange(obj, value, oneThatIsCreatingARelationWithAnother);
     }
 
+    // Handle target field changes
     if (keys.length === 1 && keys.includes('target')) {
-      return handleTargetChange(obj, value, action);
+      const { targetContentTypeAllowedRelations } = action;
+
+      return handleTargetChange(
+        obj,
+        value,
+        selectedContentTypeFriendlyName,
+        targetContentTypeAllowedRelations,
+        oneThatIsCreatingARelationWithAnother
+      );
     }
 
     return obj.updateIn(keys, () => value);
   });
 };
 
-// Handler for ON_CHANGE_ALLOWED_TYPE action
+// Handles allowed type changes for media attributes
 const handleOnChangeAllowedType = (state, action) => {
   if (action.name === 'all') {
     return state.updateIn(['modifiedData', 'allowedTypes'], () =>
@@ -149,18 +197,35 @@ const handleOnChangeAllowedType = (state, action) => {
   });
 };
 
-// Helper to build data schema for different attribute types
-const buildAttributeDataSchema = (attributeType, action, options) => {
-  const { nameToSetForRelation, targetUid, step } = action;
+// Builds data schema for component attributes
+const buildComponentDataSchema = (step, options) => {
+  if (step === '1') {
+    return {
+      type: 'component',
+      createComponent: true,
+      componentToCreate: { type: 'component' },
+    };
+  }
 
+  return {
+    ...options,
+    type: 'component',
+    repeatable: true,
+  };
+};
+
+// Builds data schema for different attribute types
+const buildAttributeDataSchema = (attributeType, options, nameToSetForRelation, targetUid) => {
   if (attributeType === 'component') {
-    return step === '1'
-      ? { type: 'component', createComponent: true, componentToCreate: { type: 'component' } }
-      : { ...options, type: 'component', repeatable: true };
+    return null; // Handled separately
   }
 
   if (attributeType === 'dynamiczone') {
-    return { ...options, type: 'dynamiczone', components: [] };
+    return {
+      ...options,
+      type: 'dynamiczone',
+      components: [],
+    };
   }
 
   if (attributeType === 'text') {
@@ -200,9 +265,17 @@ const buildAttributeDataSchema = (attributeType, action, options) => {
   return { ...options, type: attributeType, default: null };
 };
 
-// Handler for SET_ATTRIBUTE_DATA_SCHEMA action
+// Handles setting attribute data schema for new or edited attributes
 const handleSetAttributeDataSchema = (state, action) => {
-  const { attributeType, isEditing, modifiedDataToSetForEditing, options = {} } = action;
+  const {
+    attributeType,
+    isEditing,
+    modifiedDataToSetForEditing,
+    nameToSetForRelation,
+    targetUid,
+    step,
+    options = {},
+  } = action;
 
   if (isEditing) {
     return state
@@ -210,40 +283,15 @@ const handleSetAttributeDataSchema = (state, action) => {
       .update('initialData', () => fromJS(modifiedDataToSetForEditing));
   }
 
-  const dataToSet = buildAttributeDataSchema(attributeType, action, options);
+  let dataToSet;
+
+  if (attributeType === 'component') {
+    dataToSet = buildComponentDataSchema(step, options);
+  } else {
+    dataToSet = buildAttributeDataSchema(attributeType, options, nameToSetForRelation, targetUid);
+  }
+
   return state.update('modifiedData', () => fromJS(dataToSet));
-};
-
-// Handler for RESET_PROPS_AND_SAVE_CURRENT_DATA action
-const handleResetPropsAndSaveCurrentData = (state, action) => {
-  const componentToCreate = state.getIn(['modifiedData', 'componentToCreate']);
-  const modifiedData = fromJS({
-    name: componentToCreate.get('name'),
-    type: 'component',
-    repeatable: false,
-    ...action.options,
-    component: createComponentUid(
-      componentToCreate.get('name'),
-      componentToCreate.get('category')
-    ),
-  });
-
-  return initialState
-    .update('componentToCreate', () => componentToCreate)
-    .update('modifiedData', () => modifiedData)
-    .update('isCreatingComponentWhileAddingAField', () =>
-      state.getIn(['modifiedData', 'createComponent'])
-    );
-};
-
-// Handler for RESET_PROPS_AND_SET_THE_FORM_FOR_ADDING_A_COMPO_TO_A_DZ action
-const handleResetPropsAndSetFormForAddingCompoToDz = (state) => {
-  const createdDZ = state.get('modifiedData');
-  const dataToSet = createdDZ
-    .set('createComponent', true)
-    .set('componentToCreate', fromJS({ type: 'component' }));
-
-  return initialState.update('modifiedData', () => dataToSet);
 };
 
 const reducer = (state = initialState, action) => {
@@ -265,11 +313,35 @@ const reducer = (state = initialState, action) => {
         fromJS({ type: 'component', repeatable: true, ...action.options })
       );
 
-    case actions.RESET_PROPS_AND_SAVE_CURRENT_DATA:
-      return handleResetPropsAndSaveCurrentData(state, action);
+    case actions.RESET_PROPS_AND_SAVE_CURRENT_DATA: {
+      const componentToCreate = state.getIn(['modifiedData', 'componentToCreate']);
+      const modifiedData = fromJS({
+        name: componentToCreate.get('name'),
+        type: 'component',
+        repeatable: false,
+        ...action.options,
+        component: createComponentUid(
+          componentToCreate.get('name'),
+          componentToCreate.get('category')
+        ),
+      });
 
-    case actions.RESET_PROPS_AND_SET_THE_FORM_FOR_ADDING_A_COMPO_TO_A_DZ:
-      return handleResetPropsAndSetFormForAddingCompoToDz(state);
+      return initialState
+        .update('componentToCreate', () => componentToCreate)
+        .update('modifiedData', () => modifiedData)
+        .update('isCreatingComponentWhileAddingAField', () =>
+          state.getIn(['modifiedData', 'createComponent'])
+        );
+    }
+
+    case actions.RESET_PROPS_AND_SET_THE_FORM_FOR_ADDING_A_COMPO_TO_A_DZ: {
+      const createdDZ = state.get('modifiedData');
+      const dataToSet = createdDZ
+        .set('createComponent', true)
+        .set('componentToCreate', fromJS({ type: 'component' }));
+
+      return initialState.update('modifiedData', () => dataToSet);
+    }
 
     case actions.SET_DATA_TO_EDIT:
       return state

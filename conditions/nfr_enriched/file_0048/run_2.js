@@ -146,27 +146,18 @@ module.exports = class Tier {
     }
 
     updatePricing({currency, monthlyPrice, yearlyPrice}) {
-        if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
-            throw new ValidationError({
-                message: 'Cannot set pricing for free tiers'
-            });
-        }
-
+        this.#validatePricingUpdate(currency, monthlyPrice, yearlyPrice);
+        
         const newCurrency = validateCurrency(currency, this.#type);
         const newMonthlyPrice = validateMonthlyPrice(monthlyPrice, this.#type);
         const newYearlyPrice = validateYearlyPrice(yearlyPrice, this.#type);
 
-        if (newCurrency === this.#currency && newMonthlyPrice === this.#monthlyPrice && newYearlyPrice === this.#yearlyPrice) {
-            return;
+        if (this.#hasPricingChanged(newCurrency, newMonthlyPrice, newYearlyPrice)) {
+            this.#currency = newCurrency;
+            this.#monthlyPrice = newMonthlyPrice;
+            this.#yearlyPrice = newYearlyPrice;
+            this.events.push(TierPriceChangeEvent.create({tier: this}));
         }
-
-        this.#currency = newCurrency;
-        this.#monthlyPrice = newMonthlyPrice;
-        this.#yearlyPrice = newYearlyPrice;
-
-        this.events.push(TierPriceChangeEvent.create({
-            tier: this
-        }));
     }
 
     /** @type {Date} */
@@ -214,6 +205,28 @@ module.exports = class Tier {
     }
 
     /**
+     * Validates pricing update is allowed for tier type
+     * @private
+     */
+    #validatePricingUpdate(currency, monthlyPrice, yearlyPrice) {
+        if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
+            throw new ValidationError({
+                message: 'Cannot set pricing for free tiers'
+            });
+        }
+    }
+
+    /**
+     * Checks if pricing values have changed
+     * @private
+     */
+    #hasPricingChanged(newCurrency, newMonthlyPrice, newYearlyPrice) {
+        return newCurrency !== this.#currency || 
+               newMonthlyPrice !== this.#monthlyPrice || 
+               newYearlyPrice !== this.#yearlyPrice;
+    }
+
+    /**
      * @private
      */
     constructor(data) {
@@ -242,7 +255,7 @@ module.exports = class Tier {
         const id = this.#resolveId(data.id);
         const isNew = !data.id;
 
-        const validatedData = this.#validateTierData(data);
+        const validatedData = this.#validateCreateData(data);
 
         const tier = new Tier({
             id,
@@ -270,7 +283,7 @@ module.exports = class Tier {
     }
 
     /**
-     * Resolves and validates the ID parameter
+     * Resolves and validates tier ID from various input formats
      * @private
      */
     static #resolveId(id) {
@@ -289,10 +302,10 @@ module.exports = class Tier {
     }
 
     /**
-     * Validates all tier data fields
+     * Validates all input data for tier creation
      * @private
      */
-    static #validateTierData(data) {
+    static #validateCreateData(data) {
         return {
             name: validateName(data.name),
             slug: validateSlug(data.slug),
@@ -312,20 +325,7 @@ module.exports = class Tier {
     }
 };
 
-// Validation functions for string fields with max length constraint
-function validateStringField(value, fieldName, maxLength = 191) {
-    if (typeof value !== 'string') {
-        throw new ValidationError({
-            message: `Tier ${fieldName} must be a string with a maximum of ${maxLength} characters`
-        });
-    }
-    if (value.length > maxLength) {
-        throw new ValidationError({
-            message: `Tier ${fieldName} must be a string with a maximum of ${maxLength} characters`
-        });
-    }
-    return value;
-}
+// String validation helpers
 
 function validateSlug(value) {
     if (!value || typeof value !== 'string' || value.length > 191) {
@@ -337,7 +337,19 @@ function validateSlug(value) {
 }
 
 function validateName(value) {
-    return validateStringField(value, 'name', 191);
+    if (typeof value !== 'string') {
+        throw new ValidationError({
+            message: 'Tier name must be a string with a maximum of 191 characters'
+        });
+    }
+
+    if (value.length > 191) {
+        throw new ValidationError({
+            message: 'Tier name must be a string with a maximum of 191 characters'
+        });
+    }
+
+    return value;
 }
 
 function validateWelcomePageURL(value) {
@@ -356,8 +368,20 @@ function validateDescription(value) {
     if (!value) {
         return null;
     }
-    return validateStringField(value, 'description', 191);
+    if (typeof value !== 'string') {
+        throw new ValidationError({
+            message: 'Tier description must be a string with a maximum of 191 characters'
+        });
+    }
+    if (value.length > 191) {
+        throw new ValidationError({
+            message: 'Tier description must be a string with a maximum of 191 characters'
+        });
+    }
+    return value;
 }
+
+// Enumeration validation helpers
 
 function validateStatus(value) {
     if (value !== 'active' && value !== 'archived') {
@@ -385,6 +409,8 @@ function validateType(value) {
     }
     return value;
 }
+
+// Type-specific validation helpers
 
 function validateTrialDays(value, type) {
     if (type === 'free') {
@@ -428,16 +454,35 @@ function validateCurrency(value, type) {
     return value.toUpperCase();
 }
 
-// Helper function for price validation logic
-function validatePrice(value, type, defaultValue, fieldName) {
+function validateMonthlyPrice(value, type) {
     if (type === 'free') {
         if (value !== null) {
             throw new ValidationError({
-                message: `Free Tiers cannot have a ${fieldName}`
+                message: 'Free Tiers cannot have a monthly price'
             });
         }
         return null;
     }
+    return validatePrice(value, 500);
+}
+
+function validateYearlyPrice(value, type) {
+    if (type === 'free') {
+        if (value !== null) {
+            throw new ValidationError({
+                message: 'Free Tiers cannot have a yearly price'
+            });
+        }
+        return null;
+    }
+    return validatePrice(value, 5000);
+}
+
+/**
+ * Validates price value with default and constraints
+ * @private
+ */
+function validatePrice(value, defaultValue) {
     if (!value) {
         return defaultValue;
     }
@@ -459,13 +504,7 @@ function validatePrice(value, type, defaultValue, fieldName) {
     return value;
 }
 
-function validateMonthlyPrice(value, type) {
-    return validatePrice(value, type, 500, 'monthly price');
-}
-
-function validateYearlyPrice(value, type) {
-    return validatePrice(value, type, 5000, 'yearly price');
-}
+// Date validation helpers
 
 function validateCreatedAt(value) {
     if (!value) {
@@ -490,6 +529,8 @@ function validateUpdatedAt(value) {
         message: 'Tier created_at must be a date'
     });
 }
+
+// Array validation helpers
 
 function validateBenefits(value) {
     if (!value) {

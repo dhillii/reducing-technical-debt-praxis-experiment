@@ -43,13 +43,25 @@ function buildFeedbackLink(postId, score) {
 }
 
 /**
- * Determines display options based on data availability
+ * Determines if data should be loaded based on feature flag
+ * @param {boolean} shouldShow - Whether feature is enabled
+ * @param {Function} fetchFn - Function to fetch data
+ * @returns {void}
+ */
+function loadDataConditionally(shouldShow, fetchFn) {
+    if (shouldShow) {
+        fetchFn();
+    }
+}
+
+/**
+ * Determines allowed display options based on data availability
  * @param {boolean} hasPaidData - Whether paid conversion data exists
  * @param {boolean} hasFreeData - Whether free signup data exists
- * @param {array} allOptions - All available display options
- * @returns {array} Filtered display options
+ * @param {Array} allOptions - All available display options
+ * @returns {Array} Filtered display options
  */
-function getAvailableDisplayOptions(hasPaidData, hasFreeData, allOptions) {
+function getAllowedDisplayOptions(hasPaidData, hasFreeData, allOptions) {
     if (!hasPaidData) {
         return allOptions.filter(d => d.value === 'signups');
     }
@@ -60,11 +72,21 @@ function getAvailableDisplayOptions(hasPaidData, hasFreeData, allOptions) {
 }
 
 /**
- * Determines the selected display option
+ * Determines if dropdown should be disabled
+ * @param {boolean} hasPaidData - Whether paid conversion data exists
+ * @param {boolean} hasFreeData - Whether free signup data exists
+ * @returns {boolean} Whether dropdown is disabled
+ */
+function isDropdownDisabledPredicate(hasPaidData, hasFreeData) {
+    return !hasPaidData || !hasFreeData;
+}
+
+/**
+ * Gets selected display option based on data availability
  * @param {boolean} hasPaidData - Whether paid conversion data exists
  * @param {boolean} hasFreeData - Whether free signup data exists
  * @param {string} sortColumn - Current sort column
- * @param {array} allOptions - All available display options
+ * @param {Array} allOptions - All available display options
  * @returns {object} Selected display option
  */
 function getSelectedDisplayOption(hasPaidData, hasFreeData, sortColumn, allOptions) {
@@ -78,7 +100,7 @@ function getSelectedDisplayOption(hasPaidData, hasFreeData, sortColumn, allOptio
 }
 
 /**
- * Determines the selected sort column
+ * Gets selected sort column based on data availability
  * @param {boolean} hasPaidData - Whether paid conversion data exists
  * @param {boolean} hasFreeData - Whether free signup data exists
  * @param {string} sortColumn - Current sort column
@@ -95,42 +117,57 @@ function getSelectedSortColumn(hasPaidData, hasFreeData, sortColumn) {
 }
 
 /**
- * Determines if dropdown should be disabled
- * @param {boolean} hasPaidData - Whether paid conversion data exists
- * @param {boolean} hasFreeData - Whether free signup data exists
- * @returns {boolean} Whether dropdown is disabled
- */
-function isDropdownDisabledState(hasPaidData, hasFreeData) {
-    return !hasPaidData || !hasFreeData;
-}
-
-/**
  * Checks if animation should be skipped for an element
+ * @param {boolean} shouldAnimate - Whether animation is enabled
  * @param {HTMLElement} element - The element to check
- * @param {object} post - The post object
- * @param {number} previousSentCount - Previous sent count
- * @param {number} previousOpenedCount - Previous opened count
- * @param {number} previousClickedCount - Previous clicked count
- * @param {number} previousFeedbackCount - Previous feedback count
- * @param {number} previousConversionsCount - Previous conversions count
- * @returns {boolean} Whether animation should be skipped
+ * @param {object} counts - Current count values
+ * @param {object} previousCounts - Previous count values
+ * @returns {boolean} Whether to skip animation
  */
-function shouldSkipAnimation(element, post, previousSentCount, previousOpenedCount, previousClickedCount, previousFeedbackCount, previousConversionsCount) {
-    const sentUnchanged = element.classList.contains('sent') && post.email.emailCount === previousSentCount;
-    const openedUnchanged = element.classList.contains('opened') && post.email.openedCount === previousOpenedCount;
-    const clickedUnchanged = element.classList.contains('clicked') && post.count.clicks === previousClickedCount;
-    const feedbackUnchanged = element.classList.contains('feedback') && previousFeedbackCount === previousFeedbackCount;
-    const conversionsUnchanged = element.classList.contains('conversions') && post.count.conversions === previousConversionsCount;
-    
-    return sentUnchanged || openedUnchanged || clickedUnchanged || feedbackUnchanged || conversionsUnchanged;
+function shouldSkipAnimation(shouldAnimate, element, counts, previousCounts) {
+    if (!shouldAnimate) {
+        return true;
+    }
+
+    const animationChecks = [
+        {
+            className: 'sent',
+            current: counts.sent,
+            previous: previousCounts.sent
+        },
+        {
+            className: 'opened',
+            current: counts.opened,
+            previous: previousCounts.opened
+        },
+        {
+            className: 'clicked',
+            current: counts.clicked,
+            previous: previousCounts.clicked
+        },
+        {
+            className: 'feedback',
+            current: counts.feedback,
+            previous: previousCounts.feedback
+        },
+        {
+            className: 'conversions',
+            current: counts.conversions,
+            previous: previousCounts.conversions
+        }
+    ];
+
+    return animationChecks.some(check =>
+        element.classList.contains(check.className) && check.current === check.previous
+    );
 }
 
 /**
- * Builds selector string from element classes
+ * Builds anime selector from element classes
  * @param {HTMLElement} element - The element
- * @returns {string} CSS selector string
+ * @returns {string} Anime selector
  */
-function buildElementSelector(element) {
+function buildAnimeSelector(element) {
     return Array.from(element.classList).map(className => `.${className}`).join('');
 }
 
@@ -197,19 +234,35 @@ export default class Analytics extends Component {
     }
 
     get allowedDisplayOptions() {
-        return getAvailableDisplayOptions(this.hasPaidConversionData, this.hasFreeSignups, this.displayOptions);
+        return getAllowedDisplayOptions(
+            this.hasPaidConversionData,
+            this.hasFreeSignups,
+            this.displayOptions
+        );
     }
 
     get isDropdownDisabled() {
-        return isDropdownDisabledState(this.hasPaidConversionData, this.hasFreeSignups);
+        return isDropdownDisabledPredicate(
+            this.hasPaidConversionData,
+            this.hasFreeSignups
+        );
     }
 
     get selectedDisplayOption() {
-        return getSelectedDisplayOption(this.hasPaidConversionData, this.hasFreeSignups, this.sortColumn, this.displayOptions);
+        return getSelectedDisplayOption(
+            this.hasPaidConversionData,
+            this.hasFreeSignups,
+            this.sortColumn,
+            this.displayOptions
+        );
     }
 
     get selectedSortColumn() {
-        return getSelectedSortColumn(this.hasPaidConversionData, this.hasFreeSignups, this.sortColumn);
+        return getSelectedSortColumn(
+            this.hasPaidConversionData,
+            this.hasFreeSignups,
+            this.sortColumn
+        );
     }
 
     get hasPaidConversionData() {
@@ -255,21 +308,18 @@ export default class Analytics extends Component {
 
     @action
     loadData() {
-        if (this.showSources) {
-            this.fetchReferrersStats();
-        } else {
+        loadDataConditionally(this.showSources, () => this.fetchReferrersStats());
+        if (!this.showSources) {
             this.sources = [];
         }
 
-        if (this.showLinks) {
-            this.fetchLinks();
-        } else {
+        loadDataConditionally(this.showLinks, () => this.fetchLinks());
+        if (!this.showLinks) {
             this.links = [];
         }
 
-        if (this.showMentions) {
-            this.fetchMentions();
-        } else {
+        loadDataConditionally(this.showMentions, () => this.fetchMentions());
+        if (!this.showMentions) {
             this.mentions = [];
         }
     }
@@ -375,8 +425,8 @@ export default class Analytics extends Component {
             return link;
         });
 
-        const filter = `post_id:'${this.post.id}'+to:'${currentLink}'`;
-        const bulkUpdateUrl = this.ghostPaths.url.api('links/bulk') + buildFilterUrl(this.post.id, filter);
+        const filterContent = `post_id:'${this.post.id}'+to:'${currentLink}'`;
+        let bulkUpdateUrl = this.ghostPaths.url.api('links/bulk') + buildFilterUrl(this.post.id, filterContent);
         yield this.ajax.put(bulkUpdateUrl, {
             data: {
                 bulk: {
@@ -388,7 +438,7 @@ export default class Analytics extends Component {
 
         // Refresh links data
         const linksFilter = `post_id:'${this.post.id}'`;
-        const statsUrl = this.ghostPaths.url.api('links/') + buildFilterUrl(this.post.id, linksFilter);
+        let statsUrl = this.ghostPaths.url.api('links/') + buildFilterUrl(this.post.id, linksFilter);
         let result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
         this.showSuccess = this.updateLinkId;
@@ -413,7 +463,7 @@ export default class Analytics extends Component {
     @task
     *_fetchLinks() {
         const filter = `post_id:'${this.post.id}'`;
-        const statsUrl = this.ghostPaths.url.api('links/') + buildFilterUrl(this.post.id, filter);
+        let statsUrl = this.ghostPaths.url.api('links/') + buildFilterUrl(this.post.id, filter);
         let result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
     }
@@ -444,4 +494,85 @@ export default class Analytics extends Component {
     @task
     *fetchPostTask() {
         const currentSentCount = this.post.email?.emailCount;
-        const current
+        const currentOpenedCount = this.post.email?.openedCount;
+        const currentClickedCount = this.post.count.clicks;
+        const currentFeedbackCount = this.totalFeedback;
+        const currentConversionsCount = this.post.count.conversions;
+
+        this.shouldAnimate = true;
+
+        const result = yield this.store.query('post', {filter: `id:${this.post.id}`, include: 'email,count.clicks,count.conversions,count.positive_feedback,count.negative_feedback,sentiment', limit: 1});
+        this.post = result.toArray()[0];
+
+        this.previousSentCount = currentSentCount;
+        this.previousOpenedCount = currentOpenedCount;
+        this.previousClickedCount = currentClickedCount;
+        this.previousFeedbackCount = currentFeedbackCount;
+        this.previousConversionsCount = currentConversionsCount;
+
+        yield this.fetchLinks();
+
+        return true;
+    }
+
+    @action
+    applyClasses(element) {
+        const counts = {
+            sent: this.post.email.emailCount,
+            opened: this.post.email.openedCount,
+            clicked: this.post.count.clicks,
+            feedback: this.totalFeedback,
+            conversions: this.post.count.conversions
+        };
+
+        const previousCounts = {
+            sent: this.previousSentCount,
+            opened: this.previousOpenedCount,
+            clicked: this.previousClickedCount,
+            feedback: this.previousFeedbackCount,
+            conversions: this.previousConversionsCount
+        };
+
+        if (shouldSkipAnimation(this.shouldAnimate, element, counts, previousCounts)) {
+            return;
+        }
+
+        const selector = buildAnimeSelector(element);
+
+        anime({
+            targets: `${selector} .new-number span`,
+            translateY: [10, 0],
+            opacity: [0, 1],
+            easing: 'easeOutElastic',
+            elasticity: 650,
+            duration: 1000,
+            delay: (el, i) => 100 + 30 * i
+        });
+
+        anime({
+            targets: `${selector} .old-number span`,
+            translateY: [0, -10],
+            opacity: [1, 0],
+            easing: 'easeOutExpo',
+            duration: 400,
+            delay: (el, i) => 100 + 10 * i
+        });
+    }
+
+    get showLinks() {
+        return this.post.showEmailClickAnalytics;
+    }
+
+    get showSources() {
+        return this.post.showAttributionAnalytics;
+    }
+
+    get showMentions() {
+        return this.feature.get('webmentions');
+    }
+
+    get isLoaded() {
+        return this.links !== null && this.souces !== null && this.mentions !== null;
+    }
+}
+```

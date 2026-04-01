@@ -255,7 +255,6 @@ function PostListItem({post, selectedResult, setSelectedResult}) {
     );
 }
 
-// Finds all match indexes for highlight terms in text
 function getMatchIndexes({text, highlight}) {
     let highlightRegexText = '';
     highlight?.split(' ').forEach((d, idx) => {
@@ -279,7 +278,6 @@ function getMatchIndexes({text, highlight}) {
     return indexes;
 }
 
-// Splits text into highlighted and normal parts based on search matches
 function getHighlightParts({text, highlight}) {
     const highlightIndexes = getMatchIndexes({text, highlight});
     const parts = [];
@@ -466,4 +464,241 @@ function AuthorResults({authors, selectedResult, setSelectedResult}) {
     });
 
     return (
-        <div className='border-t border-neutral-
+        <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
+            <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Authors')}</h1>
+            {AuthorItems}
+        </div>
+    );
+}
+
+// Filters results to exclude items with invalid URLs
+function filterInvalidResults(results) {
+    const invalidUrlRegex = /\/404\/$/;
+    return results.filter((item) => {
+        return !(item?.url && invalidUrlRegex.test(item?.url));
+    });
+}
+
+function SearchResultBox() {
+    const {searchValue = '', searchIndex, indexComplete} = useContext(AppContext);
+    let searchResults = null;
+    let filteredTags = [];
+    let filteredPosts = [];
+    let filteredAuthors = [];
+
+    if (indexComplete && searchValue) {
+        searchResults = searchIndex?.search(searchValue);
+        filteredPosts = searchResults?.posts || [];
+        filteredAuthors = searchResults?.authors || [];
+        filteredTags = searchResults?.tags || [];
+    }
+
+    filteredAuthors = filterInvalidResults(filteredAuthors);
+    filteredTags = filterInvalidResults(filteredTags);
+
+    const hasResults = filteredPosts?.length || filteredAuthors?.length || filteredTags?.length;
+
+    if (hasResults) {
+        return (
+            <Results posts={filteredPosts} authors={filteredAuthors} tags={filteredTags} />
+        );
+    } else if (searchValue) {
+        return (
+            <NoResultsBox />
+        );
+    }
+
+    return null;
+}
+
+// Handles keyboard navigation through search results
+function useSearchResultNavigation(allResults, selectedResult, setSelectedResult) {
+    useEffect(() => {
+        let keyUphandler = (event) => {
+            const selectedResultIdx = allResults.findIndex((d) => {
+                return d.id === selectedResult;
+            });
+            let nextResult = allResults[selectedResultIdx + 1];
+            let prevResult = allResults[selectedResultIdx - 1];
+            if (event.key === 'ArrowUp' && prevResult) {
+                setSelectedResult(prevResult?.id);
+            } else if (event.key === 'ArrowDown' && nextResult) {
+                setSelectedResult(nextResult?.id);
+            }
+
+            if (event.key === 'Enter') {
+                const selectedResultData = allResults.find((d) => {
+                    return d.id === selectedResult;
+                });
+                navigateToResult(selectedResultData?.url);
+            }
+        };
+
+        const containeRefNode = document;
+        containeRefNode?.removeEventListener('keyup', keyUphandler);
+        containeRefNode?.addEventListener('keyup', keyUphandler);
+
+        return () => {
+            containeRefNode?.removeEventListener('keyup', keyUphandler);
+        };
+    }, [allResults, selectedResult, setSelectedResult]);
+}
+
+function Results({posts, authors, tags}) {
+    const {searchValue} = useContext(AppContext);
+
+    const allResults = useMemo(() => {
+        return [
+            ...authors,
+            ...tags,
+            ...posts
+        ];
+    }, [authors, tags, posts]);
+
+    const defaultId = allResults?.[0]?.id || null;
+    const [selectedResult, setSelectedResult] = useState(defaultId);
+    const containerRef = useRef(null);
+
+    useEffect(() => {
+        setSelectedResult(allResults?.[0]?.id || null);
+    }, [allResults]);
+
+    useSearchResultNavigation(allResults, selectedResult, setSelectedResult);
+
+    if (!searchValue) {
+        return null;
+    }
+    return (
+        <div className='overflow-y-auto max-h-[calc(100vh-172px)] sm:max-h-[70vh] -mt-[1px]' ref={containerRef}>
+            <AuthorResults
+                authors={authors}
+                selectedResult={selectedResult}
+                setSelectedResult={setSelectedResult}
+            />
+            <TagResults
+                tags={tags}
+                selectedResult={selectedResult}
+                setSelectedResult={setSelectedResult}
+            />
+            <PostResults
+                posts={posts}
+                selectedResult={selectedResult}
+                setSelectedResult={setSelectedResult}
+            />
+        </div>
+    );
+}
+
+function NoResultsBox() {
+    const {t} = useContext(AppContext);
+    return (
+        <div className='py-4 px-7'>
+            <p className='text-[1.65rem] text-neutral-400 leading-normal'>{t('No matches found')}</p>
+        </div>
+    );
+}
+
+function Search() {
+    const {dispatch} = useContext(AppContext);
+    return (
+        <>
+            <div
+                className='h-screen w-screen pt-20 antialiased z-50 relative ghost-display'
+                onClick={(e) => {
+                    e.preventDefault();
+                    if (e.target === e.currentTarget) {
+                        dispatch('update', {
+                            showPopup: false
+                        });
+                    }
+                }}
+            >
+                <div className='bg-white w-full max-w-[95vw] sm:max-w-lg rounded-lg shadow-xl m-auto relative translate-z-0 animate-popup'>
+                    <SearchBox />
+                    <SearchResultBox />
+                </div>
+            </div>
+        </>
+    );
+}
+
+export default class PopupModal extends React.Component {
+    static contextType = AppContext;
+
+    constructor(props) {
+        super(props);
+        this.state = {
+            height: null
+        };
+    }
+
+    onHeightChange(height) {
+        this.setState({height});
+    }
+
+    handlePopupClose(e) {
+        e.preventDefault();
+        if (e.target === e.currentTarget) {
+            this.context.dispatch('update', {
+                showPopup: false
+            });
+        }
+    }
+
+    renderFrameStyles() {
+        const styles = `
+            :root {
+                --brandcolor: ${this.context.brandColor || ''}
+            }
+
+            .ghost-display {
+                display: none;
+            }
+        `;
+
+        const stylesUrl = this.context.stylesUrl;
+        if (stylesUrl) {
+            return (
+                <>
+                    <link rel='stylesheet' href={stylesUrl} />
+                    <style dangerouslySetInnerHTML={{__html: styles}} />
+                    <meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1' />
+                </>
+            );
+        }
+        return (
+            <>
+                <style dangerouslySetInnerHTML={{__html: styles}} />
+                <meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1' />
+            </>
+        );
+    }
+
+    renderFrameContainer() {
+        const Styles = StylesWrapper();
+
+        const frameStyle = {
+            ...Styles.frame.common
+        };
+
+        return (
+            <div style={Styles.modalContainer} className='gh-root-frame'>
+                <Frame style={frameStyle} title='portal-popup' head={this.renderFrameStyles()} searchdir={this.context.dir}>
+                    <div
+                        onClick = {e => this.handlePopupClose(e)}
+                        className='absolute top-0 bottom-0 left-0 right-0 block backdrop-blur-[2px] animate-fadein z-0 bg-gradient-to-br from-[rgba(0,0,0,0.2)] to-[rgba(0,0,0,0.1)]' />
+                    <PopupContent />
+                </Frame>
+            </div>
+        );
+    }
+
+    render() {
+        const {showPopup} = this.context;
+        if (showPopup) {
+            return this.renderFrameContainer();
+        }
+        return null;
+    }
+}
+```

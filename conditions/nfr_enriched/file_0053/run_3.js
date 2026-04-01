@@ -76,26 +76,26 @@ exports.usage = function() {
 exports.initOptions = function() {
   exports._options = Object.keys(grunt.cli.optlist).map(function(long) {
     const option = grunt.cli.optlist[long];
-    const col1 = buildOptionColumn(long, option);
+    const col1 = buildOptionString(long, option);
     exports.initCol1(col1);
     return [col1, option.info];
   });
 };
 
 /**
- * Constructs the first column text for an option in the help table.
+ * Constructs the option string for display (e.g., "--option, -o").
  * @param {string} long - The long option name
  * @param {Object} option - The option configuration object
- * @returns {string} The formatted option column text
+ * @returns {string} The formatted option string
  */
-function buildOptionColumn(long, option) {
+function buildOptionString(long, option) {
   const prefix = '--' + (option.negate ? 'no-' : '') + long;
-  const suffix = option.short ? ', -' + option.short : '';
-  return prefix + suffix;
+  const shortForm = option.short ? ', -' + option.short : '';
+  return prefix + shortForm;
 }
 
 /**
- * Displays the options section of the help output.
+ * Displays the options table.
  */
 exports.options = function() {
   grunt.log.header('Options');
@@ -103,7 +103,7 @@ exports.options = function() {
 };
 
 /**
- * Displays footer information about options marked with asterisks.
+ * Displays footer information about options.
  */
 exports.optionsFooter = function() {
   grunt.log.writeln().writelns(
@@ -117,25 +117,16 @@ exports.optionsFooter = function() {
  */
 exports.initTasks = function() {
   grunt.task.init([], {help: true});
-  exports._tasks = collectTasks();
+  exports._tasks = [];
+  Object.keys(grunt.task._tasks).forEach(function(name) {
+    const task = grunt.task._tasks[name];
+    exports.initCol1(name);
+    exports._tasks.push(task);
+  });
 };
 
 /**
- * Collects all registered tasks and updates column width accordingly.
- * @returns {Array} Array of task objects
- */
-function collectTasks() {
-  const tasks = [];
-  Object.keys(grunt.task._tasks).forEach(function(name) {
-    exports.initCol1(name);
-    const task = grunt.task._tasks[name];
-    tasks.push(task);
-  });
-  return tasks;
-}
-
-/**
- * Displays the available tasks section of the help output.
+ * Displays available tasks and related information.
  */
 exports.tasks = function() {
   grunt.log.header('Available tasks');
@@ -151,7 +142,7 @@ exports.tasks = function() {
 };
 
 /**
- * Displays a message when no tasks are found.
+ * Displays message when no tasks are found.
  */
 function displayNoTasksMessage() {
   grunt.log.writeln('(no tasks found)');
@@ -161,29 +152,11 @@ function displayNoTasksMessage() {
  * Displays the table of available tasks.
  */
 function displayTasksTable() {
-  const taskRows = exports._tasks.map(function(task) {
-    return formatTaskRow(task);
-  });
-  exports.table(taskRows);
-}
+  exports.table(exports._tasks.map(function(task) {
+    const info = formatTaskInfo(task);
+    return [task.name, info];
+  }));
 
-/**
- * Formats a single task row for the tasks table.
- * @param {Object} task - The task object
- * @returns {Array} Array containing [taskName, taskInfo]
- */
-function formatTaskRow(task) {
-  let info = task.info;
-  if (task.multi) {
-    info += ' *';
-  }
-  return [task.name, info];
-}
-
-/**
- * Displays footer information about multi-tasks.
- */
-function displayTasksFooter() {
   grunt.log.writeln().writelns(
     'Tasks run in the order specified. Arguments may be passed to tasks that ' +
     'accept them by using colons, like "lint:files". Tasks marked with * are ' +
@@ -193,7 +166,20 @@ function displayTasksFooter() {
 }
 
 /**
- * Displays a disclaimer about task availability.
+ * Formats task information string, appending * for multi-tasks.
+ * @param {Object} task - The task object
+ * @returns {string} The formatted task info
+ */
+function formatTaskInfo(task) {
+  let info = task.info;
+  if (task.multi) {
+    info += ' *';
+  }
+  return info;
+}
+
+/**
+ * Displays disclaimer about task list variability.
  */
 function displayTasksDisclaimer() {
   grunt.log.writeln().writelns(
@@ -203,7 +189,7 @@ function displayTasksDisclaimer() {
 }
 
 /**
- * Displays the help footer with a link to the Grunt documentation.
+ * Displays the help footer with link to documentation.
  */
 exports.footer = function() {
   grunt.log.writeln().writeln('For more information, see http://gruntjs.com/');

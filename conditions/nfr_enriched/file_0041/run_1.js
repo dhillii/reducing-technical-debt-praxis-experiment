@@ -69,167 +69,6 @@ function validateDateRange(begin, end, operationName) {
     return true;
 }
 
-/**
- * Calculates the delta between current and previous processing results
- * @param {EventProcessingResult} current
- * @param {Object} previous
- * @returns {EventProcessingResult}
- */
-function calculateResultDelta(current, previous) {
-    return new EventProcessingResult({
-        opened: current.opened - previous.opened,
-        delivered: current.delivered - previous.delivered,
-        temporaryFailed: current.temporaryFailed - previous.temporaryFailed,
-        permanentFailed: current.permanentFailed - previous.permanentFailed,
-        unsubscribed: current.unsubscribed - previous.unsubscribed,
-        complained: current.complained - previous.complained,
-        unhandled: current.unhandled - previous.unhandled,
-        unprocessable: current.unprocessable - previous.unprocessable,
-        emailIds: current.emailIds.filter(id => !previous.emailIds.has(id)),
-        memberIds: current.memberIds.filter(id => !previous.memberIds.has(id))
-    });
-}
-
-/**
- * Determines if intermediate aggregation should occur
- * @param {number} timeSinceLastAggregation
- * @param {number} memberCount
- * @param {number} eventCount
- * @returns {boolean}
- */
-function shouldAggregateIntermediate(timeSinceLastAggregation, memberCount, eventCount) {
-    return (timeSinceLastAggregation > AGGREGATION_INTERVAL_MS || memberCount > AGGREGATION_MEMBER_THRESHOLD) && eventCount > 0;
-}
-
-/**
- * Captures the current state of a processing result for delta calculation
- * @param {EventProcessingResult} result
- * @returns {Object}
- */
-function captureResultState(result) {
-    return {
-        opened: result.opened,
-        delivered: result.delivered,
-        temporaryFailed: result.temporaryFailed,
-        permanentFailed: result.permanentFailed,
-        unsubscribed: result.unsubscribed,
-        complained: result.complained,
-        unhandled: result.unhandled,
-        unprocessable: result.unprocessable,
-        emailIds: new Set(result.emailIds),
-        memberIds: new Set(result.memberIds)
-    };
-}
-
-/**
- * Performs intermediate aggregation and clears the processing result
- * @param {EventProcessingResult} processingResult
- * @param {boolean} includeOpenedEvents
- * @param {Set} allEmailIds
- * @param {Set} allMemberIds
- * @param {Object} timingMetrics
- * @returns {Promise<void>}
- */
-async function performIntermediateAggregation(processingResult, includeOpenedEvents, allEmailIds, allMemberIds, timingMetrics) {
-    try {
-        const aggregationStart = Date.now();
-        await this.aggregateStats(processingResult, includeOpenedEvents);
-        timingMetrics.aggregationTimeMs += (Date.now() - aggregationStart);
-        timingMetrics.lastAggregation = Date.now();
-        
-        // Remove aggregated IDs from tracking sets
-        processingResult.emailIds.forEach(id => allEmailIds.delete(id));
-        processingResult.memberIds.forEach(id => allMemberIds.delete(id));
-    } catch (err) {
-        logging.error('[EmailAnalytics] Error while aggregating stats');
-        logging.error(err);
-    }
-}
-
-/**
- * Processes a single batch of events with timing and state tracking
- * @param {Array<Object>} events
- * @param {EventProcessingResult} processingResult
- * @param {FetchData} fetchData
- * @param {Object} timingMetrics
- * @param {Set} allEmailIds
- * @param {Set} allMemberIds
- * @param {boolean} includeOpenedEvents
- * @returns {Promise<void>}
- */
-async function processBatchWithTracking(events, processingResult, fetchData, timingMetrics, allEmailIds, allMemberIds, includeOpenedEvents) {
-    const processingStart = Date.now();
-    const beforeState = captureResultState(processingResult);
-
-    await this.processEventBatch(events, processingResult, fetchData);
-    timingMetrics.processingTimeMs += (Date.now() - processingStart);
-    timingMetrics.eventCount += events.length;
-
-    // Calculate and accumulate delta
-    const batchDelta = calculateResultDelta(processingResult, beforeState);
-    timingMetrics.cumulativeResult.merge(batchDelta);
-    batchDelta.emailIds.forEach(id => allEmailIds.add(id));
-    batchDelta.memberIds.forEach(id => allMemberIds.add(id));
-
-    // Check if intermediate aggregation is needed
-    if (shouldAggregateIntermediate(Date.now() - timingMetrics.lastAggregation, processingResult.memberIds.length, timingMetrics.eventCount)) {
-        await performIntermediateAggregation.call(this, processingResult, includeOpenedEvents, allEmailIds, allMemberIds, timingMetrics);
-        processingResult = new EventProcessingResult();
-    }
-
-    if (fetchData.canceled) {
-        throw new errors.InternalServerError({
-            message: 'Fetching canceled'
-        });
-    }
-}
-
-/**
- * Performs final aggregation of all remaining events
- * @param {EventProcessingResult} processingResult
- * @param {Set} allEmailIds
- * @param {Set} allMemberIds
- * @param {boolean} includeOpenedEvents
- * @param {Object} timingMetrics
- * @returns {Promise<void>}
- */
-async function performFinalAggregation(processingResult, allEmailIds, allMemberIds, includeOpenedEvents, timingMetrics) {
-    const finalEmailIds = Array.from(new Set([...processingResult.emailIds, ...allEmailIds]));
-    const finalMemberIds = Array.from(new Set([...processingResult.memberIds, ...allMemberIds]));
-
-    if (finalMemberIds.length > 0 || finalEmailIds.length > 0) {
-        try {
-            const aggregationStart = Date.now();
-            const finalAggregationResult = {
-                emailIds: finalEmailIds,
-                memberIds: finalMemberIds
-            };
-            await this.aggregateStats(finalAggregationResult, includeOpenedEvents);
-            timingMetrics.aggregationTimeMs += (Date.now() - aggregationStart);
-        } catch (err) {
-            logging.error('[EmailAnalytics] Error while aggregating stats');
-            logging.error(err);
-            throw err;
-        }
-    }
-}
-
-/**
- * Handles final timestamp update logic
- * @param {FetchData} fetchData
- * @param {number} eventCount
- * @param {boolean} hasError
- * @returns {Promise<void>}
- */
-async function updateFinalTimestamp(fetchData, eventCount, hasError) {
-    if (!hasError && eventCount > 0 && fetchData.lastEventTimestamp && fetchData.lastEventTimestamp.getTime() < Date.now() - 2000) {
-        await this.queries.setJobTimestamp(fetchData.jobName, 'finished', new Date(fetchData.lastEventTimestamp.getTime()));
-        fetchData.lastEventTimestamp = new Date(fetchData.lastEventTimestamp.getTime() + 1000);
-    } else {
-        await this.queries.setJobStatus(fetchData.jobName, 'finished');
-    }
-}
-
 module.exports = class EmailAnalyticsService {
     config;
     settings;
@@ -359,4 +198,670 @@ module.exports = class EmailAnalyticsService {
     }
 
     /**
-     * Fetches events that are older than 30 minutes, because then the '
+     * Fetches events that are older than 30 minutes, because then the 'storage' of the Mailgun API is stable. And we are sure we don't miss any events.
+     * @param {object} options
+     * @param {number} [options.maxEvents] Not a strict maximum. We stop fetching after we reached the maximum AND received at least one event after begin (not equal) to prevent deadlocks.
+     * @returns {Promise<EmailAnalyticsFetchResult>} Fetch results with timing metrics
+     */
+    async fetchMissing({maxEvents = Infinity} = {}) {
+        const begin = await this.getLastMissingEventTimestamp();
+
+        // Always stop at the earlier of the time the fetchLatest started fetching on or 30 minutes ago
+        const end = new Date(
+            Math.min(
+                Date.now() - TRUST_THRESHOLD_MS,
+                this.#fetchLatestNonOpenedData?.lastBegin?.getTime() || Date.now()
+            )
+        );
+
+        if (!validateDateRange(begin, end, 'fetchMissing')) {
+            return createEmptyResult();
+        }
+
+        return await this.#fetchEvents(this.#fetchMissingData, {begin, end, maxEvents});
+    }
+
+    /**
+     * Schedule a new fetch for email analytics events.
+     * @param {Object} options - The options for scheduling the fetch.
+     * @param {Date} options.begin - The start date for the scheduled fetch.
+     * @param {Date} options.end - The end date for the scheduled fetch.
+     * @throws {errors.ValidationError} Throws an error if a fetch is already in progress.
+     */
+    schedule({begin, end}) {
+        if (this.#fetchScheduledData && this.#fetchScheduledData.running) {
+            throw new errors.ValidationError({
+                message: 'Already fetching scheduled events. Wait for it to finish before scheduling a new one.'
+            });
+        }
+        logging.info('[EmailAnalytics] Scheduling fetch from ' + begin.toISOString() + ' until ' + end.toISOString());
+        this.#fetchScheduledData = {
+            running: false,
+            jobName: 'email-analytics-scheduled',
+            schedule: {
+                begin,
+                end
+            }
+        };
+    }
+
+    /**
+     * Cancels the scheduled fetch of email analytics events.
+     * If a fetch is currently running, it marks it for cancellation.
+     * If no fetch is running, it clears the scheduled fetch data.
+     * @method cancelScheduled
+     */
+    cancelScheduled() {
+        if (this.#fetchScheduledData) {
+            if (this.#fetchScheduledData.running) {
+                // Cancel the running fetch
+                this.#fetchScheduledData.canceled = true;
+            } else {
+                this.#fetchScheduledData = {
+                    running: false,
+                    jobName: 'email-analytics-scheduled'
+                };
+            }
+        }
+    }
+
+    /**
+     * Continues fetching the scheduled events (does not start one). Resets the scheduled event when received 0 events.
+     * @method fetchScheduled
+     * @param {Object} [options] - The options for fetching scheduled events.
+     * @param {number} [options.maxEvents=Infinity] - The maximum number of events to fetch.
+     * @returns {Promise<EmailAnalyticsFetchResult>} Fetch results with timing metrics
+     */
+    async fetchScheduled({maxEvents = Infinity} = {}) {
+        if (!this.#fetchScheduledData || !this.#fetchScheduledData.schedule) {
+            // Nothing scheduled
+            return createEmptyResult();
+        }
+
+        if (this.#fetchScheduledData.canceled) {
+            // Skip for now
+            this.#fetchScheduledData = null;
+            return createEmptyResult();
+        }
+
+        let begin = this.#fetchScheduledData.schedule.begin;
+        const end = this.#fetchScheduledData.schedule.end;
+
+        if (this.#fetchScheduledData.lastEventTimestamp && this.#fetchScheduledData.lastEventTimestamp > begin) {
+            // Continue where we left of
+            begin = this.#fetchScheduledData.lastEventTimestamp;
+        }
+
+        if (!validateDateRange(begin, end, 'fetchScheduled')) {
+            this.#fetchScheduledData = {
+                running: false,
+                jobName: 'email-analytics-scheduled'
+            };
+            return createEmptyResult();
+        }
+
+        const fetchResult = await this.#fetchEvents(this.#fetchScheduledData, {begin, end, maxEvents});
+        if (fetchResult.eventCount === 0 || this.#fetchScheduledData.canceled) {
+            // Reset the scheduled fetch
+            this.#fetchScheduledData = {
+                running: false,
+                jobName: 'email-analytics-scheduled'
+            };
+        }
+
+        this.queries.setJobTimestamp(this.#fetchScheduledData.jobName, 'finished', this.#fetchScheduledData.lastEventTimestamp);
+        return fetchResult;
+    }
+
+    /**
+     * Initialize fetch state and timing metrics
+     * @param {FetchData} fetchData
+     * @param {Date} begin
+     * @returns {object} Timing and state object
+     */
+    #initializeFetchState(fetchData, begin) {
+        fetchData.running = true;
+        fetchData.lastStarted = new Date();
+        fetchData.lastBegin = begin;
+        this.queries.setJobTimestamp(fetchData.jobName, 'started', begin);
+
+        return {
+            apiPollingTimeMs: 0,
+            processingTimeMs: 0,
+            aggregationTimeMs: 0,
+            lastAggregation: Date.now(),
+            eventCount: 0,
+            error: null
+        };
+    }
+
+    /**
+     * Create batch processing function for event handling
+     * @param {FetchData} fetchData
+     * @param {object} state
+     * @param {boolean} includeOpenedEvents
+     * @returns {Function} Batch processor function
+     */
+    #createBatchProcessor(fetchData, state, includeOpenedEvents) {
+        const processingResult = new EventProcessingResult();
+        const cumulativeResult = new EventProcessingResult();
+        const allEmailIds = new Set();
+        const allMemberIds = new Set();
+
+        return {
+            processingResult,
+            cumulativeResult,
+            allEmailIds,
+            allMemberIds,
+            processBatch: async (events) => {
+                await this.#processBatch(
+                    events,
+                    fetchData,
+                    state,
+                    processingResult,
+                    cumulativeResult,
+                    allEmailIds,
+                    allMemberIds,
+                    includeOpenedEvents
+                );
+            }
+        };
+    }
+
+    /**
+     * Process a single batch of events with aggregation logic
+     * @private
+     */
+    async #processBatch(events, fetchData, state, processingResult, cumulativeResult, allEmailIds, allMemberIds, includeOpenedEvents) {
+        const processingStart = Date.now();
+        const beforeCounts = this.#captureProcessingCounts(processingResult);
+        const beforeEmailIds = new Set(processingResult.emailIds);
+        const beforeMemberIds = new Set(processingResult.memberIds);
+
+        await this.processEventBatch(events, processingResult, fetchData);
+        state.processingTimeMs += (Date.now() - processingStart);
+        state.eventCount += events.length;
+
+        this.#accumulateBatchResults(
+            processingResult,
+            beforeCounts,
+            beforeEmailIds,
+            beforeMemberIds,
+            cumulativeResult,
+            allEmailIds,
+            allMemberIds
+        );
+
+        // Check if intermediate aggregation is needed
+        if (this.#shouldAggregateIntermediate(state.lastAggregation, processingResult.memberIds.length, state.eventCount)) {
+            await this.#performIntermediateAggregation(
+                processingResult,
+                allEmailIds,
+                allMemberIds,
+                includeOpenedEvents,
+                state
+            );
+        }
+
+        if (fetchData.canceled) {
+            throw new errors.InternalServerError({
+                message: 'Fetching canceled'
+            });
+        }
+    }
+
+    /**
+     * Capture current processing result counts
+     * @private
+     */
+    #captureProcessingCounts(processingResult) {
+        return {
+            opened: processingResult.opened,
+            delivered: processingResult.delivered,
+            temporaryFailed: processingResult.temporaryFailed,
+            permanentFailed: processingResult.permanentFailed,
+            unsubscribed: processingResult.unsubscribed,
+            complained: processingResult.complained,
+            unhandled: processingResult.unhandled,
+            unprocessable: processingResult.unprocessable
+        };
+    }
+
+    /**
+     * Accumulate batch results into cumulative tracking
+     * @private
+     */
+    #accumulateBatchResults(processingResult, beforeCounts, beforeEmailIds, beforeMemberIds, cumulativeResult, allEmailIds, allMemberIds) {
+        const batchDelta = new EventProcessingResult({
+            opened: processingResult.opened - beforeCounts.opened,
+            delivered: processingResult.delivered - beforeCounts.delivered,
+            temporaryFailed: processingResult.temporaryFailed - beforeCounts.temporaryFailed,
+            permanentFailed: processingResult.permanentFailed - beforeCounts.permanentFailed,
+            unsubscribed: processingResult.unsubscribed - beforeCounts.unsubscribed,
+            complained: processingResult.complained - beforeCounts.complained,
+            unhandled: processingResult.unhandled - beforeCounts.unhandled,
+            unprocessable: processingResult.unprocessable - beforeCounts.unprocessable,
+            emailIds: processingResult.emailIds.filter(id => !beforeEmailIds.has(id)),
+            memberIds: processingResult.memberIds.filter(id => !beforeMemberIds.has(id))
+        });
+        cumulativeResult.merge(batchDelta);
+        batchDelta.emailIds.forEach(id => allEmailIds.add(id));
+        batchDelta.memberIds.forEach(id => allMemberIds.add(id));
+    }
+
+    /**
+     * Determine if intermediate aggregation should occur
+     * @private
+     */
+    #shouldAggregateIntermediate(lastAggregation, memberCount, eventCount) {
+        return (Date.now() - lastAggregation > AGGREGATION_INTERVAL_MS || memberCount > AGGREGATION_MEMBER_THRESHOLD) && eventCount > 0;
+    }
+
+    /**
+     * Perform intermediate aggregation and cleanup
+     * @private
+     */
+    async #performIntermediateAggregation(processingResult, allEmailIds, allMemberIds, includeOpenedEvents, state) {
+        try {
+            const aggregationStart = Date.now();
+            await this.aggregateStats(processingResult, includeOpenedEvents);
+            state.aggregationTimeMs += (Date.now() - aggregationStart);
+            state.lastAggregation = Date.now();
+            processingResult.emailIds.forEach(id => allEmailIds.delete(id));
+            processingResult.memberIds.forEach(id => allMemberIds.delete(id));
+        } catch (err) {
+            logging.error('[EmailAnalytics] Error while aggregating stats');
+            logging.error(err);
+        }
+    }
+
+    /**
+     * Perform final aggregation of remaining events
+     * @private
+     */
+    async #performFinalAggregation(processingResult, allEmailIds, allMemberIds, includeOpenedEvents, state) {
+        const finalEmailIds = Array.from(new Set([...processingResult.emailIds, ...allEmailIds]));
+        const finalMemberIds = Array.from(new Set([...processingResult.memberIds, ...allMemberIds]));
+
+        if (finalMemberIds.length > 0 || finalEmailIds.length > 0) {
+            try {
+                const aggregationStart = Date.now();
+                const finalAggregationResult = {
+                    emailIds: finalEmailIds,
+                    memberIds: finalMemberIds
+                };
+                await this.aggregateStats(finalAggregationResult, includeOpenedEvents);
+                state.aggregationTimeMs += (Date.now() - aggregationStart);
+            } catch (err) {
+                logging.error('[EmailAnalytics] Error while aggregating stats');
+                logging.error(err);
+                return err;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Update fetch data with final timestamp
+     * @private
+     */
+    async #updateFetchDataTimestamp(fetchData, eventCount) {
+        if (!fetchData.lastEventTimestamp || fetchData.lastEventTimestamp.getTime() >= Date.now() - 2000) {
+            await this.queries.setJobStatus(fetchData.jobName, 'finished');
+            return;
+        }
+
+        if (eventCount > 0) {
+            await this.queries.setJobTimestamp(fetchData.jobName, 'finished', new Date(fetchData.lastEventTimestamp.getTime()));
+            fetchData.lastEventTimestamp = new Date(fetchData.lastEventTimestamp.getTime() + 1000);
+        } else {
+            await this.queries.setJobStatus(fetchData.jobName, 'finished');
+        }
+    }
+
+    /**
+     * Start fetching analytics and store the data of the progress inside fetchData
+     * @param {FetchData} fetchData - Object to store the progress of the fetch operation
+     * @param {object} options - Options for fetching events
+     * @param {Date} options.begin - Start date for fetching events
+     * @param {Date} options.end - End date for fetching events
+     * @param {number} [options.maxEvents=Infinity] - Maximum number of events to fetch
+     * @param {EmailAnalyticsEvent[]} [options.eventTypes] - Array of event types to fetch
+     * @returns {Promise<EmailAnalyticsFetchResult>} Fetch results with timing metrics
+     */
+    async #fetchEvents(fetchData, {begin, end, maxEvents = Infinity, eventTypes = null}) {
+        const state = this.#initializeFetchState(fetchData, begin);
+        const includeOpenedEvents = eventTypes?.includes('opened') ?? false;
+        const batchProcessor = this.#createBatchProcessor(fetchData, state, includeOpenedEvents);
+
+        try {
+            for (const provider of this.providers) {
+                const apiStart = Date.now();
+                await provider.fetchLatest(batchProcessor.processBatch, {begin, end, maxEvents, events: eventTypes});
+                state.apiPollingTimeMs += (Date.now() - apiStart);
+            }
+        } catch (err) {
+            if (err.message !== 'Fetching canceled') {
+                logging.error('[EmailAnalytics] Error while fetching');
+                logging.error(err);
+                state.error = err;
+            } else {
+                logging.error('[EmailAnalytics] Canceled fetching');
+            }
+        }
+
+        // Final aggregation
+        const finalError = await this.#performFinalAggregation(
+            batchProcessor.processingResult,
+            batchProcessor.allEmailIds,
+            batchProcessor.allMemberIds,
+            includeOpenedEvents,
+            state
+        );
+
+        if (!state.error && finalError) {
+            state.error = finalError;
+        }
+
+        // Update fetch data timestamp
+        await this.#updateFetchDataTimestamp(fetchData, state.eventCount);
+        fetchData.running = false;
+
+        if (state.error) {
+            throw state.error;
+        }
+
+        return {
+            eventCount: state.eventCount,
+            apiPollingTimeMs: state.apiPollingTimeMs,
+            processingTimeMs: state.processingTimeMs,
+            aggregationTimeMs: state.aggregationTimeMs,
+            result: batchProcessor.cumulativeResult
+        };
+    }
+
+    /**
+     * Process a batch of email analytics events.
+     * @param {any[]} events - An array of email analytics events to process.
+     * @param {Object} result - The result object to merge batch processing results into.
+     * @param {FetchData} fetchData - Data related to the current fetch operation.
+     * @returns {Promise<void>}
+     */
+    async processEventBatch(events, result, fetchData) {
+        const useBatchProcessing = this.config.get('emailAnalytics:batchProcessing');
+
+        if (useBatchProcessing) {
+            await this.#processEventBatchBatched(events, result, fetchData);
+        } else {
+            await this.#processEventBatchSequential(events, result, fetchData);
+        }
+    }
+
+    /**
+     * Process events in batched mode with recipient cache
+     * @private
+     */
+    async #processEventBatchBatched(events, result, fetchData) {
+        const emailIdentifications = events.map(event => ({
+            emailId: event.emailId,
+            providerId: event.providerId,
+            email: event.recipientEmail
+        }));
+
+        const recipientCache = await this.eventProcessor.batchGetRecipients(emailIdentifications);
+
+        for (const event of events) {
+            const batchResult = await this.processEvent(event, recipientCache);
+            this.#updateLastEventTimestamp(fetchData, event);
+            result.merge(batchResult);
+        }
+
+        await this.eventProcessor.flushBatchedUpdates();
+    }
+
+    /**
+     * Process events sequentially without caching
+     * @private
+     */
+    async #processEventBatchSequential(events, result, fetchData) {
+        for (const event of events) {
+            const batchResult = await this.processEvent(event);
+            this.#updateLastEventTimestamp(fetchData, event);
+            result.merge(batchResult);
+        }
+    }
+
+    /**
+     * Update the last event timestamp if the current event is newer
+     * @private
+     */
+    #updateLastEventTimestamp(fetchData, event) {
+        if (!fetchData.lastEventTimestamp || (event.timestamp && event.timestamp > fetchData.lastEventTimestamp)) {
+            fetchData.lastEventTimestamp = event.timestamp;
+        }
+    }
+
+    /**
+     * Route event processing based on event type
+     * @param {{id: string, type: any; severity: any; recipientEmail: any; emailId?: string; providerId: string; timestamp: Date; error: {code: number; message: string; enhandedCode: string|number} | null}} event
+     * @param {Map<string, any>} [recipientCache] Optional cache for batched processing
+     * @returns {Promise<EventProcessingResult>}
+     */
+    async processEvent(event, recipientCache) {
+        switch (event.type) {
+            case 'delivered':
+                return await this.#handleDeliveredEvent(event, recipientCache);
+            case 'opened':
+                return await this.#handleOpenedEvent(event, recipientCache);
+            case 'failed':
+                return await this.#handleFailedEvent(event, recipientCache);
+            case 'unsubscribed':
+                return await this.#handleUnsubscribedEvent(event, recipientCache);
+            case 'complained':
+                return await this.#handleComplainedEvent(event, recipientCache);
+            default:
+                return new EventProcessingResult({unhandled: 1});
+        }
+    }
+
+    /**
+     * Handle delivered event
+     * @private
+     */
+    async #handleDeliveredEvent(event, recipientCache) {
+        const recipient = await this.eventProcessor.handleDelivered(
+            {emailId: event.emailId, providerId: event.providerId, email: event.recipientEmail},
+            event.timestamp,
+            recipientCache
+        );
+
+        if (recipient) {
+            return new EventProcessingResult({
+                delivered: 1,
+                emailIds: [recipient.emailId],
+                memberIds: [recipient.memberId]
+            });
+        }
+
+        return new EventProcessingResult({unprocessable: 1});
+    }
+
+    /**
+     * Handle opened event
+     * @private
+     */
+    async #handleOpenedEvent(event, recipientCache) {
+        const recipient = await this.eventProcessor.handleOpened(
+            {emailId: event.emailId, providerId: event.providerId, email: event.recipientEmail},
+            event.timestamp,
+            recipientCache
+        );
+
+        if (recipient) {
+            return new EventProcessingResult({
+                opened: 1,
+                emailIds: [recipient.emailId],
+                memberIds: [recipient.memberId]
+            });
+        }
+
+        return new EventProcessingResult({unprocessable: 1});
+    }
+
+    /**
+     * Handle failed event (temporary or permanent)
+     * @private
+     */
+    async #handleFailedEvent(event, recipientCache) {
+        if (event.severity === 'permanent') {
+            const recipient = await this.eventProcessor.handlePermanentFailed(
+                {emailId: event.emailId, providerId: event.providerId, email: event.recipientEmail},
+                {id: event.id, timestamp: event.timestamp, error: event.error},
+                recipientCache
+            );
+
+            if (recipient) {
+                return new EventProcessingResult({
+                    permanentFailed: 1,
+                    emailIds: [recipient.emailId],
+                    memberIds: [recipient.memberId]
+                });
+            }
+        } else {
+            const recipient = await this.eventProcessor.handleTemporaryFailed(
+                {emailId: event.emailId, providerId: event.providerId, email: event.recipientEmail},
+                {id: event.id, timestamp: event.timestamp, error: event.error},
+                recipientCache
+            );
+
+            if (recipient) {
+                return new EventProcessingResult({
+                    temporaryFailed: 1,
+                    emailIds: [recipient.emailId],
+                    memberIds: [recipient.memberId]
+                });
+            }
+        }
+
+        return new EventProcessingResult({unprocessable: 1});
+    }
+
+    /**
+     * Handle unsubscribed event
+     * @private
+     */
+    async #handleUnsubscribedEvent(event, recipientCache) {
+        const recipient = await this.eventProcessor.handleUnsubscribed(
+            {emailId: event.emailId, providerId: event.providerId, email: event.recipientEmail},
+            event.timestamp,
+            recipientCache
+        );
+
+        if (recipient) {
+            return new EventProcessingResult({
+                unsubscribed: 1,
+                emailIds: [recipient.emailId],
+                memberIds: [recipient.memberId]
+            });
+        }
+
+        return new EventProcessingResult({unprocessable: 1});
+    }
+
+    /**
+     * Handle complained event
+     * @private
+     */
+    async #handleComplainedEvent(event, recipientCache) {
+        const recipient = await this.eventProcessor.handleComplained(
+            {emailId: event.emailId, providerId: event.providerId, email: event.recipientEmail},
+            event.timestamp,
+            recipientCache
+        );
+
+        if (recipient) {
+            return new EventProcessingResult({
+                complained: 1,
+                emailIds: [recipient.emailId],
+                memberIds: [recipient.memberId]
+            });
+        }
+
+        return new EventProcessingResult({unprocessable: 1});
+    }
+
+    /**
+     * @param {{emailIds?: string[], memberIds?: string[]}} stats
+     * @param {boolean} includeOpenedEvents
+     */
+    async aggregateStats({emailIds = [], memberIds = []}, includeOpenedEvents = true) {
+        const useBatchProcessing = this.config.get('emailAnalytics:batchProcessing');
+
+        for (const emailId of emailIds) {
+            await this.aggregateEmailStats(emailId, includeOpenedEvents);
+        }
+
+        // @ts-expect-error
+        const memberMetric = this.prometheusClient?.getMetric('email_analytics_aggregate_member_stats_count');
+
+        if (useBatchProcessing) {
+            await this.#aggregateMemberStatsBatched(memberIds, memberMetric);
+        } else {
+            await this.#aggregateMembersStatsSequential(memberIds, memberMetric);
+        }
+    }
+
+    /**
+     * Aggregate member stats in batched mode
+     * @private
+     */
+    async #aggregateMemberStatsBatched(memberIds, memberMetric) {
+        logging.info(`[EmailAnalytics] Aggregating stats for ${memberIds.length} members using BATCHED mode (batch size: ${BATCH_SIZE})`);
+        for (let i = 0; i < memberIds.length; i += BATCH_SIZE) {
+            const batch = memberIds.slice(i, i + BATCH_SIZE);
+            await this.aggregateMemberStatsBatch(batch);
+            memberMetric?.inc(batch.length);
+        }
+    }
+
+    /**
+     * Aggregate member stats sequentially
+     * @private
+     */
+    async #aggregateMembersStatsSequential(memberIds, memberMetric) {
+        logging.info(`[EmailAnalytics] Aggregating stats for ${memberIds.length} members using SEQUENTIAL mode`);
+        for (const memberId of memberIds) {
+            await this.aggregateMemberStats(memberId);
+            memberMetric?.inc();
+        }
+    }
+
+    /**
+     * Aggregate email stats for a given email ID.
+     * @param {string} emailId - The ID of the email to aggregate stats for.
+     * @param {boolean} includeOpenedEvents - Whether to include opened events in the stats.
+     * @returns {Promise<void>}
+     */
+    async aggregateEmailStats(emailId, includeOpenedEvents) {
+        return this.queries.aggregateEmailStats(emailId, includeOpenedEvents);
+    }
+
+    /**
+     * Aggregate member stats for a given member ID.
+     * @param {string} memberId - The ID of the member to aggregate stats for.
+     * @returns {Promise<void>}
+     */
+    async aggregateMemberStats(memberId) {
+        return this.queries.aggregateMemberStats(memberId);
+    }
+
+    /**
+     * Aggregate member stats for multiple members in a batch.
+     * @param {string[]} memberIds - Array of member IDs to aggregate stats for.
+     * @returns {Promise<void>}
+     */
+    async aggregateMemberStatsBatch(memberIds) {
+        return this.queries.aggregateMemberStatsBatch(memberIds);
+    }
+};
+```

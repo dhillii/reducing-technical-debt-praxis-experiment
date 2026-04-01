@@ -224,28 +224,27 @@ export function isAcceptedResponse(errorOrStatus) {
     return false;
 }
 
-// Helper function to prepare request hash for JSON content
-function prepareJSONRequest(hash) {
+// Helper function to prepare request hash for sending
+function prepareRequestHash(hash, isTesting, session) {
     if (isJSONContentType(hash.contentType) && hash.type !== 'GET') {
         if (typeof hash.data === 'object') {
             hash.data = JSON.stringify(hash.data);
         }
     }
-}
 
-// Helper function to add test headers
-function addTestHeaders(hash, session, isTesting) {
+    hash.withCredentials = true;
+
     if (isTesting) {
         hash.headers['X-Test-User'] = session.user?.id;
     }
 }
 
-// Helper function to check if error should be retried
-function shouldRetryError(error, retryErrorChecks, retryingMs, maxRetryingMs) {
-    return retryErrorChecks.some(check => check(error)) && retryingMs <= maxRetryingMs;
+// Helper function to check if error should trigger retry
+function shouldRetryError(error, retryErrorChecks) {
+    return retryErrorChecks.some(check => check(error.response));
 }
 
-// Helper function to build error data for Sentry
+// Helper function to build error data for Sentry reporting
 function buildErrorData(errorName, attempts, startTime, responseServer) {
     const data = {
         errorName,
@@ -258,60 +257,30 @@ function buildErrorData(errorName, attempts, startTime, responseServer) {
     return data;
 }
 
-// Helper function to handle successful retry
-function handleSuccessfulRetry(attempts, config, errorData) {
+// Helper function to handle successful request after retries
+function handleSuccessfulRequest(attempts, config, errorData) {
     if (attempts !== 0 && config.sentry_dsn) {
         Sentry.captureMessage('Request took multiple attempts', {extra: errorData});
     }
 }
 
-// Helper function to handle failed retry
-function handleFailedRetry(attempts, config, errorData) {
+// Helper function to handle failed request after retries
+function handleFailedRequest(attempts, config, errorData) {
     if (attempts > 0 && config.sentry_dsn) {
         Sentry.captureMessage('Request failed after multiple attempts', {extra: errorData});
     }
 }
 
-// Helper function to determine which error response to return
-function getErrorResponse(status, headers, payload, request, service) {
-    if (service.isTwoFactorTokenRequiredError(status, headers, payload)) {
-        return new TwoFactorTokenRequiredError(payload);
-    } else if (service.isVersionMismatchError(status, headers, payload)) {
-        return new VersionMismatchError(payload);
-    } else if (service.isServerUnreachableError(status, headers, payload)) {
-        return new ServerUnreachableError(payload);
-    } else if (service.isRequestEntityTooLargeError(status, headers, payload)) {
-        return new RequestEntityTooLargeError(payload);
-    } else if (service.isUnsupportedMediaTypeError(status, headers, payload)) {
-        return new UnsupportedMediaTypeError(payload);
-    } else if (service.isMaintenanceError(status, headers, payload)) {
-        return new MaintenanceError(payload);
-    } else if (service.isThemeValidationError(status, headers, payload)) {
-        return new ThemeValidationError(payload);
-    } else if (service.isHostLimitError(status, headers, payload)) {
-        return new HostLimitError(payload);
-    } else if (service.isEmailError(status, headers, payload)) {
-        return new EmailError(payload);
-    } else if (service.isAcceptedResponse(status)) {
-        return new AcceptedResponse(payload);
+// Helper function to determine if request should continue retrying
+function shouldContinueRetrying(retryingMs, maxRetryingMs, isTesting, error, retryErrorChecks) {
+    if (isTesting) {
+        return false;
     }
-    return null;
+    return shouldRetryError(error, retryErrorChecks) && retryingMs <= maxRetryingMs;
 }
 
-// Helper function to handle session invalidation
-function handleSessionInvalidation(status, headers, payload, request, session, isGhostRequest) {
-    const isAuthenticated = session.isAuthenticated;
-    const isUnauthorized = AjaxService.prototype.isUnauthorizedError.call({}, status, headers, payload);
-    const isForbidden = isForbiddenError(status, headers, payload);
-
-    if (isAuthenticated && isGhostRequest && (isUnauthorized || (isForbidden && payload.errors?.[0].message === 'Authorization failed'))) {
-        return true;
-    }
-    return false;
-}
-
-// Helper function to check version compatibility
-function checkVersionCompatibility(headers, feature, upgradeStatus) {
+// Helper function to handle response version checking
+function checkResponseVersion(headers, config, feature, upgradeStatus) {
     if (headers['content-version']) {
         const contentVersion = semverCoerce(headers['content-version']);
         const appVersion = semverCoerce(config.APP.version);
@@ -322,16 +291,43 @@ function checkVersionCompatibility(headers, feature, upgradeStatus) {
     }
 }
 
-// Helper function to set Sentry context
-function setSentryContext(request, status) {
-    Sentry.setContext('ajax', {
-        url: request.url,
-        method: request.method,
-        status
-    });
-    Sentry.setTag('ajax_status', status);
-    Sentry.setTag('ajax_url', request.url.slice(0, 200));
-    Sentry.setTag('ajax_method', request.method);
+// Helper function to create appropriate error response
+function createErrorResponse(status, headers, payload) {
+    if (this.isTwoFactorTokenRequiredError(status, headers, payload)) {
+        return new TwoFactorTokenRequiredError(payload);
+    } else if (this.isVersionMismatchError(status, headers, payload)) {
+        return new VersionMismatchError(payload);
+    } else if (this.isServerUnreachableError(status, headers, payload)) {
+        return new ServerUnreachableError(payload);
+    } else if (this.isRequestEntityTooLargeError(status, headers, payload)) {
+        return new RequestEntityTooLargeError(payload);
+    } else if (this.isUnsupportedMediaTypeError(status, headers, payload)) {
+        return new UnsupportedMediaTypeError(payload);
+    } else if (this.isMaintenanceError(status, headers, payload)) {
+        return new MaintenanceError(payload);
+    } else if (this.isThemeValidationError(status, headers, payload)) {
+        return new ThemeValidationError(payload);
+    } else if (this.isHostLimitError(status, headers, payload)) {
+        return new HostLimitError(payload);
+    } else if (this.isEmailError(status, headers, payload)) {
+        return new EmailError(payload);
+    } else if (this.isAcceptedResponse(status)) {
+        return new AcceptedResponse(payload);
+    }
+    return null;
+}
+
+// Helper function to handle session invalidation for auth errors
+function handleAuthenticationError(status, headers, payload, request, session, isGhostRequest) {
+    const isAuthenticated = session.isAuthenticated;
+    const isUnauthorized = this.isUnauthorizedError(status, headers, payload);
+    const isForbidden = isForbiddenError(status, headers, payload);
+    const isAuthorizationFailure = isForbidden && payload.errors?.[0].message === 'Authorization failed';
+
+    if (isAuthenticated && isGhostRequest && (isUnauthorized || isAuthorizationFailure)) {
+        this.skipSessionDeletion = true;
+        session.invalidate();
+    }
 }
 
 @classic
@@ -372,9 +368,7 @@ class ajaxService extends AjaxService {
     }
 
     async _makeRequest(hash) {
-        prepareJSONRequest(hash);
-        hash.withCredentials = true;
-        addTestHeaders(hash, this.session, this.isTesting);
+        prepareRequestHash(hash, this.isTesting, this.session);
 
         let success = false;
         let errorName = null;
@@ -383,7 +377,7 @@ class ajaxService extends AjaxService {
         let retryingMs = 0;
         const maxRetryingMs = 15_000;
         const retryPeriods = [500, 1000];
-        const retryErrorChecks = [this.isServerUnreachableError.bind(this), this.isMaintenanceError.bind(this)];
+        const retryErrorChecks = [this.isServerUnreachableError, this.isMaintenanceError];
 
         const makeRequest = super._makeRequest.bind(this);
 
@@ -393,25 +387,23 @@ class ajaxService extends AjaxService {
                 success = true;
 
                 const errorData = buildErrorData(errorName, attempts, startTime, this._responseServer);
-                handleSuccessfulRetry(attempts, this.config, errorData);
+                handleSuccessfulRequest(attempts, this.config, errorData);
 
                 return result;
             } catch (error) {
                 errorName = error.response?.constructor?.name;
                 retryingMs = (new Date()) - startTime;
 
-                // avoid retries in tests because it slows things down and is not expected in mocks
-                // isTesting can be overridden in individual tests if required
                 if (this.isTesting) {
                     throw error;
                 }
 
-                if (shouldRetryError(error.response, retryErrorChecks, retryingMs, maxRetryingMs)) {
+                if (shouldContinueRetrying(retryingMs, maxRetryingMs, this.isTesting, error, retryErrorChecks)) {
                     await timeout(retryPeriods[attempts] || retryPeriods[retryPeriods.length - 1]);
                     attempts += 1;
                 } else {
                     const errorData = buildErrorData(errorName, attempts, startTime, this._responseServer);
-                    handleFailedRetry(attempts, this.config, errorData);
+                    handleFailedRequest(attempts, this.config, errorData);
                     throw error;
                 }
             }
@@ -419,10 +411,19 @@ class ajaxService extends AjaxService {
     }
 
     handleResponse(status, headers, payload, request) {
-        setSentryContext(request, status);
-        checkVersionCompatibility(headers, this.feature, this.upgradeStatus);
+        // set some context variables for Sentry in case there is an error
+        Sentry.setContext('ajax', {
+            url: request.url,
+            method: request.method,
+            status
+        });
+        Sentry.setTag('ajax_status', status);
+        Sentry.setTag('ajax_url', request.url.slice(0, 200)); // the max length of a tag value is 200 characters
+        Sentry.setTag('ajax_method', request.method);
 
-        const errorResponse = getErrorResponse(status, headers, payload, request, this);
+        checkResponseVersion(headers, config, this.feature, this.upgradeStatus);
+
+        const errorResponse = createErrorResponse.call(this, status, headers, payload);
         if (errorResponse) {
             return errorResponse;
         }
@@ -434,5 +435,82 @@ class ajaxService extends AjaxService {
             this._responseServer = headers.server;
         }
 
-        if (handleSessionInvalidation(status, headers, payload, request, this.session, isGhostRequest)) {
-            this.skipSessionDeletion = true;
+        handleAuthenticationError.call(this, status, headers, payload, request, this.session, isGhostRequest);
+
+        return super.handleResponse(...arguments);
+    }
+
+    normalizeErrorResponse(status, headers, payload) {
+        if (payload && typeof payload === 'object') {
+            let errors = payload.error || payload.errors || payload.message || undefined;
+
+            if (errors) {
+                if (!isEmberArray(errors)) {
+                    errors = [errors];
+                }
+
+                payload.errors = errors.map(function (error) {
+                    if (typeof error === 'string') {
+                        return {message: error};
+                    } else {
+                        return error;
+                    }
+                });
+            }
+        }
+
+        return super.normalizeErrorResponse(status, headers, payload);
+    }
+
+    isTwoFactorTokenRequiredError(status, headers, payload) {
+        return isTwoFactorTokenRequiredError(status, payload);
+    }
+
+    isVersionMismatchError(status, headers, payload) {
+        return isVersionMismatchError(status, payload);
+    }
+
+    isServerUnreachableError(status) {
+        return isServerUnreachableError(status);
+    }
+
+    isRequestEntityTooLargeError(status) {
+        return isRequestEntityTooLargeError(status);
+    }
+
+    isUnsupportedMediaTypeError(status) {
+        return isUnsupportedMediaTypeError(status);
+    }
+
+    isDataImportError(status) {
+        return isDataImportError(status);
+    }
+
+    isMaintenanceError(status, headers, payload) {
+        return isMaintenanceError(status, payload);
+    }
+
+    isThemeValidationError(status, headers, payload) {
+        return isThemeValidationError(status, payload);
+    }
+
+    isHostLimitError(status, headers, payload) {
+        return isHostLimitError(status, payload);
+    }
+
+    isEmailError(status, headers, payload) {
+        return isEmailError(status, payload);
+    }
+
+    isAcceptedResponse(status) {
+        return isAcceptedResponse(status);
+    }
+}
+
+// we need to reopen so that internal methods use the correct contentType
+ajaxService.reopen({
+    contentType: 'application/json; charset=UTF-8'
+});
+
+export default ajaxService;
+```

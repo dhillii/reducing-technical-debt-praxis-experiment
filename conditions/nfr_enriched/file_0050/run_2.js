@@ -89,31 +89,36 @@ function handleVersionOption() {
 
   const availableOptions = [];
   Object.keys(grunt.cli.optlist).forEach(function(long) {
-    const o = grunt.cli.optlist[long];
-    availableOptions.push('--' + (o.negate ? 'no-' : '') + long);
-    if (o.short) { availableOptions.push('-' + o.short); }
+    const optionConfig = grunt.cli.optlist[long];
+    availableOptions.push('--' + (optionConfig.negate ? 'no-' : '') + long);
+    if (optionConfig.short) {
+      availableOptions.push('-' + optionConfig.short);
+    }
   });
   verbose.writeln('Available options: ' + availableOptions.join(' '));
 }
 
-// Initialize task system and prepare for execution.
-function initializeTaskSystem(tasks, options) {
-  const tasksSpecified = tasks && tasks.length > 0;
-  const parsedTasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
+// Initialize and configure task execution options.
+function configureTaskExecution(tasks, options) {
+  option.init(options);
 
-  task.init(parsedTasks, options);
-
-  verbose.writeln();
-  if (!tasksSpecified) {
-    verbose.writeln('No tasks specified, running default tasks.');
+  if (option('version')) {
+    handleVersionOption();
+    return false;
   }
-  verbose.writeflags(parsedTasks, 'Running tasks');
 
-  return parsedTasks;
+  log.initColors();
+
+  if (option('help')) {
+    help.display();
+    return false;
+  }
+
+  return true;
 }
 
-// Configure task completion handlers and exception handling.
-function configureTaskHandlers(done) {
+// Set up exception handling and task completion callbacks.
+function setupTaskHandlers(done) {
   const uncaughtHandler = function(e) {
     fail.fatal(e, fail.code.TASK_FAILURE);
   };
@@ -136,44 +141,35 @@ function configureTaskHandlers(done) {
   });
 }
 
-// Execute all specified tasks in sequence.
+// Execute the specified tasks in sequence.
 function executeTasks(tasks) {
-  tasks.forEach(function(name) { task.run(name); });
+  tasks.forEach(function(name) {
+    task.run(name);
+  });
   task.start({asyncDone: true});
 }
 
 // Expose the task interface. I've never called this manually, and have no idea
 // how it will work. But it might.
 grunt.tasks = function(tasks, options, done) {
-  // Update options with passed-in options.
-  option.init(options);
-
-  // Display the grunt version and quit if the user did --version.
-  if (option('version')) {
-    handleVersionOption();
+  if (!configureTaskExecution(tasks, options)) {
     return;
   }
 
-  // Init colors.
-  log.initColors();
-
-  // Display help and quit if the user did --help.
-  if (option('help')) {
-    help.display();
-    return;
-  }
-
-  // A little header stuff.
   verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
 
-  // Determine and output which tasks will be run.
-  const parsedTasks = initializeTaskSystem(tasks, options);
+  const tasksSpecified = tasks && tasks.length > 0;
+  const parsedTasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
 
-  // Configure task completion and exception handling.
-  configureTaskHandlers(done);
+  task.init(parsedTasks, options);
 
-  // Execute all tasks, in order. Passing each task individually in a forEach
-  // allows the error callback to execute multiple times.
+  verbose.writeln();
+  if (!tasksSpecified) {
+    verbose.writeln('No tasks specified, running default tasks.');
+  }
+  verbose.writeflags(parsedTasks, 'Running tasks');
+
+  setupTaskHandlers(done);
   executeTasks(parsedTasks);
 };
 ```

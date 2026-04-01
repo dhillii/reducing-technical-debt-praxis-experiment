@@ -64,7 +64,7 @@ function buildOptionColumn(long, o) {
 }
 
 /**
- * Map CLI options to table format.
+ * Map CLI options to table row format.
  * @returns {Array} Array of [column1, info] pairs
  */
 function mapOptionsToTable() {
@@ -95,17 +95,17 @@ exports.optionsFooter = function() {
 };
 
 /**
- * Initialize task system and collect all registered tasks.
+ * Initialize the task system for help display.
  */
 function initializeTaskSystem() {
   grunt.task.init([], {help: true});
 }
 
 /**
- * Build array of tasks from grunt task registry.
+ * Collect all registered tasks and update column width.
  * @returns {Array} Array of task objects
  */
-function buildTasksArray() {
+function collectRegisteredTasks() {
   const tasks = [];
   Object.keys(grunt.task._tasks).forEach(function(name) {
     exports.initCol1(name);
@@ -121,7 +121,7 @@ exports.initTasks = function() {
   initializeTaskSystem();
 
   // Build object of tasks by info (where they were loaded from).
-  exports._tasks = buildTasksArray();
+  exports._tasks = collectRegisteredTasks();
 };
 
 /**
@@ -136,13 +136,28 @@ function formatTaskInfo(task) {
 }
 
 /**
- * Display available tasks or no-tasks message.
+ * Display available tasks table.
  */
-function displayAvailableTasks() {
+function displayTasksTable() {
+  exports.table(exports._tasks.map(formatTaskInfo));
+}
+
+/**
+ * Display message when no tasks are found.
+ */
+function displayNoTasksMessage() {
+  grunt.log.writeln('(no tasks found)');
+}
+
+/**
+ * Display tasks section with table and footer notes.
+ */
+function displayTasksSection() {
+  grunt.log.header('Available tasks');
   if (exports._tasks.length === 0) {
-    grunt.log.writeln('(no tasks found)');
+    displayNoTasksMessage();
   } else {
-    exports.table(exports._tasks.map(formatTaskInfo));
+    displayTasksTable();
 
     grunt.log.writeln().writelns(
       'Tasks run in the order specified. Arguments may be passed to tasks that ' +
@@ -154,9 +169,9 @@ function displayAvailableTasks() {
 }
 
 /**
- * Display footer information about task availability.
+ * Display tasks availability notice.
  */
-function displayTaskFooter() {
+function displayTasksAvailabilityNotice() {
   grunt.log.writeln().writelns(
     'The list of available tasks may change based on tasks directories or ' +
     'grunt plugins specified in the Gruntfile or via command-line options.'
@@ -164,9 +179,8 @@ function displayTaskFooter() {
 }
 
 exports.tasks = function() {
-  grunt.log.header('Available tasks');
-  displayAvailableTasks();
-  displayTaskFooter();
+  displayTasksSection();
+  displayTasksAvailabilityNotice();
 };
 
 // Footer.

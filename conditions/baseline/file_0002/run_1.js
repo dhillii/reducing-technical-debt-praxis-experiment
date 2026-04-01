@@ -61,40 +61,39 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [imagePreview]);
 
-    const handleImageUploadError = useCallback((error: unknown) => {
+    const clearImage = useCallback(() => {
         setImagePreview(null);
-        let errorMessage = 'Failed to upload image. Try again.';
-
-        if (error && typeof error === 'object' && 'statusCode' in error) {
-            const statusCode = (error as {statusCode: number}).statusCode;
-            if (statusCode === 413) {
-                errorMessage = 'Image size exceeds limit.';
-            } else if (statusCode === 415) {
-                errorMessage = 'The file type is not supported.';
-            }
+        setUploadedImageUrl(null);
+        setAltText('');
+        setShowAltInput(false);
+        if (imagePreview) {
+            URL.revokeObjectURL(imagePreview);
         }
-        toast.error(errorMessage);
-    }, []);
-
-    const handleImageUpload = useCallback(async (file: File) => {
-        try {
-            setIsImageUploading(true);
-            const imageUrl = await uploadFile(file);
-            setUploadedImageUrl(imageUrl);
-        } catch (error) {
-            handleImageUploadError(error);
-        } finally {
-            setIsImageUploading(false);
+        if (imageInputRef.current) {
+            imageInputRef.current.value = '';
         }
-    }, [handleImageUploadError]);
+    }, [imagePreview]);
 
-    const handlePostSuccess = useCallback(() => {
-        setIsOpen(false);
-        if (onOpenChange) {
-            onOpenChange(false);
+    // Sync external open prop with internal state
+    useEffect(() => {
+        if (props.open !== undefined) {
+            setIsOpen(props.open);
         }
-        toast.success(replyTo ? 'Reply posted' : 'Note posted');
-    }, [replyTo, onOpenChange]);
+    }, [props.open]);
+
+    useEffect(() => {
+        const modalIsOpen = getModalIsOpen();
+        if (modalIsOpen) {
+            const timer = setTimeout(() => {
+                setIsSticky(true);
+            }, 300);
+            return () => clearTimeout(timer);
+        } else {
+            setIsSticky(false);
+        }
+    }, [isOpen, props.open, getModalIsOpen]);
+
+    const isDisabled = !content.trim() || !user || isPosting || content.length > MAX_CONTENT_LENGTH;
 
     const handlePost = useCallback(async () => {
         const trimmedContent = content.trim();
@@ -123,36 +122,15 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                 navigate('/notes');
             }
 
-            handlePostSuccess();
+            setIsOpen(false);
+            onOpenChange?.(false);
+            toast.success(replyTo ? 'Reply posted' : 'Note posted');
         } catch {
-            if (replyTo) {
-                onReplyError?.();
-            }
+            onReplyError?.();
         } finally {
             setIsPosting(false);
         }
-    }, [content, user, replyTo, replyMutation, noteMutation, uploadedImageUrl, altText, onReply, onReplyError, navigate, handlePostSuccess, onReplyError]);
-
-    // Sync external open prop with internal state
-    useEffect(() => {
-        if (props.open !== undefined) {
-            setIsOpen(props.open);
-        }
-    }, [props.open]);
-
-    useEffect(() => {
-        const modalIsOpen = getModalIsOpen();
-        if (modalIsOpen) {
-            const timer = setTimeout(() => {
-                setIsSticky(true);
-            }, 300);
-            return () => clearTimeout(timer);
-        } else {
-            setIsSticky(false);
-        }
-    }, [getModalIsOpen]);
-
-    const isDisabled = !content.trim() || !user || isPosting || content.length > MAX_CONTENT_LENGTH;
+    }, [content, user, replyTo, replyMutation, noteMutation, uploadedImageUrl, altText, onReply, onReplyError, navigate, onOpenChange]);
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setContent(e.target.value);
@@ -174,7 +152,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             }, 100);
             return () => clearTimeout(timeoutId);
         }
-    }, [getModalIsOpen]);
+    }, [isOpen, props.open, getModalIsOpen]);
 
     // Focus alt text input when it becomes visible
     useEffect(() => {
@@ -201,7 +179,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             document.addEventListener('keydown', handleKeyDown);
             return () => document.removeEventListener('keydown', handleKeyDown);
         }
-    }, [getModalIsOpen, isDisabled, isImageUploading, handlePost]);
+    }, [isOpen, props.open, isDisabled, isImageUploading, handlePost, getModalIsOpen]);
 
     const handlePaste = useCallback(async (e: React.ClipboardEvent | ClipboardEvent) => {
         const items = e.clipboardData?.items;
@@ -227,7 +205,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                 break;
             }
         }
-    }, [handleImageUpload]);
+    }, []);
 
     useEffect(() => {
         const modalIsOpen = getModalIsOpen();
@@ -235,7 +213,33 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             document.addEventListener('paste', handlePaste);
             return () => document.removeEventListener('paste', handlePaste);
         }
-    }, [getModalIsOpen, handlePaste]);
+    }, [isOpen, props.open, handlePaste, getModalIsOpen]);
+
+    const handleImageUpload = async (file: File) => {
+        try {
+            setIsImageUploading(true);
+            const imageUrl = await uploadFile(file);
+            setUploadedImageUrl(imageUrl);
+        } catch (error) {
+            setImagePreview(null);
+            const errorMessage = getImageErrorMessage(error);
+            toast.error(errorMessage);
+        } finally {
+            setIsImageUploading(false);
+        }
+    };
+
+    const getImageErrorMessage = (error: unknown): string => {
+        if (error && typeof error === 'object' && 'statusCode' in error) {
+            switch ((error as {statusCode: number}).statusCode) {
+                case 413:
+                    return 'Image size exceeds limit.';
+                case 415:
+                    return 'The file type is not supported.';
+            }
+        }
+        return 'Failed to upload image. Try again.';
+    };
 
     const handleImageChange = async (e: ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
@@ -258,17 +262,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const handleClearImage = (e: React.MouseEvent) => {
         e.stopPropagation();
-        setImagePreview(null);
-        setUploadedImageUrl(null);
-        setAltText('');
-        setShowAltInput(false);
-        if (imagePreview) {
-            URL.revokeObjectURL(imagePreview);
-        }
-
-        if (imageInputRef.current) {
-            imageInputRef.current.value = '';
-        }
+        clearImage();
     };
 
     const handleToggleAltInput = (e: React.MouseEvent) => {
@@ -303,12 +297,14 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         if (open) {
             resetModalState();
         }
-
         setIsOpen(open);
+        onOpenChange?.(open);
+    };
 
-        if (onOpenChange) {
-            onOpenChange(open);
-        }
+    const getContentColor = (): string => {
+        if (content.length >= MAX_CONTENT_LENGTH) return 'text-red-500';
+        if (content.length >= MAX_CONTENT_LENGTH * 0.9) return 'text-yellow-600';
+        return 'text-gray-500';
     };
 
     return (
@@ -383,4 +379,36 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                             </div>
                         }
                         <Button className='absolute right-3 top-3 size-8 bg-black/60 text-white opacity-0 hover:bg-black/80 group-hover:opacity-100' onClick={handleClearImage}><LucideIcon.Trash2 /></Button>
-                        {!isImageUploading && <Button className={`absolute bottom-3
+                        {!isImageUploading && <Button className={`absolute bottom-3 left-3 h-6 px-2 py-0 text-white ${!showAltInput ? 'bg-black/60 hover:bg-black/80' : 'bg-green-500 hover:bg-green-500'}`} onClick={handleToggleAltInput}>Alt</Button>}
+                    </div>
+                }
+                {imagePreview && !isImageUploading && showAltInput &&
+                    <div className='mt-1'>
+                        <Input
+                            ref={altTextInputRef}
+                            className='w-full border-0 bg-transparent px-0 focus-visible:border-0 focus-visible:bg-transparent focus-visible:shadow-none focus-visible:outline-0 dark:bg-[#101114] dark:text-white dark:placeholder:text-gray-800'
+                            placeholder='Type alt text for image (optional)'
+                            type='text'
+                            value={altText}
+                            onChange={e => setAltText(e.target.value)}
+                        />
+                    </div>
+                }
+                <DialogFooter className={`${isSticky ? 'sticky' : 'static'} bottom-0 flex-row bg-background py-6 dark:bg-[#101114]`}>
+                    <Button className='mr-auto w-[34px] !min-w-0' variant='outline' onClick={() => imageInputRef.current?.click()}><LucideIcon.Image /></Button>
+                    <div className='flex items-center space-x-3'>
+                        <div className={`text-sm ${getContentColor()}`}>
+                            {content.length}/{MAX_CONTENT_LENGTH}
+                        </div>
+                        <Button className='min-w-16' data-testid="post-button" disabled={isDisabled || isImageUploading} onClick={handlePost}>
+                            {isPosting ? <LoadingIndicator color='light' size='sm' /> : 'Post'}
+                        </Button>
+                    </div>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+export default NewNoteModal;
+```

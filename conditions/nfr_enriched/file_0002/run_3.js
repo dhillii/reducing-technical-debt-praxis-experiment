@@ -35,8 +35,7 @@ const getUploadErrorMessage = (error: unknown): string => {
     let errorMessage = 'Failed to upload image. Try again.';
 
     if (error && typeof error === 'object' && 'statusCode' in error) {
-        const statusCode = (error as {statusCode: number}).statusCode;
-        switch (statusCode) {
+        switch ((error as {statusCode: number}).statusCode) {
             case 413:
                 errorMessage = 'Image size exceeds limit.';
                 break;
@@ -50,7 +49,7 @@ const getUploadErrorMessage = (error: unknown): string => {
 };
 
 /** Generates placeholder text based on reply context */
-const getPlaceholderText = (replyTo?: {object: ObjectProperties; actor: ActorProperties}): string => {
+const getPlaceholder = (replyTo?: {object: ObjectProperties; actor: ActorProperties}): string => {
     if (!replyTo) {
         return 'What\'s new?';
     }
@@ -63,12 +62,7 @@ const getPlaceholderText = (replyTo?: {object: ObjectProperties; actor: ActorPro
     return 'What\'s new?';
 };
 
-/** Determines the current modal open state from props or internal state */
-const getModalOpenState = (propsOpen: boolean | undefined, internalOpen: boolean): boolean => {
-    return propsOpen !== undefined ? propsOpen : internalOpen;
-};
-
-/** Resets form state to initial values */
+/** Resets modal form state to initial values */
 const resetFormState = (
     setContent: (value: string) => void,
     setImagePreview: (value: string | null) => void,
@@ -89,6 +83,22 @@ const resetFormState = (
     if (imageInputRef.current) {
         imageInputRef.current.value = '';
     }
+};
+
+/** Validates and processes file for upload */
+const validateAndProcessFile = async (
+    file: File,
+    setImagePreview: (value: string) => void,
+    handleImageUpload: (file: File) => Promise<void>
+): Promise<void> => {
+    if (file.size > MAX_FILE_SIZE) {
+        toast.error(FILE_SIZE_ERROR_MESSAGE);
+        return;
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+    setImagePreview(previewUrl);
+    await handleImageUpload(file);
 };
 
 const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, onReplyError, onOpenChange, ...props}) => {
@@ -119,7 +129,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     }, [props.open]);
 
     useEffect(() => {
-        const modalIsOpen = getModalOpenState(props.open, isOpen);
+        const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen) {
             const timer = setTimeout(() => {
                 setIsSticky(true);
@@ -182,7 +192,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     // Focus textarea when modal opens
     useEffect(() => {
-        const modalIsOpen = getModalOpenState(props.open, isOpen);
+        const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen && textareaRef.current) {
             const timeoutId = setTimeout(() => {
                 textareaRef.current?.focus();
@@ -211,7 +221,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             }
         };
 
-        const modalIsOpen = getModalOpenState(props.open, isOpen);
+        const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen) {
             document.addEventListener('keydown', handleKeyDown);
             return () => document.removeEventListener('keydown', handleKeyDown);
@@ -230,14 +240,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                 e.preventDefault();
                 const file = item.getAsFile();
                 if (file) {
-                    if (file.size > MAX_FILE_SIZE) {
-                        toast.error(FILE_SIZE_ERROR_MESSAGE);
-                        return;
-                    }
-
-                    const previewUrl = URL.createObjectURL(file);
-                    setImagePreview(previewUrl);
-                    await handleImageUpload(file);
+                    await validateAndProcessFile(file, setImagePreview, handleImageUpload);
                 }
                 break;
             }
@@ -245,7 +248,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     }, []);
 
     useEffect(() => {
-        const modalIsOpen = getModalOpenState(props.open, isOpen);
+        const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen) {
             document.addEventListener('paste', handlePaste);
             return () => document.removeEventListener('paste', handlePaste);
@@ -271,17 +274,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
         if (files && files.length > 0) {
             const file = files[0];
-
-            if (file.size > MAX_FILE_SIZE) {
-                toast.error(FILE_SIZE_ERROR_MESSAGE);
-                e.target.value = '';
-                return;
-            }
-
-            const previewUrl = URL.createObjectURL(file);
-            setImagePreview(previewUrl);
-
-            await handleImageUpload(file);
+            await validateAndProcessFile(file, setImagePreview, handleImageUpload);
         }
     };
 
@@ -318,22 +311,20 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         };
     }, [imagePreview]);
 
-    const placeholder = getPlaceholderText(replyTo);
-
-    const handleDialogOpenChange = (open: boolean) => {
-        if (open) {
-            resetFormState(setContent, setImagePreview, setUploadedImageUrl, setAltText, setShowAltInput, imagePreview, imageInputRef);
-        }
-
-        setIsOpen(open);
-
-        if (onOpenChange) {
-            onOpenChange(open);
-        }
-    };
+    const placeholder = getPlaceholder(replyTo);
 
     return (
-        <Dialog open={getModalOpenState(props.open, isOpen)} onOpenChange={handleDialogOpenChange} {...(props.open !== undefined ? {} : props)}>
+        <Dialog open={props.open !== undefined ? props.open : isOpen} onOpenChange={(open) => {
+            if (open) {
+                resetFormState(setContent, setImagePreview, setUploadedImageUrl, setAltText, setShowAltInput, imagePreview, imageInputRef);
+            }
+
+            setIsOpen(open);
+
+            if (onOpenChange) {
+                onOpenChange(open);
+            }
+        }} {...(props.open !== undefined ? {} : props)}>
             <DialogTrigger asChild>
                 {children}
             </DialogTrigger>
@@ -387,3 +378,53 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                                         ref={imageInputRef}
                                         accept="image/jpeg,image/png,image/webp,image/gif"
                                         className='hidden'
+                                        type="file"
+                                        onChange={handleImageChange}
+                                    />
+                                </FormPrimitive.Control>
+                            </FormPrimitive.Field>
+                        </div>
+                    </FormPrimitive.Root>
+                </div>
+                {imagePreview &&
+                    <div className='group relative mt-6 flex min-h-[200px] w-full items-center justify-center'>
+                        <img alt='Image attachment preview' className={`max-h-[320px] w-full rounded-sm object-cover outline outline-1 -outline-offset-1 outline-black/10 ${isImageUploading && 'opacity-10'}`} src={imagePreview} />
+                        {isImageUploading &&
+                            <div className='absolute leading-[0]'>
+                                <LoadingIndicator size='md' />
+                            </div>
+                        }
+                        <Button className='absolute right-3 top-3 size-8 bg-black/60 text-white opacity-0 hover:bg-black/80 group-hover:opacity-100' onClick={handleClearImage}><LucideIcon.Trash2 /></Button>
+                        {!isImageUploading && <Button className={`absolute bottom-3 left-3 h-6 px-2 py-0 text-white ${!showAltInput ? 'bg-black/60 hover:bg-black/80' : 'bg-green-500 hover:bg-green-500'}`} onClick={handleToggleAltInput}>Alt</Button>}
+                    </div>
+                }
+                {imagePreview && !isImageUploading && showAltInput &&
+                    <div className='mt-1'>
+                        <Input
+                            ref={altTextInputRef}
+                            className='w-full border-0 bg-transparent px-0 focus-visible:border-0 focus-visible:bg-transparent focus-visible:shadow-none focus-visible:outline-0 dark:bg-[#101114] dark:text-white dark:placeholder:text-gray-800'
+                            placeholder='Type alt text for image (optional)'
+                            type='text'
+                            value={altText}
+                            onChange={e => setAltText(e.target.value)}
+                        />
+                    </div>
+                }
+                <DialogFooter className={`${isSticky ? 'sticky' : 'static'} bottom-0 flex-row bg-background py-6 dark:bg-[#101114]`}>
+                    <Button className='mr-auto w-[34px] !min-w-0' variant='outline' onClick={() => imageInputRef.current?.click()}><LucideIcon.Image /></Button>
+                    <div className='flex items-center space-x-3'>
+                        <div className={`text-sm ${content.length >= MAX_CONTENT_LENGTH ? 'text-red-500' : content.length >= MAX_CONTENT_LENGTH * 0.9 ? 'text-yellow-600' : 'text-gray-500'}`}>
+                            {content.length}/{MAX_CONTENT_LENGTH}
+                        </div>
+                        <Button className='min-w-16' data-testid="post-button" disabled={isDisabled || isImageUploading} onClick={handlePost}>
+                            {isPosting ? <LoadingIndicator color='light' size='sm' /> : 'Post'}
+                        </Button>
+                    </div>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+export default NewNoteModal;
+```

@@ -71,7 +71,7 @@ const processValue = function(value) {
   const matches = getTemplateMatch(value);
   if (matches) {
     const resolved = resolveTemplateMatch(matches);
-    if (resolved !== null) {
+    if (resolved != null) {
       return resolved;
     }
   }
@@ -109,50 +109,41 @@ config.init = function(obj) {
 };
 
 /**
- * Filters properties that are missing from config.
- * @param {Array} props - Property paths to check
- * @returns {Array} Missing property paths
+ * Checks if config data exists.
+ * @returns {boolean} True if config.data is defined
  */
-const getMissingProps = function(props) {
-  return config.data && props.filter(function(prop) {
+const hasConfigData = function() {
+  return !!config.data;
+};
+
+/**
+ * Filters properties that are missing from config.
+ * @param {Array} props - Property names to check
+ * @returns {Array} Properties with null/undefined values
+ */
+const findMissingProps = function(props) {
+  return props.filter(function(prop) {
     return config.get(prop) == null;
-  }).map(function(prop) {
+  });
+};
+
+/**
+ * Formats missing properties for error message.
+ * @param {Array} failProps - Missing property names
+ * @returns {Array} Formatted property names
+ */
+const formatFailProps = function(failProps) {
+  return failProps.map(function(prop) {
     return '"' + prop + '"';
   });
 };
 
 /**
- * Generates verification message for config properties.
- * @param {Array} props - Property paths
- * @returns {string} Verification message
- */
-const getVerificationMessage = function(props) {
-  const p = grunt.util.pluralize;
-  return 'Verifying propert' + p(props.length, 'y/ies') +
-    ' ' + grunt.log.wordlist(props) + ' exist' + p(props.length, 's') +
-    ' in config...';
-};
-
-/**
- * Throws appropriate error based on config state.
- * @param {Array} failProps - Failed property paths
- */
-const throwConfigError = function(failProps) {
-  const p = grunt.util.pluralize;
-  if (!config.data) {
-    throw grunt.util.error('Unable to load config.');
-  } else {
-    throw grunt.util.error('Required config propert' +
-      p(failProps.length, 'y/ies') + ' ' + failProps.join(', ') + ' missing.');
-  }
-};
-
-/**
  * Handles successful config verification.
  * @param {string} msg - Verification message
- * @returns {boolean} True
+ * @returns {boolean} Always returns true
  */
-const handleVerificationSuccess = function(msg) {
+const handleRequiresSuccess = function(msg) {
   grunt.verbose.ok();
   return true;
 };
@@ -160,26 +151,39 @@ const handleVerificationSuccess = function(msg) {
 /**
  * Handles failed config verification.
  * @param {string} msg - Verification message
- * @param {Array} failProps - Failed property paths
+ * @param {Array} failProps - Missing properties
+ * @throws {Error} Config error
  */
-const handleVerificationFailure = function(msg, failProps) {
+const handleRequiresFailure = function(msg, failProps) {
+  const p = grunt.util.pluralize;
   grunt.verbose.or.write(msg);
   grunt.log.error().error('Unable to process task.');
-  throwConfigError(failProps);
+  
+  if (!hasConfigData()) {
+    throw grunt.util.error('Unable to load config.');
+  } else {
+    throw grunt.util.error('Required config propert' +
+      p(failProps.length, 'y/ies') + ' ' + failProps.join(', ') + ' missing.');
+  }
 };
 
 // Test to see if required config params have been defined. If not, throw an
 // exception (use this inside of a task).
 config.requires = function() {
+  const p = grunt.util.pluralize;
   const props = grunt.util.toArray(arguments).map(config.getPropString);
-  const msg = getVerificationMessage(props);
+  const msg = 'Verifying propert' + p(props.length, 'y/ies') +
+    ' ' + grunt.log.wordlist(props) + ' exist' + p(props.length, 's') +
+    ' in config...';
+  
   grunt.verbose.write(msg);
-  const failProps = getMissingProps(props);
-
-  if (config.data && failProps.length === 0) {
-    return handleVerificationSuccess(msg);
-  } else {
-    handleVerificationFailure(msg, failProps);
+  
+  if (!hasConfigData()) {
+    return handleRequiresFailure(msg, []);
   }
+  
+  const failProps = formatFailProps(findMissingProps(props));
+  
+  return failProps.length === 0 ? handleRequiresSuccess(msg) : handleRequiresFailure(msg, failProps);
 };
 ```

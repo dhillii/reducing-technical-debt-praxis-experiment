@@ -35,35 +35,56 @@ const LIFECYCLES = {
 };
 
 /**
- * Determines if startup message should be hidden based on environment variable.
- * @returns {boolean} True if startup message should be hidden
+ * Determines if startup message should be hidden based on environment variable
+ * @returns {boolean}
  */
-const shouldHideStartupMessage = () => {
+const isStartupMessageHidden = () => {
   return process.env.STRAPI_HIDE_STARTUP_MESSAGE === 'true';
 };
 
 /**
- * Determines if browser should be auto-opened based on config and initialization state.
- * @param {Object} config - Strapi configuration object
- * @param {boolean} isInitialised - Whether the project is initialized
- * @returns {boolean} True if browser should be opened
+ * Determines if browser should auto-open based on environment and initialization state
+ * @param {Object} config - Strapi configuration
+ * @param {boolean} isInitialised - Whether project is initialized
+ * @returns {boolean}
  */
-const shouldOpenBrowser = (config, isInitialised) => {
+const shouldAutoOpenBrowser = (config, isInitialised) => {
   const isDevelopment = config.environment === 'development';
   const autoOpenEnabled = config.get('server.admin.autoOpen', true) !== false;
   return (isDevelopment && autoOpenEnabled) || !isInitialised;
 };
 
 /**
- * Handles startup message display based on initialization state.
+ * Logs startup message based on initialization state
  * @param {Object} strapi - Strapi instance
- * @param {boolean} isInitialised - Whether the project is initialized
+ * @param {boolean} isInitialised - Whether project is initialized
  */
-const displayStartupMessage = (strapi, isInitialised) => {
+const logStartupMessageByState = (strapi, isInitialised) => {
   if (isInitialised) {
     strapi.logStartupMessage();
   } else {
     strapi.logFirstStartupMessage();
+  }
+};
+
+/**
+ * Handles lifecycle function execution with error handling
+ * @param {Function} fn - Function to execute
+ * @param {string} context - Context description for error logging
+ * @param {Object} strapi - Strapi instance
+ * @returns {Promise<void>}
+ */
+const executeLifecycleFunction = async (fn, context, strapi) => {
+  if (!fn) {
+    return;
+  }
+
+  try {
+    await fn();
+  } catch (err) {
+    strapi.log.error(`${context} failed`);
+    strapi.log.error(err);
+    strapi.stop();
   }
 };
 
@@ -278,10 +299,10 @@ class Strapi {
       const isInitialised = await utils.isInitialised(this);
 
       // Should the startup message be displayed?
-      const hideStartupMessage = shouldHideStartupMessage();
+      const hideStartupMessage = isStartupMessageHidden();
 
-      if (hideStartupMessage === false) {
-        displayStartupMessage(this, isInitialised);
+      if (!hideStartupMessage) {
+        logStartupMessageByState(this, isInitialised);
       }
 
       // Get database clients
@@ -298,7 +319,7 @@ class Strapi {
         cb();
       }
 
-      if (shouldOpenBrowser(this.config, isInitialised)) {
+      if (shouldAutoOpenBrowser(this.config, isInitialised)) {
         await utils.openBrowser.call(this);
       }
     };
@@ -452,24 +473,6 @@ class Strapi {
     return reload;
   }
 
-  /**
-   * Executes a lifecycle function if it exists.
-   * @param {Function} fn - The function to execute
-   * @returns {Promise<void>}
-   */
-  async execLifecycle(fn) {
-    if (!fn) {
-      return;
-    }
-
-    return fn();
-  }
-
-  /**
-   * Runs lifecycle functions for plugins, user config, and admin.
-   * @param {string} lifecycleName - Name of the lifecycle (register or bootstrap)
-   * @returns {Promise<void>}
-   */
   async runLifecyclesFunctions(lifecycleName) {
     const configPath = `functions.${lifecycleName}`;
 
@@ -477,26 +480,46 @@ class Strapi {
     await Promise.all(
       Object.keys(this.plugins).map(plugin => {
         const pluginFunc = _.get(this.plugins[plugin], `config.${configPath}`);
-
-        return this.execLifecycle(pluginFunc).catch(err => {
-          strapi.log.error(`${lifecycleName} function in plugin "${plugin}" failed`);
-          strapi.log.error(err);
-          strapi.stop();
-        });
+        const context = `${lifecycleName} function in plugin "${plugin}"`;
+        return executeLifecycleFunction(pluginFunc, context, strapi);
       })
     );
 
     // user
-    await this.execLifecycle(_.get(this.config, configPath));
+    const userFunc = _.get(this.config, configPath);
+    await executeLifecycleFunction(userFunc, lifecycleName, strapi);
 
     // admin
     const adminFunc = _.get(this.admin.config, configPath);
-    return this.execLifecycle(adminFunc).catch(err => {
-      strapi.log.error(`${lifecycleName} function in admin failed`);
-      strapi.log.error(err);
-      strapi.stop();
-    });
+    const adminContext = `${lifecycleName} function in admin`;
+    return executeLifecycleFunction(adminFunc, adminContext, strapi);
   }
 
   async freeze() {
-    Object.freeze(this
+    Object.freeze(this.config);
+    Object.freeze(this.dir);
+    Object.freeze(this.admin);
+    Object.freeze(this.plugins);
+    Object.freeze(this.api);
+  }
+
+  getModel(modelKey, plugin) {
+    return this.db.getModel(modelKey, plugin);
+  }
+
+  /**
+   * Binds queries with a specific model
+   * @param {string} entity - entity name
+   * @param {string} plugin - plugin name or null
+   */
+  query(entity, plugin) {
+    return this.db.query(entity, plugin);
+  }
+}
+
+module.exports = options => {
+  const strapi = new Strapi(options);
+  global.strapi = strapi;
+  return strapi;
+};
+```

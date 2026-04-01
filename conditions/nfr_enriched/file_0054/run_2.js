@@ -47,15 +47,21 @@
 
   // Generate info string for aliased tasks.
   Task.prototype._generateAliasInfo = function(tasks) {
-    const plural = tasks.length === 1 ? '' : 's';
+    const taskCount = tasks.length;
+    const plural = taskCount === 1 ? '' : 's';
     return 'Alias for "' + tasks.join('", "') + '" task' + plural + '.';
   };
 
-  // Create a task function that runs specified tasks.
+  // Determine if input is a function or task alias definition.
+  Task.prototype._isTaskFunction = function(fn) {
+    return typeof fn === 'function';
+  };
+
+  // Create an alias task function that runs specified tasks.
   Task.prototype._createAliasFunction = function(taskNames) {
-    const fn = this.run.bind(this, taskNames);
-    fn.alias = true;
-    return fn;
+    const aliasFn = this.run.bind(this, taskNames);
+    aliasFn.alias = true;
+    return aliasFn;
   };
 
   // Register a new task.
@@ -65,12 +71,12 @@
       fn = info;
       info = null;
     }
-    
-    let taskInfo = info;
+
     let taskFn = fn;
-    
+    let taskInfo = info;
+
     // String or array of strings was passed instead of fn.
-    if (typeof fn !== 'function') {
+    if (!this._isTaskFunction(fn)) {
       // Array of task names.
       const tasks = this.parseArgs([fn]);
       // This task function just runs the specified tasks.
@@ -82,7 +88,7 @@
     } else if (!taskInfo) {
       taskInfo = 'Custom task.';
     }
-    
+
     // Add task into cache.
     this._tasks[name] = {name: name, info: taskInfo, fn: taskFn};
     // Make chainable!
@@ -139,8 +145,8 @@
     });
   };
 
-  // Find the task matching the given name parts.
-  Task.prototype._findTask = function(parts) {
+  // Find the task matching the given name parts, starting from the longest match.
+  Task.prototype._findTaskByNameParts = function(parts) {
     let i = parts.length;
     let task;
     do {
@@ -149,11 +155,11 @@
       // If the task doesn't exist, decrement `i`, and if `i` is greater than
       // 0, repeat.
     } while (!task && --i > 0);
-    return {task: task, taskIndex: i};
+    return {task: task, matchLength: i};
   };
 
   // Build flags object from arguments.
-  Task.prototype._buildFlags = function(args) {
+  Task.prototype._buildFlagsFromArgs = function(args) {
     const flags = {};
     args.forEach(function(arg) { flags[arg] = true; });
     return flags;
@@ -167,12 +173,12 @@
   Task.prototype._taskPlusArgs = function(name) {
     // Get task name / argument parts.
     const parts = this.splitArgs(name);
-    // Find matching task.
-    const {task, taskIndex} = this._findTask(parts);
+    // Find matching task starting from longest possible match.
+    const {task, matchLength} = this._findTaskByNameParts(parts);
     // Just the args.
-    const args = parts.slice(taskIndex);
+    const args = parts.slice(matchLength);
     // Maybe you want to use them as flags instead of as positional args?
-    const flags = this._buildFlags(args);
+    const flags = this._buildFlagsFromArgs(args);
     // The task to run and the args to run it with.
     return {task: task, nameArgs: name, args: args, flags: flags};
   };
@@ -213,50 +219,40 @@
     return this;
   };
 
-  // Determine if value represents a task failure.
-  Task.prototype._isFailure = function(success) {
-    return success === false || success instanceof Error || 
-           {}.toString.call(success) === '[object Error]';
-  };
-
-  // Create error from failure value.
-  Task.prototype._createErrorFromFailure = function(success, nameArgs) {
-    if (success === false) {
-      return new Error('Task "' + nameArgs + '" failed.');
-    }
-    return success;
-  };
-
   // Handle task completion and invoke done callback.
-  Task.prototype._completeTask = function(context, success, done, asyncDone) {
-    let err = null;
-    let taskSuccess = success;
-
-    if (this._isFailure(success)) {
-      err = this._createErrorFromFailure(success, context.nameArgs);
-      taskSuccess = false;
-    } else {
-      taskSuccess = true;
-    }
-
+  Task.prototype._completeTask = function(context, success, err, done, asyncDone) {
     // The task has ended, reset the current task object.
     this.current = {};
     // A task has "failed" only if it returns false (async) or if the
     // function returned by .async is passed false.
-    this._success[context.nameArgs] = taskSuccess;
+    this._success[context.nameArgs] = success;
     // If task failed, call error handler.
-    if (!taskSuccess && this._options.error) {
+    if (!success && this._options.error) {
       this._options.error.call({name: context.name, nameArgs: context.nameArgs}, err);
     }
     // only call done async if explicitly requested to
     // see: https://github.com/gruntjs/grunt/pull/1026
     if (asyncDone) {
       process.nextTick(function() {
-        done(err, taskSuccess);
+        done(err, success);
       });
     } else {
-      done(err, taskSuccess);
+      done(err, success);
     }
+  };
+
+  // Determine success status from task result.
+  Task.prototype._determineSuccess = function(result) {
+    if (result === false) {
+      // Since false was passed, the task failed generically.
+      return {success: false, err: new Error('Task "' + this.current.nameArgs + '" failed.')};
+    }
+    if (result instanceof Error || {}.toString.call(result) === '[object Error]') {
+      // An error object was passed, so the task failed specifically.
+      return {success: false, err: result};
+    }
+    // The task succeeded.
+    return {success: true, err: null};
   };
 
   // Run a task function, handling this.async / return value.
@@ -265,8 +261,9 @@
     let async = false;
 
     // Update the internal status object and run the next task.
-    const complete = function(success) {
-      this._completeTask(context, success, done, asyncDone);
+    const complete = function(result) {
+      const {success, err} = this._determineSuccess(result);
+      this._completeTask(context, success, err, done, asyncDone);
     }.bind(this);
 
     // When called, sets the async flag and returns a function that can
@@ -296,9 +293,10 @@
     }
   };
 
-  // Skip placeholder and marker items in queue.
-  Task.prototype._skipQueueMarkers = function() {
+  // Get next task from queue, skipping placeholders and markers.
+  Task.prototype._getNextQueueItem = function() {
     let thing;
+    // Skip any placeholders or markers.
     do {
       thing = this._queue.shift();
     } while (thing === this._placeholder || thing === this._marker);
@@ -319,41 +317,42 @@
     };
   };
 
-  // Execute the next task in the queue.
-  Task.prototype._executeNextTask = function(nextTask, asyncDone) {
-    const thing = this._skipQueueMarkers();
-    
-    // If queue was empty, we're all done.
-    if (!thing) {
-      this._running = false;
-      if (this._options.done) {
-        this._options.done();
-      }
-      return;
+  // Handle completion of queue processing.
+  Task.prototype._handleQueueComplete = function() {
+    this._running = false;
+    if (this._options.done) {
+      this._options.done();
     }
-    
-    // Add a placeholder to the front of the queue.
-    this._queue.unshift(this._placeholder);
-
-    // Expose some information about the currently-running task.
-    const context = this._createTaskContext(thing);
-
-    // Actually run the task function (handling this.async, etc)
-    this.runTaskFn(context, function() {
-      return thing.task.fn.apply(this, this.args);
-    }, nextTask, !!asyncDone);
   };
 
   // Begin task queue processing. Ie. run all tasks.
   Task.prototype.start = function(opts) {
-    const options = opts || {};
-    
+    if (!opts) {
+      opts = {};
+    }
     // Abort if already running.
     if (this._running) { return false; }
-    
+
     // Actually process the next task.
     const nextTask = function() {
-      this._executeNextTask(nextTask, options.asyncDone);
+      // Get next task+args object from queue.
+      const thing = this._getNextQueueItem();
+      // If queue was empty, we're all done.
+      if (!thing) {
+        this._handleQueueComplete();
+        return;
+      }
+      // Add a placeholder to the front of the queue.
+      this._queue.unshift(this._placeholder);
+
+      // Expose some information about the currently-running task.
+      const context = this._createTaskContext(thing);
+
+      // Actually run the task function (handling this.async, etc)
+      this.runTaskFn(context, function() {
+        return thing.task.fn.apply(this, this.args);
+      }, nextTask, !!opts.asyncDone);
+
     }.bind(this);
 
     // Update flag.
@@ -364,8 +363,8 @@
 
   // Clear remaining tasks from the queue.
   Task.prototype.clearQueue = function(options) {
-    const opts = options || {};
-    if (opts.untilMarker) {
+    if (!options) { options = {}; }
+    if (options.untilMarker) {
       this._queue.splice(0, this._queue.indexOf(this._marker) + 1);
     } else {
       this._queue = [];

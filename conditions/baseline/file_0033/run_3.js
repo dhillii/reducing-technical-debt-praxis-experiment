@@ -364,17 +364,6 @@ class ajaxService extends AjaxService {
         }
     }
 
-    _setSentryContext(status, request) {
-        Sentry.setContext('ajax', {
-            url: request.url,
-            method: request.method,
-            status
-        });
-        Sentry.setTag('ajax_status', status);
-        Sentry.setTag('ajax_url', request.url.slice(0, 200));
-        Sentry.setTag('ajax_method', request.method);
-    }
-
     _handleErrorResponse(status, headers, payload) {
         for (const handler of ERROR_HANDLERS) {
             if (this[handler.check](status, headers, payload)) {
@@ -394,24 +383,35 @@ class ajaxService extends AjaxService {
         const isAuthenticated = this.get('session.isAuthenticated');
         const isUnauthorized = this.isUnauthorizedError(status, headers, payload);
         const isForbidden = isForbiddenError(status, headers, payload);
+        const isForbiddenAuthError = isForbidden && payload.errors?.[0].message === 'Authorization failed';
 
-        if (isGhostRequest) {
-            this._responseServer = headers.server;
-        }
-
-        if (isAuthenticated && isGhostRequest && (isUnauthorized || (isForbidden && payload.errors?.[0].message === 'Authorization failed'))) {
+        if (isAuthenticated && isGhostRequest && (isUnauthorized || isForbiddenAuthError)) {
             this.skipSessionDeletion = true;
             this.session.invalidate();
         }
     }
 
     handleResponse(status, headers, payload, request) {
-        this._setSentryContext(status, request);
+        // set some context variables for Sentry in case there is an error
+        Sentry.setContext('ajax', {
+            url: request.url,
+            method: request.method,
+            status
+        });
+        Sentry.setTag('ajax_status', status);
+        Sentry.setTag('ajax_url', request.url.slice(0, 200)); // the max length of a tag value is 200 characters
+        Sentry.setTag('ajax_method', request.method);
+
         this._checkVersionMismatch(headers);
 
         const errorResponse = this._handleErrorResponse(status, headers, payload);
         if (errorResponse) {
             return errorResponse;
+        }
+
+        // used when reporting connection errors, helps distinguish CDN
+        if (GHOST_REQUEST.test(request.url)) {
+            this._responseServer = headers.server;
         }
 
         this._handleSessionInvalidation(status, headers, payload, request);
@@ -448,3 +448,48 @@ class ajaxService extends AjaxService {
     isVersionMismatchError(status, headers, payload) {
         return isVersionMismatchError(status, payload);
     }
+
+    isServerUnreachableError(status) {
+        return isServerUnreachableError(status);
+    }
+
+    isRequestEntityTooLargeError(status) {
+        return isRequestEntityTooLargeError(status);
+    }
+
+    isUnsupportedMediaTypeError(status) {
+        return isUnsupportedMediaTypeError(status);
+    }
+
+    isDataImportError(status) {
+        return isDataImportError(status);
+    }
+
+    isMaintenanceError(status, headers, payload) {
+        return isMaintenanceError(status, payload);
+    }
+
+    isThemeValidationError(status, headers, payload) {
+        return isThemeValidationError(status, payload);
+    }
+
+    isHostLimitError(status, headers, payload) {
+        return isHostLimitError(status, payload);
+    }
+
+    isEmailError(status, headers, payload) {
+        return isEmailError(status, payload);
+    }
+
+    isAcceptedResponse(status) {
+        return isAcceptedResponse(status);
+    }
+}
+
+// we need to reopen so that internal methods use the correct contentType
+ajaxService.reopen({
+    contentType: 'application/json; charset=UTF-8'
+});
+
+export default ajaxService;
+```

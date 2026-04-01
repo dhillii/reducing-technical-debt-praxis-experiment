@@ -272,10 +272,10 @@ const errorResponseStrategies = [
 ];
 
 /**
- * Attempts to match and create an error response from strategies
- * @param {number} status HTTP status code
- * @param {object} headers Response headers
- * @param {object} payload Response payload
+ * Attempts to match and create an error response using registered strategies
+ * @param {number} status - HTTP status code
+ * @param {object} headers - Response headers
+ * @param {object} payload - Response payload
  * @returns {object|null} Error instance or null if no match
  */
 function createErrorResponse(status, headers, payload) {
@@ -285,6 +285,34 @@ function createErrorResponse(status, headers, payload) {
         }
     }
     return null;
+}
+
+/**
+ * Determines if request is a Ghost API request
+ * @param {string} url - Request URL
+ * @returns {boolean}
+ */
+function isGhostApiRequest(url) {
+    return GHOST_REQUEST.test(url);
+}
+
+/**
+ * Determines if session invalidation should occur
+ * @param {boolean} isAuthenticated - Session authentication status
+ * @param {boolean} isGhostRequest - Whether request is to Ghost API
+ * @param {boolean} isUnauthorized - Whether response is unauthorized
+ * @param {boolean} isForbidden - Whether response is forbidden
+ * @param {object} payload - Response payload
+ * @returns {boolean}
+ */
+function shouldInvalidateSession(isAuthenticated, isGhostRequest, isUnauthorized, isForbidden, payload) {
+    if (!isAuthenticated || !isGhostRequest) {
+        return false;
+    }
+    if (isUnauthorized) {
+        return true;
+    }
+    return isForbidden && payload.errors?.[0].message === 'Authorization failed';
 }
 
 @classic
@@ -402,20 +430,6 @@ class ajaxService extends AjaxService {
         }
     }
 
-    /**
-     * Checks if response indicates authorization failure
-     * @param {boolean} isAuthenticated Session authentication state
-     * @param {boolean} isGhostRequest Whether request is to Ghost API
-     * @param {boolean} isUnauthorized Whether response is 401
-     * @param {boolean} isForbidden Whether response is 403
-     * @param {object} payload Response payload
-     * @returns {boolean} True if authorization handling required
-     */
-    _shouldInvalidateSession(isAuthenticated, isGhostRequest, isUnauthorized, isForbidden, payload) {
-        const isForbiddenAuthFailure = isForbidden && payload.errors?.[0].message === 'Authorization failed';
-        return isAuthenticated && isGhostRequest && (isUnauthorized || isForbiddenAuthFailure);
-    }
-
     handleResponse(status, headers, payload, request) {
         // set some context variables for Sentry in case there is an error
         Sentry.setContext('ajax', {
@@ -437,4 +451,99 @@ class ajaxService extends AjaxService {
         }
 
         const errorResponse = createErrorResponse(status, headers, payload);
-        if
+        if (errorResponse) {
+            return errorResponse;
+        }
+
+        const isGhostRequest = isGhostApiRequest(request.url);
+        const isAuthenticated = this.get('session.isAuthenticated');
+        const isUnauthorized = this.isUnauthorizedError(status, headers, payload);
+        const isForbidden = isForbiddenError(status, headers, payload);
+
+        // used when reporting connection errors, helps distinguish CDN
+        if (isGhostRequest) {
+            this._responseServer = headers.server;
+        }
+
+        if (shouldInvalidateSession(isAuthenticated, isGhostRequest, isUnauthorized, isForbidden, payload)) {
+            this.skipSessionDeletion = true;
+            this.session.invalidate();
+        }
+
+        return super.handleResponse(...arguments);
+    }
+
+    normalizeErrorResponse(status, headers, payload) {
+        if (payload && typeof payload === 'object') {
+            let errors = payload.error || payload.errors || payload.message || undefined;
+
+            if (errors) {
+                if (!isEmberArray(errors)) {
+                    errors = [errors];
+                }
+
+                payload.errors = errors.map(function (error) {
+                    if (typeof error === 'string') {
+                        return {message: error};
+                    } else {
+                        return error;
+                    }
+                });
+            }
+        }
+
+        return super.normalizeErrorResponse(status, headers, payload);
+    }
+
+    isTwoFactorTokenRequiredError(status, headers, payload) {
+        return isTwoFactorTokenRequiredError(status, payload);
+    }
+
+    isVersionMismatchError(status, headers, payload) {
+        return isVersionMismatchError(status, payload);
+    }
+
+    isServerUnreachableError(status) {
+        return isServerUnreachableError(status);
+    }
+
+    isRequestEntityTooLargeError(status) {
+        return isRequestEntityTooLargeError(status);
+    }
+
+    isUnsupportedMediaTypeError(status) {
+        return isUnsupportedMediaTypeError(status);
+    }
+
+    isDataImportError(status) {
+        return isDataImportError(status);
+    }
+
+    isMaintenanceError(status, headers, payload) {
+        return isMaintenanceError(status, payload);
+    }
+
+    isThemeValidationError(status, headers, payload) {
+        return isThemeValidationError(status, payload);
+    }
+
+    isHostLimitError(status, headers, payload) {
+        return isHostLimitError(status, payload);
+    }
+
+    isEmailError(status, headers, payload) {
+        return isEmailError(status, payload);
+    }
+
+    isAcceptedResponse(status) {
+        return isAcceptedResponse(status);
+    }
+}
+
+// we need to reopen so that internal methods use the correct contentType
+ajaxService.reopen({
+    contentType: 'application/json; charset=UTF-8'
+});
+
+export default ajaxService;
+```

@@ -187,10 +187,91 @@ const buildJoinsAndFilter = (qb, model, filters) => {
    */
   const buildJoin = (qb, assoc, originInfo, destinationInfo) => {
     if (isManyToManyOrManyWay(assoc.nature)) {
-      buildManyToManyJoin(qb, assoc, originInfo, destinationInfo, generateAlias);
+      buildManyToManyJoin(qb, assoc, originInfo, destinationInfo);
     } else {
       buildOneToManyJoin(qb, assoc, originInfo, destinationInfo);
     }
+  };
+
+  /**
+   * Check if association is many-to-many or many-way
+   * @param {string} nature - Association nature
+   */
+  const isManyToManyOrManyWay = nature => ['manyToMany', 'manyWay'].includes(nature);
+
+  /**
+   * Build many-to-many or many-way join
+   * @param {Object} qb - Knex query builder
+   * @param {Object} assoc - Association info
+   * @param {Object} originInfo - Origin info
+   * @param {Object} destinationInfo - Destination info
+   */
+  const buildManyToManyJoin = (qb, assoc, originInfo, destinationInfo) => {
+    const joinTableAlias = generateAlias(assoc.tableCollectionName);
+
+    const originColumnNameInJoinTable = buildOriginColumnNameInJoinTable(
+      assoc,
+      joinTableAlias,
+      originInfo,
+      destinationInfo
+    );
+
+    qb.leftJoin(
+      `${originInfo.model.databaseName}.${assoc.tableCollectionName} AS ${joinTableAlias}`,
+      originColumnNameInJoinTable,
+      `${originInfo.alias}.${originInfo.model.primaryKey}`
+    );
+
+    qb.leftJoin(
+      `${destinationInfo.model.databaseName}.${destinationInfo.model.collectionName} AS ${destinationInfo.alias}`,
+      `${joinTableAlias}.${singular(originInfo.model.attributes[assoc.alias].attribute)}_${
+        originInfo.model.attributes[assoc.alias].column
+      }`,
+      `${destinationInfo.alias}.${destinationInfo.model.primaryKey}`
+    );
+  };
+
+  /**
+   * Build origin column name in join table based on association nature
+   * @param {Object} assoc - Association info
+   * @param {string} joinTableAlias - Join table alias
+   * @param {Object} originInfo - Origin info
+   * @param {Object} destinationInfo - Destination info
+   */
+  const buildOriginColumnNameInJoinTable = (assoc, joinTableAlias, originInfo, destinationInfo) => {
+    if (assoc.nature === 'manyToMany') {
+      return `${joinTableAlias}.${singular(
+        destinationInfo.model.attributes[assoc.via].attribute
+      )}_${destinationInfo.model.attributes[assoc.via].column}`;
+    }
+    return `${joinTableAlias}.${singular(originInfo.model.collectionName)}_${
+      originInfo.model.primaryKey
+    }`;
+  };
+
+  /**
+   * Build one-to-many join
+   * @param {Object} qb - Knex query builder
+   * @param {Object} assoc - Association info
+   * @param {Object} originInfo - Origin info
+   * @param {Object} destinationInfo - Destination info
+   */
+  const buildOneToManyJoin = (qb, assoc, originInfo, destinationInfo) => {
+    const externalKey =
+      assoc.type === 'collection'
+        ? `${destinationInfo.alias}.${assoc.via || destinationInfo.model.primaryKey}`
+        : `${destinationInfo.alias}.${destinationInfo.model.primaryKey}`;
+
+    const internalKey =
+      assoc.type === 'collection'
+        ? `${originInfo.alias}.${originInfo.model.primaryKey}`
+        : `${originInfo.alias}.${assoc.alias}`;
+
+    qb.leftJoin(
+      `${destinationInfo.model.databaseName}.${destinationInfo.model.collectionName} AS ${destinationInfo.alias}`,
+      externalKey,
+      internalKey
+    );
   };
 
   /**
@@ -203,20 +284,16 @@ const buildJoinsAndFilter = (qb, model, filters) => {
     let [key, ...parts] = field.split('.');
 
     const assoc = findAssoc(tree.model, key);
-    // if the key is an attribute add as where clause
     if (!assoc) {
       return `${tree.alias}.${key}`;
     }
 
     const assocModel = strapi.db.getModelByAssoc(assoc);
 
-    // if the last part of the path is an association
-    // add the primary key of the model to the parts
     if (parts.length === 0) {
       parts = [assocModel.primaryKey];
     }
 
-    // init sub query tree
     if (!tree.joins[key]) {
       tree.joins[key] = createTreeNode(assocModel, assoc);
     }
@@ -259,7 +336,6 @@ const buildJoinsAndFilter = (qb, model, filters) => {
     _.each(tree.joins, value => {
       const { alias, model } = value;
 
-      // PublicationState
       runPopulateQueries(
         toQueries({
           publicationState: { query: filters.publicationState, model, alias },
@@ -274,7 +350,6 @@ const buildJoinsAndFilter = (qb, model, filters) => {
   const aliasedWhereClauses = buildWhereClauses(whereClauses, { model });
   aliasedWhereClauses.forEach(w => buildWhereClause({ qb, ...w }));
 
-  // Force needed joins for deep sort clauses
   generateNestedJoinsFromFields(sortClauses.map(prop('field')));
 
   buildJoinsFromTree(qb, tree);
@@ -284,94 +359,11 @@ const buildJoinsAndFilter = (qb, model, filters) => {
 };
 
 /**
- * Check if association nature is many-to-many or many-way
- * @param {string} nature - Association nature
- */
-const isManyToManyOrManyWay = nature => ['manyToMany', 'manyWay'].includes(nature);
-
-/**
- * Build many-to-many or many-way join
- * @param {Object} qb - Knex query builder
- * @param {Object} assoc - Association info
- * @param {Object} originInfo - Origin info
- * @param {Object} destinationInfo - Destination info
- * @param {Function} generateAlias - Alias generator function
- */
-const buildManyToManyJoin = (qb, assoc, originInfo, destinationInfo, generateAlias) => {
-  const joinTableAlias = generateAlias(assoc.tableCollectionName);
-
-  const originColumnNameInJoinTable = buildOriginColumnNameInJoinTable(
-    assoc,
-    originInfo,
-    destinationInfo,
-    joinTableAlias
-  );
-
-  qb.leftJoin(
-    `${originInfo.model.databaseName}.${assoc.tableCollectionName} AS ${joinTableAlias}`,
-    originColumnNameInJoinTable,
-    `${originInfo.alias}.${originInfo.model.primaryKey}`
-  );
-
-  qb.leftJoin(
-    `${destinationInfo.model.databaseName}.${destinationInfo.model.collectionName} AS ${destinationInfo.alias}`,
-    `${joinTableAlias}.${singular(originInfo.model.attributes[assoc.alias].attribute)}_${
-      originInfo.model.attributes[assoc.alias].column
-    }`,
-    `${destinationInfo.alias}.${destinationInfo.model.primaryKey}`
-  );
-};
-
-/**
- * Build origin column name in join table based on association nature
- * @param {Object} assoc - Association info
- * @param {Object} originInfo - Origin info
- * @param {Object} destinationInfo - Destination info
- * @param {string} joinTableAlias - Join table alias
- */
-const buildOriginColumnNameInJoinTable = (assoc, originInfo, destinationInfo, joinTableAlias) => {
-  if (assoc.nature === 'manyToMany') {
-    return `${joinTableAlias}.${singular(
-      destinationInfo.model.attributes[assoc.via].attribute
-    )}_${destinationInfo.model.attributes[assoc.via].column}`;
-  }
-  // manyWay
-  return `${joinTableAlias}.${singular(originInfo.model.collectionName)}_${
-    originInfo.model.primaryKey
-  }`;
-};
-
-/**
- * Build one-to-many or many-to-one join
- * @param {Object} qb - Knex query builder
- * @param {Object} assoc - Association info
- * @param {Object} originInfo - Origin info
- * @param {Object} destinationInfo - Destination info
- */
-const buildOneToManyJoin = (qb, assoc, originInfo, destinationInfo) => {
-  const externalKey =
-    assoc.type === 'collection'
-      ? `${destinationInfo.alias}.${assoc.via || destinationInfo.model.primaryKey}`
-      : `${destinationInfo.alias}.${destinationInfo.model.primaryKey}`;
-
-  const internalKey =
-    assoc.type === 'collection'
-      ? `${originInfo.alias}.${originInfo.model.primaryKey}`
-      : `${originInfo.alias}.${assoc.alias}`;
-
-  qb.leftJoin(
-    `${destinationInfo.model.databaseName}.${destinationInfo.model.collectionName} AS ${destinationInfo.alias}`,
-    externalKey,
-    internalKey
-  );
-};
-
-/**
- * Operator handler strategies for where clauses
+ * Operator handler strategy map
  */
 const operatorHandlers = {
-  and: (qb, field, value) =>
-    qb.where(andQb => {
+  and: (qb, field, value) => {
+    return qb.where(andQb => {
       value.forEach(andClause => {
         andQb.where(subQb => {
           if (Array.isArray(andClause)) {
@@ -383,10 +375,10 @@ const operatorHandlers = {
           }
         });
       });
-    }),
-
-  or: (qb, field, value) =>
-    qb.where(orQb => {
+    });
+  },
+  or: (qb, field, value) => {
+    return qb.where(orQb => {
       value.forEach(orClause => {
         orQb.orWhere(subQb => {
           if (Array.isArray(orClause)) {
@@ -398,10 +390,76 @@ const operatorHandlers = {
           }
         });
       });
-    }),
-
+    });
+  },
   eq: (qb, field, value) => qb.where(field, value),
   ne: (qb, field, value) => qb.where(field, '!=', value),
   lt: (qb, field, value) => qb.where(field, '<', value),
   lte: (qb, field, value) => qb.where(field, '<=', value),
-  gt: (qb, field, value) =>
+  gt: (qb, field, value) => qb.where(field, '>', value),
+  gte: (qb, field, value) => qb.where(field, '>=', value),
+  in: (qb, field, value) => qb.whereIn(field, Array.isArray(value) ? value : [value]),
+  nin: (qb, field, value) => qb.whereNotIn(field, Array.isArray(value) ? value : [value]),
+  contains: (qb, field, value) =>
+    qb.whereRaw(`${fieldLowerFn(qb)} LIKE LOWER(?)`, [field, `%${value}%`]),
+  ncontains: (qb, field, value) =>
+    qb.whereRaw(`${fieldLowerFn(qb)} NOT LIKE LOWER(?)`, [field, `%${value}%`]),
+  containss: (qb, field, value) => qb.where(field, 'like', `%${value}%`),
+  ncontainss: (qb, field, value) => qb.whereNot(field, 'like', `%${value}%`),
+  null: (qb, field, value) => (value ? qb.whereNull(field) : qb.whereNotNull(field)),
+};
+
+/**
+ * Check if value is array and operator is not a boolean/set operator
+ * @param {*} value - The value to check
+ * @param {string} operator - The operator
+ */
+const isArrayValueWithNonSetOperator = (value, operator) => {
+  return Array.isArray(value) && !['and', 'or', 'in', 'nin'].includes(operator);
+};
+
+/**
+ * Builds a sql where clause
+ * @param {Object} options - Options
+ * @param {Object} options.qb - Bookshelf (knex) query builder
+ * @param {Object} options.field - Filtered field
+ * @param {Object} options.operator - Filter operator (=,in,not eq etc..)
+ * @param {Object} options.value - Filter value
+ */
+const buildWhereClause = ({ qb, field, operator, value }) => {
+  if (isArrayValueWithNonSetOperator(value, operator)) {
+    return qb.where(subQb => {
+      for (let val of value) {
+        subQb.orWhere(q => buildWhereClause({ qb: q, field, operator, value: val }));
+      }
+    });
+  }
+
+  const handler = operatorHandlers[operator];
+  if (handler) {
+    return handler(qb, field, value);
+  }
+
+  throw new Error(`Unhandled whereClause : ${field} ${operator} ${value}`);
+};
+
+/**
+ * Get the appropriate LOWER function for the database client
+ * @param {Object} qb - Knex query builder
+ */
+const fieldLowerFn = qb => {
+  if (qb.client.config.client === 'pg') {
+    return 'LOWER(CAST(?? AS VARCHAR))';
+  }
+  return 'LOWER(??)';
+};
+
+/**
+ * Find association by alias in model
+ * @param {Object} model - Strapi model
+ * @param {string} key - Association alias
+ */
+const findAssoc = (model, key) => model.associations.find(assoc => assoc.alias === key);
+
+module.exports = buildQuery;
+```

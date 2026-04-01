@@ -361,4 +361,141 @@ const CommentHeader: React.FC<CommentHeaderProps> = ({comment, className = ''}) 
             </div>
             {(isReply &&
                 <div className="mb-2 line-clamp-1 font-sans text-base leading-snug text-neutral-900/50 sm:text-sm dark:text-white/60">
-                    <span>{t('Replied to')}</span>:&nbsp;<RepliedToSnippet comment={
+                    <span>{t('Replied to')}</span>:&nbsp;<RepliedToSnippet comment={comment} />
+                </div>
+            )}
+        </>
+    );
+};
+
+type CommentBodyProps = {
+    html: string;
+    className?: string;
+    isHighlighted?: boolean;
+}
+
+/** Wraps highlighted paragraphs with mark element for animation */
+const highlightCommentParagraphs = (html: string): string => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const paragraphs = doc.querySelectorAll('p');
+
+    paragraphs.forEach((p) => {
+        const mark = doc.createElement('mark');
+        mark.className =
+            'animate-[highlight_2.5s_ease-out] [animation-delay:1s] bg-yellow-300/40 -my-0.5 py-0.5 dark:text-white/85 dark:bg-yellow-500/40';
+
+        while (p.firstChild) {
+            mark.appendChild(p.firstChild);
+        }
+        p.appendChild(mark);
+    });
+
+    return doc.body.innerHTML;
+};
+
+const CommentBody: React.FC<CommentBodyProps> = ({html, className = '', isHighlighted}) => {
+    const commentHtml = isHighlighted ? highlightCommentParagraphs(html) : html;
+    const dangerouslySetInnerHTML = {__html: commentHtml};
+
+    return (
+        <div className={`mt mb-2 flex flex-row items-center gap-4 pr-4 ${className}`}>
+            <div dangerouslySetInnerHTML={dangerouslySetInnerHTML} className="gh-comment-content text-md -mx-1 text-pretty rounded-md px-1 font-sans leading-normal text-neutral-900 [overflow-wrap:anywhere] sm:text-lg dark:text-white/85" data-testid="comment-content"/>
+        </div>
+    );
+};
+
+type CommentMenuProps = {
+    comment: Comment;
+    openReplyForm: () => void;
+    highlightReplyButton: boolean;
+    openEditMode: () => void;
+    className?: string;
+};
+
+/** Determines visibility of comment menu buttons based on permissions and state */
+const getCommentMenuVisibility = (comment: Comment, member: any, isMember: boolean, isAdmin: boolean, isCommentingDisabled: boolean) => {
+    const isPublished = comment.status === 'published';
+    const isOwnComment = member?.uuid === comment.member?.uuid;
+
+    return {
+        showLikeButton: !isCommentingDisabled,
+        showReplyButton: !isCommentingDisabled,
+        showMoreButton: (isAdmin || (isMember && isPublished)) && !(isCommentingDisabled && isOwnComment)
+    };
+};
+
+/** Renders hidden comment menu state */
+const HiddenCommentMenu: React.FC<{comment: Comment; openEditMode: () => void; className: string}> = ({comment, openEditMode, className}) => {
+    const {t} = useAppContext();
+    return (
+        <div className={`flex items-center gap-4 ${className}`}>
+            <span className="font-sans text-base leading-snug text-red-600 sm:text-sm">{t('Hidden for members')}</span>
+            <MoreButton comment={comment} toggleEdit={openEditMode} />
+        </div>
+    );
+};
+
+const CommentMenu: React.FC<CommentMenuProps> = ({comment, openReplyForm, highlightReplyButton, openEditMode, className = ''}) => {
+    const {member, isMember, isAdmin, isCommentingDisabled} = useAppContext();
+
+    if (isAdmin && comment.status === 'hidden') {
+        return <HiddenCommentMenu comment={comment} openEditMode={openEditMode} className={className} />;
+    }
+
+    const {showLikeButton, showReplyButton, showMoreButton} = getCommentMenuVisibility(comment, member, isMember, isAdmin, isCommentingDisabled);
+
+    return (
+        <div className={`flex items-center gap-4 ${className}`}>
+            {showLikeButton
+                ? <LikeButton comment={comment} />
+                : <LikeCount count={comment.count.likes} liked={comment.liked} />
+            }
+            {showReplyButton && <ReplyButton isReplying={highlightReplyButton} openReplyForm={openReplyForm} />}
+            {showMoreButton && <MoreButton comment={comment} toggleEdit={openEditMode} />}
+        </div>
+    );
+};
+
+//
+// -- Layout --
+//
+
+const RepliesLine: React.FC<{hasReplies: boolean}> = ({hasReplies}) => {
+    if (!hasReplies) {
+        return null;
+    }
+
+    return (<div className="mb-2 h-full w-px grow rounded bg-gradient-to-b from-neutral-900/15 from-70% to-transparent dark:from-white/20 dark:from-70%" data-testid="replies-line" />);
+};
+
+type CommentLayoutProps = {
+    children: React.ReactNode;
+    avatar: React.ReactNode;
+    hasReplies: boolean;
+    className?: string;
+    memberUuid?: string;
+}
+
+const CommentLayout: React.FC<CommentLayoutProps> = ({children, avatar, hasReplies, className = '', memberUuid = ''}) => {
+    return (
+        <div className={`flex w-full flex-row ${hasReplies === true ? 'mb-0' : 'mb-7'}`} data-member-uuid={memberUuid} data-testid="comment-component">
+            <div className="mr-2 flex flex-col items-center justify-start sm:mr-3">
+                <div className={`flex-0 mb-3 sm:mb-4 ${className}`}>
+                    {avatar}
+                </div>
+                <RepliesLine hasReplies={hasReplies} />
+            </div>
+            <div className="grow">
+                {children}
+            </div>
+        </div>
+    );
+};
+
+//
+// -- Default --
+//
+
+export default AnimatedComment;
+```

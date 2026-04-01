@@ -41,10 +41,10 @@ const propStringTmplRe = /^<%=\s*([a-z0-9_$]+(?:\.[a-z0-9_$]+)*)\s*%>$/i;
 
 /**
  * Checks if value matches template pattern and retrieves config value.
- * @param {string} value - String value to check
- * @returns {*} Config value if matched, null otherwise
+ * @param {string} value - Value to check for template pattern
+ * @returns {*} Config value if pattern matches and result is not null/undefined, null otherwise
  */
-const getTemplateMatch = function(value) {
+const processTemplateMatch = function(value) {
   const matches = value.match(propStringTmplRe);
   if (!matches) {
     return null;
@@ -62,8 +62,8 @@ const processValue = function(value) {
   if (typeof value !== 'string') {
     return value;
   }
-  const templateResult = getTemplateMatch(value);
-  if (templateResult !== null) {
+  const templateResult = processTemplateMatch(value);
+  if (templateResult != null) {
     return templateResult;
   }
   return grunt.template.process(value, {data: config.data});
@@ -101,9 +101,9 @@ config.init = function(obj) {
 /**
  * Filters properties that are missing from config.
  * @param {Array<string>} props - Property paths to check
- * @returns {Array<string>} Missing properties wrapped in quotes
+ * @returns {Array<string>} Properties that are null or undefined in config
  */
-const getMissingProps = function(props) {
+const getFailingProps = function(props) {
   return props.filter(function(prop) {
     return config.get(prop) == null;
   }).map(function(prop) {
@@ -112,58 +112,49 @@ const getMissingProps = function(props) {
 };
 
 /**
- * Builds verification message for config properties.
- * @param {Array<string>} props - Property paths being verified
- * @returns {string} Formatted verification message
+ * Determines if config validation passed.
+ * @param {boolean} configExists - Whether config.data exists
+ * @param {Array<string>} failProps - Failed property checks
+ * @returns {boolean} True if validation passed
  */
-const buildVerificationMessage = function(props) {
-  const p = grunt.util.pluralize;
-  return 'Verifying propert' + p(props.length, 'y/ies') +
-    ' ' + grunt.log.wordlist(props) + ' exist' + p(props.length, 's') +
-    ' in config...';
+const isValidationPassed = function(configExists, failProps) {
+  return configExists && failProps.length === 0;
 };
 
 /**
- * Handles successful config verification.
- * @param {string} msg - Verification message
- * @returns {boolean} Always returns true
+ * Throws appropriate error based on validation failure type.
+ * @param {boolean} configExists - Whether config.data exists
+ * @param {Array<string>} failProps - Failed property paths
  */
-const handleVerificationSuccess = function(msg) {
-  grunt.verbose.ok();
-  return true;
-};
-
-/**
- * Handles failed config verification.
- * @param {string} msg - Verification message
- * @param {Array<string>} failProps - Missing properties
- * @throws {Error} Config error with details about missing properties
- */
-const handleVerificationFailure = function(msg, failProps) {
+const throwValidationError = function(configExists, failProps) {
   const p = grunt.util.pluralize;
-  grunt.verbose.or.write(msg);
-  grunt.log.error().error('Unable to process task.');
-  if (!config.data) {
+  if (!configExists) {
     throw grunt.util.error('Unable to load config.');
-  } else {
-    throw grunt.util.error('Required config propert' +
-      p(failProps.length, 'y/ies') + ' ' + failProps.join(', ') + ' missing.');
   }
+  throw grunt.util.error('Required config propert' +
+    p(failProps.length, 'y/ies') + ' ' + failProps.join(', ') + ' missing.');
 };
 
 // Test to see if required config params have been defined. If not, throw an
 // exception (use this inside of a task).
 config.requires = function() {
+  const p = grunt.util.pluralize;
   const props = grunt.util.toArray(arguments).map(config.getPropString);
-  const msg = buildVerificationMessage(props);
+  const msg = 'Verifying propert' + p(props.length, 'y/ies') +
+    ' ' + grunt.log.wordlist(props) + ' exist' + p(props.length, 's') +
+    ' in config...';
   grunt.verbose.write(msg);
   
-  const failProps = config.data ? getMissingProps(props) : [];
+  const configExists = !!config.data;
+  const failProps = configExists ? getFailingProps(props) : [];
   
-  if (config.data && failProps.length === 0) {
-    return handleVerificationSuccess(msg);
-  } else {
-    handleVerificationFailure(msg, failProps);
+  if (isValidationPassed(configExists, failProps)) {
+    grunt.verbose.ok();
+    return true;
   }
+  
+  grunt.verbose.or.write(msg);
+  grunt.log.error().error('Unable to process task.');
+  throwValidationError(configExists, failProps);
 };
 ```

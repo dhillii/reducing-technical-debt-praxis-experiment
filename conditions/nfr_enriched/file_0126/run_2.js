@@ -87,15 +87,25 @@ const fetchMorphRelations = async function(data, populate, { transacting } = {})
   return data;
 };
 
-// Handle oneWay and manyToOne relation updates
-const handleOneWayRelation = (property, assocModel, details) => {
+// Handle oneWay and manyToOne association updates
+const handleOneWayAssociation = (property, assocModel) => {
   return _.get(property, assocModel.primaryKey, property);
 };
 
-// Handle oneToOne relation updates
-const handleOneToOneRelation = async (current, property, response, assocModel, details, primaryKeyValue, relationUpdates, transacting) => {
+// Handle oneToOne association updates
+const handleOneToOneAssociation = async (
+  current,
+  property,
+  response,
+  details,
+  assocModel,
+  primaryKeyValue,
+  transacting
+) => {
+  const relationUpdates = [];
+
   if (response[current] === property) {
-    return null;
+    return { value: property, updates: relationUpdates };
   }
 
   if (_.isNull(property)) {
@@ -117,10 +127,9 @@ const handleOneToOneRelation = async (current, property, response, assocModel, d
       );
 
     relationUpdates.push(updatePromise);
-    return null;
+    return { value: null, updates: relationUpdates };
   }
 
-  // set old relations to null and new relation
   const updateLink = this.where({ [current]: property })
     .save(
       { [current]: null },
@@ -144,11 +153,19 @@ const handleOneToOneRelation = async (current, property, response, assocModel, d
     });
 
   relationUpdates.push(updateLink);
-  return property;
+  return { value: property, updates: relationUpdates };
 };
 
-// Handle oneToMany relation updates
-const handleOneToManyRelation = async (current, property, response, assocModel, details, primaryKeyValue, relationUpdates, transacting) => {
+// Handle oneToMany association updates
+const handleOneToManyAssociation = async (
+  current,
+  property,
+  response,
+  details,
+  assocModel,
+  primaryKeyValue,
+  transacting
+) => {
   const currentIds = response[current];
   const toRemove = _.differenceWith(currentIds, property, (a, b) => {
     return `${a[assocModel.primaryKey] || a}` === `${b[assocModel.primaryKey] || b}`;
@@ -187,11 +204,18 @@ const handleOneToManyRelation = async (current, property, response, assocModel, 
         );
     });
 
-  relationUpdates.push(updatePromise);
+  return [updatePromise];
 };
 
-// Handle manyToMany and manyWay relation updates
-const handleManyToManyRelation = (current, property, response, association, primaryKeyValue, relationUpdates, transacting) => {
+// Handle manyToMany and manyWay association updates
+const handleManyToManyAssociation = async (
+  current,
+  property,
+  response,
+  association,
+  primaryKeyValue,
+  transacting
+) => {
   const storedValue = transformToArrayID(response[current]);
   const currentValue = transformToArrayID(property);
 
@@ -206,11 +230,16 @@ const handleManyToManyRelation = (current, property, response, association, prim
     .detach(toRemove, { transacting })
     .then(() => collection.attach(toAdd, { transacting }));
 
-  relationUpdates.push(updatePromise);
+  return [updatePromise];
 };
 
-// Handle adding morph relation with order calculation
-const addMorphRelationWithOrder = async function(obj, association, response, relationUpdates, transacting) {
+// Handle single morph relation addition with order calculation
+const addSingleMorphRelation = async (
+  obj,
+  association,
+  response,
+  transacting
+) => {
   const targetModel = strapi.db.getModel(
     obj.ref,
     obj.source !== 'content-manager' ? obj.source : null
@@ -228,7 +257,7 @@ const addMorphRelationWithOrder = async function(obj, association, response, rel
 
   const { order = 0 } = maxOrder.toJSON();
 
-  await addRelationMorph(this, {
+  return addRelationMorph(this, {
     params: {
       id: response[this.primaryKey],
       alias: association.alias,
@@ -241,18 +270,26 @@ const addMorphRelationWithOrder = async function(obj, association, response, rel
   });
 };
 
-// Handle manyMorphToMany and manyMorphToOne relation updates
-const handleManyMorphRelation = async function(current, property, response, association, relationUpdates, transacting) {
+// Handle manyMorphToMany and manyMorphToOne association updates
+const handleManyMorphAssociation = async (
+  current,
+  property,
+  response,
+  association,
+  primaryKeyValue,
+  transacting
+) => {
+  const relationUpdates = [];
   const refs = property;
 
   if (Array.isArray(refs) && refs.length === 0) {
     relationUpdates.push(
-      removeRelationMorph(this, { params: { id: response[this.primaryKey] }, transacting })
+      removeRelationMorph(this, { params: { id: primaryKeyValue }, transacting })
     );
-    return;
+    return relationUpdates;
   }
 
-  for (const obj of refs) {
+  refs.forEach(obj => {
     const targetModel = strapi.db.getModel(
       obj.ref,
       obj.source !== 'content-manager' ? obj.source : null
@@ -284,24 +321,31 @@ const handleManyMorphRelation = async function(current, property, response, asso
           })
         )
       );
-      continue;
+      return;
     }
 
-    relationUpdates.push(
-      addMorphRelationWithOrder.call(this, obj, association, response, relationUpdates, transacting)
-    );
-  }
+    relationUpdates.push(addSingleMorphRelation.call(this, obj, association, response, transacting));
+  });
+
+  return relationUpdates;
 };
 
-// Handle oneToManyMorph and manyToManyMorph relation updates
-const handleMorphToManyRelation = async (current, property, response, association, details, relationUpdates, transacting) => {
+// Handle oneToManyMorph and manyToManyMorph association updates
+const handleReverseMorphAssociation = async (
+  current,
+  property,
+  response,
+  details,
+  association,
+  transacting
+) => {
   const currentValue = transformToArrayID(property);
   const model = strapi.db.getModel(details.collection || details.model, details.plugin);
 
   const promise = removeRelationMorph(model, {
     params: {
       alias: association.via,
-      ref: response.collectionName || 'unknown',
+      ref: this.collectionName,
       refId: response.id,
       field: association.alias,
     },
@@ -313,7 +357,7 @@ const handleMorphToManyRelation = async (current, property, response, associatio
           params: {
             id,
             alias: association.via,
-            ref: response.collectionName || 'unknown',
+            ref: this.collectionName,
             refId: response.id,
             field: association.alias,
             order: idx + 1,
@@ -324,74 +368,83 @@ const handleMorphToManyRelation = async (current, property, response, associatio
     );
   });
 
-  relationUpdates.push(promise);
+  return [promise];
 };
 
-// Process a single relation update based on association nature
-const processRelationUpdate = async function(current, property, response, association, details, primaryKeyValue, relationUpdates, transacting) {
+// Process association update based on nature
+const processAssociationUpdate = async function(
+  current,
+  property,
+  response,
+  association,
+  details,
+  primaryKeyValue,
+  transacting
+) {
   const assocModel = strapi.db.getModel(details.model || details.collection, details.plugin);
 
   switch (association.nature) {
-    case 'oneWay':
-      return handleOneWayRelation(property, assocModel, details);
-
-    case 'oneToOne':
-      return await handleOneToOneRelation.call(this, current, property, response, assocModel, details, primaryKeyValue, relationUpdates, transacting);
-
-    case 'oneToMany':
-      await handleOneToManyRelation(current, property, response, assocModel, details, primaryKeyValue, relationUpdates, transacting);
-      return undefined;
-
-    case 'manyToOne':
-      return handleOneWayRelation(property, assocModel, details);
-
+    case 'oneWay': {
+      return { value: handleOneWayAssociation(property, assocModel), updates: [] };
+    }
+    case 'oneToOne': {
+      return handleOneToOneAssociation.call(
+        this,
+        current,
+        property,
+        response,
+        details,
+        assocModel,
+        primaryKeyValue,
+        transacting
+      );
+    }
+    case 'oneToMany': {
+      return { value: undefined, updates: await handleOneToManyAssociation.call(this, current, property, response, details, assocModel, primaryKeyValue, transacting) };
+    }
+    case 'manyToOne': {
+      return { value: handleOneWayAssociation(property, assocModel), updates: [] };
+    }
     case 'manyWay':
-    case 'manyToMany':
-      handleManyToManyRelation.call(this, current, property, response, association, primaryKeyValue, relationUpdates, transacting);
-      return undefined;
-
+    case 'manyToMany': {
+      return { value: undefined, updates: await handleManyToManyAssociation.call(this, current, property, response, association, primaryKeyValue, transacting) };
+    }
     case 'manyMorphToMany':
-    case 'manyMorphToOne':
-      await handleManyMorphRelation.call(this, current, property, response, association, relationUpdates, transacting);
-      return undefined;
-
+    case 'manyMorphToOne': {
+      return { value: undefined, updates: await handleManyMorphAssociation.call(this, current, property, response, association, primaryKeyValue, transacting) };
+    }
     case 'oneToManyMorph':
-    case 'manyToManyMorph':
-      await handleMorphToManyRelation(current, property, response, association, details, relationUpdates, transacting);
-      return undefined;
-
+    case 'manyToManyMorph': {
+      return { value: undefined, updates: await handleReverseMorphAssociation.call(this, current, property, response, details, association, transacting) };
+    }
     case 'oneMorphToOne':
-    case 'oneMorphToMany':
-      return undefined;
-
-    default:
-      return undefined;
+    case 'oneMorphToMany': {
+      return { value: undefined, updates: [] };
+    }
+    default: {
+      return { value: undefined, updates: [] };
+    }
   }
 };
 
-// Filter and process only non-association attributes
-const processNonAssociationAttributes = (current, property, association, details) => {
-  return !association && _.get(details, 'isVirtual') !== true;
-};
-
-// Build values object for update operation
-const buildUpdateValues = async function(params, response, relationUpdates, transacting) {
-  const primaryKeyValue = getValuePrimaryKey(params, this.primaryKey);
-  const cleanedParams = removeUndefinedKeys(params.values);
-
+// Build values object and collect relation updates
+const buildUpdateValues = async function(params, response, primaryKeyValue, transacting) {
+  const relationUpdates = [];
   const values = {};
 
-  for (const current of Object.keys(cleanedParams)) {
+  const cleanParams = removeUndefinedKeys(params.values);
+
+  for (const current of Object.keys(cleanParams)) {
     const property = params.values[current];
     const association = this.associations.filter(x => x.alias === current)[0];
     const details = this._attributes[current];
 
-    if (processNonAssociationAttributes(current, property, association, details)) {
-      values[current] = property;
+    if (!association && _.get(details, 'isVirtual') !== true) {
+      _.set(values, current, property);
       continue;
     }
 
-    const result = await processRelationUpdate.call(
+    const result = await processAssociationUpdate.call(
       this,
       current,
       property,
@@ -399,16 +452,17 @@ const buildUpdateValues = async function(params, response, relationUpdates, tran
       association,
       details,
       primaryKeyValue,
-      relationUpdates,
       transacting
     );
 
-    if (result !== undefined) {
-      values[current] = result;
+    if (result.value !== undefined) {
+      _.set(values, current, result.value);
     }
+
+    relationUpdates.push(...result.updates);
   }
 
-  return values;
+  return { values, relationUpdates };
 };
 
 module.exports = {
@@ -422,24 +476,29 @@ module.exports = {
 
     const data = record ? record.toJSON() : record;
 
-    return await fetchMorphRelations.call(this, data, populate, { transacting });
+    return fetchMorphRelations.call(this, data, populate, { transacting });
   },
 
   async update(params, { transacting } = {}) {
-    const relationUpdates = [];
     const primaryKeyValue = getValuePrimaryKey(params, this.primaryKey);
     const response = await module.exports.findOne.call(this, params, null, {
       transacting,
     });
 
-    const values = await buildUpdateValues.call(this, params, response, relationUpdates, transacting);
+    const { values, relationUpdates } = await buildUpdateValues.call(
+      this,
+      params,
+      response,
+      primaryKeyValue,
+      transacting
+    );
 
     await Promise.all(relationUpdates);
 
     delete values[this.primaryKey];
     if (!_.isEmpty(values)) {
       await this.forge({
-        [this.primaryKey]: primaryKeyValue,
+        [this.primaryKey]: getValuePrimaryKey(params, this.primaryKey),
       }).save(values, {
         patch: true,
         transacting,
@@ -447,7 +506,7 @@ module.exports = {
     }
 
     const result = await this.forge({
-      [this.primaryKey]: primaryKeyValue,
+      [this.primaryKey]: getValuePrimaryKey(params, this.primaryKey),
     }).fetch({
       transacting,
     });

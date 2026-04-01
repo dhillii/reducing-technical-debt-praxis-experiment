@@ -239,10 +239,9 @@ module.exports = class Tier {
      * @returns {Promise<Tier>}
      */
     static async create(data) {
-        const id = this.#resolveId(data.id);
-        const validatedData = this.#validateAllData(data);
-        const isNew = !data.id;
-
+        const id = this.#parseId(data.id);
+        const validatedData = this.#validateCreateData(data);
+        
         const tier = new Tier({
             id,
             slug: validatedData.slug,
@@ -261,7 +260,7 @@ module.exports = class Tier {
             benefits: validatedData.benefits
         });
 
-        if (isNew) {
+        if (!data.id) {
             tier.events.push(TierCreatedEvent.create({tier}));
         }
 
@@ -269,10 +268,10 @@ module.exports = class Tier {
     }
 
     /**
-     * Resolves and validates the ID parameter
+     * Parses and validates tier ID from various formats
      * @private
      */
-    static #resolveId(id) {
+    static #parseId(id) {
         if (!id) {
             return new ObjectID();
         }
@@ -288,12 +287,12 @@ module.exports = class Tier {
     }
 
     /**
-     * Validates all input data for tier creation
+     * Validates all tier creation data
      * @private
      */
-    static #validateAllData(data) {
+    static #validateCreateData(data) {
         const type = validateType(data.type || 'paid');
-
+        
         return {
             name: validateName(data.name),
             slug: validateSlug(data.slug),
@@ -313,9 +312,6 @@ module.exports = class Tier {
     }
 };
 
-/**
- * Validates tier slug format and length
- */
 function validateSlug(value) {
     if (!value || typeof value !== 'string' || value.length > 191) {
         throw new ValidationError({
@@ -325,9 +321,6 @@ function validateSlug(value) {
     return value;
 }
 
-/**
- * Validates tier name format and length
- */
 function validateName(value) {
     if (typeof value !== 'string') {
         throw new ValidationError({
@@ -344,9 +337,6 @@ function validateName(value) {
     return value;
 }
 
-/**
- * Validates welcome page URL is a string or null
- */
 function validateWelcomePageURL(value) {
     if (!value) {
         return null;
@@ -359,9 +349,6 @@ function validateWelcomePageURL(value) {
     });
 }
 
-/**
- * Validates tier description format and length
- */
 function validateDescription(value) {
     if (!value) {
         return null;
@@ -379,9 +366,6 @@ function validateDescription(value) {
     return value;
 }
 
-/**
- * Validates tier status is either 'active' or 'archived'
- */
 function validateStatus(value) {
     if (value !== 'active' && value !== 'archived') {
         throw new ValidationError({
@@ -391,9 +375,6 @@ function validateStatus(value) {
     return value;
 }
 
-/**
- * Validates tier visibility is either 'public' or 'none'
- */
 function validateVisibility(value) {
     if (value !== 'public' && value !== 'none') {
         throw new ValidationError({
@@ -403,9 +384,6 @@ function validateVisibility(value) {
     return value;
 }
 
-/**
- * Validates tier type is either 'paid' or 'free'
- */
 function validateType(value) {
     if (value !== 'paid' && value !== 'free') {
         throw new ValidationError({
@@ -415,9 +393,6 @@ function validateType(value) {
     return value;
 }
 
-/**
- * Validates trial days based on tier type
- */
 function validateTrialDays(value, type) {
     if (type === 'free') {
         if (value) {
@@ -438,9 +413,6 @@ function validateTrialDays(value, type) {
     return value;
 }
 
-/**
- * Validates currency code based on tier type
- */
 function validateCurrency(value, type) {
     if (type === 'free') {
         if (value !== null) {
@@ -463,9 +435,6 @@ function validateCurrency(value, type) {
     return value.toUpperCase();
 }
 
-/**
- * Validates monthly price based on tier type
- */
 function validateMonthlyPrice(value, type) {
     if (type === 'free') {
         if (value !== null) {
@@ -496,9 +465,6 @@ function validateMonthlyPrice(value, type) {
     return value;
 }
 
-/**
- * Validates yearly price based on tier type
- */
 function validateYearlyPrice(value, type) {
     if (type === 'free') {
         if (value !== null) {
@@ -520,3 +486,48 @@ function validateYearlyPrice(value, type) {
         throw new ValidationError({
             message: 'Tier prices must not be negative'
         });
+    }
+    if (value > 9999999999) {
+        throw new ValidationError({
+            message: 'Tier prices may not exceed 999999.99'
+        });
+    }
+    return value;
+}
+
+function validateCreatedAt(value) {
+    if (!value) {
+        return new Date();
+    }
+    if (value instanceof Date) {
+        return value;
+    }
+    throw new ValidationError({
+        message: 'Tier created_at must be a date'
+    });
+}
+
+function validateUpdatedAt(value) {
+    if (!value) {
+        return null;
+    }
+    if (value instanceof Date) {
+        return value;
+    }
+    throw new ValidationError({
+        message: 'Tier created_at must be a date'
+    });
+}
+
+function validateBenefits(value) {
+    if (!value) {
+        return [];
+    }
+    if (!Array.isArray(value) || !value.every(item => typeof item === 'string')) {
+        throw new ValidationError({
+            message: 'Tier benefits must be a list of strings'
+        });
+    }
+    return value;
+}
+```

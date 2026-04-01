@@ -116,18 +116,18 @@ module.exports = class Tier {
      * @param {'month'|'year'} cadence
      */
     getPrice(cadence) {
-        const priceMap = {
+        const priceGetters = {
             'month': () => this.monthlyPrice,
             'year': () => this.yearlyPrice
         };
 
-        if (!(cadence in priceMap)) {
+        if (!(cadence in priceGetters)) {
             throw new ValidationError({
                 message: 'Invalid cadence'
             });
         }
 
-        return priceMap[cadence]();
+        return priceGetters[cadence]();
     }
 
     /** @type {number|null} */
@@ -533,4 +533,29 @@ function validateCreatedAt(value) {
  * Validates updated_at is a valid date or null
  */
 function validateUpdatedAt(value) {
-    if (!value)
+    if (!value) {
+        return null;
+    }
+    if (value instanceof Date) {
+        return value;
+    }
+    throw new ValidationError({
+        message: 'Tier created_at must be a date'
+    });
+}
+
+/**
+ * Validates benefits is an array of strings
+ */
+function validateBenefits(value) {
+    if (!value) {
+        return [];
+    }
+    if (!Array.isArray(value) || !value.every(item => typeof item === 'string')) {
+        throw new ValidationError({
+            message: 'Tier benefits must be a list of strings'
+        });
+    }
+    return value;
+}
+```

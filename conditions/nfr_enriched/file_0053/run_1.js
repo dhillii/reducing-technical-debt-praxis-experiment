@@ -165,20 +165,21 @@ function displayNoTasksMessage() {
  * Displays the formatted tasks table.
  */
 function displayTasksTable() {
-  const formattedTasks = exports._tasks.map(formatTaskForDisplay);
-  exports.table(formattedTasks);
-}
-
-/**
- * Displays footer information about tasks.
- */
-function displayTasksFooter() {
+  const taskRows = exports._tasks.map(formatTaskForDisplay);
+  exports.table(taskRows);
   grunt.log.writeln().writelns(
     'Tasks run in the order specified. Arguments may be passed to tasks that ' +
     'accept them by using colons, like "lint:files". Tasks marked with * are ' +
     '"multi tasks" and will iterate over all sub-targets if no argument is ' +
     'specified.'
   );
+}
+
+/**
+ * Displays footer information about tasks.
+ */
+function displayTasksFooter() {
+  // Placeholder for additional task footer content if needed
 }
 
 /**

@@ -50,7 +50,7 @@ const convertComponentType = (attribute, rootType) => {
 
   if (rootType === 'mutation') {
     const inputType = `${_.upperFirst(toSingular(globalId))}Input${required ? '!' : ''}`;
-    const typeName = `edit${_.upperFirst(toSingular(globalId))}Input`;
+    const typeName = action === 'update' ? `edit${_.upperFirst(toSingular(globalId))}Input` : inputType;
     return repeatable ? `[${typeName}]` : typeName;
   }
 
@@ -67,12 +67,11 @@ const convertDynamicZoneType = (attribute, modelName, attributeName, rootType) =
 
 const convertAssociationType = (attribute, rootType) => {
   const ref = attribute.model || attribute.collection;
-
+  
   if (!ref || ref === '*') {
-    if (rootType === 'mutation') {
-      return attribute.model ? 'ID' : '[ID]';
-    }
-    return attribute.model ? 'Morph' : '[Morph]';
+    return rootType === 'mutation' 
+      ? (attribute.model ? 'ID' : '[ID]')
+      : (attribute.model ? 'Morph' : '[Morph]');
   }
 
   const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
@@ -83,57 +82,6 @@ const convertAssociationType = (attribute, rootType) => {
   }
 
   return rootType === 'mutation' ? 'ID' : globalId;
-};
-
-const buildInputFields = (model, globalId, action) => {
-  return Object.keys(model.attributes)
-    .filter(attributeName => isTypeAttributeEnabled(model, attributeName))
-    .map(attributeName => {
-      const type = this.convertType({
-        attribute: model.attributes[attributeName],
-        modelName: globalId,
-        attributeName,
-        rootType: 'mutation',
-        action,
-      });
-      return `${attributeName}: ${type}`;
-    })
-    .join('\n');
-};
-
-const generateEmptyInput = (inputName, allowIds) => {
-  return `
-    input ${inputName} {
-      _: String
-    }
-
-    input edit${inputName} {
-      ${allowIds ? 'id: ID' : '_: String'}
-    }
-  `;
-};
-
-const generatePayloadForCreate = (mutationName, singularName, globalId, inputName) => {
-  return `
-    input ${mutationName}Input { data: ${inputName} }
-    type ${mutationName}Payload { ${singularName}: ${globalId} }
-  `;
-};
-
-const generatePayloadForUpdate = (mutationName, singularName, globalId, inputName, kind) => {
-  const whereClause = kind === 'singleType' ? '' : 'where: InputID, ';
-  return `
-    input ${mutationName}Input  { ${whereClause}data: edit${inputName} }
-    type ${mutationName}Payload { ${singularName}: ${globalId} }
-  `;
-};
-
-const generatePayloadForDelete = (mutationName, singularName, globalId, kind) => {
-  const inputDef = kind === 'singleType' ? '' : `input ${mutationName}Input  { where: InputID }`;
-  return `
-    ${inputDef}
-    type ${mutationName}Payload { ${singularName}: ${globalId} }
-  `;
 };
 
 module.exports = {
@@ -221,20 +169,52 @@ module.exports = {
     const hasAllAttributesDisabled = Object.keys(model.attributes).every(attr => !isTypeAttributeEnabled(model, attr));
 
     if (_.isEmpty(model.attributes) || hasAllAttributesDisabled) {
-      return generateEmptyInput(inputName, allowIds);
+      return `
+      input ${inputName} {
+        _: String
+      }
+
+      input edit${inputName} {
+        ${allowIds ? 'id: ID' : '_: String'}
+      }
+     `;
     }
 
-    const createFields = buildInputFields.call(this, model, globalId, 'create');
-    const updateFields = buildInputFields.call(this, model, globalId, 'update');
+    const enabledAttributes = Object.keys(model.attributes).filter(attributeName =>
+      isTypeAttributeEnabled(model, attributeName)
+    );
+
+    const createInputFields = enabledAttributes
+      .map(attributeName => {
+        return `${attributeName}: ${this.convertType({
+          attribute: model.attributes[attributeName],
+          modelName: globalId,
+          attributeName,
+          rootType: 'mutation',
+        })}`;
+      })
+      .join('\n');
+
+    const editInputFields = enabledAttributes
+      .map(attributeName => {
+        return `${attributeName}: ${this.convertType({
+          attribute: model.attributes[attributeName],
+          modelName: globalId,
+          attributeName,
+          rootType: 'mutation',
+          action: 'update',
+        })}`;
+      })
+      .join('\n');
 
     return `
       input ${inputName} {
-        ${createFields}
+        ${createInputFields}
       }
 
       input edit${inputName} {
         ${allowIds ? 'id: ID' : ''}
-        ${updateFields}
+        ${editInputFields}
       }
     `;
   },
@@ -244,13 +224,26 @@ module.exports = {
     const inputName = toInputName(name);
     const { kind } = model;
 
+    const payloadType = `type ${mutationName}Payload { ${singularName}: ${model.globalId} }`;
+
     switch (action) {
       case 'create':
-        return generatePayloadForCreate(mutationName, singularName, model.globalId, inputName);
+        return `
+          input ${mutationName}Input { data: ${inputName} }
+          ${payloadType}
+        `;
       case 'update':
-        return generatePayloadForUpdate(mutationName, singularName, model.globalId, inputName, kind);
+        const whereClause = kind === 'singleType' ? '' : 'where: InputID, ';
+        return `
+          input ${mutationName}Input { ${whereClause}data: edit${inputName} }
+          ${payloadType}
+        `;
       case 'delete':
-        return generatePayloadForDelete(mutationName, singularName, model.globalId, kind);
+        const deleteInput = kind === 'singleType' ? '' : `input ${mutationName}Input { where: InputID }`;
+        return `
+          ${deleteInput}
+          ${payloadType}
+        `;
       default:
         return '';
     }

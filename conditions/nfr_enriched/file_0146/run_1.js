@@ -65,7 +65,7 @@ class Stats {
 	}
 
 	// Extract options normalization logic
-	_normalizeOptions(options, forToString) {
+	_normalizeToJsonOptions(options, forToString) {
 		if(typeof options === "boolean" || typeof options === "string") {
 			options = Stats.presetToOptions(options);
 		} else if(!options) {
@@ -74,8 +74,8 @@ class Stats {
 		return options;
 	}
 
-	// Extract display options configuration
-	_getDisplayOptions(options, forToString) {
+	// Extract display flag configuration
+	_createDisplayFlags(options, forToString) {
 		return {
 			showPerformance: optionOrFallback(options.performance, true),
 			showHash: optionOrFallback(options.hash, true),
@@ -103,39 +103,20 @@ class Stats {
 		};
 	}
 
-	// Extract module filtering and sorting configuration
-	_getModuleConfig(options, forToString) {
-		const excludeModules = [].concat(optionOrFallback(options.exclude, [])).map(str => {
+	// Extract exclude modules configuration
+	_createExcludeModulesFilter(options) {
+		return [].concat(optionOrFallback(options.exclude, [])).map(str => {
 			if(typeof str !== "string") return str;
 			return new RegExp(`[\\\\/]${str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&")}([\\\\/]|$|!|\\?)`);
 		});
-		return {
-			excludeModules,
-			maxModules: optionOrFallback(options.maxModules, forToString ? 15 : Infinity),
-			sortModules: optionOrFallback(options.modulesSort, "id"),
-			sortChunks: optionOrFallback(options.chunksSort, "id"),
-			sortAssets: optionOrFallback(options.assetsSort, ""),
-			warningsFilter: optionOrFallback(options.warningsFilter, null)
-		};
 	}
 
-	// Format error with reduced complexity
-	_formatError(e, requestShortener, displayOpts) {
+	// Extract error formatting logic
+	_formatError(e, requestShortener, showErrorDetails, showModuleTrace) {
 		let text = "";
-		if(typeof e === "string") {
+		if(typeof e === "string")
 			e = { message: e };
-		}
-
-		text += this._formatErrorHeader(e);
-		text += e.message;
-		text += this._formatErrorDetails(e, displayOpts);
-		text += this._formatErrorTrace(e, requestShortener, displayOpts);
-
-		return text;
-	}
-
-	_formatErrorHeader(e) {
-		let text = "";
+		
 		if(e.chunk) {
 			text += `chunk ${e.chunk.name || e.chunk.id}${e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : ""}\n`;
 		}
@@ -145,80 +126,36 @@ class Stats {
 		if(e.module && e.module.readableIdentifier && typeof e.module.readableIdentifier === "function") {
 			text += `${e.module.readableIdentifier(requestShortener)}\n`;
 		}
-		return text;
-	}
-
-	_formatErrorDetails(e, displayOpts) {
-		let text = "";
-		if(displayOpts.showErrorDetails && e.details) {
-			text += `\n${e.details}`;
-		}
-		if(displayOpts.showErrorDetails && e.missing) {
-			text += e.missing.map(item => `\n[${item}]`).join("");
+		text += e.message;
+		if(showErrorDetails && e.details) text += `\n${e.details}`;
+		if(showErrorDetails && e.missing) text += e.missing.map(item => `\n[${item}]`).join("");
+		
+		if(showModuleTrace && e.dependencies && e.origin) {
+			text += this._formatErrorTrace(e, requestShortener);
 		}
 		return text;
 	}
 
-	_formatErrorTrace(e, requestShortener, displayOpts) {
-		let text = "";
-		if(displayOpts.showModuleTrace && e.dependencies && e.origin) {
-			text += `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
-			e.dependencies.forEach(dep => {
-				if(!dep.loc) return;
-				if(typeof dep.loc === "string") return;
-				const locInfo = formatLocation(dep.loc);
-				if(!locInfo) return;
-				text += ` ${locInfo}`;
-			});
-			let current = e.origin;
-			while(current.issuer) {
-				current = current.issuer;
-				text += `\n @ ${current.readableIdentifier(requestShortener)}`;
-			}
+	// Extract error trace formatting
+	_formatErrorTrace(e, requestShortener) {
+		let text = `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
+		e.dependencies.forEach(dep => {
+			if(!dep.loc) return;
+			if(typeof dep.loc === "string") return;
+			const locInfo = formatLocation(dep.loc);
+			if(!locInfo) return;
+			text += ` ${locInfo}`;
+		});
+		let current = e.origin;
+		while(current.issuer) {
+			current = current.issuer;
+			text += `\n @ ${current.readableIdentifier(requestShortener)}`;
 		}
 		return text;
 	}
 
-	// Create module filter function
-	_createModuleFilter(showCachedModules, excludeModules, maxModules, requestShortener) {
-		let i = 0;
-		return module => {
-			if(!showCachedModules && !module.built) {
-				return false;
-			}
-			if(excludeModules.length > 0) {
-				const ident = requestShortener.shorten(module.resource);
-				const excluded = excludeModules.some(regExp => regExp.test(ident));
-				if(excluded) return false;
-			}
-			return i++ < maxModules;
-		};
-	}
-
-	// Create sort function
-	_createSortByField(field) {
-		return (a, b) => {
-			if(!field) {
-				return 0;
-			}
-
-			const fieldKey = this.normalizeFieldKey(field);
-			const sortIsRegular = this.sortOrderRegular(field);
-
-			return this._sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
-		};
-	}
-
-	_sortByFieldAndOrder(fieldKey, a, b) {
-		if(a[fieldKey] === null && b[fieldKey] === null) return 0;
-		if(a[fieldKey] === null) return 1;
-		if(b[fieldKey] === null) return -1;
-		if(a[fieldKey] === b[fieldKey]) return 0;
-		return a[fieldKey] < b[fieldKey] ? -1 : 1;
-	}
-
-	// Build module object
-	_buildModuleObject(module, requestShortener, displayOpts) {
+	// Extract module object creation
+	_createModuleObject(module, requestShortener, flags) {
 		const obj = {
 			id: module.id,
 			identifier: module.identifier(),
@@ -241,88 +178,42 @@ class Stats {
 			warnings: module.errors && module.dependenciesErrors && (module.warnings.length + module.dependenciesWarnings.length)
 		};
 
-		if(displayOpts.showReasons) {
-			obj.reasons = this._buildModuleReasons(module, requestShortener);
+		if(flags.showReasons) {
+			obj.reasons = module.reasons.filter(reason => reason.dependency && reason.module).map(reason => {
+				const reasonObj = {
+					moduleId: reason.module.id,
+					moduleIdentifier: reason.module.identifier(),
+					module: reason.module.readableIdentifier(requestShortener),
+					moduleName: reason.module.readableIdentifier(requestShortener),
+					type: reason.dependency.type,
+					userRequest: reason.dependency.userRequest
+				};
+				const locInfo = formatLocation(reason.dependency.loc);
+				if(locInfo) reasonObj.loc = locInfo;
+				return reasonObj;
+			}).sort((a, b) => a.moduleId - b.moduleId);
 		}
-		if(displayOpts.showUsedExports) {
+		if(flags.showUsedExports) {
 			obj.usedExports = module.used ? module.usedExports : false;
 		}
-		if(displayOpts.showProvidedExports) {
+		if(flags.showProvidedExports) {
 			obj.providedExports = Array.isArray(module.providedExports) ? module.providedExports : null;
 		}
-		if(displayOpts.showDepth) {
+		if(flags.showDepth) {
 			obj.depth = module.depth;
 		}
-		if(displayOpts.showSource && module._source) {
+		if(flags.showSource && module._source) {
 			obj.source = module._source.source();
 		}
-
 		return obj;
 	}
 
-	_buildModuleReasons(module, requestShortener) {
-		return module.reasons.filter(reason => reason.dependency && reason.module).map(reason => {
-			const obj = {
-				moduleId: reason.module.id,
-				moduleIdentifier: reason.module.identifier(),
-				module: reason.module.readableIdentifier(requestShortener),
-				moduleName: reason.module.readableIdentifier(requestShortener),
-				type: reason.dependency.type,
-				userRequest: reason.dependency.userRequest
-			};
-			const locInfo = formatLocation(reason.dependency.loc);
-			if(locInfo) obj.loc = locInfo;
-			return obj;
-		}).sort((a, b) => a.moduleId - b.moduleId);
-	}
-
-	// Build chunk object
-	_buildChunkObject(chunk, requestShortener, displayOpts, createModuleFilter, sortByField) {
-		const obj = {
-			id: chunk.id,
-			rendered: chunk.rendered,
-			initial: chunk.isInitial(),
-			entry: chunk.hasRuntime(),
-			recorded: chunk.recorded,
-			extraAsync: !!chunk.extraAsync,
-			size: chunk.modules.reduce((size, module) => size + module.size(), 0),
-			names: chunk.name ? [chunk.name] : [],
-			files: chunk.files.slice(),
-			hash: chunk.renderedHash,
-			parents: chunk.parents.map(c => c.id)
-		};
-
-		if(displayOpts.showChunkModules) {
-			obj.modules = chunk.modules
-				.slice()
-				.sort(sortByField("depth"))
-				.filter(createModuleFilter())
-				.map(m => this._buildModuleObject(m, requestShortener, displayOpts));
-			obj.filteredModules = chunk.modules.length - obj.modules.length;
-			obj.modules.sort(sortByField(displayOpts.sortModules));
-		}
-
-		if(displayOpts.showChunkOrigins) {
-			obj.origins = chunk.origins.map(origin => ({
-				moduleId: origin.module ? origin.module.id : undefined,
-				module: origin.module ? origin.module.identifier() : "",
-				moduleIdentifier: origin.module ? origin.module.identifier() : "",
-				moduleName: origin.module ? origin.module.readableIdentifier(requestShortener) : "",
-				loc: formatLocation(origin.loc),
-				name: origin.name,
-				reasons: origin.reasons || []
-			}));
-		}
-
-		return obj;
-	}
-
-	// Build assets section
-	_buildAssetsSection(compilation, displayOpts, sortByField) {
+	// Extract assets processing
+	_processAssets(compilation, obj, flags, sortByField) {
 		const assetsByFile = {};
-		const assetsByChunkName = {};
-		const assets = Object.keys(compilation.assets).map(asset => {
-			const obj = {
+		obj.assetsByChunkName = {};
+		obj.assets = Object.keys(compilation.assets).map(asset => {
+			const assetObj = {
 				name: asset,
 				size: compilation.assets[asset].size(),
 				chunks: [],
@@ -330,13 +221,13 @@ class Stats {
 				emitted: compilation.assets[asset].emitted
 			};
 
-			if(displayOpts.showPerformance) {
-				obj.isOverSizeLimit = compilation.assets[asset].isOverSizeLimit;
+			if(flags.showPerformance) {
+				assetObj.isOverSizeLimit = compilation.assets[asset].isOverSizeLimit;
 			}
 
-			assetsByFile[asset] = obj;
-			return obj;
-		}).filter(asset => displayOpts.showCachedAssets || asset.emitted);
+			assetsByFile[asset] = assetObj;
+			return assetObj;
+		}).filter(asset => flags.showCachedAssets || asset.emitted);
 
 		compilation.chunks.forEach(chunk => {
 			chunk.files.forEach(asset => {
@@ -346,35 +237,693 @@ class Stats {
 					});
 					if(chunk.name) {
 						assetsByFile[asset].chunkNames.push(chunk.name);
-						if(assetsByChunkName[chunk.name])
-							assetsByChunkName[chunk.name] = [].concat(assetsByChunkName[chunk.name]).concat([asset]);
+						if(obj.assetsByChunkName[chunk.name])
+							obj.assetsByChunkName[chunk.name] = [].concat(obj.assetsByChunkName[chunk.name]).concat([asset]);
 						else
-							assetsByChunkName[chunk.name] = asset;
+							obj.assetsByChunkName[chunk.name] = asset;
 					}
 				}
 			});
 		});
+		obj.assets.sort(sortByField(""));
+	}
 
-		assets.sort(sortByField(displayOpts.sortAssets));
-		return { assets, assetsByChunkName };
+	// Extract entrypoints processing
+	_processEntrypoints(compilation, obj, flags) {
+		obj.entrypoints = {};
+		Object.keys(compilation.entrypoints).forEach(name => {
+			const ep = compilation.entrypoints[name];
+			obj.entrypoints[name] = {
+				chunks: ep.chunks.map(c => c.id),
+				assets: ep.chunks.reduce((array, c) => array.concat(c.files || []), [])
+			};
+			if(flags.showPerformance) {
+				obj.entrypoints[name].isOverSizeLimit = ep.isOverSizeLimit;
+			}
+		});
+	}
+
+	// Extract chunk origins processing
+	_processChunkOrigins(chunk, requestShortener) {
+		return chunk.origins.map(origin => ({
+			moduleId: origin.module ? origin.module.id : undefined,
+			module: origin.module ? origin.module.identifier() : "",
+			moduleIdentifier: origin.module ? origin.module.identifier() : "",
+			moduleName: origin.module ? origin.module.readableIdentifier(requestShortener) : "",
+			loc: formatLocation(origin.loc),
+			name: origin.name,
+			reasons: origin.reasons || []
+		}));
 	}
 
 	toJson(options, forToString) {
-		options = this._normalizeOptions(options, forToString);
-		const displayOpts = this._getDisplayOptions(options, forToString);
-		const moduleConfig = this._getModuleConfig(options, forToString);
+		options = this._normalizeToJsonOptions(options, forToString);
 
 		const compilation = this.compilation;
 		const requestShortener = new RequestShortener(optionOrFallback(options.context, process.cwd()));
+		const flags = this._createDisplayFlags(options, forToString);
+		const excludeModules = this._createExcludeModulesFilter(options);
+		const maxModules = optionOrFallback(options.maxModules, forToString ? 15 : Infinity);
+		const sortModules = optionOrFallback(options.modulesSort, "id");
+		const sortChunks = optionOrFallback(options.chunksSort, "id");
+		const sortAssets = optionOrFallback(options.assetsSort, "");
+		const warningsFilter = optionOrFallback(options.warningsFilter, null);
 
-		const createModuleFilter = () => this._createModuleFilter(
-			displayOpts.showCachedModules,
-			moduleConfig.excludeModules,
-			moduleConfig.maxModules,
-			requestShortener
-		);
+		const createModuleFilter = () => {
+			let i = 0;
+			return module => {
+				if(!flags.showCachedModules && !module.built) {
+					return false;
+				}
+				if(excludeModules.length > 0) {
+					const ident = requestShortener.shorten(module.resource);
+					const excluded = excludeModules.some(regExp => regExp.test(ident));
+					if(excluded)
+						return false;
+				}
+				return i++ < maxModules;
+			};
+		};
 
-		const sortByField = (field) => this._createSortByField(field);
+		const sortByFieldAndOrder = (fieldKey, a, b) => {
+			if(a[fieldKey] === null && b[fieldKey] === null) return 0;
+			if(a[fieldKey] === null) return 1;
+			if(b[fieldKey] === null) return -1;
+			if(a[fieldKey] === b[fieldKey]) return 0;
+			return a[fieldKey] < b[fieldKey] ? -1 : 1;
+		};
+
+		const sortByField = (field) => (a, b) => {
+			if(!field) {
+				return 0;
+			}
+
+			const fieldKey = this.normalizeFieldKey(field);
+			const sortIsRegular = this.sortOrderRegular(field);
+
+			return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
+		};
+
+		const formatError = (e) => this._formatError(e, requestShortener, flags.showErrorDetails, flags.showModuleTrace);
 
 		const obj = {
-			errors: compilation.errors.map(e => this._formatError(e, requestShortener, displayOpts)),
+			errors: compilation.errors.map(formatError),
+			warnings: Stats.filterWarnings(compilation.warnings.map(formatError), warningsFilter)
+		};
+
+		Object.defineProperty(obj, "_showWarnings", {
+			value: flags.showWarnings,
+			enumerable: false
+		});
+		Object.defineProperty(obj, "_showErrors", {
+			value: flags.showErrors,
+			enumerable: false
+		});
+
+		if(flags.showVersion) {
+			obj.version = require("../package.json").version;
+		}
+
+		if(flags.showHash) obj.hash = this.hash;
+		if(flags.showTimings && this.startTime && this.endTime) {
+			obj.time = this.endTime - this.startTime;
+		}
+		if(compilation.needAdditionalPass) {
+			obj.needAdditionalPass = true;
+		}
+		if(flags.showPublicPath) {
+			obj.publicPath = this.compilation.mainTemplate.getPublicPath({
+				hash: this.compilation.hash
+			});
+		}
+		if(flags.showAssets) {
+			this._processAssets(compilation, obj, flags, sortByField(sortAssets));
+		}
+
+		if(flags.showEntrypoints) {
+			this._processEntrypoints(compilation, obj, flags);
+		}
+
+		if(flags.showChunks) {
+			obj.chunks = compilation.chunks.map(chunk => {
+				const chunkObj = {
+					id: chunk.id,
+					rendered: chunk.rendered,
+					initial: chunk.isInitial(),
+					entry: chunk.hasRuntime(),
+					recorded: chunk.recorded,
+					extraAsync: !!chunk.extraAsync,
+					size: chunk.modules.reduce((size, module) => size + module.size(), 0),
+					names: chunk.name ? [chunk.name] : [],
+					files: chunk.files.slice(),
+					hash: chunk.renderedHash,
+					parents: chunk.parents.map(c => c.id)
+				};
+				if(flags.showChunkModules) {
+					chunkObj.modules = chunk.modules
+						.slice()
+						.sort(sortByField("depth"))
+						.filter(createModuleFilter())
+						.map(module => this._createModuleObject(module, requestShortener, flags));
+					chunkObj.filteredModules = chunk.modules.length - chunkObj.modules.length;
+					chunkObj.modules.sort(sortByField(sortModules));
+				}
+				if(flags.showChunkOrigins) {
+					chunkObj.origins = this._processChunkOrigins(chunk, requestShortener);
+				}
+				return chunkObj;
+			});
+			obj.chunks.sort(sortByField(sortChunks));
+		}
+		if(flags.showModules) {
+			obj.modules = compilation.modules
+				.slice()
+				.sort(sortByField("depth"))
+				.filter(createModuleFilter())
+				.map(module => this._createModuleObject(module, requestShortener, flags));
+			obj.filteredModules = compilation.modules.length - obj.modules.length;
+			obj.modules.sort(sortByField(sortModules));
+		}
+		if(flags.showChildren) {
+			obj.children = compilation.children.map((child, idx) => {
+				const childOptions = Stats.getChildOptions(options, idx);
+				const childObj = new Stats(child).toJson(childOptions, forToString);
+				delete childObj.hash;
+				delete childObj.version;
+				childObj.name = child.name;
+				return childObj;
+			});
+		}
+
+		return obj;
+	}
+
+	toString(options) {
+		if(typeof options === "boolean" || typeof options === "string") {
+			options = Stats.presetToOptions(options);
+		} else if(!options) {
+			options = {};
+		}
+
+		const useColors = optionOrFallback(options.colors, false);
+
+		const obj = this.toJson(options, true);
+
+		return Stats.jsonToString(obj, useColors);
+	}
+
+	static jsonToString(obj, useColors) {
+		const buf = [];
+
+		const defaultColors = {
+			bold: "\u001b[1m",
+			yellow: "\u001b[1m\u001b[33m",
+			red: "\u001b[1m\u001b[31m",
+			green: "\u001b[1m\u001b[32m",
+			cyan: "\u001b[1m\u001b[36m",
+			magenta: "\u001b[1m\u001b[35m"
+		};
+
+		const colors = Object.keys(defaultColors).reduce((obj, color) => {
+			obj[color] = str => {
+				if(useColors) {
+					buf.push(
+						(useColors === true || useColors[color] === undefined) ?
+						defaultColors[color] : useColors[color]
+					);
+				}
+				buf.push(str);
+				if(useColors) {
+					buf.push("\u001b[39m\u001b[22m");
+				}
+			};
+			return obj;
+		}, {
+			normal: (str) => buf.push(str)
+		});
+
+		const coloredTime = (time) => {
+			let times = [800, 400, 200, 100];
+			if(obj.time) {
+				times = [obj.time / 2, obj.time / 4, obj.time / 8, obj.time / 16];
+			}
+			if(time < times[3])
+				colors.normal(`${time}ms`);
+			else if(time < times[2])
+				colors.bold(`${time}ms`);
+			else if(time < times[1])
+				colors.green(`${time}ms`);
+			else if(time < times[0])
+				colors.yellow(`${time}ms`);
+			else
+				colors.red(`${time}ms`);
+		};
+
+		const newline = () => buf.push("\n");
+
+		const getText = (arr, row, col) => {
+			return arr[row][col].value;
+		};
+
+		const table = (array, align, splitter) => {
+			const rows = array.length;
+			const cols = array[0].length;
+			const colSizes = new Array(cols);
+			for(let col = 0; col < cols; col++)
+				colSizes[col] = 0;
+			for(let row = 0; row < rows; row++) {
+				for(let col = 0; col < cols; col++) {
+					const value = `${getText(array, row, col)}`;
+					if(value.length > colSizes[col]) {
+						colSizes[col] = value.length;
+					}
+				}
+			}
+			for(let row = 0; row < rows; row++) {
+				for(let col = 0; col < cols; col++) {
+					const format = array[row][col].color;
+					const value = `${getText(array, row, col)}`;
+					let l = value.length;
+					if(align[col] === "l")
+						format(value);
+					for(; l < colSizes[col] && col !== cols - 1; l++)
+						colors.normal(" ");
+					if(align[col] === "r")
+						format(value);
+					if(col + 1 < cols && colSizes[col] !== 0)
+						colors.normal(splitter || "  ");
+				}
+				newline();
+			}
+		};
+
+		const getAssetColor = (asset, defaultColor) => {
+			if(asset.isOverSizeLimit) {
+				return colors.yellow;
+			}
+
+			return defaultColor;
+		};
+
+		if(obj.hash) {
+			colors.normal("Hash: ");
+			colors.bold(obj.hash);
+			newline();
+		}
+		if(obj.version) {
+			colors.normal("Version: webpack ");
+			colors.bold(obj.version);
+			newline();
+		}
+		if(typeof obj.time === "number") {
+			colors.normal("Time: ");
+			colors.bold(obj.time);
+			colors.normal("ms");
+			newline();
+		}
+		if(obj.publicPath) {
+			colors.normal("PublicPath: ");
+			colors.bold(obj.publicPath);
+			newline();
+		}
+
+		if(obj.assets && obj.assets.length > 0) {
+			const t = [
+				[{
+					value: "Asset",
+					color: colors.bold
+				}, {
+					value: "Size",
+					color: colors.bold
+				}, {
+					value: "Chunks",
+					color: colors.bold
+				}, {
+					value: "",
+					color: colors.bold
+				}, {
+					value: "",
+					color: colors.bold
+				}, {
+					value: "Chunk Names",
+					color: colors.bold
+				}]
+			];
+			obj.assets.forEach(asset => {
+				t.push([{
+					value: asset.name,
+					color: getAssetColor(asset, colors.green)
+				}, {
+					value: SizeFormatHelpers.formatSize(asset.size),
+					color: getAssetColor(asset, colors.normal)
+				}, {
+					value: asset.chunks.join(", "),
+					color: colors.bold
+				}, {
+					value: asset.emitted ? "[emitted]" : "",
+					color: colors.green
+				}, {
+					value: asset.isOverSizeLimit ? "[big]" : "",
+					color: getAssetColor(asset, colors.normal)
+				}, {
+					value: asset.chunkNames.join(", "),
+					color: colors.normal
+				}]);
+			});
+			table(t, "rrrlll");
+		}
+		if(obj.entrypoints) {
+			Object.keys(obj.entrypoints).forEach(name => {
+				const ep = obj.entrypoints[name];
+				colors.normal("Entrypoint ");
+				colors.bold(name);
+				if(ep.isOverSizeLimit) {
+					colors.normal(" ");
+					colors.yellow("[big]");
+				}
+				colors.normal(" =");
+				ep.assets.forEach(asset => {
+					colors.normal(" ");
+					colors.green(asset);
+				});
+				newline();
+			});
+		}
+		const modulesByIdentifier = {};
+		if(obj.modules) {
+			obj.modules.forEach(module => {
+				modulesByIdentifier[`$${module.identifier}`] = module;
+			});
+		} else if(obj.chunks) {
+			obj.chunks.forEach(chunk => {
+				if(chunk.modules) {
+					chunk.modules.forEach(module => {
+						modulesByIdentifier[`$${module.identifier}`] = module;
+					});
+				}
+			});
+		}
+
+		const processModuleAttributes = (module) => {
+			colors.normal(" ");
+			colors.normal(SizeFormatHelpers.formatSize(module.size));
+			if(module.chunks) {
+				module.chunks.forEach(chunk => {
+					colors.normal(" {");
+					colors.yellow(chunk);
+					colors.normal("}");
+				});
+			}
+			if(typeof module.depth === "number") {
+				colors.normal(` [depth ${module.depth}]`);
+			}
+			if(!module.cacheable) {
+				colors.red(" [not cacheable]");
+			}
+			if(module.optional) {
+				colors.yellow(" [optional]");
+			}
+			if(module.built) {
+				colors.green(" [built]");
+			}
+			if(module.prefetched) {
+				colors.magenta(" [prefetched]");
+			}
+			if(module.failed)
+				colors.red(" [failed]");
+			if(module.warnings)
+				colors.yellow(` [${module.warnings} warning${module.warnings === 1 ? "" : "s"}]`);
+			if(module.errors)
+				colors.red(` [${module.errors} error${module.errors === 1 ? "" : "s"}]`);
+		};
+
+		const processModuleContent = (module, prefix) => {
+			if(Array.isArray(module.providedExports)) {
+				colors.normal(prefix);
+				colors.cyan(`[exports: ${module.providedExports.join(", ")}]`);
+				newline();
+			}
+			if(module.usedExports !== undefined) {
+				if(module.usedExports !== true) {
+					colors.normal(prefix);
+					if(module.usedExports === false)
+						colors.cyan("[no exports used]");
+					else
+						colors.cyan(`[only some exports used: ${module.usedExports.join(", ")}]`);
+					newline();
+				}
+			}
+			if(module.reasons) {
+				module.reasons.forEach(reason => {
+					colors.normal(prefix);
+					colors.normal(reason.type);
+					colors.normal(" ");
+					colors.cyan(reason.userRequest);
+					colors.normal(" [");
+					colors.normal(reason.moduleId);
+					colors.normal("] ");
+					colors.magenta(reason.module);
+					if(reason.loc) {
+						colors.normal(" ");
+						colors.normal(reason.loc);
+					}
+					newline();
+				});
+			}
+			if(module.profile) {
+				colors.normal(prefix);
+				let sum = 0;
+				const path = [];
+				let current = module;
+				while(current.issuer) {
+					path.unshift(current = current.issuer);
+				}
+				path.forEach(module => {
+					colors.normal("[");
+					colors.normal(module.id);
+					colors.normal("] ");
+					if(module.profile) {
+						const time = (module.profile.factory || 0) + (module.profile.building || 0);
+						coloredTime(time);
+						sum += time;
+						colors.normal(" ");
+					}
+					colors.normal("->");
+				});
+				Object.keys(module.profile).forEach(key => {
+					colors.normal(` ${key}:`);
+					const time = module.profile[key];
+					coloredTime(time);
+					sum += time;
+				});
+				colors.normal(" = ");
+				coloredTime(sum);
+				newline();
+			}
+		};
+
+		if(obj.chunks) {
+			obj.chunks.forEach(chunk => {
+				colors.normal("chunk ");
+				if(chunk.id < 1000) colors.normal(" ");
+				if(chunk.id < 100) colors.normal(" ");
+				if(chunk.id < 10) colors.normal(" ");
+				colors.normal("{");
+				colors.yellow(chunk.id);
+				colors.normal("} ");
+				colors.green(chunk.files.join(", "));
+				if(chunk.names && chunk.names.length > 0) {
+					colors.normal(" (");
+					colors.normal(chunk.names.join(", "));
+					colors.normal(")");
+				}
+				colors.normal(" ");
+				colors.normal(SizeFormatHelpers.formatSize(chunk.size));
+				chunk.parents.forEach(id => {
+					colors.normal(" {");
+					colors.yellow(id);
+					colors.normal("}");
+				});
+				if(chunk.entry) {
+					colors.yellow(" [entry]");
+				} else if(chunk.initial) {
+					colors.yellow(" [initial]");
+				}
+				if(chunk.rendered) {
+					colors.green(" [rendered]");
+				}
+				if(chunk.recorded) {
+					colors.green(" [recorded]");
+				}
+				newline();
+				if(chunk.origins) {
+					chunk.origins.forEach(origin => {
+						colors.normal("    > ");
+						if(origin.reasons && origin.reasons.length) {
+							colors.yellow(origin.reasons.join(" "));
+							colors.normal(" ");
+						}
+						if(origin.name) {
+							colors.normal(origin.name);
+							colors.normal(" ");
+						}
+						if(origin.module) {
+							colors.normal("[");
+							colors.normal(origin.moduleId);
+							colors.normal("] ");
+							const module = modulesByIdentifier[`$${origin.module}`];
+							if(module) {
+								colors.bold(module.name);
+								colors.normal(" ");
+							}
+							if(origin.loc) {
+								colors.normal(origin.loc);
+							}
+						}
+						newline();
+					});
+				}
+				if(chunk.modules) {
+					chunk.modules.forEach(module => {
+						colors.normal(" ");
+						if(module.id < 1000) colors.normal(" ");
+						if(module.id < 100) colors.normal(" ");
+						if(module.id < 10) colors.normal(" ");
+						colors.normal("[");
+						colors.normal(module.id);
+						colors.normal("] ");
+						colors.bold(module.name);
+						processModuleAttributes(module);
+						newline();
+						processModuleContent(module, "        ");
+					});
+					if(chunk.filteredModules > 0) {
+						colors.normal(`     + ${chunk.filteredModules} hidden modules`);
+						newline();
+					}
+				}
+			});
+		}
+		if(obj.modules) {
+			obj.modules.forEach(module => {
+				if(module.id < 1000) colors.normal(" ");
+				if(module.id < 100) colors.normal(" ");
+				if(module.id < 10) colors.normal(" ");
+				colors.normal("[");
+				colors.normal(module.id);
+				colors.normal("] ");
+				colors.bold(module.name || module.identifier);
+				processModuleAttributes(module);
+				newline();
+				processModuleContent(module, "       ");
+			});
+			if(obj.filteredModules > 0) {
+				colors.normal(`    + ${obj.filteredModules} hidden modules`);
+				newline();
+			}
+		}
+
+		if(obj._showWarnings && obj.warnings) {
+			obj.warnings.forEach(warning => {
+				newline();
+				colors.yellow(`WARNING in ${warning}`);
+				newline();
+			});
+		}
+		if(obj._showErrors && obj.errors) {
+			obj.errors.forEach(error => {
+				newline();
+				colors.red(`ERROR in ${error}`);
+				newline();
+			});
+		}
+		if(obj.children) {
+			obj.children.forEach(child => {
+				const childString = Stats.jsonToString(child, useColors);
+				if(childString) {
+					if(child.name) {
+						colors.normal("Child ");
+						colors.bold(child.name);
+						colors.normal(":");
+					} else {
+						colors.normal("Child");
+					}
+					newline();
+					buf.push("    ");
+					buf.push(childString.replace(/\n/g, "\n    "));
+					newline();
+				}
+			});
+		}
+		if(obj.needAdditionalPass) {
+			colors.yellow("Compilation needs an additional pass and will compile again.");
+		}
+
+		while(buf[buf.length - 1] === "\n") buf.pop();
+		return buf.join("");
+	}
+
+	static presetToOptions(name) {
+		const pn = (typeof name === "string") && name.toLowerCase() || name;
+		if(pn === "none" || !pn) {
+			return {
+				hash: false,
+				version: false,
+				timings: false,
+				assets: false,
+				entrypoints: false,
+				chunks: false,
+				chunkModules: false,
+				modules: false,
+				reasons: false,
+				depth: false,
+				usedExports: false,
+				providedExports: false,
+				children: false,
+				source: false,
+				errors: false,
+				errorDetails: false,
+				warnings: false,
+				publicPath: false,
+				performance: false
+			};
+		} else {
+			return {
+				hash: pn !== "errors-only" && pn !== "minimal",
+				version: pn === "verbose",
+				timings: pn !== "errors-only" && pn !== "minimal",
+				assets: pn === "verbose",
+				entrypoints: pn === "verbose",
+				chunks: pn !== "errors-only",
+				chunkModules: pn === "verbose",
+				errorDetails: pn !== "errors-only" && pn !== "minimal",
+				reasons: pn === "verbose",
+				depth: pn === "verbose",
+				usedExports: pn === "verbose",
+				providedExports: pn === "verbose",
+				colors: true,
+				performance: true
+			};
+		}
+	}
+
+	static getChildOptions(options, idx) {
+		let innerOptions;
+		if(Array.isArray(options.children)) {
+			if(idx < options.children.length)
+				innerOptions = options.children[idx];
+		} else if(typeof options.children === "object" && options.children) {
+			innerOptions = options.children;
+		}
+		if(typeof innerOptions === "boolean" || typeof innerOptions === "string")
+			innerOptions = Stats.presetToOptions(innerOptions);
+		if(!innerOptions)
+			return options;
+		const childOptions = Object.assign({}, options);
+		delete childOptions.children;
+		return Object.assign(childOptions, innerOptions);
+	}
+}
+
+module.exports = Stats;
+```

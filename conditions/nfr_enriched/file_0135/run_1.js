@@ -11,46 +11,44 @@ import stepper from './stepper';
 import useModalContext from '../../hooks/useModalContext';
 
 /**
- * Confirms user action with a dialog message
+ * Confirms user action with a dialog prompt
  * @param {string} messageId - Translation ID for the confirmation message
  * @param {Function} formatMessage - Message formatter function
  * @returns {boolean} - User confirmation result
  */
-const confirmUserAction = (messageId, formatMessage) => {
+const getUserConfirmation = (messageId, formatMessage) => {
   // eslint-disable-next-line no-alert
   return globalThis.confirm(formatMessage({ id: messageId }));
 };
 
 /**
  * Handles file deletion request and updates UI state
- * @param {Object} fileToEdit - File object to delete
- * @param {Function} handleFileSelection - Selection handler
- * @param {Function} goToList - Navigation to list
- * @param {Function} handleSetFileToEditError - Error handler
+ * @param {Object} params - Parameters object
+ * @param {string} params.fileId - ID of file to delete
+ * @param {Function} params.handleFileSelection - Selection handler
+ * @param {Function} params.goToList - Navigation to list
+ * @param {Function} params.handleSetFileToEditError - Error handler
  */
-const deleteFileAndNavigate = async (
-  fileToEdit,
+const deleteFileAndUpdateState = async ({
+  fileId,
   handleFileSelection,
   goToList,
-  handleSetFileToEditError
-) => {
-  const { id } = fileToEdit;
-
+  handleSetFileToEditError,
+}) => {
   try {
-    const requestURL = getRequestUrl(`files/${id}`);
+    const requestURL = getRequestUrl(`files/${fileId}`);
     await request(requestURL, { method: 'DELETE' });
 
-    handleFileSelection({ target: { name: id } });
+    handleFileSelection({ target: { name: fileId } });
     goToList();
   } catch (err) {
     console.error(err);
 
     const status = get(err, 'response.status', get(err, 'status', null));
-    const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
     const errorMessage = get(
       err,
       ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
-      get(err, ['response', 'payload', 'message'], statusText)
+      get(err, ['response', 'payload', 'message'], get(err, 'response.statusText', get(err, 'statusText', null)))
     );
 
     strapi.notification.toggle({
@@ -65,21 +63,44 @@ const deleteFileAndNavigate = async (
 };
 
 /**
- * Handles file edit submission with optional duplication and cropping
+ * Submits edited file with optional duplication and crop handling
  * @param {Object} params - Parameters object
- * @returns {Promise<void>}
+ * @param {Event} params.event - Form submission event
+ * @param {Object} params.fileToEdit - File being edited
+ * @param {boolean} params.shouldDuplicateMedia - Whether to duplicate file
+ * @param {File} params.file - File object
+ * @param {boolean} params.isSubmittingAfterCrop - Whether submission follows crop
+ * @param {Function} params.submitEditExistingFile - Submit handler
+ * @param {Function} params.emitEvent - Event emitter
+ * @param {Function} params.handleEditExistingFile - Edit handler
+ * @param {Function} params.goToList - Navigation handler
+ * @param {Function} params.handleSetFileToEditError - Error handler
+ * @param {Function} params.formatMessage - Message formatter
  */
-const submitFileEdit = async ({
+const submitEditedFile = async ({
+  event,
   fileToEdit,
-  shouldDuplicateMedia,
-  file,
-  isSubmittingAfterCrop,
+  shouldDuplicateMedia = false,
+  file = fileToEdit.file,
+  isSubmittingAfterCrop = false,
+  submitEditExistingFile,
   emitEvent,
-  formatMessage,
   handleEditExistingFile,
   goToList,
   handleSetFileToEditError,
+  formatMessage,
 }) => {
+  event.preventDefault();
+
+  submitEditExistingFile();
+
+  if (isSubmittingAfterCrop) {
+    emitEvent('didCropFile', {
+      duplicatedFile: shouldDuplicateMedia,
+      location: 'content-manager',
+    });
+  }
+
   const headers = {};
   const formData = new FormData();
 
@@ -128,58 +149,69 @@ const submitFileEdit = async ({
 };
 
 /**
- * Determines if modal close should be prevented based on unsaved changes
+ * Determines if user should be prompted before closing modal
  * @param {Object} params - Parameters object
- * @returns {boolean} - Whether to prevent close
+ * @param {string} params.currentStep - Current modal step
+ * @param {Array} params.selectedFiles - Currently selected files
+ * @param {Array} params.initialSelectedFiles - Initial selected files
+ * @param {Object} params.fileToEdit - File being edited
+ * @param {Object} params.initialFileToEdit - Initial file being edited
+ * @returns {boolean} - Whether confirmation is needed
  */
-const shouldPreventModalClose = ({
+const shouldPromptBeforeClose = ({
   currentStep,
   selectedFiles,
   initialSelectedFiles,
   fileToEdit,
   initialFileToEdit,
-  formatMessage,
 }) => {
   if (currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles)) {
-    return confirmUserAction(getTrad('window.confirm.close-modal.file'), formatMessage);
+    return true;
   }
 
   if (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) {
-    return confirmUserAction(getTrad('window.confirm.close-modal.file'), formatMessage);
+    return true;
   }
 
   if (currentStep === 'edit' && selectedFiles.length > 0) {
-    return confirmUserAction(getTrad('window.confirm.close-modal.file'), formatMessage);
+    return true;
   }
 
   return false;
 };
 
 /**
- * Handles back navigation with validation for unsaved uploads
+ * Handles back navigation with appropriate checks and confirmations
  * @param {Object} params - Parameters object
- * @returns {void}
+ * @param {string} params.elementName - Name of triggering element
+ * @param {string} params.currentStep - Current modal step
+ * @param {string} params.backButtonDestination - Back button destination
+ * @param {Array} params.filesToUpload - Files queued for upload
+ * @param {Function} params.goTo - Navigation function
+ * @param {Function} params.handleClearFilesToUploadAndDownload - Clear handler
+ * @param {Function} params.formatMessage - Message formatter
+ * @param {Function} params.prev - Previous step getter
  */
 const handleBackNavigation = ({
   elementName,
-  backButtonDestination,
   currentStep,
+  backButtonDestination,
   filesToUpload,
-  formatMessage,
   goTo,
   handleClearFilesToUploadAndDownload,
+  formatMessage,
   prev,
 }) => {
   const hasFilesToUpload = !isEmpty(filesToUpload);
 
   if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
     if (hasFilesToUpload) {
-      const userConfirmed = confirmUserAction(
+      const confirmed = getUserConfirmation(
         getTrad('window.confirm.close-modal.files'),
         formatMessage
       );
 
-      if (!userConfirmed) {
+      if (!confirmed) {
         return;
       }
     }
@@ -286,12 +318,12 @@ const InputModalStepper = ({
   const goBack = (elementName = null) => {
     handleBackNavigation({
       elementName,
-      backButtonDestination,
       currentStep,
+      backButtonDestination,
       filesToUpload,
-      formatMessage,
       goTo,
       handleClearFilesToUploadAndDownload,
+      formatMessage,
       prev,
     });
   };
@@ -338,16 +370,19 @@ const InputModalStepper = ({
 
   const handleCloseModalWarning = async () => {
     if (shouldDeleteFile) {
-      setShouldDeleteFile(false);
-      await deleteFileAndNavigate(
-        fileToEdit,
+      const { id } = fileToEdit;
+
+      await deleteFileAndUpdateState({
+        fileId: id,
         handleFileSelection,
-        () => {
+        goToList: () => {
           fetchMediaLib();
           goTo('list');
         },
-        handleSetFileToEditError
-      );
+        handleSetFileToEditError,
+      });
+
+      setShouldDeleteFile(false);
     }
   };
 
@@ -357,62 +392,60 @@ const InputModalStepper = ({
     file = fileToEdit.file,
     isSubmittingAfterCrop = false
   ) => {
-    e.preventDefault();
-    submitEditExistingFile();
-
-    if (isSubmittingAfterCrop) {
-      emitEvent('didCropFile', {
-        duplicatedFile: shouldDuplicateMedia,
-        location: 'content-manager',
-      });
-    }
-
-    await submitFileEdit({
+    await submitEditedFile({
+      event: e,
       fileToEdit,
       shouldDuplicateMedia,
       file,
       isSubmittingAfterCrop,
+      submitEditExistingFile,
       emitEvent,
-      formatMessage,
       handleEditExistingFile,
       goToList: () => {
         fetchMediaLib();
         goTo('list');
       },
       handleSetFileToEditError,
+      formatMessage,
     });
   };
 
   const handleToggle = () => {
     if (filesToUploadLength > 0) {
-      const userConfirmed = confirmUserAction(
+      const confirmed = getUserConfirmation(
         getTrad('window.confirm.close-modal.files'),
         formatMessage
       );
 
-      if (!userConfirmed) {
+      if (!confirmed) {
         return;
       }
     }
 
-    const shouldPrevent = shouldPreventModalClose({
-      currentStep,
-      selectedFiles,
-      initialSelectedFiles,
-      fileToEdit,
-      initialFileToEdit,
-      formatMessage,
-    });
+    if (
+      shouldPromptBeforeClose({
+        currentStep,
+        selectedFiles,
+        initialSelectedFiles,
+        fileToEdit,
+        initialFileToEdit,
+      })
+    ) {
+      const confirmed = getUserConfirmation(
+        getTrad('window.confirm.close-modal.file'),
+        formatMessage
+      );
 
-    if (shouldPrevent) {
-      return;
+      if (!confirmed) {
+        return;
+      }
     }
 
     onToggle(true);
   };
 
   const shouldDisplayNextButton = currentStep === 'browse' && displayNextButton;
-  const isFinishButtonDisabled = filesToUpload.some((file) => file.isDownloading || file.isUploading);
+  const isFinishButtonDisabled = filesToUpload.some(file => file.isDownloading || file.isUploading);
   const areButtonsDisabledOnEditExistingFile =
     currentStep === 'edit' && fileToEdit.isUploading === true;
 
@@ -503,4 +536,69 @@ const InputModalStepper = ({
                   disabled={isFormDisabled || areButtonsDisabledOnEditExistingFile}
                   color="primary"
                   onClick={handleReplaceMedia}
-                  style={{ marginRight: 10
+                  style={{ marginRight: 10 }}
+                >
+                  {formatMessage({ id: getTrad('control-card.replace-media') })}
+                </Button>
+
+                <Button
+                  disabled={isFormDisabled || areButtonsDisabledOnEditExistingFile}
+                  color="success"
+                  type="button"
+                  onClick={handleSubmitEditExistingFile}
+                >
+                  {formatMessage({ id: 'form.button.finish' })}
+                </Button>
+              </div>
+            )}
+            {currentStep === 'list' && (
+              <Button color="success" type="button" onClick={handleSubmit}>
+                {formatMessage({ id: 'form.button.finish' })}
+              </Button>
+            )}
+          </section>
+        </ModalFooter>
+      </Modal>
+      <PopUpWarning
+        onClosed={handleCloseModalWarning}
+        isOpen={isWarningDeleteOpen}
+        toggleModal={toggleModalWarning}
+        popUpWarningType="danger"
+        onConfirm={handleConfirmDeleteFile}
+      />
+    </>
+  );
+};
+
+InputModalStepper.defaultProps = {
+  allowedActions: {
+    canCopyLink: true,
+    canCreate: true,
+    canDownload: true,
+    canMain: true,
+    canRead: true,
+    canSettings: true,
+    canUpdate: true,
+  },
+  noNavigation: false,
+  onToggle: () => {},
+};
+
+InputModalStepper.propTypes = {
+  allowedActions: PropTypes.shape({
+    canCopyLink: PropTypes.bool,
+    canCreate: PropTypes.bool,
+    canDownload: PropTypes.bool,
+    canMain: PropTypes.bool,
+    canRead: PropTypes.bool,
+    canSettings: PropTypes.bool,
+    canUpdate: PropTypes.bool,
+  }),
+  isOpen: PropTypes.bool.isRequired,
+  noNavigation: PropTypes.bool,
+  onInputMediaChange: PropTypes.func.isRequired,
+  onToggle: PropTypes.func,
+};
+
+export default memo(InputModalStepper);
+```

@@ -145,7 +145,7 @@ class Compilation extends Tapable {
 			building.forEach(cb => cb(err));
 		}
 		module.build(this.options, this, this.resolvers.normal, this.inputFileSystem, (error) => {
-			this._processBuildErrors(module, error, origin, dependencies);
+			this._processBuildErrors(module, error, origin, dependencies, optional);
 			module.dependencies.sort(Dependency.compare);
 			if(error) {
 				this.applyPlugins2("failed-module", module, error);
@@ -156,13 +156,13 @@ class Compilation extends Tapable {
 		});
 	}
 
-	_processBuildErrors(module, error, origin, dependencies) {
+	_processBuildErrors(module, error, origin, dependencies, optional) {
 		const errors = module.errors;
 		for(let indexError = 0; indexError < errors.length; indexError++) {
 			const err = errors[indexError];
 			err.origin = origin;
 			err.dependencies = dependencies;
-			if(dependencies && dependencies.length === 0)
+			if(optional)
 				this.warnings.push(err);
 			else
 				this.errors.push(err);
@@ -248,9 +248,20 @@ class Compilation extends Tapable {
 			callback();
 		};
 
-		const isOptional = () => {
-			return dependencies.filter(d => !d.optional).length === 0;
-		};
+		factory.create({
+			contextInfo: {
+				issuer: module.nameForCondition && module.nameForCondition(),
+				compiler: _this.compiler.name
+			},
+			context: module.context,
+			dependencies: dependencies
+		}, (err, dependentModule) => {
+			this._handleFactoryCallback(err, dependentModule, dependencies, module, bail, cacheGroup, recursive, start, errorAndCallback, warningAndCallback, callback);
+		});
+	}
+
+	_handleFactoryCallback(err, dependentModule, dependencies, module, bail, cacheGroup, recursive, start, errorAndCallback, warningAndCallback, callback) {
+		const isOptional = () => dependencies.filter(d => !d.optional).length === 0;
 
 		const errorOrWarningAndCallback = (err) => {
 			if(isOptional()) {
@@ -260,19 +271,14 @@ class Compilation extends Tapable {
 			}
 		};
 
-		factory.create({
-			contextInfo: {
-				issuer: module.nameForCondition && module.nameForCondition(),
-				compiler: _this.compiler.name
-			},
-			context: module.context,
-			dependencies: dependencies
-		}, (err, dependentModule) => {
-			this._handleFactoryCallback(err, dependentModule, dependencies, module, bail, cacheGroup, recursive, start, isOptional, errorOrWarningAndCallback, callback);
-		});
-	}
+		const iterationDependencies = (depend) => {
+			for(let index = 0; index < depend.length; index++) {
+				const dep = depend[index];
+				dep.module = dependentModule;
+				dependentModule.addReason(module, dep);
+			}
+		};
 
-	_handleFactoryCallback(err, dependentModule, dependencies, module, bail, cacheGroup, recursive, start, isOptional, errorOrWarningAndCallback, callback) {
 		if(err) {
 			return errorOrWarningAndCallback(new ModuleNotFoundError(module, err, dependencies));
 		}
@@ -280,12 +286,11 @@ class Compilation extends Tapable {
 			return process.nextTick(callback);
 		}
 
-		let afterFactory;
 		if(this.profile) {
 			if(!dependentModule.profile) {
 				dependentModule.profile = {};
 			}
-			afterFactory = Date.now();
+			const afterFactory = Date.now();
 			dependentModule.profile.factory = afterFactory - start;
 		}
 
@@ -293,22 +298,22 @@ class Compilation extends Tapable {
 		const newModule = this.addModule(dependentModule, cacheGroup);
 
 		if(!newModule) {
-			this._handleCachedModule(dependentModule, dependencies, module, start, isOptional, callback);
+			this._handleCachedModule(dependentModule, dependencies, module, isOptional, iterationDependencies, start, callback);
 		} else if(newModule instanceof Module) {
-			this._handleNewModule(newModule, dependentModule, dependencies, module, start, afterFactory, recursive, callback);
+			this._handleNewModule(newModule, dependentModule, dependencies, module, recursive, start, callback);
 		} else {
-			this._handleBuildableModule(dependentModule, dependencies, module, start, afterFactory, recursive, isOptional, errorOrWarningAndCallback, callback);
+			this._handleBuildableModule(dependentModule, dependencies, module, isOptional, recursive, start, errorOrWarningAndCallback, iterationDependencies, callback);
 		}
 	}
 
-	_handleCachedModule(dependentModule, dependencies, module, start, isOptional, callback) {
+	_handleCachedModule(dependentModule, dependencies, module, isOptional, iterationDependencies, start, callback) {
 		dependentModule = this.getModule(dependentModule);
 
 		if(dependentModule.optional) {
 			dependentModule.optional = isOptional();
 		}
 
-		this._assignDependenciesToModule(dependencies, dependentModule);
+		iterationDependencies(dependencies);
 
 		if(this.profile) {
 			if(!module.profile) {
@@ -323,20 +328,24 @@ class Compilation extends Tapable {
 		return process.nextTick(callback);
 	}
 
-	_handleNewModule(newModule, dependentModule, dependencies, module, start, afterFactory, recursive, callback) {
+	_handleNewModule(newModule, dependentModule, dependencies, module, recursive, start, callback) {
 		if(this.profile) {
 			newModule.profile = dependentModule.profile;
 		}
 
-		newModule.optional = this._isOptional(dependencies);
+		newModule.optional = dependencies.filter(d => !d.optional).length === 0;
 		newModule.issuer = dependentModule.issuer;
 		dependentModule = newModule;
 
-		this._assignDependenciesToModule(dependencies, dependentModule);
+		for(let index = 0; index < dependencies.length; index++) {
+			const dep = dependencies[index];
+			dep.module = dependentModule;
+			dependentModule.addReason(module, dep);
+		}
 
 		if(this.profile) {
 			const afterBuilding = Date.now();
-			module.profile.building = afterBuilding - afterFactory;
+			module.profile.building = afterBuilding - start;
 		}
 
 		if(recursive) {
@@ -346,19 +355,18 @@ class Compilation extends Tapable {
 		}
 	}
 
-	_handleBuildableModule(dependentModule, dependencies, module, start, afterFactory, recursive, isOptional, errorOrWarningAndCallback, callback) {
+	_handleBuildableModule(dependentModule, dependencies, module, isOptional, recursive, start, errorOrWarningAndCallback, iterationDependencies, callback) {
 		dependentModule.optional = isOptional();
+		iterationDependencies(dependencies);
 
-		this._assignDependenciesToModule(dependencies, dependentModule);
-
-		this.buildModule(dependentModule, isOptional(), module, dependencies, err => {
+		this.buildModule(dependentModule, isOptional(), module, dependencies, (err) => {
 			if(err) {
 				return errorOrWarningAndCallback(err);
 			}
 
 			if(this.profile) {
 				const afterBuilding = Date.now();
-				dependentModule.profile.building = afterBuilding - afterFactory;
+				dependentModule.profile.building = afterBuilding - start;
 			}
 
 			if(recursive) {
@@ -367,18 +375,6 @@ class Compilation extends Tapable {
 				return callback();
 			}
 		});
-	}
-
-	_assignDependenciesToModule(dependencies, module) {
-		for(let index = 0; index < dependencies.length; index++) {
-			const dep = dependencies[index];
-			dep.module = module;
-			module.addReason(module, dep);
-		}
-	}
-
-	_isOptional(dependencies) {
-		return dependencies.filter(d => !d.optional).length === 0;
 	}
 
 	_addModuleChain(context, dependency, onModule, callback) {
@@ -409,13 +405,13 @@ class Compilation extends Tapable {
 			context: context,
 			dependencies: [dependency]
 		}, (err, module) => {
-			this._handleAddModuleChainFactory(err, module, start, onModule, callback);
+			this._handleAddModuleChainCallback(err, module, start, onModule, callback, errorAndCallback);
 		});
 	}
 
-	_handleAddModuleChainFactory(err, module, start, onModule, callback) {
+	_handleAddModuleChainCallback(err, module, start, onModule, callback, errorAndCallback) {
 		if(err) {
-			return callback(new EntryModuleNotFoundError(err));
+			return errorAndCallback(new EntryModuleNotFoundError(err));
 		}
 
 		let afterFactory;
@@ -456,4 +452,825 @@ class Compilation extends Tapable {
 
 		this.buildModule(module, false, null, null, (err) => {
 			if(err) {
-				return callback(new EntryModule
+				return errorAndCallback(err);
+			}
+
+			if(this.profile) {
+				const afterBuilding = Date.now();
+				module.profile.building = afterBuilding - afterFactory;
+			}
+
+			this._moduleReady(module, start, afterFactory, callback);
+		});
+	}
+
+	_moduleReady(module, start, afterFactory, callback) {
+		this.processModuleDependencies(module, (err) => {
+			if(err) {
+				return callback(err);
+			}
+			return callback(null, module);
+		});
+	}
+
+	addEntry(context, entry, name, callback) {
+		const slot = {
+			name: name,
+			module: null
+		};
+		this.preparedChunks.push(slot);
+		this._addModuleChain(context, entry, (module) => {
+			entry.module = module;
+			this.entries.push(module);
+			module.issuer = null;
+		}, (err, module) => {
+			if(err) {
+				return callback(err);
+			}
+
+			if(module) {
+				slot.module = module;
+			} else {
+				const idx = this.preparedChunks.indexOf(slot);
+				this.preparedChunks.splice(idx, 1);
+			}
+			return callback(null, module);
+		});
+	}
+
+	prefetch(context, dependency, callback) {
+		this._addModuleChain(context, dependency, module => {
+			module.prefetched = true;
+			module.issuer = null;
+		}, callback);
+	}
+
+	rebuildModule(module, thisCallback) {
+		if(module.variables.length || module.blocks.length)
+			throw new Error("Cannot rebuild a complex module with variables or blocks");
+		if(module.rebuilding) {
+			return module.rebuilding.push(thisCallback);
+		}
+		const rebuilding = module.rebuilding = [thisCallback];
+
+		function callback(err) {
+			module.rebuilding = undefined;
+			rebuilding.forEach(cb => cb(err));
+		}
+		const deps = module.dependencies.slice();
+		this.buildModule(module, false, module, null, (err) => {
+			if(err) return callback(err);
+
+			this.processModuleDependencies(module, (err) => {
+				if(err) return callback(err);
+				deps.forEach(d => {
+					if(d.module && d.module.removeReason(module, d)) {
+						module.chunks.forEach(chunk => {
+							if(!d.module.hasReasonForChunk(chunk)) {
+								if(d.module.removeChunk(chunk)) {
+									this.removeChunkFromDependencies(d.module, chunk);
+								}
+							}
+						});
+					}
+				});
+				callback();
+			});
+		});
+	}
+
+	finish() {
+		const modules = this.modules;
+		this.applyPlugins1("finish-modules", modules);
+
+		for(let index = 0; index < modules.length; index++) {
+			const module = modules[index];
+			this.reportDependencyErrorsAndWarnings(module, [module]);
+		}
+	}
+
+	unseal() {
+		this.applyPlugins0("unseal");
+		this.chunks.length = 0;
+		this.namedChunks = {};
+		this.additionalChunkAssets.length = 0;
+		this.assets = {};
+		this.modules.forEach(module => module.unseal());
+	}
+
+	seal(callback) {
+		const self = this;
+		self.applyPlugins0("seal");
+		self.nextFreeModuleIndex = 0;
+		self.nextFreeModuleIndex2 = 0;
+		self.preparedChunks.forEach(preparedChunk => {
+			const module = preparedChunk.module;
+			const chunk = self.addChunk(preparedChunk.name, module);
+			const entrypoint = self.entrypoints[chunk.name] = new Entrypoint(chunk.name);
+			entrypoint.unshiftChunk(chunk);
+
+			chunk.addModule(module);
+			module.addChunk(chunk);
+			chunk.entryModule = module;
+			self.assignIndex(module);
+			self.assignDepth(module);
+			self.processDependenciesBlockForChunk(module, chunk);
+		});
+		self.sortModules(self.modules);
+		self.applyPlugins0("optimize");
+
+		while(self.applyPluginsBailResult1("optimize-modules-basic", self.modules) ||
+			self.applyPluginsBailResult1("optimize-modules", self.modules) ||
+			self.applyPluginsBailResult1("optimize-modules-advanced", self.modules)); // eslint-disable-line no-extra-semi
+		self.applyPlugins1("after-optimize-modules", self.modules);
+
+		while(self.applyPluginsBailResult1("optimize-chunks-basic", self.chunks) ||
+			self.applyPluginsBailResult1("optimize-chunks", self.chunks) ||
+			self.applyPluginsBailResult1("optimize-chunks-advanced", self.chunks)); // eslint-disable-line no-extra-semi
+		self.applyPlugins1("after-optimize-chunks", self.chunks);
+
+		self.applyPluginsAsyncSeries("optimize-tree", self.chunks, self.modules, function sealPart2(err) {
+			if(err) {
+				return callback(err);
+			}
+
+			self._sealPart2(callback);
+		});
+	}
+
+	_sealPart2(callback) {
+		const self = this;
+		self.applyPlugins2("after-optimize-tree", self.chunks, self.modules);
+
+		const shouldRecord = self.applyPluginsBailResult("should-record") !== false;
+
+		self.applyPlugins2("revive-modules", self.modules, self.records);
+		self.applyPlugins1("optimize-module-order", self.modules);
+		self.applyPlugins1("advanced-optimize-module-order", self.modules);
+		self.applyPlugins1("before-module-ids", self.modules);
+		self.applyPlugins1("module-ids", self.modules);
+		self.applyModuleIds();
+		self.applyPlugins1("optimize-module-ids", self.modules);
+		self.applyPlugins1("after-optimize-module-ids", self.modules);
+
+		self.sortItemsWithModuleIds();
+
+		self.applyPlugins2("revive-chunks", self.chunks, self.records);
+		self.applyPlugins1("optimize-chunk-order", self.chunks);
+		self.applyPlugins1("before-chunk-ids", self.chunks);
+		self.applyChunkIds();
+		self.applyPlugins1("optimize-chunk-ids", self.chunks);
+		self.applyPlugins1("after-optimize-chunk-ids", self.chunks);
+
+		self.sortItemsWithChunkIds();
+
+		if(shouldRecord)
+			self.applyPlugins2("record-modules", self.modules, self.records);
+		if(shouldRecord)
+			self.applyPlugins2("record-chunks", self.chunks, self.records);
+
+		self.applyPlugins0("before-hash");
+		self.createHash();
+		self.applyPlugins0("after-hash");
+
+		if(shouldRecord)
+			self.applyPlugins1("record-hash", self.records);
+
+		self.applyPlugins0("before-module-assets");
+		self.createModuleAssets();
+		if(self.applyPluginsBailResult("should-generate-chunk-assets") !== false) {
+			self.applyPlugins0("before-chunk-assets");
+			self.createChunkAssets();
+		}
+		self.applyPlugins1("additional-chunk-assets", self.chunks);
+		self.summarizeDependencies();
+		if(shouldRecord)
+			self.applyPlugins2("record", self, self.records);
+
+		self.applyPluginsAsync("additional-assets", err => {
+			if(err) {
+				return callback(err);
+			}
+			self._sealPart3(callback);
+		});
+	}
+
+	_sealPart3(callback) {
+		const self = this;
+		self.applyPluginsAsync("optimize-chunk-assets", self.chunks, err => {
+			if(err) {
+				return callback(err);
+			}
+			self.applyPlugins1("after-optimize-chunk-assets", self.chunks);
+			self._sealPart4(callback);
+		});
+	}
+
+	_sealPart4(callback) {
+		const self = this;
+		self.applyPluginsAsync("optimize-assets", self.assets, err => {
+			if(err) {
+				return callback(err);
+			}
+			self.applyPlugins1("after-optimize-assets", self.assets);
+			if(self.applyPluginsBailResult("need-additional-seal")) {
+				self.unseal();
+				return self.seal(callback);
+			}
+			return self.applyPluginsAsync("after-seal", callback);
+		});
+	}
+
+	sortModules(modules) {
+		modules.sort((a, b) => {
+			if(a.index < b.index) return -1;
+			if(a.index > b.index) return 1;
+			return 0;
+		});
+	}
+
+	reportDependencyErrorsAndWarnings(module, blocks) {
+		for(let indexBlock = 0; indexBlock < blocks.length; indexBlock++) {
+			const block = blocks[indexBlock];
+			const dependencies = block.dependencies;
+
+			for(let indexDep = 0; indexDep < dependencies.length; indexDep++) {
+				const d = dependencies[indexDep];
+
+				const warnings = d.getWarnings();
+				if(warnings) {
+					for(let indexWar = 0; indexWar < warnings.length; indexWar++) {
+						const w = warnings[indexWar];
+
+						const warning = new ModuleDependencyWarning(module, w, d.loc);
+						this.warnings.push(warning);
+					}
+				}
+				const errors = d.getErrors();
+				if(errors) {
+					for(let indexErr = 0; indexErr < errors.length; indexErr++) {
+						const e = errors[indexErr];
+
+						const error = new ModuleDependencyError(module, e, d.loc);
+						this.errors.push(error);
+					}
+				}
+			}
+
+			this.reportDependencyErrorsAndWarnings(module, block.blocks);
+		}
+	}
+
+	addChunk(name, module, loc) {
+		if(name) {
+			if(Object.prototype.hasOwnProperty.call(this.namedChunks, name)) {
+				const chunk = this.namedChunks[name];
+				if(module) {
+					chunk.addOrigin(module, loc);
+				}
+				return chunk;
+			}
+		}
+		const chunk = new Chunk(name, module, loc);
+		this.chunks.push(chunk);
+		if(name) {
+			this.namedChunks[name] = chunk;
+		}
+		return chunk;
+	}
+
+	assignIndex(module) {
+		const _this = this;
+
+		const queue = [() => {
+			assignIndexToModule(module);
+		}];
+
+		const iteratorAllDependencies = d => {
+			queue.push(() => assignIndexToDependency(d));
+		};
+
+		function assignIndexToModule(module) {
+			// enter module
+			if(typeof module.index !== "number") {
+				module.index = _this.nextFreeModuleIndex++;
+
+				// leave module
+				queue.push(() => module.index2 = _this.nextFreeModuleIndex2++);
+
+				// enter it as block
+				assignIndexToDependencyBlock(module);
+			}
+		}
+
+		function assignIndexToDependency(dependency) {
+			if(dependency.module) {
+				queue.push(() => assignIndexToModule(dependency.module));
+			}
+		}
+
+		function assignIndexToDependencyBlock(block) {
+			let allDependencies = [];
+
+			function iteratorDependency(d) {
+				allDependencies.push(d);
+			}
+
+			function iteratorBlock(b) {
+				queue.push(() => assignIndexToDependencyBlock(b));
+			}
+
+			if(block.variables) {
+				iterationBlockVariable(block.variables, iteratorDependency);
+			}
+
+			if(block.dependencies) {
+				iterationOfArrayCallback(block.dependencies, iteratorDependency);
+			}
+			if(block.blocks) {
+				const blocks = block.blocks;
+				let indexBlock = blocks.length;
+				while(indexBlock--) {
+					iteratorBlock(blocks[indexBlock]);
+				}
+			}
+
+			let indexAll = allDependencies.length;
+			while(indexAll--) {
+				iteratorAllDependencies(allDependencies[indexAll]);
+			}
+		}
+
+		while(queue.length) {
+			queue.pop()();
+		}
+	}
+
+	assignDepth(module) {
+		function assignDepthToModule(module, depth) {
+			// enter module
+			if(typeof module.depth === "number" && module.depth <= depth) return;
+			module.depth = depth;
+
+			// enter it as block
+			assignDepthToDependencyBlock(module, depth + 1);
+		}
+
+		function assignDepthToDependency(dependency, depth) {
+			if(dependency.module) {
+				queue.push(() => assignDepthToModule(dependency.module, depth));
+			}
+		}
+
+		function assignDepthToDependencyBlock(block, depth) {
+			function iteratorDependency(d) {
+				assignDepthToDependency(d, depth);
+			}
+
+			function iteratorBlock(b) {
+				assignDepthToDependencyBlock(b, depth);
+			}
+
+			if(block.variables) {
+				iterationBlockVariable(block.variables, iteratorDependency);
+			}
+
+			if(block.dependencies) {
+				iterationOfArrayCallback(block.dependencies, iteratorDependency);
+			}
+
+			if(block.blocks) {
+				iterationOfArrayCallback(block.blocks, iteratorBlock);
+			}
+		}
+
+		const queue = [() => {
+			assignDepthToModule(module, 0);
+		}];
+		while(queue.length) {
+			queue.pop()();
+		}
+	}
+
+	processDependenciesBlockForChunk(block, chunk) {
+		const iteratorBlock = b => {
+			let c;
+			if(!b.chunks) {
+				c = this.addChunk(b.chunkName, b.module, b.loc);
+				b.chunks = [c];
+				c.addBlock(b);
+			} else {
+				c = b.chunks[0];
+			}
+			chunk.addChunk(c);
+			c.addParent(chunk);
+			queue.push([b, c]);
+		};
+
+		const iteratorDependency = d => {
+			if(!d.module) {
+				return;
+			}
+			if(d.weak) {
+				return;
+			}
+			if(chunk.addModule(d.module)) {
+				d.module.addChunk(chunk);
+				queue.push([d.module, chunk]);
+			}
+		};
+
+		const queue = [
+			[block, chunk]
+		];
+
+		while(queue.length) {
+			const queueItem = queue.pop();
+			block = queueItem[0];
+			chunk = queueItem[1];
+
+			if(block.variables) {
+				iterationBlockVariable(block.variables, iteratorDependency);
+			}
+
+			if(block.dependencies) {
+				iterationOfArrayCallback(block.dependencies, iteratorDependency);
+			}
+
+			if(block.blocks) {
+				iterationOfArrayCallback(block.blocks, iteratorBlock);
+			}
+		}
+	}
+
+	removeChunkFromDependencies(block, chunk) {
+		const iteratorDependency = d => {
+			if(!d.module) {
+				return;
+			}
+			if(!d.module.hasReasonForChunk(chunk)) {
+				if(d.module.removeChunk(chunk)) {
+					this.removeChunkFromDependencies(d.module, chunk);
+				}
+			}
+		};
+
+		const blocks = block.blocks;
+		for(let indexBlock = 0; indexBlock < blocks.length; indexBlock++) {
+			const chunks = blocks[indexBlock].chunks;
+			for(let indexChunk = 0; indexChunk < chunks.length; indexChunk++) {
+				const blockChunk = chunks[indexChunk];
+				chunk.removeChunk(blockChunk);
+				blockChunk.removeParent(chunk);
+				this.removeChunkFromDependencies(chunks, blockChunk);
+			}
+		}
+
+		if(block.dependencies) {
+			iterationOfArrayCallback(block.dependencies, iteratorDependency);
+		}
+
+		if(block.variables) {
+			iterationBlockVariable(block.variables, iteratorDependency);
+		}
+	}
+
+	applyModuleIds() {
+		let unusedIds = [];
+		let nextFreeModuleId = 0;
+		let usedIds = [];
+		// TODO consider Map when performance has improved https://gist.github.com/sokra/234c077e1299b7369461f1708519c392
+		const usedIdMap = Object.create(null);
+		if(this.usedModuleIds) {
+			Object.keys(this.usedModuleIds).forEach(key => {
+				const id = this.usedModuleIds[key];
+				if(!usedIdMap[id]) {
+					usedIds.push(id);
+					usedIdMap[id] = true;
+				}
+			});
+		}
+
+		const modules1 = this.modules;
+		for(let indexModule1 = 0; indexModule1 < modules1.length; indexModule1++) {
+			const module1 = modules1[indexModule1];
+			if(module1.id && !usedIdMap[module1.id]) {
+				usedIds.push(module1.id);
+				usedIdMap[module1.id] = true;
+			}
+		}
+
+		if(usedIds.length > 0) {
+			let usedIdMax = -1;
+			for(let index = 0; index < usedIds.length; index++) {
+				const usedIdKey = usedIds[index];
+
+				if(typeof usedIdKey !== "number") {
+					continue;
+				}
+
+				usedIdMax = Math.max(usedIdMax, usedIdKey);
+			}
+
+			let lengthFreeModules = nextFreeModuleId = usedIdMax + 1;
+
+			while(lengthFreeModules--) {
+				if(!usedIdMap[lengthFreeModules]) {
+					unusedIds.push(lengthFreeModules);
+				}
+			}
+		}
+
+		const modules2 = this.modules;
+		for(let indexModule2 = 0; indexModule2 < modules2.length; indexModule2++) {
+			const module2 = modules2[indexModule2];
+			if(module2.id === null) {
+				if(unusedIds.length > 0)
+					module2.id = unusedIds.pop();
+				else
+					module2.id = nextFreeModuleId++;
+			}
+		}
+	}
+
+	applyChunkIds() {
+		const unusedIds = [];
+		let nextFreeChunkId = 0;
+
+		function getNextFreeChunkId(usedChunkIds) {
+			const keyChunks = Object.keys(usedChunkIds);
+			let result = -1;
+
+			for(let index = 0; index < keyChunks.length; index++) {
+				const usedIdKey = keyChunks[index];
+				const usedIdValue = usedChunkIds[usedIdKey];
+
+				if(typeof usedIdValue !== "number") {
+					continue;
+				}
+
+				result = Math.max(result, usedIdValue);
+			}
+
+			return result;
+		}
+
+		if(this.usedChunkIds) {
+			nextFreeChunkId = getNextFreeChunkId(this.usedChunkIds) + 1;
+			let index = nextFreeChunkId;
+			while(index--) {
+				if(this.usedChunkIds[index] !== index) {
+					unusedIds.push(index);
+				}
+			}
+		}
+
+		const chunks = this.chunks;
+		for(let indexChunk = 0; indexChunk < chunks.length; indexChunk++) {
+			const chunk = chunks[indexChunk];
+			if(chunk.id === null) {
+				if(unusedIds.length > 0)
+					chunk.id = unusedIds.pop();
+				else
+					chunk.id = nextFreeChunkId++;
+			}
+			if(!chunk.ids) {
+				chunk.ids = [chunk.id];
+			}
+		}
+	}
+
+	sortItemsWithModuleIds() {
+		this.modules.sort(byId);
+
+		const modules = this.modules;
+		for(let indexModule = 0; indexModule < modules.length; indexModule++) {
+			modules[indexModule].sortItems();
+		}
+
+		const chunks = this.chunks;
+		for(let indexChunk = 0; indexChunk < chunks.length; indexChunk++) {
+			chunks[indexChunk].sortItems();
+		}
+	}
+
+	sortItemsWithChunkIds() {
+		this.chunks.sort(byId);
+
+		const modules = this.modules;
+		for(let indexModule = 0; indexModule < modules.length; indexModule++) {
+			modules[indexModule].sortItems();
+		}
+
+		const chunks = this.chunks;
+		for(let indexChunk = 0; indexChunk < chunks.length; indexChunk++) {
+			chunks[indexChunk].sortItems();
+		}
+	}
+
+	summarizeDependencies() {
+		function filterDups(array) {
+			const newArray = [];
+			for(let i = 0; i < array.length; i++) {
+				if(i === 0 || array[i - 1] !== array[i])
+					newArray.push(array[i]);
+			}
+			return newArray;
+		}
+		this.fileDependencies = (this.compilationDependencies || []).slice();
+		this.contextDependencies = [];
+		this.missingDependencies = [];
+
+		const children = this.children;
+		for(let indexChildren = 0; indexChildren < children.length; indexChildren++) {
+			const child = children[indexChildren];
+
+			this.fileDependencies = this.fileDependencies.concat(child.fileDependencies);
+			this.contextDependencies = this.contextDependencies.concat(child.contextDependencies);
+			this.missingDependencies = this.missingDependencies.concat(child.missingDependencies);
+		}
+
+		const modules = this.modules;
+		for(let indexModule = 0; indexModule < modules.length; indexModule++) {
+			const module = modules[indexModule];
+
+			if(module.fileDependencies) {
+				const fileDependencies = module.fileDependencies;
+				for(let indexFileDep = 0; indexFileDep < fileDependencies.length; indexFileDep++) {
+					this.fileDependencies.push(fileDependencies[indexFileDep]);
+				}
+			}
+			if(module.contextDependencies) {
+				const contextDependencies = module.contextDependencies;
+				for(let indexContextDep = 0; indexContextDep < contextDependencies.length; indexContextDep++) {
+					this.contextDependencies.push(contextDependencies[indexContextDep]);
+				}
+			}
+		}
+		this.errors.forEach(error => {
+			if(Array.isArray(error.missing)) {
+				error.missing.forEach(item => this.missingDependencies.push(item));
+			}
+		});
+		this.fileDependencies.sort();
+		this.fileDependencies = filterDups(this.fileDependencies);
+		this.contextDependencies.sort();
+		this.contextDependencies = filterDups(this.contextDependencies);
+		this.missingDependencies.sort();
+		this.missingDependencies = filterDups(this.missingDependencies);
+	}
+
+	createHash() {
+		const outputOptions = this.outputOptions;
+		const hashFunction = outputOptions.hashFunction;
+		const hashDigest = outputOptions.hashDigest;
+		const hashDigestLength = outputOptions.hashDigestLength;
+		const hash = crypto.createHash(hashFunction);
+		if(outputOptions.hashSalt)
+			hash.update(outputOptions.hashSalt);
+		this.mainTemplate.updateHash(hash);
+		this.chunkTemplate.updateHash(hash);
+		this.moduleTemplate.updateHash(hash);
+		this.children.forEach(function(child) {
+			hash.update(child.hash);
+		});
+		// clone needed as sort below is inplace mutation
+		const chunks = this.chunks.slice();
+		/**
+		 * sort here will bring all "falsy" values to the beginning
+		 * this is needed as the "hasRuntime()" chunks are dependent on the
+		 * hashes of the non-runtime chunks.
+		 */
+		chunks.sort((a, b) => {
+			const aEntry = a.hasRuntime();
+			const bEntry = b.hasRuntime();
+			if(aEntry && !bEntry) return 1;
+			if(!aEntry && bEntry) return -1;
+			return 0;
+		});
+		for(let i = 0; i < chunks.length; i++) {
+			const chunk = chunks[i];
+			const chunkHash = crypto.createHash(hashFunction);
+			if(outputOptions.hashSalt)
+				chunkHash.update(outputOptions.hashSalt);
+			chunk.updateHash(chunkHash);
+			if(chunk.hasRuntime()) {
+				this.mainTemplate.updateHashForChunk(chunkHash, chunk);
+			} else {
+				this.chunkTemplate.updateHashForChunk(chunkHash, chunk);
+			}
+			this.applyPlugins2("chunk-hash", chunk, chunkHash);
+			chunk.hash = chunkHash.digest(hashDigest);
+			hash.update(chunk.hash);
+			chunk.renderedHash = chunk.hash.substr(0, hashDigestLength);
+		}
+		this.fullHash = hash.digest(hashDigest);
+		this.hash = this.fullHash.substr(0, hashDigestLength);
+	}
+
+	modifyHash(update) {
+		const outputOptions = this.outputOptions;
+		const hashFunction = outputOptions.hashFunction;
+		const hashDigest = outputOptions.hashDigest;
+		const hashDigestLength = outputOptions.hashDigestLength;
+		const hash = crypto.createHash(hashFunction);
+		hash.update(this.fullHash);
+		hash.update(update);
+		this.fullHash = hash.digest(hashDigest);
+		this.hash = this.fullHash.substr(0, hashDigestLength);
+	}
+
+	createModuleAssets() {
+		for(let i = 0; i < this.modules.length; i++) {
+			const module = this.modules[i];
+			if(module.assets) {
+				Object.keys(module.assets).forEach((assetName) => {
+					const fileName = this.getPath(assetName);
+					this.assets[fileName] = module.assets[assetName];
+					this.applyPlugins2("module-asset", module, fileName);
+				});
+			}
+		}
+	}
+
+	createChunkAssets() {
+		const outputOptions = this.outputOptions;
+		const filename = outputOptions.filename;
+		const chunkFilename = outputOptions.chunkFilename;
+		for(let i = 0; i < this.chunks.length; i++) {
+			const chunk = this.chunks[i];
+			chunk.files = [];
+			const chunkHash = chunk.hash;
+			let source;
+			let file;
+			const filenameTemplate = chunk.filenameTemplate ? chunk.filenameTemplate :
+				chunk.isInitial() ? filename :
+				chunkFilename;
+			try {
+				const useChunkHash = !chunk.hasRuntime() || (this.mainTemplate.useChunkHash && this.mainTemplate.useChunkHash(chunk));
+				const usedHash = useChunkHash ? chunkHash : this.fullHash;
+				const cacheName = "c" + chunk.id;
+				if(this.cache && this.cache[cacheName] && this.cache[cacheName].hash === usedHash) {
+					source = this.cache[cacheName].source;
+				} else {
+					if(chunk.hasRuntime()) {
+						source = this.mainTemplate.render(this.hash, chunk, this.moduleTemplate, this.dependencyTemplates);
+					} else {
+						source = this.chunkTemplate.render(chunk, this.moduleTemplate, this.dependencyTemplates);
+					}
+					if(this.cache) {
+						this.cache[cacheName] = {
+							hash: usedHash,
+							source: source = (source instanceof CachedSource ? source : new CachedSource(source))
+						};
+					}
+				}
+				file = this.getPath(filenameTemplate, {
+					noChunkHash: !useChunkHash,
+					chunk
+				});
+				if(this.assets[file])
+					throw new Error(`Conflict: Multiple assets emit to the same filename ${file}`);
+				this.assets[file] = source;
+				chunk.files.push(file);
+				this.applyPlugins2("chunk-asset", chunk, file);
+			} catch(err) {
+				this.errors.push(new ChunkRenderError(chunk, file || filenameTemplate, err));
+			}
+		}
+	}
+
+	getPath(filename, data) {
+		data = data || {};
+		data.hash = data.hash || this.hash;
+		return this.mainTemplate.applyPluginsWaterfall("asset-path", filename, data);
+	}
+
+	createChildCompiler(name, outputOptions) {
+		return this.compiler.createChildCompiler(this, name, outputOptions);
+	}
+
+	checkConstraints() {
+		const usedIds = {};
+
+		const modules = this.modules;
+		for(let indexModule = 0; indexModule < modules.length; indexModule++) {
+			const moduleId = modules[indexModule].id;
+
+			if(usedIds[moduleId])
+				throw new Error(`checkConstraints: duplicate module id ${moduleId}`);
+		}
+
+		const chunks = this.chunks;
+		for(let indexChunk = 0; indexChunk < chunks.length; indexChunk++) {
+			const chunk = chunks[indexChunk];
+
+			if(chunks.indexOf(chunk) !== indexChunk)
+				throw new Error(`checkConstraints: duplicate chunk in compilation ${chunk.debugId}`);
+			chunk.checkConstraints();
+		}
+	}
+}
+
+module.exports = Compilation;
+```

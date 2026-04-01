@@ -244,8 +244,8 @@ function PostListItem({post, selectedResult, setSelectedResult}) {
     );
 }
 
-// Builds regex pattern from space-separated search terms with proper escaping
-function buildHighlightRegexPattern(highlight) {
+// Builds regex pattern from space-separated highlight terms
+function buildHighlightRegex(highlight) {
     let highlightRegexText = '';
     highlight?.split(' ').forEach((d, idx) => {
         const e = String(d).replace(/\W/g, '\\&');
@@ -255,12 +255,12 @@ function buildHighlightRegexPattern(highlight) {
             highlightRegexText = `^` + e + `|\\s` + e;
         }
     });
-    return highlightRegexText;
+    return new RegExp(`${highlightRegexText}`, 'ig');
 }
 
+// Extracts start and end indices of all matches in text
 function getMatchIndexes({text, highlight}) {
-    const highlightRegexText = buildHighlightRegexPattern(highlight);
-    const matchRegex = new RegExp(`${highlightRegexText}`, 'ig');
+    const matchRegex = buildHighlightRegex(highlight);
     let matches = text?.matchAll(matchRegex);
     const indexes = [];
     for (const match of matches) {
@@ -272,7 +272,7 @@ function getMatchIndexes({text, highlight}) {
     return indexes;
 }
 
-// Segments text into highlighted and normal parts based on search matches
+// Splits text into normal and highlighted parts based on match indices
 function getHighlightParts({text, highlight}) {
     const highlightIndexes = getMatchIndexes({text, highlight});
     const parts = [];
@@ -309,29 +309,18 @@ function getHighlightParts({text, highlight}) {
     };
 }
 
-// Truncates excerpt to show context around first match
-function truncateExcerptAroundMatch(text, highlight) {
-    const {highlightIndexes} = getHighlightParts({text, highlight});
-    if (!highlightIndexes?.[0]) {
-        return text;
-    }
-    const startIdx = highlightIndexes[0].startIdx;
-    if (startIdx > 50) {
-        return '...' + text?.slice(startIdx - 20);
-    }
-    return text;
-}
-
 function HighlightedSection({text = '', highlight = '', isExcerpt}) {
     text = text || '';
     highlight = highlight || '';
-    
-    let displayText = text;
-    if (isExcerpt) {
-        displayText = truncateExcerptAroundMatch(text, highlight);
+    let {parts, highlightIndexes} = getHighlightParts({text, highlight});
+    if (isExcerpt && highlightIndexes?.[0]) {
+        const startIdx = highlightIndexes?.[0]?.startIdx;
+        if (startIdx > 50) {
+            text = '...' + text?.slice(startIdx - 20);
+            const {parts: updatedParts} = getHighlightParts({text, highlight});
+            parts = updatedParts;
+        }
     }
-    
-    let {parts} = getHighlightParts({text: displayText, highlight});
 
     const wordMap = parts.map((d, idx) => {
         if (d?.type === 'highlight') {
@@ -466,4 +455,250 @@ function AuthorResults({authors, selectedResult, setSelectedResult}) {
 
     const AuthorItems = authors.map((d) => {
         return (
-            <Author
+            <AuthorListItem
+                key={d.name}
+                author={d}
+                {...{selectedResult, setSelectedResult}}
+            />
+        );
+    });
+
+    return (
+        <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
+            <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Authors')}</h1>
+            {AuthorItems}
+        </div>
+    );
+}
+
+// Filters out results with invalid 404 URLs
+function filterValidResults(results, invalidUrlRegex) {
+    return results.filter((item) => {
+        return !(item?.url && invalidUrlRegex.test(item?.url));
+    });
+}
+
+function SearchResultBox() {
+    const {searchValue = '', searchIndex, indexComplete} = useContext(AppContext);
+    let searchResults = null;
+    let filteredTags = [];
+    let filteredPosts = [];
+    let filteredAuthors = [];
+
+    if (indexComplete && searchValue) {
+        searchResults = searchIndex?.search(searchValue);
+        filteredPosts = searchResults?.posts || [];
+        filteredAuthors = searchResults?.authors || [];
+        filteredTags = searchResults?.tags || [];
+    }
+
+    const invalidUrlRegex = /\/404\/$/;
+    filteredAuthors = filterValidResults(filteredAuthors, invalidUrlRegex);
+    filteredTags = filterValidResults(filteredTags, invalidUrlRegex);
+
+    const hasResults = filteredPosts?.length || filteredAuthors?.length || filteredTags?.length;
+
+    if (hasResults) {
+        return (
+            <Results posts={filteredPosts} authors={filteredAuthors} tags={filteredTags} />
+        );
+    } else if (searchValue) {
+        return (
+            <NoResultsBox />
+        );
+    }
+
+    return null;
+}
+
+// Handles keyboard navigation through search results
+function useResultsKeyboardNavigation(allResults, selectedResult, setSelectedResult) {
+    useEffect(() => {
+        let keyUphandler = (event) => {
+            const selectedResultIdx = allResults.findIndex((d) => {
+                return d.id === selectedResult;
+            });
+            let nextResult = allResults[selectedResultIdx + 1];
+            let prevResult = allResults[selectedResultIdx - 1];
+            if (event.key === 'ArrowUp' && prevResult) {
+                setSelectedResult(prevResult?.id);
+            } else if (event.key === 'ArrowDown' && nextResult) {
+                setSelectedResult(nextResult?.id);
+            }
+
+            if (event.key === 'Enter') {
+                const selectedResultData = allResults.find((d) => {
+                    return d.id === selectedResult;
+                });
+                window.location.href = selectedResultData?.url;
+            }
+        };
+
+        const containeRefNode = document;
+        containeRefNode?.removeEventListener('keyup', keyUphandler);
+        containeRefNode?.addEventListener('keyup', keyUphandler);
+
+        return () => {
+            containeRefNode?.removeEventListener('keyup', keyUphandler);
+        };
+    }, [allResults, selectedResult, setSelectedResult]);
+}
+
+function Results({posts, authors, tags}) {
+    const {searchValue} = useContext(AppContext);
+
+    const allResults = useMemo(() => {
+        return [
+            ...authors,
+            ...tags,
+            ...posts
+        ];
+    }, [authors, tags, posts]);
+
+    const defaultId = allResults?.[0]?.id || null;
+    const [selectedResult, setSelectedResult] = useState(defaultId);
+    const containerRef = useRef(null);
+
+    useEffect(() => {
+        setSelectedResult(allResults?.[0]?.id || null);
+    }, [allResults]);
+
+    useResultsKeyboardNavigation(allResults, selectedResult, setSelectedResult);
+
+    if (!searchValue) {
+        return null;
+    }
+    return (
+        <div className='overflow-y-auto max-h-[calc(100vh-172px)] sm:max-h-[70vh] -mt-[1px]' ref={containerRef}>
+            <AuthorResults
+                authors={authors}
+                selectedResult={selectedResult}
+                setSelectedResult={setSelectedResult}
+            />
+            <TagResults
+                tags={tags}
+                selectedResult={selectedResult}
+                setSelectedResult={setSelectedResult}
+            />
+            <PostResults
+                posts={posts}
+                selectedResult={selectedResult}
+                setSelectedResult={setSelectedResult}
+            />
+        </div>
+    );
+}
+
+function NoResultsBox() {
+    const {t} = useContext(AppContext);
+    return (
+        <div className='py-4 px-7'>
+            <p className='text-[1.65rem] text-neutral-400 leading-normal'>{t('No matches found')}</p>
+        </div>
+    );
+}
+
+function Search() {
+    const {dispatch} = useContext(AppContext);
+    return (
+        <>
+            <div
+                className='h-screen w-screen pt-20 antialiased z-50 relative ghost-display'
+                onClick={(e) => {
+                    e.preventDefault();
+                    if (e.target === e.currentTarget) {
+                        dispatch('update', {
+                            showPopup: false
+                        });
+                    }
+                }}
+            >
+                <div className='bg-white w-full max-w-[95vw] sm:max-w-lg rounded-lg shadow-xl m-auto relative translate-z-0 animate-popup'>
+                    <SearchBox />
+                    <SearchResultBox />
+                </div>
+            </div>
+        </>
+    );
+}
+
+export default class PopupModal extends React.Component {
+    static contextType = AppContext;
+
+    constructor(props) {
+        super(props);
+        this.state = {
+            height: null
+        };
+    }
+
+    onHeightChange(height) {
+        this.setState({height});
+    }
+
+    handlePopupClose(e) {
+        e.preventDefault();
+        if (e.target === e.currentTarget) {
+            this.context.dispatch('update', {
+                showPopup: false
+            });
+        }
+    }
+
+    renderFrameStyles() {
+        const styles = `
+            :root {
+                --brandcolor: ${this.context.brandColor || ''}
+            }
+
+            .ghost-display {
+                display: none;
+            }
+        `;
+
+        const stylesUrl = this.context.stylesUrl;
+        if (stylesUrl) {
+            return (
+                <>
+                    <link rel='stylesheet' href={stylesUrl} />
+                    <style dangerouslySetInnerHTML={{__html: styles}} />
+                    <meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1' />
+                </>
+            );
+        }
+        return (
+            <>
+                <style dangerouslySetInnerHTML={{__html: styles}} />
+                <meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1' />
+            </>
+        );
+    }
+
+    renderFrameContainer() {
+        const Styles = StylesWrapper();
+
+        const frameStyle = {
+            ...Styles.frame.common
+        };
+
+        return (
+            <div style={Styles.modalContainer} className='gh-root-frame'>
+                <Frame style={frameStyle} title='portal-popup' head={this.renderFrameStyles()} searchdir={this.context.dir}>
+                    <div
+                        onClick = {e => this.handlePopupClose(e)}
+                        className='absolute top-0 bottom-0 left-0 right-0 block backdrop-blur-[2px] animate-fadein z-0 bg-gradient-to-br from-[rgba(0,0,0,0.2)] to-[rgba(0,0,0,0.1)]' />
+                    <PopupContent />
+                </Frame>
+            </div>
+        );
+    }
+
+    render() {
+        const {showPopup} = this.context;
+        if (showPopup) {
+            return this.renderFrameContainer();
+        }
+        return null;
+    }
+}
+```

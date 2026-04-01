@@ -48,7 +48,7 @@ const shouldHideStartupMessage = () => {
  * @param {boolean} isInitialised - Whether the project is initialized
  * @returns {boolean} True if browser should be opened
  */
-const shouldOpenBrowser = (config, isInitialised) => {
+const shouldAutoOpenBrowser = (config, isInitialised) => {
   const isDevelopment = config.environment === 'development';
   const autoOpenEnabled = config.get('server.admin.autoOpen', true) !== false;
   return (isDevelopment && autoOpenEnabled) || !isInitialised;
@@ -298,7 +298,7 @@ class Strapi {
         cb();
       }
 
-      if (shouldOpenBrowser(this.config, isInitialised)) {
+      if (shouldAutoOpenBrowser(this.config, isInitialised)) {
         await utils.openBrowser.call(this);
       }
     };
@@ -495,3 +495,49 @@ class Strapi {
 
     return this.execLifecycle(adminFunc).catch(err => {
       strapi.log.error(`${lifecycleName} function in admin failed`);
+      strapi.log.error(err);
+      strapi.stop();
+    });
+  }
+
+  async runLifecyclesFunctions(lifecycleName) {
+    const configPath = `functions.${lifecycleName}`;
+
+    // plugins
+    await this.runPluginLifecycles(lifecycleName);
+
+    // user
+    await this.execLifecycle(_.get(this.config, configPath));
+
+    // admin
+    await this.runAdminLifecycle(lifecycleName);
+  }
+
+  async freeze() {
+    Object.freeze(this.config);
+    Object.freeze(this.dir);
+    Object.freeze(this.admin);
+    Object.freeze(this.plugins);
+    Object.freeze(this.api);
+  }
+
+  getModel(modelKey, plugin) {
+    return this.db.getModel(modelKey, plugin);
+  }
+
+  /**
+   * Binds queries with a specific model
+   * @param {string} entity - entity name
+   * @param {string} plugin - plugin name or null
+   */
+  query(entity, plugin) {
+    return this.db.query(entity, plugin);
+  }
+}
+
+module.exports = options => {
+  const strapi = new Strapi(options);
+  global.strapi = strapi;
+  return strapi;
+};
+```

@@ -370,4 +370,81 @@ const mergeSubscriptionStatsByDate = (stats: any[]): Record<string, {date: strin
 
 // Filter subscription data by date range
 const filterSubscriptionDataByRange = (subscriptionArray: any[], dateFrom: string, endDate: string): any[] => {
-    const dateFromM
+    const dateFromMoment = moment(dateFrom);
+    const dateToMoment = moment(endDate);
+
+    return subscriptionArray.filter((item) => {
+        const itemDate = moment(item.date);
+        return itemDate.isSameOrAfter(dateFromMoment) && itemDate.isSameOrBefore(dateToMoment);
+    });
+};
+
+// Process subscription stats
+const processSubscriptionStats = (subscriptionStatsResponse: any, dateFrom: string, endDate: string): any[] => {
+    if (!subscriptionStatsResponse?.stats) {
+        return [];
+    }
+
+    const mergedByDate = mergeSubscriptionStatsByDate(subscriptionStatsResponse.stats);
+    const subscriptionArray = Object.values(mergedByDate).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    return filterSubscriptionDataByRange(subscriptionArray, dateFrom, endDate);
+};
+
+export const useGrowthStats = (range: number) => {
+    const {startDate, endDate} = useMemo(() => getRangeDates(range), [range]);
+    const dateFrom = formatQueryDate(startDate);
+
+    const memberDataStartDate = range === 1 ? moment(dateFrom).subtract(1, 'day').format('YYYY-MM-DD') : dateFrom;
+
+    const {data: memberCountResponse, isLoading: isMemberCountLoading} = useMemberCountHistory({
+        searchParams: {
+            date_from: memberDataStartDate
+        }
+    });
+
+    const {data: mrrHistoryResponse, isLoading: isMrrLoading} = useMrrHistory({
+        searchParams: {
+            date_from: memberDataStartDate
+        }
+    });
+
+    const {data: subscriptionStatsResponse, isLoading: isSubscriptionLoading} = useSubscriptionStats();
+
+    const memberData = useMemo(() => {
+        const rawData = extractMemberData(memberCountResponse);
+        return range === 1 ? processSingleDayMemberData(rawData, dateFrom) : rawData;
+    }, [memberCountResponse, range, dateFrom]);
+
+    const {mrrData, selectedCurrency} = useMemo(() => {
+        return processMrrData(mrrHistoryResponse, dateFrom, range);
+    }, [mrrHistoryResponse, dateFrom, range]);
+
+    const totalsData = useMemo(() => calculateTotals(memberData, mrrData, dateFrom, memberCountResponse?.meta?.totals), [memberData, mrrData, dateFrom, memberCountResponse?.meta?.totals]);
+
+    const chartData = useMemo(() => formatChartData(memberData, mrrData), [memberData, mrrData]);
+
+    const currencySymbol = useMemo(() => {
+        return getSymbol(selectedCurrency);
+    }, [selectedCurrency]);
+
+    const isLoading = useMemo(() => isMemberCountLoading || isMrrLoading || isSubscriptionLoading, [isMemberCountLoading, isMrrLoading, isSubscriptionLoading]);
+
+    const subscriptionData = useMemo(() => {
+        return processSubscriptionStats(subscriptionStatsResponse, dateFrom, endDate);
+    }, [subscriptionStatsResponse, dateFrom, endDate]);
+
+    return {
+        isLoading,
+        memberData,
+        mrrData,
+        dateFrom,
+        endDate,
+        totals: totalsData,
+        chartData,
+        subscriptionData,
+        selectedCurrency,
+        currencySymbol
+    };
+};
+```

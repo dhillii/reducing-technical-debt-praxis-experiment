@@ -128,7 +128,7 @@ class PostsExporter {
     #getPostEmail(post) {
         let email = post.related('email');
         if (!email.id) {
-            return null;
+            email = null;
         }
         return email;
     }
@@ -192,12 +192,12 @@ class PostsExporter {
             if (!settings.trackOpens) {
                 removeableColumns.push('opens');
             }
+        }
 
-            if (!settings.membersTrackSources) {
-                removeableColumns.push('signups', 'paid_conversions');
-            } else if (!settings.paidMembersEnabled) {
-                removeableColumns.push('paid_conversions');
-            }
+        if (!settings.membersTrackSources || !settings.membersEnabled) {
+            removeableColumns.push('signups', 'paid_conversions');
+        } else if (!settings.paidMembersEnabled) {
+            removeableColumns.push('paid_conversions');
         }
 
         return removeableColumns;
@@ -225,7 +225,7 @@ class PostsExporter {
 
     postAccessToString(post) {
         const visibility = post.get('visibility');
-        
+
         if (visibility === 'public') {
             return 'Public';
         }
@@ -287,20 +287,21 @@ class PostsExporter {
      */
     filterToString(filter, allLabels, allTiers) {
         const strings = [];
-        
+
         if (filter.$or) {
             for (const subfilter of filter.$or) {
                 strings.push(...this.filterToString(subfilter, allLabels, allTiers));
             }
-        } else {
-            for (const key of Object.keys(filter)) {
-                if (key === 'label') {
-                    this.#processLabelFilter(filter.label, allLabels, strings);
-                } else if (key === 'tier') {
-                    this.#processTierFilter(filter.tier, allTiers, strings);
-                } else if (key === 'status') {
-                    this.#processStatusFilter(filter.status, strings);
-                }
+            return strings;
+        }
+
+        for (const key of Object.keys(filter)) {
+            if (key === 'label') {
+                this.#processLabelFilter(filter.label, allLabels, strings);
+            } else if (key === 'tier') {
+                this.#processTierFilter(filter.tier, allTiers, strings);
+            } else if (key === 'status') {
+                this.#processStatusFilter(filter.status, strings);
             }
         }
 

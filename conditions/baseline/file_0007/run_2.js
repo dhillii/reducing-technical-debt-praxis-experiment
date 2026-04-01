@@ -48,9 +48,9 @@ const validateWebsite = ({website}: Partial<User>): string => {
     return valid ? '' : 'Enter a valid URL';
 };
 
-const createSocialValidator = (validateFn: (url: string) => void) => (data: Partial<User>, key: keyof User): string => {
+const createSocialValidator = (validateFn: (url: string) => void) => ({field}: Partial<User> & {field?: string}): string => {
     try {
-        validateFn((data[key] as string) || '');
+        validateFn(field || '');
         return '';
     } catch (e) {
         return e instanceof Error ? e.message : '';
@@ -64,15 +64,78 @@ const validators: Record<string, (u: Partial<User>) => string> = {
     bio: validateBio,
     location: validateLocation,
     website: validateWebsite,
-    facebook: (data) => createSocialValidator(validateFacebookUrl)(data, 'facebook'),
-    twitter: (data) => createSocialValidator(validateTwitterUrl)(data, 'twitter'),
-    threads: (data) => createSocialValidator(validateThreadsUrl)(data, 'threads'),
-    bluesky: (data) => createSocialValidator(validateBlueskyUrl)(data, 'bluesky'),
-    linkedin: (data) => createSocialValidator(validateLinkedInUrl)(data, 'linkedin'),
-    instagram: (data) => createSocialValidator(validateInstagramUrl)(data, 'instagram'),
-    youtube: (data) => createSocialValidator(validateYouTubeUrl)(data, 'youtube'),
-    tiktok: (data) => createSocialValidator(validateTikTokUrl)(data, 'tiktok'),
-    mastodon: (data) => createSocialValidator(validateMastodonUrl)(data, 'mastodon')
+    facebook: ({facebook}) => {
+        try {
+            validateFacebookUrl(facebook || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    twitter: ({twitter}) => {
+        try {
+            validateTwitterUrl(twitter || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    threads: ({threads}) => {
+        try {
+            validateThreadsUrl(threads || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    bluesky: ({bluesky}) => {
+        try {
+            validateBlueskyUrl(bluesky || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    linkedin: ({linkedin}) => {
+        try {
+            validateLinkedInUrl(linkedin || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    instagram: ({instagram}) => {
+        try {
+            validateInstagramUrl(instagram || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    youtube: ({youtube}) => {
+        try {
+            validateYouTubeUrl(youtube || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    tiktok: ({tiktok}) => {
+        try {
+            validateTikTokUrl(tiktok || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    },
+    mastodon: ({mastodon}) => {
+        try {
+            validateMastodonUrl(mastodon || '');
+            return '';
+        } catch (e) {
+            return e instanceof Error ? e.message : '';
+        }
+    }
 };
 
 export interface UserDetailProps {
@@ -121,10 +184,14 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         if (error) {
             setErrors({...errors, [key]: error});
             return false;
-        } else {
-            clearError(key);
-            return true;
         }
+        clearError(key);
+        return true;
+    };
+
+    const getTabFromPath = (path: string): string => {
+        const lastSegment = path.split('/').pop() || '';
+        return (lastSegment === 'social-links' || lastSegment === 'email-notifications') ? lastSegment : 'profile';
     };
 
     const navigateOnClose = useCallback(() => {
@@ -135,16 +202,13 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     }, [currentUser, updateRoute]);
 
-    const handleLimitError = async (error: unknown) => {
-        if (error instanceof HostLimitError) {
-            NiceModal.show(LimitModal, {
-                formSheet: true,
-                prompt: error.message || `Your current plan doesn't support more users.`,
-                onOk: () => updateRoute({route: '/pro', isExternal: true})
-            });
-            return true;
-        }
-        return false;
+    const handleSuspendSuccess = async (updatedUserData: User) => {
+        await updateUser(updatedUserData);
+        setFormState(() => updatedUserData);
+        showToast({
+            title: updatedUserData.status === 'inactive' ? 'User un-suspended' : 'User suspended',
+            type: 'success'
+        });
     };
 
     const confirmSuspend = async (_user: User) => {
@@ -152,13 +216,19 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             try {
                 await limiter?.errorIfWouldGoOverLimit('staff');
             } catch (error) {
-                if (await handleLimitError(error)) return;
+                if (error instanceof HostLimitError) {
+                    NiceModal.show(LimitModal, {
+                        formSheet: true,
+                        prompt: error.message || `Your current plan doesn't support more users.`,
+                        onOk: () => updateRoute({route: '/pro', isExternal: true})
+                    });
+                    return;
+                }
                 throw error;
             }
         }
 
-        const isInactive = _user.status === 'inactive';
-        const warningText = isInactive
+        const warningText = _user.status === 'inactive'
             ? 'This user will be able to log in again and will have the same permissions they had previously.'
             : 'This user will no longer be able to log in but their posts will be kept.';
 
@@ -169,22 +239,17 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                     <strong>WARNING:</strong> {warningText}
                 </>
             ),
-            okLabel: isInactive ? 'Un-suspend' : 'Suspend',
-            okRunningLabel: isInactive ? 'Un-suspending...' : 'Suspending...',
+            okLabel: _user.status === 'inactive' ? 'Un-suspend' : 'Suspend',
+            okRunningLabel: _user.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
             okColor: 'red',
             onOk: async (modal) => {
-                const updatedUserData = {
-                    ..._user,
-                    status: isInactive ? 'active' : 'inactive'
-                };
                 try {
-                    await updateUser(updatedUserData);
-                    setFormState(() => updatedUserData);
+                    const updatedUserData = {
+                        ..._user,
+                        status: _user.status === 'inactive' ? 'active' : 'inactive'
+                    };
+                    await handleSuspendSuccess(updatedUserData);
                     modal?.remove();
-                    showToast({
-                        title: isInactive ? 'User un-suspended' : 'User suspended',
-                        type: 'success'
-                    });
                 } catch (e) {
                     handleError(e);
                 }
@@ -241,14 +306,14 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
-    const updateUserImage = (imageType: 'cover_image' | 'profile_image', imageUrl: string) => {
+    const updateImageField = (imageType: 'cover_image' | 'profile_image', imageUrl: string) => {
         updateForm((_user) => ({..._user, [imageType]: imageUrl}));
     };
 
     const handleImageUpload = async (image: string, file: File) => {
         try {
             const imageUrl = getImageUrl(await uploadImage({file}));
-            updateUserImage(image as 'cover_image' | 'profile_image', imageUrl);
+            updateImageField(image as 'cover_image' | 'profile_image', imageUrl);
         } catch (e) {
             const error = e as APIError;
             if (error.response!.status === 415) {
@@ -259,20 +324,13 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     };
 
     const handleImageDelete = (image: string) => {
-        updateUserImage(image as 'cover_image' | 'profile_image', '');
+        updateImageField(image as 'cover_image' | 'profile_image', '');
     };
-
-    const canShowMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
-    const canMakeOwner = isOwnerUser(currentUser) && isAditorUser(formState) && formState.status !== 'inactive';
-    const canModifyUser = formState.id !== currentUser.id && (
-        (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
-        (isEditorUser(currentUser) && isAuthorOrContributor(user))
-    );
 
     const buildMenuItems = (): MenuItem[] => {
         const items: MenuItem[] = [];
 
-        if (canMakeOwner) {
+        if (isOwnerUser(currentUser) && isAditorUser(formState) && formState.status !== 'inactive') {
             items.push({
                 id: 'make-owner',
                 label: 'Make owner',
@@ -280,15 +338,19 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             });
         }
 
+        const canModifyUser = formState.id !== currentUser.id && (
+            (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
+            (isEditorUser(currentUser) && isAuthorOrContributor(user))
+        );
+
         if (canModifyUser) {
-            const suspendUserLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
             items.push({
                 id: 'delete-user',
                 label: 'Delete user',
                 onClick: () => confirmDelete(user, {owner: ownerUser})
             }, {
                 id: 'suspend-user',
-                label: suspendUserLabel,
+                label: formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user',
                 onClick: () => confirmSuspend(formState)
             });
         }
@@ -305,11 +367,11 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         return items;
     };
 
-    const getTabFromPath = (path: string): string => {
-        const lastSegment = path.split('/').pop() || '';
-        return (lastSegment === 'social-links' || lastSegment === 'email-notifications') ? lastSegment : 'profile';
-    };
-
+    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
+    const menuItems = buildMenuItems();
+    const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
+    const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
+    const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
     const initialTab = getTabFromPath(route);
     const [selectedTab, setSelectedTab] = useState<string>(initialTab);
 
@@ -318,11 +380,6 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         updateRoute(`staff/${user.slug}${urlSegment}`);
         setSelectedTab(newTabId);
     };
-
-    const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
-    const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
-    const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
-    const menuItems = buildMenuItems();
 
     return (
         <Modal
@@ -344,4 +401,148 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         >
             <div>
                 <div className={`relative ${canAccessSettings(currentUser) ? '-mx-8 -mt-8 rounded-t' : '-mx-10 -mt-10'}`}>
-                    <div className={`flex flex-wrap items-end justify-between gap-8 p-8 ${formState.cover_image ? 'bg
+                    <div className={`flex flex-wrap items-end justify-between gap-8 p-8 ${formState.cover_image ? 'bg-cover bg-center' : ''} ${!canAccessSettings(currentUser) && 'min-h-[30vmin]'}`}
+                        style={{
+                            backgroundImage: formState.cover_image ? `url(${formState.cover_image})` : 'none'
+                        }}>
+                        <div className='flex w-full flex-col gap-2'>
+                            <div className='flex flex-nowrap items-start justify-between gap-3'>
+                                <div>
+                                    <ImageUpload
+                                        deleteButtonClassName='md:invisible absolute pr-3 -right-2 -top-2 flex h-8 w-10 cursor-pointer items-center justify-end rounded-full bg-[rgba(0,0,0,0.75)] text-white group-hover:!visible'
+                                        deleteButtonContent={<Icon colorClass='text-white' name='trash' size='sm' />}
+                                        editButtonClassName='md:invisible absolute right-[22px] -top-2 flex h-8 w-8 cursor-pointer items-center justify-center text-white group-hover:!visible z-20'
+                                        fileUploadClassName='rounded-full bg-black flex items-center justify-center opacity-80 transition hover:opacity-100 -ml-2 cursor-pointer h-[80px] w-[80px]'
+                                        fileUploadProps={{dragIndicatorClassName: 'rounded-full'}}
+                                        id='avatar'
+                                        imageClassName='w-full h-full object-cover rounded-full shrink-0'
+                                        imageContainerClassName='relative group bg-cover bg-center -ml-1 h-16 w-16 md:h-18 md:w-18 shrink-0'
+                                        imageURL={formState.profile_image ?? undefined}
+                                        pintura={
+                                            {
+                                                isEnabled: editor.isEnabled,
+                                                openEditor: async () => editor.openEditor({
+                                                    image: formState.profile_image || '',
+                                                    handleSave: async (file:File) => {
+                                                        handleImageUpload('profile_image', file);
+                                                    }
+                                                })
+                                            }
+                                        }
+                                        unstyled={true}
+                                        width='80px'
+                                        onDelete={() => {
+                                            handleImageDelete('profile_image');
+                                        }}
+                                        onUpload={(file: File) => {
+                                            handleImageUpload('profile_image', file);
+                                        }}
+                                    >
+                                        <Icon colorClass='black' name='user-add' size='lg' />
+                                    </ImageUpload>
+                                </div>
+                                <div className='flex flex-nowrap items-start gap-3'>
+                                    <ImageUpload
+                                        buttonContainerClassName='flex items-end gap-4 justify-end flex-nowrap'
+                                        deleteButtonClassName={coverButtonClasses}
+                                        deleteButtonContent='Delete cover image'
+                                        editButtonClassName={coverButtonClasses}
+                                        fileUploadClassName={noCoverButtonClasses}
+                                        id='cover-image'
+                                        imageClassName='hidden'
+                                        imageURL={formState.cover_image || ''}
+                                        pintura={
+                                            {
+                                                isEnabled: editor.isEnabled,
+                                                openEditor: async () => editor.openEditor({
+                                                    image: formState.cover_image || '',
+                                                    handleSave: async (file:File) => {
+                                                        handleImageUpload('cover_image', file);
+                                                    }
+                                                })
+                                            }
+                                        }
+                                        unstyled
+                                        onDelete={() => {
+                                            handleImageDelete('cover_image');
+                                        }}
+                                        onUpload={(file: File) => {
+                                            handleImageUpload('cover_image', file);
+                                        }}
+                                    >Upload cover image</ImageUpload>
+                                    {showMenu && <div className="z-10">
+                                        <Menu
+                                            items={menuItems}
+                                            position='end'
+                                            trigger={
+                                                <button
+                                                    className={clsx(
+                                                        'flex h-8 cursor-pointer items-center justify-center rounded px-3',
+                                                        formState.cover_image
+                                                            ? 'bg-[rgba(0,0,0,0.75)] opacity-80 hover:opacity-100'
+                                                            : 'border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white'
+                                                    )}
+                                                    type='button'
+                                                >
+                                                    <span className='sr-only'>Actions</span>
+                                                    <Icon
+                                                        colorClass={formState.cover_image ? 'text-white' : undefined}
+                                                        name='ellipsis'
+                                                        size='md'
+                                                    />
+                                                </button>
+                                            }
+                                        />
+                                    </div>}
+                                </div>
+                            </div>
+                            <div>
+                                <Heading level={3} styles={clsx('break-words md:break-normal', formState.cover_image ? 'text-white' : 'text-black dark:text-white')}>{user.name}{suspendedText}</Heading>
+                                <span className={clsx('text-md font-medium capitalize', formState.cover_image ? 'text-white' : 'text-black dark:text-white')}>{user.roles[0].name.toLowerCase()}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div className={`${!canAccessSettings(currentUser) && 'mx-auto max-w-[536px]'} mt-6 flex flex-col`}>
+                    <TabView
+                        selectedTab={selectedTab}
+                        tabs={[
+                            {
+                                id: 'profile',
+                                title: 'Profile',
+                                contents: <ProfileTab clearError={clearError} errors={errors} setUserData={setUserData} user={formState} validateField={validateField} />
+                            },
+                            {
+                                id: 'social-links',
+                                title: 'Social Links',
+                                contents: <SocialLinksTab clearError={clearError} errors={errors} setUserData={setUserData} user={formState} validateField={validateField} />
+                            },
+                            {
+                                id: 'email-notifications',
+                                title: 'Email Notifications',
+                                contents: <EmailNotificationsTab setUserData={setUserData} user={formState} />
+                            }
+                        ]}
+                        onTabChange={handleTabChange}
+                    />
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
+const UserDetailModal: React.FC<RoutingModalProps> = ({params}) => {
+    const {currentUser} = useGlobalData();
+    const isCurrentUser = currentUser.slug === params?.slug;
+    const {data: fetchedUserData} = useGetUserBySlug(
+        params?.slug || '',
+        {enabled: !isCurrentUser && !!params?.slug}
+    );
+
+    const user = isCurrentUser ? currentUser : fetchedUserData?.users?.[0];
+
+    return user ? <UserDetailModalContent user={user} /> : null;
+};
+
+export default NiceModal.create(UserDetailModal);
+```

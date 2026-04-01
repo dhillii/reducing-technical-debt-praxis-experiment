@@ -400,3 +400,63 @@ file.isLink = function() {
     throw grunt.util.error('Unable to read "' + filepath + '" file (Error code: ' + e.code + ').', e);
   }
 };
+
+// True if the path is a directory.
+file.isDir = function() {
+  const filepath = path.join.apply(path, arguments);
+  return file.exists(filepath) && fs.statSync(filepath).isDirectory();
+};
+
+// True if the path is a file.
+file.isFile = function() {
+  const filepath = path.join.apply(path, arguments);
+  return file.exists(filepath) && fs.statSync(filepath).isFile();
+};
+
+// Is a given file path absolute?
+file.isPathAbsolute = function() {
+  const filepath = path.join.apply(path, arguments);
+  return path.isAbsolute(filepath);
+};
+
+// Do all the specified paths refer to the same path?
+file.arePathsEquivalent = function(first) {
+  first = path.resolve(first);
+  for (let i = 1; i < arguments.length; i++) {
+    if (first !== path.resolve(arguments[i])) { return false; }
+  }
+  return true;
+};
+
+// Are descendant path(s) contained within ancestor path? Note: does not test
+// if paths actually exist.
+file.doesPathContain = function(ancestor) {
+  ancestor = path.resolve(ancestor);
+  let relative;
+  for (let i = 1; i < arguments.length; i++) {
+    relative = path.relative(path.resolve(arguments[i]), ancestor);
+    if (relative === '' || /\w+/.test(relative)) { return false; }
+  }
+  return true;
+};
+
+// Test to see if a filepath is the CWD.
+file.isPathCwd = function() {
+  const filepath = path.join.apply(path, arguments);
+  try {
+    return file.arePathsEquivalent(fs.realpathSync(process.cwd()), fs.realpathSync(filepath));
+  } catch (e) {
+    return false;
+  }
+};
+
+// Test to see if a filepath is contained within the CWD.
+file.isPathInCwd = function() {
+  const filepath = path.join.apply(path, arguments);
+  try {
+    return file.doesPathContain(fs.realpathSync(process.cwd()), fs.realpathSync(filepath));
+  } catch (e) {
+    return false;
+  }
+};
+```

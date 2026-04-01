@@ -432,4 +432,156 @@ module.exports = function() {
 		});
 
 		let idx;
-		let queue
+		let queue = outdatedModules.slice();
+		while(queue.length > 0) {
+			moduleId = queue.pop();
+			module = installedModules[moduleId];
+			if(!module) continue;
+
+			const data = {};
+
+			// Call dispose handlers
+			const disposeHandlers = module.hot._disposeHandlers;
+			for(j = 0; j < disposeHandlers.length; j++) {
+				cb = disposeHandlers[j];
+				cb(data);
+			}
+			hotCurrentModuleData[moduleId] = data;
+
+			// disable module (this disables requires from this module)
+			module.hot.active = false;
+
+			// remove module from cache
+			delete installedModules[moduleId];
+
+			// remove "parents" references from all children
+			for(j = 0; j < module.children.length; j++) {
+				const child = installedModules[module.children[j]];
+				if(!child) continue;
+				idx = child.parents.indexOf(moduleId);
+				if(idx >= 0) {
+					child.parents.splice(idx, 1);
+				}
+			}
+		}
+
+		// remove outdated dependency from module children
+		let dependency;
+		let moduleOutdatedDependencies;
+		for(moduleId in outdatedDependencies) {
+			if(Object.prototype.hasOwnProperty.call(outdatedDependencies, moduleId)) {
+				module = installedModules[moduleId];
+				if(module) {
+					moduleOutdatedDependencies = outdatedDependencies[moduleId];
+					for(j = 0; j < moduleOutdatedDependencies.length; j++) {
+						dependency = moduleOutdatedDependencies[j];
+						idx = module.children.indexOf(dependency);
+						if(idx >= 0) module.children.splice(idx, 1);
+					}
+				}
+			}
+		}
+
+		// Not in "apply" phase
+		hotSetStatus("apply");
+
+		hotCurrentHash = hotUpdateNewHash;
+
+		// insert new code
+		for(moduleId in appliedUpdate) {
+			if(Object.prototype.hasOwnProperty.call(appliedUpdate, moduleId)) {
+				modules[moduleId] = appliedUpdate[moduleId];
+			}
+		}
+
+		// call accept handlers
+		let error = null;
+		for(moduleId in outdatedDependencies) {
+			if(Object.prototype.hasOwnProperty.call(outdatedDependencies, moduleId)) {
+				module = installedModules[moduleId];
+				moduleOutdatedDependencies = outdatedDependencies[moduleId];
+				const callbacks = [];
+				for(i = 0; i < moduleOutdatedDependencies.length; i++) {
+					dependency = moduleOutdatedDependencies[i];
+					cb = module.hot._acceptedDependencies[dependency];
+					if(callbacks.indexOf(cb) >= 0) continue;
+					callbacks.push(cb);
+				}
+				for(i = 0; i < callbacks.length; i++) {
+					cb = callbacks[i];
+					try {
+						cb(moduleOutdatedDependencies);
+					} catch(err) {
+						if(options.onErrored) {
+							options.onErrored({
+								type: "accept-errored",
+								moduleId: moduleId,
+								dependencyId: moduleOutdatedDependencies[i],
+								error: err
+							});
+						}
+						if(!options.ignoreErrored) {
+							if(!error)
+								error = err;
+						}
+					}
+				}
+			}
+		}
+
+		// Load self accepted modules
+		for(i = 0; i < outdatedSelfAcceptedModules.length; i++) {
+			const item = outdatedSelfAcceptedModules[i];
+			moduleId = item.module;
+			hotCurrentParents = [moduleId];
+			try {
+				$require$(moduleId);
+			} catch(err) {
+				if(typeof item.errorHandler === "function") {
+					try {
+						item.errorHandler(err);
+					} catch(err2) {
+						if(options.onErrored) {
+							options.onErrored({
+								type: "self-accept-error-handler-errored",
+								moduleId: moduleId,
+								error: err2,
+								orginalError: err
+							});
+						}
+						if(!options.ignoreErrored) {
+							if(!error)
+								error = err2;
+						}
+						if(!error)
+							error = err;
+					}
+				} else {
+					if(options.onErrored) {
+						options.onErrored({
+							type: "self-accept-errored",
+							moduleId: moduleId,
+							error: err
+						});
+					}
+					if(!options.ignoreErrored) {
+						if(!error)
+							error = err;
+					}
+				}
+			}
+		}
+
+		// handle errors in accept handlers and self accepted module load
+		if(error) {
+			hotSetStatus("fail");
+			return Promise.reject(error);
+		}
+
+		hotSetStatus("idle");
+		return new Promise(function(resolve) {
+			resolve(outdatedModules);
+		});
+	}
+};
+```

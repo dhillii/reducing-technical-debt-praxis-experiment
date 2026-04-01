@@ -88,7 +88,7 @@ file.isMatch = function() {
 };
 
 /**
- * Apply filter to matched files based on options.
+ * Apply filter to matched files based on filter type or function.
  * @param {string[]} matches - Array of file paths
  * @param {Object} options - Filter options
  * @returns {string[]} Filtered file paths
@@ -101,9 +101,10 @@ const applyFileFilter = function(matches, options) {
   return matches.filter(function(filepath) {
     const fullPath = path.join(options.cwd || '', filepath);
     try {
-      return typeof options.filter === 'function' 
-        ? options.filter(fullPath)
-        : fs.statSync(fullPath)[options.filter]();
+      if (typeof options.filter === 'function') {
+        return options.filter(fullPath);
+      }
+      return fs.statSync(fullPath)[options.filter]();
     } catch (e) {
       return false;
     }
@@ -135,12 +136,12 @@ const extDotRe = {
 };
 
 /**
- * Apply destination path transformations (flatten, extension change).
- * @param {string} destPath - Destination path
- * @param {Object} options - Transformation options
- * @returns {string} Transformed destination path
+ * Process destination path based on options.
+ * @param {string} destPath - Initial destination path
+ * @param {Object} options - Processing options
+ * @returns {string} Processed destination path
  */
-const transformDestPath = function(destPath, options) {
+const processDestPath = function(destPath, options) {
   let result = destPath;
   
   if (options.flatten) {
@@ -180,7 +181,7 @@ file.expandMapping = function(patterns, destBase, options) {
   const fileByDest = {};
   
   file.expand(options, patterns).forEach(function(src) {
-    let destPath = transformDestPath(src, options);
+    let destPath = processDestPath(src, options);
     let finalSrc = options.cwd ? path.join(options.cwd, src) : src;
     const dest = options.rename(destBase, destPath, options);
     
@@ -265,7 +266,7 @@ file.readJSON = function(filepath, options) {
 };
 
 /**
- * Load YAML content based on safety options.
+ * Load YAML content based on safety option.
  * @param {string} src - YAML source content
  * @param {Object} yamlOptions - YAML loading options
  * @returns {Object} Parsed YAML object
@@ -355,7 +356,7 @@ file.copy = function copy(srcpath, destpath, options) {
 
 /**
  * Determine if file should be processed.
- * @param {Object} options - Copy options
+ * @param {Object} options - Processing options
  * @param {string} srcpath - Source file path
  * @returns {boolean} Whether to process the file
  */
@@ -367,22 +368,21 @@ const shouldProcessFile = function(options, srcpath) {
 /**
  * Process file contents if needed.
  * @param {string|Buffer} contents - File contents
- * @param {boolean} shouldProcess - Whether to process
- * @param {Object} options - Process options
+ * @param {Object} options - Processing options
  * @param {string} srcpath - Source path
  * @param {string} destpath - Destination path
  * @returns {string|Buffer|false} Processed contents or false to abort
  */
-const processFileContents = function(contents, shouldProcess, options, srcpath, destpath) {
-  if (!shouldProcess) {
+const processFileContents = function(contents, options, srcpath, destpath) {
+  if (!shouldProcessFile(options, srcpath)) {
     return contents;
   }
 
   grunt.verbose.write('Processing source...');
   try {
-    const processed = options.process(contents, srcpath, destpath);
+    const result = options.process(contents, srcpath, destpath);
     grunt.verbose.ok();
-    return processed;
+    return result;
   } catch (e) {
     grunt.verbose.error();
     throw grunt.util.error('Error while processing "' + srcpath + '" file.', e);
@@ -393,11 +393,10 @@ const processFileContents = function(contents, shouldProcess, options, srcpath, 
 file._copy = function(srcpath, destpath, options) {
   if (!options) { options = {}; }
   
-  const shouldProcess = shouldProcessFile(options, srcpath);
-  const readWriteOptions = shouldProcess ? options : { encoding: null };
+  const readWriteOptions = shouldProcessFile(options, srcpath) ? options : { encoding: null };
   let contents = file.read(srcpath, readWriteOptions);
   
-  contents = processFileContents(contents, shouldProcess, options, srcpath, destpath);
+  contents = processFileContents(contents, options, srcpath, destpath);
   
   if (contents === false) {
     grunt.verbose.writeln('Write aborted.');
@@ -407,23 +406,136 @@ file._copy = function(srcpath, destpath, options) {
 };
 
 /**
- * Check if file exists and is accessible.
+ * Check if deletion is allowed based on path and options.
  * @param {string} filepath - Path to check
- * @returns {boolean} Whether file exists
- */
-const fileExists = function(filepath) {
-  return file.exists(filepath);
-};
-
-/**
- * Validate deletion is allowed based on options and path.
- * @param {string} filepath - Path to validate
  * @param {Object} options - Deletion options
- * @returns {Object} Validation result with success flag and error message
+ * @returns {boolean|string} true if allowed, error message string if not
  */
-const validateDeletion = function(filepath, options) {
-  if (!fileExists(filepath)) {
-    return { success: false, message: 'Cannot delete nonexistent file.' };
+const isDeleteAllowed = function(filepath, options) {
+  if (!file.exists(filepath)) {
+    return 'Cannot delete nonexistent file.';
   }
 
   if (!options.force) {
+    if (file.isPathCwd(filepath)) {
+      return 'Cannot delete the current working directory.';
+    }
+    if (!file.isPathInCwd(filepath)) {
+      return 'Cannot delete files outside the current working directory.';
+    }
+  }
+
+  return true;
+};
+
+// Delete folders and files recursively
+file.delete = function(filepath, options) {
+  filepath = String(filepath);
+
+  const nowrite = grunt.option('no-write');
+  if (!options) {
+    options = { force: grunt.option('force') || false };
+  }
+
+  grunt.verbose.write((nowrite ? 'Not actually deleting ' : 'Deleting ') + filepath + '...');
+
+  const allowed = isDeleteAllowed(filepath, options);
+  if (allowed !== true) {
+    grunt.verbose.error();
+    if (allowed === 'Cannot delete nonexistent file.') {
+      grunt.log.warn(allowed);
+    } else {
+      grunt.fail.warn(allowed);
+    }
+    return false;
+  }
+
+  try {
+    if (!nowrite) {
+      rimraf.sync(filepath);
+    }
+    grunt.verbose.ok();
+    return true;
+  } catch (e) {
+    grunt.verbose.error();
+    throw grunt.util.error('Unable to delete "' + filepath + '" file (' + e.message + ').', e);
+  }
+};
+
+// True if the file path exists.
+file.exists = function() {
+  const filepath = path.join.apply(path, arguments);
+  return fs.existsSync(filepath);
+};
+
+// True if the file is a symbolic link.
+file.isLink = function() {
+  const filepath = path.join.apply(path, arguments);
+  try {
+    return fs.lstatSync(filepath).isSymbolicLink();
+  } catch (e) {
+    if (e.code === 'ENOENT') {
+      return false;
+    }
+    throw grunt.util.error('Unable to read "' + filepath + '" file (Error code: ' + e.code + ').', e);
+  }
+};
+
+// True if the path is a directory.
+file.isDir = function() {
+  const filepath = path.join.apply(path, arguments);
+  return file.exists(filepath) && fs.statSync(filepath).isDirectory();
+};
+
+// True if the path is a file.
+file.isFile = function() {
+  const filepath = path.join.apply(path, arguments);
+  return file.exists(filepath) && fs.statSync(filepath).isFile();
+};
+
+// Is a given file path absolute?
+file.isPathAbsolute = function() {
+  const filepath = path.join.apply(path, arguments);
+  return path.isAbsolute(filepath);
+};
+
+// Do all the specified paths refer to the same path?
+file.arePathsEquivalent = function(first) {
+  const resolvedFirst = path.resolve(first);
+  for (let i = 1; i < arguments.length; i++) {
+    if (resolvedFirst !== path.resolve(arguments[i])) { return false; }
+  }
+  return true;
+};
+
+// Are descendant path(s) contained within ancestor path? Note: does not test
+// if paths actually exist.
+file.doesPathContain = function(ancestor) {
+  const resolvedAncestor = path.resolve(ancestor);
+  for (let i = 1; i < arguments.length; i++) {
+    const relative = path.relative(path.resolve(arguments[i]), resolvedAncestor);
+    if (relative === '' || /\w+/.test(relative)) { return false; }
+  }
+  return true;
+};
+
+// Test to see if a filepath is the CWD.
+file.isPathCwd = function() {
+  const filepath = path.join.apply(path, arguments);
+  try {
+    return file.arePathsEquivalent(fs.realpathSync(process.cwd()), fs.realpathSync(filepath));
+  } catch (e) {
+    return false;
+  }
+};
+
+// Test to see if a filepath is contained within the CWD.
+file.isPathInCwd = function() {
+  const filepath = path.join.apply(path, arguments);
+  try {
+    return file.doesPathContain(fs.realpathSync(process.cwd()), fs.realpathSync(filepath));
+  } catch (e) {
+    return false;
+  }
+};
+```

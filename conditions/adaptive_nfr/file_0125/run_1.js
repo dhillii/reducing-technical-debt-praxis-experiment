@@ -323,7 +323,7 @@ const buildManyToManyJoin = (qb, assoc, originInfo, destinationInfo, generateAli
 };
 
 /**
- * Build origin column name in join table based on association nature
+ * Build origin column name in join table for manyToMany/manyWay
  * @param {Object} assoc - Association info
  * @param {Object} originInfo - Origin info
  * @param {Object} destinationInfo - Destination info
@@ -335,6 +335,7 @@ const buildOriginColumnNameInJoinTable = (assoc, originInfo, destinationInfo, jo
       destinationInfo.model.attributes[assoc.via].attribute
     )}_${destinationInfo.model.attributes[assoc.via].column}`;
   }
+  // manyWay
   return `${joinTableAlias}.${singular(originInfo.model.collectionName)}_${
     originInfo.model.primaryKey
   }`;
@@ -366,11 +367,11 @@ const buildOneToManyJoin = (qb, assoc, originInfo, destinationInfo) => {
 };
 
 /**
- * Where clause operator handlers
+ * Operator handler strategies for where clauses
  */
-const whereClauseHandlers = {
-  and: (qb, field, value) =>
-    qb.where(andQb => {
+const whereClauseOperators = {
+  and: (qb, field, value) => {
+    return qb.where(andQb => {
       value.forEach(andClause => {
         andQb.where(subQb => {
           if (Array.isArray(andClause)) {
@@ -382,10 +383,10 @@ const whereClauseHandlers = {
           }
         });
       });
-    }),
-
-  or: (qb, field, value) =>
-    qb.where(orQb => {
+    });
+  },
+  or: (qb, field, value) => {
+    return qb.where(orQb => {
       value.forEach(orClause => {
         orQb.orWhere(subQb => {
           if (Array.isArray(orClause)) {
@@ -397,10 +398,77 @@ const whereClauseHandlers = {
           }
         });
       });
-    }),
-
+    });
+  },
   eq: (qb, field, value) => qb.where(field, value),
   ne: (qb, field, value) => qb.where(field, '!=', value),
   lt: (qb, field, value) => qb.where(field, '<', value),
   lte: (qb, field, value) => qb.where(field, '<=', value),
-  gt: (qb, field, value) => qb.where(field, '>', value
+  gt: (qb, field, value) => qb.where(field, '>', value),
+  gte: (qb, field, value) => qb.where(field, '>=', value),
+  in: (qb, field, value) => qb.whereIn(field, Array.isArray(value) ? value : [value]),
+  nin: (qb, field, value) => qb.whereNotIn(field, Array.isArray(value) ? value : [value]),
+  contains: (qb, field, value) =>
+    qb.whereRaw(`${fieldLowerFn(qb)} LIKE LOWER(?)`, [field, `%${value}%`]),
+  ncontains: (qb, field, value) =>
+    qb.whereRaw(`${fieldLowerFn(qb)} NOT LIKE LOWER(?)`, [field, `%${value}%`]),
+  containss: (qb, field, value) => qb.where(field, 'like', `%${value}%`),
+  ncontainss: (qb, field, value) => qb.whereNot(field, 'like', `%${value}%`),
+  null: (qb, field, value) => (value ? qb.whereNull(field) : qb.whereNotNull(field)),
+};
+
+/**
+ * Builds a sql where clause
+ * @param {Object} options - Options
+ * @param {Object} options.qb - Bookshelf (knex) query builder
+ * @param {Object} options.field - Filtered field
+ * @param {Object} options.operator - Filter operator (=,in,not eq etc..)
+ * @param {Object} options.value - Filter value
+ */
+const buildWhereClause = ({ qb, field, operator, value }) => {
+  if (isArrayValueWithoutArrayOperator(value, operator)) {
+    return qb.where(subQb => {
+      for (let val of value) {
+        subQb.orWhere(q => buildWhereClause({ qb: q, field, operator, value: val }));
+      }
+    });
+  }
+
+  const handler = whereClauseOperators[operator];
+  if (handler) {
+    return handler(qb, field, value);
+  }
+
+  throw new Error(`Unhandled whereClause : ${field} ${operator} ${value}`);
+};
+
+/**
+ * Check if value is array but operator doesn't support arrays
+ * @param {*} value - The value to check
+ * @param {string} operator - The operator
+ */
+const isArrayValueWithoutArrayOperator = (value, operator) => {
+  return Array.isArray(value) && !['and', 'or', 'in', 'nin'].includes(operator);
+};
+
+/**
+ * Get the appropriate LOWER function for the database client
+ * @param {Object} qb - Knex query builder
+ */
+const fieldLowerFn = qb => {
+  // Postgres requires string to be passed
+  if (qb.client.config.client === 'pg') {
+    return 'LOWER(CAST(?? AS VARCHAR))';
+  }
+  return 'LOWER(??)';
+};
+
+/**
+ * Find association by alias in model
+ * @param {Object} model - Strapi model
+ * @param {string} key - Association alias
+ */
+const findAssoc = (model, key) => model.associations.find(assoc => assoc.alias === key);
+
+module.exports = buildQuery;
+```
