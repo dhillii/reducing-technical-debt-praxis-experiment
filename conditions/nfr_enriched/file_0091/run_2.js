@@ -13,9 +13,9 @@ import {
 
 /** Extracts alignment from confluence data-align attribute */
 function getAlignmentFromConfluence(parent: Element | null): 'center' | 'end' | undefined {
-  const alignValue = parent?.dataset.align
-  if (alignValue === 'center' || alignValue === 'end') {
-    return alignValue
+  const align = parent?.dataset.align
+  if (align === 'center' || align === 'end') {
+    return align
   }
   return undefined
 }
@@ -34,9 +34,9 @@ function getAlignmentFromStyle(element: HTMLElement): 'center' | 'end' | undefin
 
 function getAlignmentFromElement(element: globalThis.Element): 'center' | 'end' | undefined {
   const parent = element.parentElement
-  const confluenceAlignment = getAlignmentFromConfluence(parent)
-  if (confluenceAlignment) {
-    return confluenceAlignment
+  const confluenceAlign = getAlignmentFromConfluence(parent)
+  if (confluenceAlign) {
+    return confluenceAlign
   }
   if (element instanceof HTMLElement) {
     return getAlignmentFromStyle(element)
@@ -75,7 +75,7 @@ function addMarkFromNodeName(marks: Set<Mark>, nodeName: string): void {
   }
 }
 
-/** Adds marks from text decoration style */
+/** Adds marks from text decoration style property */
 function addMarksFromTextDecoration(marks: Set<Mark>, textDecoration: string): void {
   if (textDecoration === 'underline') {
     marks.add('underline')
@@ -84,8 +84,15 @@ function addMarksFromTextDecoration(marks: Set<Mark>, textDecoration: string): v
   }
 }
 
-/** Adds marks from font weight style */
-function addMarksFromFontWeight(marks: Set<Mark>, nodeName: string, fontWeight: string): void {
+/** Adds code mark for confluence span elements with code class */
+function addConfluenceCodeMark(marks: Set<Mark>, nodeName: string, element: HTMLElement): void {
+  if (nodeName === 'SPAN' && element.classList.contains('code')) {
+    marks.add('code')
+  }
+}
+
+/** Adds bold mark based on font weight */
+function addBoldMarkFromFontWeight(marks: Set<Mark>, nodeName: string, fontWeight: string): void {
   if (nodeName === 'B' && fontWeight !== 'normal') {
     marks.add('bold')
   } else if (
@@ -99,8 +106,15 @@ function addMarksFromFontWeight(marks: Set<Mark>, nodeName: string, fontWeight: 
   }
 }
 
-/** Adds marks from vertical align style */
-function addMarksFromVerticalAlign(marks: Set<Mark>, verticalAlign: string): void {
+/** Adds italic mark from font style */
+function addItalicMark(marks: Set<Mark>, fontStyle: string): void {
+  if (fontStyle === 'italic') {
+    marks.add('italic')
+  }
+}
+
+/** Adds superscript or subscript mark from vertical align */
+function addVerticalAlignMarks(marks: Set<Mark>, verticalAlign: string): void {
   if (verticalAlign === 'super') {
     marks.add('superscript')
   } else if (verticalAlign === 'sub') {
@@ -114,25 +128,11 @@ function marksFromElementAttributes(element: globalThis.HTMLElement) {
   const { nodeName } = element
 
   addMarkFromNodeName(marks, nodeName)
-
-  const { fontWeight, textDecoration, verticalAlign } = style
-
-  addMarksFromTextDecoration(marks, textDecoration)
-
-  // confluence
-  if (nodeName === 'SPAN' && element.classList.contains('code')) {
-    marks.add('code')
-  }
-
-  // Google Docs does weird things with <b>
-  addMarksFromFontWeight(marks, nodeName, fontWeight)
-
-  if (style.fontStyle === 'italic') {
-    marks.add('italic')
-  }
-
-  // Google Docs uses vertical align for subscript and superscript instead of <sup> and <sub>
-  addMarksFromVerticalAlign(marks, verticalAlign)
+  addMarksFromTextDecoration(marks, style.textDecoration)
+  addConfluenceCodeMark(marks, nodeName, element)
+  addBoldMarkFromFontWeight(marks, nodeName, style.fontWeight)
+  addItalicMark(marks, style.fontStyle)
+  addVerticalAlignMarks(marks, style.verticalAlign)
 
   return marks
 }
@@ -172,7 +172,8 @@ function deserializeHRElement(): DeserializedNode[] {
 }
 
 /** Handles Dropbox Paper blockquote lists */
-function deserializeDropboxPaperQuote(el: HTMLElement, marks: Set<Mark>): DeserializedNode[] {
+function deserializeDropboxPaperBlockquote(el: HTMLElement): DeserializedNode[] {
+  const marks = marksFromElementAttributes(el)
   marks.delete('italic')
   return addMarksToChildren(marks, () => [
     { type: 'blockquote', children: fixNodesForBlockChildren(deserializeNodes(el.childNodes)) },
@@ -275,23 +276,22 @@ export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
 
   const marks = marksFromElementAttributes(el)
 
-  // Dropbox Paper displays blockquotes as lists for some reason
   if (el.classList.contains('listtype-quote')) {
-    return deserializeDropboxPaperQuote(el, marks)
+    return deserializeDropboxPaperBlockquote(el)
   }
 
   return addMarksToChildren(marks, (): DeserializedNode[] => {
     if (nodeName === 'A') {
-      const anchorResult = deserializeAnchorElement(el)
-      if (anchorResult) {
-        return anchorResult
+      const result = deserializeAnchorElement(el)
+      if (result) {
+        return result
       }
     }
 
     if (nodeName === 'PRE') {
-      const preResult = deserializePreElement(el)
-      if (preResult) {
-        return preResult
+      const result = deserializePreElement(el)
+      if (result) {
+        return result
       }
     }
 
@@ -307,7 +307,6 @@ export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
     }
 
     const headingLevel = headings[nodeName]
-
     if (typeof headingLevel === 'number') {
       return deserializeHeadingElement(el, headingLevel, children)
     }
@@ -325,9 +324,9 @@ export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
     }
 
     if (nodeName === 'DIV') {
-      const divResult = deserializeDivElement(children)
-      if (divResult) {
-        return divResult
+      const result = deserializeDivElement(children)
+      if (result) {
+        return result
       }
     }
 
@@ -345,8 +344,6 @@ function deserializeNodes(nodes: Iterable<globalThis.Node>): DeserializedNode[] 
 
 function fixNodesForBlockChildren(deserializedNodes: DeserializedNode[]): DeserializedNodes {
   if (!deserializedNodes.length) {
-    // Slate also gets unhappy if an element has no children
-    // the empty text nodes will get normalized away if they're not needed
     return [{ text: '' }]
   }
   if (deserializedNodes.some(isBlock)) {
@@ -364,9 +361,6 @@ function fixNodesForBlockChildren(deserializedNodes: DeserializedNode[]): Deseri
         result.push(node)
         continue
       }
-      // we want to ignore whitespace between block level elements
-      // useful info about whitespace in html:
-      // https://developer.mozilla.org/en-US/docs/Web/API/Document_Object_Model/Whitespace
       if (Node.string(node).trim() !== '') {
         queuedInlines.push(node)
       }

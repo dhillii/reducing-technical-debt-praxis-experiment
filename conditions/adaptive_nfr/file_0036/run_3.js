@@ -64,7 +64,9 @@ function finaliseStructuredData(meta) {
  * @returns {boolean}
  */
 function shouldLoadMembers() {
-    return settingsCache.get('members_enabled') || settingsCache.get('donations_enabled') || settingsCache.get('recommendations_enabled');
+    return settingsCache.get('members_enabled') || 
+           settingsCache.get('donations_enabled') || 
+           settingsCache.get('recommendations_enabled');
 }
 
 /**
@@ -173,46 +175,21 @@ function shouldShowAnnouncementBar(data) {
 /**
  * Extracts announcement preview parameters
  * @param {string} preview - The preview query string
- * @returns {object} Announcement preview data
+ * @returns {object|null} Announcement preview data or null
  */
 function extractAnnouncementPreview(preview) {
     const searchParam = new URLSearchParams(preview);
-    return {
-        announcement: searchParam.get('announcement'),
-        announcementBackground: searchParam.has('announcement_bg') ? searchParam.get('announcement_bg') : '',
-        announcementVisibility: searchParam.has('announcement_vis')
-    };
-}
+    const announcement = searchParam.get('announcement');
+    const announcementVisibility = searchParam.has('announcement_vis');
 
-/**
- * Checks if announcement preview is valid
- * @param {object} previewData - The preview data
- * @returns {boolean}
- */
-function isValidAnnouncementPreview(previewData) {
-    return previewData.announcement && previewData.announcementVisibility;
-}
-
-/**
- * Builds announcement bar attributes
- * @param {object} previewData - The preview data
- * @returns {object} Attributes object
- */
-function buildAnnouncementAttrs(previewData) {
-    const siteUrl = urlUtils.getSiteUrl();
-    const announcementUrl = new URL('members/api/announcement/', siteUrl);
-    const attrs = {
-        'announcement-bar': siteUrl,
-        'api-url': announcementUrl
-    };
-
-    if (previewData) {
-        attrs.announcement = escapeExpression(previewData.announcement);
-        attrs['announcement-background'] = escapeExpression(previewData.announcementBackground);
-        attrs.preview = true;
+    if (!announcement || !announcementVisibility) {
+        return null;
     }
 
-    return attrs;
+    return {
+        announcement: escapeExpression(announcement),
+        announcementBackground: searchParam.has('announcement_bg') ? escapeExpression(searchParam.get('announcement_bg')) : ''
+    };
 }
 
 /**
@@ -225,18 +202,25 @@ function getAnnouncementBarHelper(data) {
         return '';
     }
 
-    const preview = data?.site?._preview;
-    let previewData = null;
+    const {scriptUrl} = getFrontendAppConfig('announcementBar');
+    const siteUrl = urlUtils.getSiteUrl();
+    const announcementUrl = new URL('members/api/announcement/', siteUrl);
+    const attrs = {
+        'announcement-bar': siteUrl,
+        'api-url': announcementUrl
+    };
 
+    const preview = data?.site?._preview;
     if (preview) {
-        previewData = extractAnnouncementPreview(preview);
-        if (!isValidAnnouncementPreview(previewData)) {
+        const previewData = extractAnnouncementPreview(preview);
+        if (!previewData) {
             return '';
         }
+        attrs.announcement = previewData.announcement;
+        attrs['announcement-background'] = previewData.announcementBackground;
+        attrs.preview = true;
     }
 
-    const {scriptUrl} = getFrontendAppConfig('announcementBar');
-    const attrs = buildAnnouncementAttrs(previewData);
     const dataAttrs = getDataAttributes(attrs);
     return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
 }
@@ -257,7 +241,7 @@ function getWebmentionDiscoveryLink() {
 }
 
 /**
- * Checks if preview context is active
+ * Checks if in preview context
  * @param {object} dataRoot - The data root object
  * @returns {boolean}
  */
@@ -266,17 +250,8 @@ function isPreviewContext(dataRoot) {
 }
 
 /**
- * Checks if tinybird tracker should be loaded
- * @param {object} dataRoot - The data root object
- * @returns {boolean}
- */
-function shouldLoadTinybirdTracker(dataRoot) {
-    return !isPreviewContext(dataRoot);
-}
-
-/**
- * Gets tinybird configuration
- * @returns {object} Configuration object
+ * Gets tinybird configuration based on environment
+ * @returns {object} Configuration object with endpoint, token, datasource
  */
 function getTinybirdConfig() {
     const statsConfig = config.get('tinybird:tracker');
@@ -291,15 +266,18 @@ function getTinybirdConfig() {
 }
 
 /**
- * Builds tinybird parameters string
+ * Builds tinybird tracker parameters
  * @param {object} dataRoot - The data root object
- * @returns {string} Parameters string
+ * @returns {string} Space-separated data attributes
  */
 function buildTinybirdParams(dataRoot) {
+    const postType = dataRoot.context?.includes('post') ? 'post' : 
+                     dataRoot.context?.includes('page') ? 'page' : null;
+
     const params = {
         site_uuid: settingsCache.get('site_uuid'),
         post_uuid: dataRoot.post?.uuid,
-        post_type: dataRoot.context?.includes('post') ? 'post' : dataRoot.context?.includes('page') ? 'page' : null,
+        post_type: postType,
         member_uuid: dataRoot.member?.uuid,
         member_status: dataRoot.member?.status
     };
@@ -313,7 +291,7 @@ function buildTinybirdParams(dataRoot) {
  * @returns {string} Tracker script HTML
  */
 function getTinybirdTrackerScript(dataRoot) {
-    if (!shouldLoadTinybirdTracker(dataRoot)) {
+    if (isPreviewContext(dataRoot)) {
         return '';
     }
 
@@ -329,39 +307,21 @@ function getTinybirdTrackerScript(dataRoot) {
 }
 
 /**
- * Checks if context exists
- * @param {array} context - The context array
- * @returns {boolean}
- */
-function hasContext(context) {
-    return context !== null && context !== undefined;
-}
-
-/**
- * Checks if metadata should be excluded
- * @param {Set} excludeList - The exclude list
- * @returns {boolean}
- */
-function shouldExcludeMetadata(excludeList) {
-    return excludeList.has('metadata');
-}
-
-/**
- * Checks if context is preview
- * @param {array} context - The context array
- * @returns {boolean}
- */
-function isContextPreview(context) {
-    return _.includes(context, 'preview');
-}
-
-/**
  * Checks if context is paged
  * @param {array} context - The context array
  * @returns {boolean}
  */
-function isContextPaged(context) {
+function isPagedContext(context) {
     return _.includes(context, 'paged');
+}
+
+/**
+ * Checks if preview context
+ * @param {array} context - The context array
+ * @returns {boolean}
+ */
+function isPreviewContextArray(context) {
+    return _.includes(context, 'preview');
 }
 
 /**
@@ -369,12 +329,16 @@ function isContextPaged(context) {
  * @param {array} head - The head array
  * @param {object} meta - The metadata object
  * @param {array} context - The context array
- * @param {Set} excludeList - The exclude list
- * @param {string} referrerPolicy - The referrer policy
+ * @param {Set} excludeList - Set of excluded items
  * @param {string} favicon - The favicon URL
  * @param {string} iconType - The icon type
+ * @param {string} referrerPolicy - The referrer policy
  */
-function addMetadataTags(head, meta, context, excludeList, referrerPolicy, favicon, iconType) {
+function addMetadataTags(head, meta, context, excludeList, favicon, iconType, referrerPolicy) {
+    if (excludeList.has('metadata')) {
+        return;
+    }
+
     if (meta.metaDescription && meta.metaDescription.length > 0) {
         head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
     }
@@ -385,7 +349,7 @@ function addMetadataTags(head, meta, context, excludeList, referrerPolicy, favic
 
     head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
 
-    if (isContextPreview(context)) {
+    if (isPreviewContextArray(context)) {
         head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
         head.push(writeMetaTag('referrer', 'same-origin', 'name'));
     } else {
@@ -412,7 +376,7 @@ function addPaginationLinks(head, meta) {
  * Adds structured data to head array
  * @param {array} head - The head array
  * @param {object} meta - The metadata object
- * @param {Set} excludeList - The exclude list
+ * @param {Set} excludeList - Set of excluded items
  */
 function addStructuredData(head, meta, excludeList) {
     if (!excludeList.has('social_data')) {
@@ -429,8 +393,293 @@ function addStructuredData(head, meta, excludeList) {
 }
 
 /**
- * Adds context-specific head content
+ * Adds context-specific content to head array
  * @param {array} head - The head array
  * @param {object} meta - The metadata object
  * @param {array} context - The context array
- * @param {Set} excludeList - The
+ * @param {Set} excludeList - Set of excluded items
+ * @param {string} favicon - The favicon URL
+ * @param {string} iconType - The icon type
+ * @param {string} referrerPolicy - The referrer policy
+ * @param {boolean} useStructuredData - Whether to use structured data
+ */
+function addContextContent(head, meta, context, excludeList, favicon, iconType, referrerPolicy, useStructuredData) {
+    addMetadataTags(head, meta, context, excludeList, favicon, iconType, referrerPolicy);
+    addPaginationLinks(head, meta);
+
+    if (!isPagedContext(context) && useStructuredData) {
+        addStructuredData(head, meta, excludeList);
+    }
+}
+
+/**
+ * Adds card assets to head array
+ * @param {array} head - The head array
+ * @param {Set} excludeList - Set of excluded items
+ */
+function addCardAssets(head, excludeList) {
+    if (excludeList.has('card_assets')) {
+        return;
+    }
+
+    if (cardAssets.hasFile('js')) {
+        head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+    }
+
+    if (cardAssets.hasFile('css')) {
+        head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+    }
+}
+
+/**
+ * Adds comment counts script to head array
+ * @param {array} head - The head array
+ * @param {Set} excludeList - Set of excluded items
+ */
+function addCommentCounts(head, excludeList) {
+    if (excludeList.has('comment_counts')) {
+        return;
+    }
+
+    if (settingsCache.get('comments_enabled') === 'off') {
+        return;
+    }
+
+    head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+}
+
+/**
+ * Adds member attribution script to head array
+ * @param {array} head - The head array
+ */
+function addMemberAttribution(head) {
+    if (!settingsCache.get('members_enabled')) {
+        return;
+    }
+
+    if (!settingsCache.get('members_track_sources')) {
+        return;
+    }
+
+    head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+}
+
+/**
+ * Adds web analytics to head array
+ * @param {array} head - The head array
+ * @param {object} dataRoot - The data root object
+ */
+function addWebAnalytics(head, dataRoot) {
+    if (!settingsHelpers.isWebAnalyticsEnabled()) {
+        return;
+    }
+
+    head.push(getTinybirdTrackerScript(dataRoot));
+
+    if (dataRoot._locals) {
+        dataRoot._locals.ghostAnalytics = true;
+    }
+}
+
+/**
+ * Adds accent color style to head array
+ * @param {array} head - The head array
+ * @param {object} siteData - The site data object
+ */
+function addAccentColor(head, siteData) {
+    if (!siteData.accent_color) {
+        return;
+    }
+
+    const accentColor = escapeExpression(siteData.accent_color);
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Adds code injections to head array
+ * @param {array} head - The head array
+ * @param {string} globalCodeinjection - Global code injection
+ * @param {string} postCodeInjection - Post code injection
+ * @param {string} tagCodeInjection - Tag code injection
+ */
+function addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Checks if custom fonts are valid
+ * @param {string} headingFont - The heading font
+ * @param {string} bodyFont - The body font
+ * @returns {boolean}
+ */
+function hasValidCustomFonts(headingFont, bodyFont) {
+    const headingFontValid = typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont);
+    const bodyFontValid = typeof bodyFont === 'string' && isValidCustomFont(bodyFont);
+    return headingFontValid || bodyFontValid;
+}
+
+/**
+ * Adds custom fonts to head array
+ * @param {array} head - The head array
+ * @param {string} headingFont - The heading font
+ * @param {string} bodyFont - The body font
+ */
+function addCustomFonts(head, headingFont, bodyFont) {
+    if (!hasValidCustomFonts(headingFont, bodyFont)) {
+        return;
+    }
+
+    /** @type FontSelection */
+    const fontSelection = {};
+
+    if (headingFont) {
+        fontSelection.heading = headingFont;
+    }
+
+    if (bodyFont) {
+        fontSelection.body = bodyFont;
+    }
+
+    const customCSS = generateCustomFontCss(fontSelection);
+    head.push(new SafeString(customCSS));
+}
+
+/**
+ * Gets the appropriate font value based on preview mode
+ * @param {object} options - The options object
+ * @param {string} settingKey - The settings cache key
+ * @param {string} dataKey - The data object key
+ * @returns {string|null}
+ */
+function getFontValue(options, settingKey, dataKey) {
+    const isSitePreview = options.data?.site?._preview ?? false;
+    if (isSitePreview) {
+        return options.data?.site?.[dataKey];
+    }
+    return settingsCache.get(settingKey);
+}
+
+/**
+ * Express adds `_locals`, see https://github.com/expressjs/express/blob/4.15.4/lib/response.js#L962.
+ * But `options.data.root.context` is available next to `root._locals.context`, because
+ * Express creates a `renderOptions` object, see https://github.com/expressjs/express/blob/4.15.4/lib/application.js#L554
+ * and merges all locals to the root of the object. Very confusing, because the data is available in different layers.
+ *
+ * Express forwards the data like this to the hbs engine:
+ * {
+ *   post: {},             - res.render('view', databaseResponse)
+ *   context: ['post'],    - from res.locals
+ *   safeVersion: '1.x',   - from res.locals
+ *   _locals: {
+ *     context: ['post'],
+ *     safeVersion: '1.x'
+ *   }
+ * }
+ *
+ * hbs forwards the data to any hbs helper like this
+ * {
+ *   data: {
+ *     site: {},
+ *     labs: {},
+ *     config: {},
+ *     root: {
+ *       post: {},
+ *       context: ['post'],
+ *       locals: {...}
+ *     }
+ *  }
+ *
+ * `site`, `labs` and `config` are the templateOptions, search for `hbs.updateTemplateOptions` in the code base.
+ *  Also see how the root object gets created, https://github.com/wycats/handlebars.js/blob/v4.0.6/lib/handlebars/runtime.js#L259
+ */
+module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
+    debug('begin');
+
+    if (options.data.root.statusCode >= 500) {
+        return;
+    }
+
+    const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
+    const head = [];
+    const dataRoot = options.data.root;
+    const context = dataRoot._locals.context ? dataRoot._locals.context : null;
+    const safeVersion = dataRoot._locals.safeVersion;
+    const postCodeInjection = dataRoot?.post?.codeinjection_head || null;
+    const tagCodeInjection = dataRoot?.tag?.codeinjection_head || null;
+    const globalCodeinjection = settingsCache.get('codeinjection_head');
+    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
+    const referrerPolicy = config.get('referrerPolicy') || 'no-referrer-when-downgrade';
+    const favicon = blogIcon.getIconUrl();
+    const iconType = blogIcon.getIconType(favicon);
+
+    debug('preparation complete, begin fetch');
+
+    try {
+        const meta = await getMetaData(dataRoot, dataRoot);
+        const frontendKey = await getFrontendKey();
+
+        debug('end fetch');
+
+        if (context) {
+            addContextContent(head, meta, context, excludeList, favicon, iconType, referrerPolicy, useStructuredData);
+        }
+
+        head.push('<meta name="generator" content="Ghost ' + escapeExpression(safeVersion) + '">');
+        head.push('<link rel="alternate" type="application/rss+xml" title="' +
+            escapeExpression(meta.site.title) + '" href="' +
+            escapeExpression(meta.rssUrl) + '">');
+
+        head.push(getMembersHelper(options.data, frontendKey, excludeList));
+
+        if (!excludeList.has('search')) {
+            head.push(getSearchHelper(frontendKey));
+        }
+
+        if (!excludeList.has('announcement')) {
+            head.push(getAnnouncementBarHelper(options.data));
+        }
+
+        try {
+            head.push(getWebmentionDiscoveryLink());
+        } catch (err) {
+            logging.warn(err);
+        }
+
+        addCardAssets(head, excludeList);
+        addCommentCounts(head, excludeList);
+        addMemberAttribution(head);
+        addWebAnalytics(head, dataRoot);
+        addAccentColor(head, options.data.site);
+        addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection);
+
+        const headingFont = getFontValue(options, 'heading_font', 'heading_font');
+        const bodyFont = getFontValue(options, 'body_font', 'body_font');
+        addCustomFonts(head, headingFont, bodyFont);
+
+        debug('end');
+        return new SafeString(head.join('\n    ').trim());
+    } catch (error) {
+        logging.error(error);
+        return new SafeString(head.join('\n    ').trim());
+    }
+};
+
+module.exports.async = true;
+```

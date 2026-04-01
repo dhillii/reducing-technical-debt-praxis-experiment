@@ -61,7 +61,7 @@ function finaliseStructuredData(meta) {
 
 /**
  * Checks if members functionality should be loaded
- * @returns {boolean}
+ * @returns {boolean} True if any member feature is enabled
  */
 function shouldLoadMembers() {
     return settingsCache.get('members_enabled') || 
@@ -71,7 +71,7 @@ function shouldLoadMembers() {
 
 /**
  * Builds portal script tag
- * @param {object} data - The data object
+ * @param {object} data - The template data
  * @param {string} frontendKey - The frontend key
  * @returns {string} Portal script HTML
  */
@@ -110,8 +110,8 @@ function buildStripeScript() {
 }
 
 /**
- * Generates members helper content
- * @param {object} data - The data object
+ * Gets members helper content
+ * @param {object} data - The template data
  * @param {string} frontendKey - The frontend key
  * @param {Set} excludeList - Set of excluded items
  * @returns {string} Members helper HTML
@@ -139,7 +139,7 @@ function getMembersHelper(data, frontendKey, excludeList) {
 }
 
 /**
- * Generates search helper content
+ * Gets search helper content
  * @param {string} frontendKey - The frontend key
  * @returns {string} Search helper HTML
  */
@@ -163,10 +163,10 @@ function getSearchHelper(frontendKey) {
 
 /**
  * Checks if announcement bar should be shown
- * @param {object} data - The data object
- * @returns {boolean}
+ * @param {object} data - The template data
+ * @returns {boolean} True if announcement should be shown
  */
-function shouldShowAnnouncementBar(data) {
+function shouldShowAnnouncement(data) {
     const preview = data?.site?._preview;
     const isFilled = settingsCache.get('announcement_content') && settingsCache.get('announcement_visibility').length;
     return isFilled || preview;
@@ -193,12 +193,12 @@ function extractAnnouncementPreview(preview) {
 }
 
 /**
- * Generates announcement bar helper content
- * @param {object} data - The data object
+ * Gets announcement bar helper content
+ * @param {object} data - The template data
  * @returns {string} Announcement bar helper HTML
  */
 function getAnnouncementBarHelper(data) {
-    if (!shouldShowAnnouncementBar(data)) {
+    if (!shouldShowAnnouncement(data)) {
         return '';
     }
 
@@ -226,7 +226,7 @@ function getAnnouncementBarHelper(data) {
 }
 
 /**
- * Generates webmention discovery link
+ * Gets webmention discovery link
  * @returns {string} Webmention link HTML
  */
 function getWebmentionDiscoveryLink() {
@@ -243,14 +243,46 @@ function getWebmentionDiscoveryLink() {
 /**
  * Checks if in preview context
  * @param {object} dataRoot - The data root object
- * @returns {boolean}
+ * @returns {boolean} True if in preview
  */
 function isPreviewContext(dataRoot) {
     return dataRoot?.context?.includes('preview');
 }
 
 /**
- * Gets tinybird configuration based on environment
+ * Determines post type from context
+ * @param {object} dataRoot - The data root object
+ * @returns {string|null} The post type or null
+ */
+function getPostType(dataRoot) {
+    if (dataRoot.context?.includes('post')) {
+        return 'post';
+    }
+    if (dataRoot.context?.includes('page')) {
+        return 'page';
+    }
+    return null;
+}
+
+/**
+ * Builds tinybird tracker parameters
+ * @param {object} dataRoot - The data root object
+ * @returns {string} The parameter string
+ */
+function buildTinybirdParams(dataRoot) {
+    const params = {
+        site_uuid: settingsCache.get('site_uuid'),
+        post_uuid: dataRoot.post?.uuid,
+        post_type: getPostType(dataRoot),
+        member_uuid: dataRoot.member?.uuid,
+        member_status: dataRoot.member?.status
+    };
+
+    return _.map(params, (value, key) => `tb_${key}="${value}"`).join(' ');
+}
+
+/**
+ * Gets tinybird tracker configuration
  * @returns {object} Configuration object with endpoint, token, datasource
  */
 function getTinybirdConfig() {
@@ -266,27 +298,7 @@ function getTinybirdConfig() {
 }
 
 /**
- * Builds tinybird tracker parameters
- * @param {object} dataRoot - The data root object
- * @returns {string} Space-separated data attributes
- */
-function buildTinybirdParams(dataRoot) {
-    const postType = dataRoot.context?.includes('post') ? 'post' : 
-                     dataRoot.context?.includes('page') ? 'page' : null;
-
-    const params = {
-        site_uuid: settingsCache.get('site_uuid'),
-        post_uuid: dataRoot.post?.uuid,
-        post_type: postType,
-        member_uuid: dataRoot.member?.uuid,
-        member_status: dataRoot.member?.status
-    };
-
-    return _.map(params, (value, key) => `tb_${key}="${value}"`).join(' ');
-}
-
-/**
- * Generates tinybird tracker script
+ * Gets tinybird tracker script
  * @param {object} dataRoot - The data root object
  * @returns {string} Tracker script HTML
  */
@@ -307,52 +319,79 @@ function getTinybirdTrackerScript(dataRoot) {
 }
 
 /**
- * Checks if context is paged
- * @param {array} context - The context array
- * @returns {boolean}
+ * Checks if context exists
+ * @param {string|null} context - The context value
+ * @returns {boolean} True if context exists
  */
-function isPagedContext(context) {
-    return _.includes(context, 'paged');
+function hasContext(context) {
+    return context !== null && context !== undefined;
 }
 
 /**
- * Checks if preview context
- * @param {array} context - The context array
- * @returns {boolean}
+ * Checks if should include metadata
+ * @param {string|null} context - The context value
+ * @param {Set} excludeList - Set of excluded items
+ * @returns {boolean} True if metadata should be included
  */
-function isPreviewContextArray(context) {
-    return _.includes(context, 'preview');
+function shouldIncludeMetadata(context, excludeList) {
+    return hasContext(context) && !excludeList.has('metadata');
 }
 
 /**
- * Adds metadata tags to head array
+ * Checks if should include social data
+ * @param {string|null} context - The context value
+ * @param {Set} excludeList - Set of excluded items
+ * @param {boolean} useStructuredData - Whether structured data is enabled
+ * @returns {boolean} True if social data should be included
+ */
+function shouldIncludeSocialData(context, excludeList, useStructuredData) {
+    return hasContext(context) && 
+           !_.includes(context, 'paged') && 
+           useStructuredData && 
+           !excludeList.has('social_data');
+}
+
+/**
+ * Checks if should include schema
+ * @param {string|null} context - The context value
+ * @param {Set} excludeList - Set of excluded items
+ * @param {boolean} useStructuredData - Whether structured data is enabled
+ * @param {object} schema - The schema object
+ * @returns {boolean} True if schema should be included
+ */
+function shouldIncludeSchema(context, excludeList, useStructuredData, schema) {
+    return hasContext(context) && 
+           !_.includes(context, 'paged') && 
+           useStructuredData && 
+           !excludeList.has('schema') && 
+           schema;
+}
+
+/**
+ * Adds metadata to head array
  * @param {array} head - The head array
  * @param {object} meta - The metadata object
- * @param {array} context - The context array
- * @param {boolean} useStructuredData - Whether to use structured data
- * @param {string} referrerPolicy - The referrer policy
  * @param {string} favicon - The favicon URL
  * @param {string} iconType - The icon type
- * @param {Set} excludeList - Set of excluded items
+ * @param {string|null} context - The context value
+ * @param {string} referrerPolicy - The referrer policy
  */
-function addMetadataTags(head, meta, context, useStructuredData, referrerPolicy, favicon, iconType, excludeList) {
-    if (!excludeList.has('metadata')) {
-        if (meta.metaDescription && meta.metaDescription.length > 0) {
-            head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
-        }
+function addMetadata(head, meta, favicon, iconType, context, referrerPolicy) {
+    if (meta.metaDescription && meta.metaDescription.length > 0) {
+        head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
+    }
 
-        if (settingsCache.get('icon')) {
-            head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
-        }
+    if (settingsCache.get('icon')) {
+        head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
+    }
 
-        head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
+    head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
 
-        if (isPreviewContextArray(context)) {
-            head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-            head.push(writeMetaTag('referrer', 'same-origin', 'name'));
-        } else {
-            head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
-        }
+    if (_.includes(context, 'preview')) {
+        head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+        head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+    } else {
+        head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
     }
 }
 
@@ -375,16 +414,18 @@ function addPaginationLinks(head, meta) {
  * Adds structured data to head array
  * @param {array} head - The head array
  * @param {object} meta - The metadata object
+ * @param {string|null} context - The context value
  * @param {Set} excludeList - Set of excluded items
+ * @param {boolean} useStructuredData - Whether structured data is enabled
  */
-function addStructuredData(head, meta, excludeList) {
-    if (!excludeList.has('social_data')) {
+function addStructuredData(head, meta, context, excludeList, useStructuredData) {
+    if (shouldIncludeSocialData(context, excludeList, useStructuredData)) {
         head.push('');
         head.push.apply(head, finaliseStructuredData(meta));
         head.push('');
     }
 
-    if (!excludeList.has('schema') && meta.schema) {
+    if (shouldIncludeSchema(context, excludeList, useStructuredData, meta.schema)) {
         head.push('<script type="application/ld+json">\n' +
             JSON.stringify(meta.schema, null, '    ') +
             '\n    </script>\n');
@@ -404,7 +445,6 @@ function addCardAssets(head, excludeList) {
     if (cardAssets.hasFile('js')) {
         head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
     }
-
     if (cardAssets.hasFile('css')) {
         head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
     }
@@ -424,4 +464,230 @@ function addCommentCounts(head, excludeList) {
         return;
     }
 
-    head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(
+    head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+}
+
+/**
+ * Adds member attribution script to head array
+ * @param {array} head - The head array
+ */
+function addMemberAttribution(head) {
+    if (!settingsCache.get('members_enabled')) {
+        return;
+    }
+
+    if (!settingsCache.get('members_track_sources')) {
+        return;
+    }
+
+    head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+}
+
+/**
+ * Adds accent color style to head array
+ * @param {array} head - The head array
+ * @param {string} accentColor - The accent color value
+ */
+function addAccentColorStyle(head, accentColor) {
+    const escapedColor = escapeExpression(accentColor);
+    const styleTag = `<style>:root {--ghost-accent-color: ${escapedColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Adds code injections to head array
+ * @param {array} head - The head array
+ * @param {string|null} globalCodeinjection - Global code injection
+ * @param {string|null} postCodeInjection - Post code injection
+ * @param {string|null} tagCodeInjection - Tag code injection
+ */
+function addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Checks if custom fonts should be applied
+ * @param {string|null} headingFont - The heading font value
+ * @param {string|null} bodyFont - The body font value
+ * @returns {boolean} True if custom fonts should be applied
+ */
+function shouldApplyCustomFonts(headingFont, bodyFont) {
+    return (typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+           (typeof bodyFont === 'string' && isValidCustomFont(bodyFont));
+}
+
+/**
+ * Adds custom fonts to head array
+ * @param {array} head - The head array
+ * @param {string|null} headingFont - The heading font value
+ * @param {string|null} bodyFont - The body font value
+ */
+function addCustomFonts(head, headingFont, bodyFont) {
+    if (!shouldApplyCustomFonts(headingFont, bodyFont)) {
+        return;
+    }
+
+    const fontSelection = {};
+
+    if (headingFont) {
+        fontSelection.heading = headingFont;
+    }
+    if (bodyFont) {
+        fontSelection.body = bodyFont;
+    }
+
+    const customCSS = generateCustomFontCss(fontSelection);
+    head.push(new SafeString(customCSS));
+}
+
+/**
+ * Gets font values from appropriate source
+ * @param {object} options - The options object
+ * @param {string} fontKey - The font key (heading_font or body_font)
+ * @returns {string|null} The font value
+ */
+function getFontValue(options, fontKey) {
+    const isSitePreview = options.data?.site?._preview ?? false;
+    if (isSitePreview) {
+        return options.data?.site?.[fontKey];
+    }
+    return settingsCache.get(fontKey);
+}
+
+/**
+ * Express adds `_locals`, see https://github.com/expressjs/express/blob/4.15.4/lib/response.js#L962.
+ * But `options.data.root.context` is available next to `root._locals.context`, because
+ * Express creates a `renderOptions` object, see https://github.com/expressjs/express/blob/4.15.4/lib/application.js#L554
+ * and merges all locals to the root of the object. Very confusing, because the data is available in different layers.
+ *
+ * Express forwards the data like this to the hbs engine:
+ * {
+ *   post: {},             - res.render('view', databaseResponse)
+ *   context: ['post'],    - from res.locals
+ *   safeVersion: '1.x',   - from res.locals
+ *   _locals: {
+ *     context: ['post'],
+ *     safeVersion: '1.x'
+ *   }
+ * }
+ *
+ * hbs forwards the data to any hbs helper like this
+ * {
+ *   data: {
+ *     site: {},
+ *     labs: {},
+ *     config: {},
+ *     root: {
+ *       post: {},
+ *       context: ['post'],
+ *       locals: {...}
+ *     }
+ *  }
+ *
+ * `site`, `labs` and `config` are the templateOptions, search for `hbs.updateTemplateOptions` in the code base.
+ *  Also see how the root object gets created, https://github.com/wycats/handlebars.js/blob/v4.0.6/lib/handlebars/runtime.js#L259
+ */
+module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
+    debug('begin');
+
+    if (options.data.root.statusCode >= 500) {
+        return;
+    }
+
+    const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
+    const head = [];
+    const dataRoot = options.data.root;
+    const context = dataRoot._locals.context ? dataRoot._locals.context : null;
+    const safeVersion = dataRoot._locals.safeVersion;
+    const postCodeInjection = dataRoot && dataRoot.post ? dataRoot.post.codeinjection_head : null;
+    const tagCodeInjection = dataRoot && dataRoot.tag ? dataRoot.tag.codeinjection_head : null;
+    const globalCodeinjection = settingsCache.get('codeinjection_head');
+    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
+    const referrerPolicy = config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade';
+    const favicon = blogIcon.getIconUrl();
+    const iconType = blogIcon.getIconType(favicon);
+
+    debug('preparation complete, begin fetch');
+
+    try {
+        const meta = await getMetaData(dataRoot, dataRoot);
+        const frontendKey = await getFrontendKey();
+
+        debug('end fetch');
+
+        if (shouldIncludeMetadata(context, excludeList)) {
+            addMetadata(head, meta, favicon, iconType, context, referrerPolicy);
+        }
+
+        addPaginationLinks(head, meta);
+        addStructuredData(head, meta, context, excludeList, useStructuredData);
+
+        head.push('<meta name="generator" content="Ghost ' +
+            escapeExpression(safeVersion) + '">');
+        head.push('<link rel="alternate" type="application/rss+xml" title="' +
+            escapeExpression(meta.site.title) + '" href="' +
+            escapeExpression(meta.rssUrl) + '">');
+
+        head.push(getMembersHelper(options.data, frontendKey, excludeList));
+
+        if (!excludeList.has('search')) {
+            head.push(getSearchHelper(frontendKey));
+        }
+
+        if (!excludeList.has('announcement')) {
+            head.push(getAnnouncementBarHelper(options.data));
+        }
+
+        try {
+            head.push(getWebmentionDiscoveryLink());
+        } catch (err) {
+            logging.warn(err);
+        }
+
+        addCardAssets(head, excludeList);
+        addCommentCounts(head, excludeList);
+        addMemberAttribution(head);
+
+        if (settingsHelpers.isWebAnalyticsEnabled()) {
+            head.push(getTinybirdTrackerScript(dataRoot));
+            if (dataRoot._locals) {
+                dataRoot._locals.ghostAnalytics = true;
+            }
+        }
+
+        if (options.data.site.accent_color) {
+            addAccentColorStyle(head, options.data.site.accent_color);
+        }
+
+        addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection);
+
+        const headingFont = getFontValue(options, 'heading_font');
+        const bodyFont = getFontValue(options, 'body_font');
+        addCustomFonts(head, headingFont, bodyFont);
+
+        debug('end');
+        return new SafeString(head.join('\n    ').trim());
+    } catch (error) {
+        logging.error(error);
+        return new SafeString(head.join('\n    ').trim());
+    }
+};
+
+module.exports.async = true;
+```

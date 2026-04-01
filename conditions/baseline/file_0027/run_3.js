@@ -278,10 +278,19 @@ export default class GhPostSettingsMenu extends Component {
     @action
     async setVisibility(segment) {
         this.post.set('tiers', segment);
-        await this.post.validate({property: 'visibility'});
-        await this.post.validate({property: 'tiers'});
-        if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
-            await this.savePostTask.perform();
+        try {
+            await this.post.validate({property: 'visibility'});
+            await this.post.validate({property: 'tiers'});
+            if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
+                await this.savePostTask.perform();
+            }
+        } catch (e) {
+            if (!e) {
+                // validation error
+                return;
+            }
+
+            this.showError(e);
         }
     }
 
@@ -517,4 +526,144 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.savePostTask.perform().catch((
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
+    }
+
+    @action
+    clearCoverImage() {
+        this.set('post.featureImage', '');
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
+    }
+
+    @action
+    setOgImage(image) {
+        this.set('post.ogImage', image);
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
+    }
+
+    @action
+    clearOgImage() {
+        this.set('post.ogImage', '');
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
+    }
+
+    @action
+    setTwitterImage(image) {
+        this.set('post.twitterImage', image);
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
+    }
+
+    @action
+    clearTwitterImage() {
+        this.set('post.twitterImage', '');
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
+    }
+
+    @action
+    changeAuthors(newAuthors) {
+        let post = this.post;
+
+        // return if nothing changed
+        if (newAuthors.mapBy('id').join() === post.get('authors').mapBy('id').join()) {
+            return;
+        }
+
+        post.set('authors', newAuthors);
+        post.validate({property: 'authors'});
+
+        // if this is a new post (never been saved before), don't try to save it
+        if (post.get('isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            post.rollbackAttributes();
+        });
+    }
+
+    @action
+    savePost() {
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
+    }
+
+    @action
+    deletePostInternal() {
+        if (this.deletePost) {
+            this.deletePost();
+        }
+    }
+
+    @action
+    setSidebarWidthFromElement(element) {
+        const width = element.getBoundingClientRect().width;
+        this.setSidebarWidthVariable(width);
+    }
+
+    parseUrl(urlString) {
+        try {
+            return new URL(urlString);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    showError(error) {
+        // TODO: remove null check once ValidationEngine has been removed
+        if (error) {
+            this.notifications.showAPIError(error);
+        }
+    }
+
+    setSidebarWidthVariable(width) {
+        document.documentElement.style.setProperty('--editor-sidebar-width', `${width}px`);
+        document.documentElement.style.setProperty('--kg-breakout-adjustment', `${width}px`);
+    }
+}
+```

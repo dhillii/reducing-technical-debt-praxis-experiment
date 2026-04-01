@@ -19,9 +19,14 @@ export default class ParseMemberEventHelper extends Helper {
     }
 
     compute([event, hasMultipleNewsletters]) {
-        const memberName = this.trimString(event.data.member?.name);
+        let memberName = event.data.member?.name;
+        memberName = this.trimString(memberName);
+
         const subject = event.data.member ? (memberName || event.data.member.email) : (event.data.name || event.data.email || '');
-        const member = event.data.member ? {...event.data.member, name: memberName} : event.data.member;
+        const member = event.data.member ? {
+            ...event.data.member,
+            name: memberName
+        } : event.data.member;
 
         return {
             memberId: event.data.member_id ?? event.data.member?.id,
@@ -147,7 +152,7 @@ export default class ParseMemberEventHelper extends Helper {
 
     getNewsletterAction(event, hasMultipleNewsletters) {
         let newsletter = 'newsletter';
-        if (hasMultipleNewsletters && event.data.newsletter?.name) {
+        if (hasMultipleNewsletters && event.data.newsletter && event.data.newsletter.name) {
             newsletter = event.data.newsletter.name;
         }
         return event.data.subscribed ? `subscribed to ${newsletter}` : `unsubscribed from ${newsletter}`;
@@ -206,23 +211,23 @@ export default class ParseMemberEventHelper extends Helper {
 
         if (event.type === 'donation_event') {
             const symbol = getSymbol(event.data.currency);
-            return symbol + getNonDecimal(event.data.amount, event.data.currency);
+            const formattedAmount = symbol + getNonDecimal(event.data.amount, event.data.currency);
+            return formattedAmount;
         }
     }
 
     getSubscriptionInfo(event) {
-        const mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
+        let mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
         if (mrrDelta === 0) {
             return;
         }
-
         const symbol = getSymbol(event.data.currency);
+
         if (event.data.type === 'created') {
             const sign = mrrDelta > 0 ? '' : '-';
             const tierName = this.membersUtils.hasMultipleTiers ? (event.data.tierName ?? 'Paid') : 'Paid';
             return `${tierName} ${sign}${symbol}${Math.abs(mrrDelta)}/month`;
         }
-
         const sign = mrrDelta > 0 ? '+' : '-';
         return `MRR ${sign}${symbol}${Math.abs(mrrDelta)}`;
     }
@@ -238,8 +243,8 @@ export default class ParseMemberEventHelper extends Helper {
     }
 
     getURL(event) {
-        const urlTypes = ['comment_event', 'click_event', 'feedback_event'];
-        if (urlTypes.includes(event.type) && event.data.post) {
+        const postTypes = ['comment_event', 'click_event', 'feedback_event'];
+        if (postTypes.includes(event.type) && event.data.post) {
             return event.data.post.url;
         }
 
@@ -258,13 +263,12 @@ export default class ParseMemberEventHelper extends Helper {
             };
         }
 
-        if (event.type === 'signup_event' || event.type === 'subscription_event') {
-            if (event.data.attribution_type === 'post') {
-                return {
-                    name: 'posts-x',
-                    model: event.data.attribution_id
-                };
-            }
+        const signupTypes = ['signup_event', 'subscription_event'];
+        if (signupTypes.includes(event.type) && event.data.attribution_type === 'post') {
+            return {
+                name: 'posts-x',
+                model: event.data.attribution_id
+            };
         }
     }
 }

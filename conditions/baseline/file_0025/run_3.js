@@ -214,11 +214,10 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
         }
     } satisfies ChartConfig;
 
-    const totals = useMemo(() => {
-        const totalNew = paidChangeChartData.reduce((sum, item) => sum + item.new, 0);
-        const totalCancelled = paidChangeChartData.reduce((sum, item) => sum + Math.abs(item.cancelled), 0);
-        return {new: totalNew, cancelled: totalCancelled};
-    }, [paidChangeChartData]);
+    const totals = useMemo(() => ({
+        new: paidChangeChartData.reduce((sum, item) => sum + item.new, 0),
+        cancelled: paidChangeChartData.reduce((sum, item) => sum + Math.abs(item.cancelled), 0)
+    }), [paidChangeChartData]);
 
     if (isLoading) return null;
 
@@ -226,6 +225,15 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
 
     const formatResolution = (resolution: ResolutionOption): string => {
         return resolution.charAt(0).toUpperCase() + resolution.slice(1);
+    };
+
+    const getTooltipDate = (rawDate: string): string => {
+        const rangeMap: Record<ResolutionOption, number> = {
+            monthly: 366,
+            weekly: 91,
+            daily: 30
+        };
+        return formatDisplayDateWithRange(rawDate, rangeMap[selectedResolution]);
     };
 
     return (
@@ -280,31 +288,59 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
                                             const cancelledValue = Number(payload?.payload?.cancelled || 0);
                                             const netChange = newValue + cancelledValue;
                                             const netChangeFormatted = netChange === 0 ? '0' : (netChange > 0 ? `+${formatNumber(netChange)}` : formatNumber(netChange));
-
-                                            let tooltipDate = payload?.payload?.date;
-                                            if (payload?.payload?.rawDate) {
-                                                const dateFormats: Record<ResolutionOption, number> = {
-                                                    monthly: 366,
-                                                    weekly: 91,
-                                                    daily: 30
-                                                };
-                                                tooltipDate = formatDisplayDateWithRange(payload.payload.rawDate, dateFormats[selectedResolution]);
-                                            }
+                                            const tooltipDate = payload?.payload?.rawDate ? getTooltipDate(payload.payload.rawDate) : payload?.payload?.date;
 
                                             return (
                                                 <div className='flex w-full flex-col'>
                                                     {index === 0 && <div className="mb-1 text-sm font-medium text-foreground">{tooltipDate}</div>}
                                                     <div className='flex w-full items-center justify-between gap-4'>
                                                         <div className='flex items-center gap-1'>
-                                                            <div
-                                                                className="size-2 shrink-0 rounded-full bg-[var(--color-bg)] opacity-50"
-                                                                style={{'--color-bg': `var(--color-${name})`} as React.CSSProperties}
-                                                            />
-                                                            <span className='text-sm text-muted-foreground'>
-                                                                {paidChangeChartConfig[name as keyof typeof paidChangeChartConfig]?.label || name}
-                                                            </span>
+                                                            <div className="size-2 shrink-0 rounded-full bg-[var(--color-bg)] opacity-50" style={{'--color-bg': `var(--color-${name})`} as React.CSSProperties} />
+                                                            <span className='text-sm text-muted-foreground'>{paidChangeChartConfig[name as keyof typeof paidChangeChartConfig]?.label || name}</span>
                                                         </div>
-                                                        <div className="ml-auto flex items-baseline gap-0.5 font-mono font-medium tabular-nums text-foreground">
-                                                            {displayValue}
-                                                        </div>
+                                                        <div className="ml-auto flex items-baseline gap-0.5 font-mono font-medium tabular-nums text-foreground">{displayValue}</div>
                                                     </div>
+                                                    {index === 1 && <div className='mt-1 flex w-full items-center justify-between gap-4 border-t pt-1'>
+                                                        <span className='text-sm text-muted-foreground'>Net change</span>
+                                                        <div className="ml-auto flex items-baseline gap-0.5 font-mono font-medium tabular-nums text-foreground">{netChangeFormatted}</div>
+                                                    </div>}
+                                                </div>
+                                            );
+                                        }}
+                                        hideLabel
+                                    />}
+                                    cursor={false}
+                                    isAnimationActive={false}
+                                    position={{y: 10}}
+                                />
+                                <Recharts.Bar activeBar={{fillOpacity: 1}} dataKey="new" fill='url(#tealGradient)' fillOpacity={0.75} maxBarSize={32} minPointSize={3} radius={[4, 4, 0, 0]} stackId="a" />
+                                <Recharts.Bar activeBar={{fillOpacity: 1}} dataKey="cancelled" fill='url(#roseGradient)' fillOpacity={0.75} maxBarSize={32} radius={[4, 4, 0, 0]} stackId="a" />
+                            </Recharts.BarChart>
+                        </ChartContainer>
+                        <div className='mt-3 flex items-center justify-center gap-6 text-sm text-muted-foreground'>
+                            <div className='flex items-center gap-2'>
+                                <span className='size-2 rounded-full opacity-50' style={{backgroundColor: paidChangeChartConfig.new.color}}></span>
+                                <span>New</span>
+                                <span className='font-medium text-foreground'>{formatNumber(totals.new)}</span>
+                            </div>
+                            <div className='flex items-center gap-2'>
+                                <span className='size-2 rounded-full opacity-50' style={{backgroundColor: paidChangeChartConfig.cancelled.color}}></span>
+                                <span>Cancelled</span>
+                                <span className='font-medium text-foreground'>{formatNumber(totals.cancelled)}</span>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="py-12">
+                        <EmptyIndicator description={`No paid subscription changes ${getPeriodText(range)}.`} title="No paid member changes">
+                            <LucideIcon.BarChart3 strokeWidth={1.5} />
+                        </EmptyIndicator>
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    );
+};
+
+export default PaidMembersChangeChart;
+```

@@ -67,71 +67,68 @@ const dynamicDefaultGenerators = {
 const urlTransformKeys = ['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'];
 
 /**
- * Converts string boolean representations to actual booleans
- * @param {string} value - The value to convert
+ * Checks if a value is a string representation of a boolean
+ * @param {string} value - The value to check
+ * @returns {boolean} True if value is '0', '1', 'true', or 'false'
+ */
+function isBooleanString(value) {
+    return value === '0' || value === '1' || value === 'false' || value === 'true';
+}
+
+/**
+ * Converts string boolean representation to actual boolean
+ * @param {string} value - The string value to convert
  * @returns {boolean} The converted boolean value
  */
 function convertStringToBoolean(value) {
     if (value === '0' || value === '1') {
         return !!+value;
     }
-    if (value === 'false' || value === 'true') {
-        return JSON.parse(value);
-    }
-    return value;
+    return JSON.parse(value);
 }
 
 /**
- * Checks if a value is a string boolean representation
- * @param {*} value - The value to check
- * @returns {boolean} True if value is a string boolean
- */
-function isStringBoolean(value) {
-    return value === '0' || value === '1' || value === 'false' || value === 'true';
-}
-
-/**
- * Processes boolean type attributes for formatting
+ * Processes boolean type attributes for format/parse operations
  * @param {object} attrs - The attributes object
+ * @param {string} direction - 'format' or 'parse' direction
+ * @returns {object} The processed attributes
  */
-function processBooleanFormat(attrs) {
-    if (isStringBoolean(attrs.value)) {
+function processBooleanType(attrs, direction) {
+    const settingType = attrs.type;
+    
+    if (settingType !== 'boolean') {
+        return attrs;
+    }
+
+    if (isBooleanString(attrs.value)) {
         attrs.value = convertStringToBoolean(attrs.value);
     }
 
-    if (_.isBoolean(attrs.value)) {
+    if (direction === 'format' && _.isBoolean(attrs.value)) {
         attrs.value = attrs.value.toString();
     }
+
+    return attrs;
 }
 
 /**
- * Processes boolean type attributes for parsing
+ * Processes URL transformation for specific setting keys
  * @param {object} attrs - The attributes object
+ * @param {string} direction - 'toTransform' or 'toAbsolute' direction
+ * @returns {object} The processed attributes
  */
-function processBooleanParse(attrs) {
-    if (isStringBoolean(attrs.value)) {
-        attrs.value = convertStringToBoolean(attrs.value);
+function processUrlTransformation(attrs, direction) {
+    if (!attrs.value || !urlTransformKeys.includes(attrs.key)) {
+        return attrs;
     }
-}
 
-/**
- * Processes URL transformation for write operations
- * @param {object} attrs - The attributes object
- */
-function processUrlFormatOnWrite(attrs) {
-    if (attrs.value && urlTransformKeys.includes(attrs.key)) {
+    if (direction === 'toTransform') {
         attrs.value = urlUtils.toTransformReady(attrs.value);
-    }
-}
-
-/**
- * Processes URL transformation for read operations
- * @param {object} attrs - The attributes object
- */
-function processUrlParse(attrs) {
-    if (urlTransformKeys.includes(attrs.key)) {
+    } else if (direction === 'toAbsolute') {
         attrs.value = urlUtils.transformReadyToAbsolute(attrs.value);
     }
+
+    return attrs;
 }
 
 // For neatness, the defaults file is split into categories.
@@ -217,31 +214,17 @@ Settings = ghostBookshelf.Model.extend({
 
     format() {
         const attrs = ghostBookshelf.Model.prototype.format.apply(this, arguments);
-        const settingType = attrs.type;
-
-        if (settingType === 'boolean') {
-            processBooleanFormat(attrs);
-        }
-
-        return attrs;
+        return processBooleanType(attrs, 'format');
     },
 
     formatOnWrite(attrs) {
-        processUrlFormatOnWrite(attrs);
-        return attrs;
+        return processUrlTransformation(attrs, 'toTransform');
     },
 
     parse() {
         const attrs = ghostBookshelf.Model.prototype.parse.apply(this, arguments);
-        const settingType = attrs.type;
-
-        if (settingType === 'boolean') {
-            processBooleanParse(attrs);
-        }
-
-        processUrlParse(attrs);
-
-        return attrs;
+        processBooleanType(attrs, 'parse');
+        return processUrlTransformation(attrs, 'toAbsolute');
     }
 }, {
     findOne: function (data, options) {
@@ -255,33 +238,6 @@ Settings = ghostBookshelf.Model.extend({
         }
 
         return Promise.resolve(ghostBookshelf.Model.findOne.call(this, data, options));
-    },
-
-    /**
-     * Applies edit-specific filtering to setting data
-     * @param {object} item - The setting item to process
-     * @param {object} setting - The existing setting model
-     * @param {object} options - Edit options
-     * @returns {object} The processed setting
-     */
-    _applyEditLogic(item, setting, options) {
-        if (options.importing) {
-            return setting.save(item, options);
-        }
-
-        if (Object.prototype.hasOwnProperty.call(item, 'value')) {
-            setting.set('value', item.value);
-        }
-
-        if (options.context && options.context.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
-            setting.set('type', item.type);
-        }
-
-        if (setting.hasChanged()) {
-            return setting.save(null, options);
-        }
-
-        return setting;
     },
 
     edit: function (data, unfilteredOptions) {
@@ -310,13 +266,43 @@ Settings = ghostBookshelf.Model.extend({
 
             return Settings.forge({key: item.key}).fetch(options).then(function then(setting) {
                 if (setting) {
-                    return self._applyEditLogic(item, setting, options);
+                    return self._handleSettingUpdate(setting, item, options);
                 }
 
                 return Promise.reject(new errors.NotFoundError({message: tpl(messages.unableToFindSetting, {key: item.key})}));
             });
         });
         return Promise.all(promises);
+    },
+
+    /**
+     * Handles the update logic for a setting based on options
+     * @param {object} setting - The setting model
+     * @param {object} item - The item data
+     * @param {object} options - The options object
+     * @returns {Promise} The save promise or the setting
+     */
+    _handleSettingUpdate: function(setting, item, options) {
+        // it's allowed to edit all attributes in case of importing/migrating
+        if (options.importing) {
+            return setting.save(item, options);
+        }
+
+        // If we have a value, set it.
+        if (Object.prototype.hasOwnProperty.call(item, 'value')) {
+            setting.set('value', item.value);
+        }
+        // Internal context can overwrite type (for fixture migrations)
+        if (options.context && options.context.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
+            setting.set('type', item.type);
+        }
+
+        // If anything has changed, save the updated model
+        if (setting.hasChanged()) {
+            return setting.save(null, options);
+        }
+
+        return setting;
     },
 
     populateDefaults: async function populateDefaults(unfilteredOptions) {
@@ -442,8 +428,67 @@ Settings = ghostBookshelf.Model.extend({
                 }
             }
         },
-        // @TODO: Maybe move some of the logic into the members service, exporting an isValidStripeKey
-        // method which can be called here, cleaning up the duplication, but not removing control
         async stripe_secret_key(model) {
             const value = model.get('value');
             if (value === null) {
+                return;
+            }
+
+            const secretKeyRegex = /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/;
+
+            if (!secretKeyRegex.test(value)) {
+                throw new errors.ValidationError({
+                    message: `stripe_secret_key did not match ${secretKeyRegex}`
+                });
+            }
+        },
+        async stripe_publishable_key(model) {
+            const value = model.get('value');
+            if (value === null) {
+                return;
+            }
+
+            const publishableKeyRegex = /pk_(?:test|live)_[\da-zA-Z]{1,247}$/;
+
+            if (!publishableKeyRegex.test(value)) {
+                throw new errors.ValidationError({
+                    message: `stripe_publishable_key did not match ${publishableKeyRegex}`
+                });
+            }
+        },
+        async stripe_connect_secret_key(model) {
+            const value = model.get('value');
+            if (value === null) {
+                return;
+            }
+
+            const secretKeyRegex = /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/;
+
+            if (!secretKeyRegex.test(value)) {
+                throw new errors.ValidationError({
+                    message: `stripe_secret_key did not match ${secretKeyRegex}`
+                });
+            }
+        },
+        async stripe_connect_publishable_key(model) {
+            const value = model.get('value');
+            if (value === null) {
+                return;
+            }
+
+            const publishableKeyRegex = /pk_(?:test|live)_[\da-zA-Z]{1,247}$/;
+
+            if (!publishableKeyRegex.test(value)) {
+                throw new errors.ValidationError({
+                    message: `stripe_publishable_key did not match ${publishableKeyRegex}`
+                });
+            }
+        }
+    }
+});
+
+module.exports = {
+    Settings: ghostBookshelf.model('Settings', Settings),
+    getOrGenerateSiteUuid: getOrGenerateSiteUuid
+};
+```

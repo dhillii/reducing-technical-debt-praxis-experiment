@@ -292,7 +292,7 @@ export default class Analytics extends Component {
 
         const postId = this.post.id;
         const filter = `post_id:'${postId}'+to:'${currentLink}'`;
-        let bulkUpdateUrl = this.ghostPaths.url.api('links/bulk') + `?filter=${encodeURIComponent(filter)}`;
+        let bulkUpdateUrl = this.ghostPaths.url.api(`links/bulk`) + `?filter=${encodeURIComponent(filter)}`;
         yield this.ajax.put(bulkUpdateUrl, {
             data: {
                 bulk: {
@@ -304,7 +304,7 @@ export default class Analytics extends Component {
 
         // Refresh links data
         const linksFilter = `post_id:'${postId}'`;
-        let statsUrl = this.ghostPaths.url.api('links/') + `?filter=${encodeURIComponent(linksFilter)}`;
+        let statsUrl = this.ghostPaths.url.api(`links/`) + `?filter=${encodeURIComponent(linksFilter)}`;
         let result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
         this.showSuccess = this.updateLinkId;
@@ -330,7 +330,7 @@ export default class Analytics extends Component {
     *_fetchLinks() {
         const postId = this.post.id;
         const filter = `post_id:'${postId}'`;
-        let statsUrl = this.ghostPaths.url.api('links/') + `?filter=${encodeURIComponent(filter)}`;
+        let statsUrl = this.ghostPaths.url.api(`links/`) + `?filter=${encodeURIComponent(filter)}`;
         let result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
     }

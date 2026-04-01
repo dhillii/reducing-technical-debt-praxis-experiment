@@ -123,6 +123,7 @@ const createBruteInstance = (spamConfig, options = {}) => {
 
     return new ExpressBrute(storeInstance,
         extend({
+            attachResetToRequest: false,
             handleStoreError: handleStoreError
         }, options, pick(spamConfig, spamConfigKeys))
     );
@@ -135,6 +136,7 @@ const createMemoryBruteInstance = (spamConfig, options = {}) => {
 
     return new ExpressBrute(memoryStore,
         extend({
+            attachResetToRequest: false,
             handleStoreError: handleStoreError
         }, options, pick(spamConfig, spamConfigKeys))
     );
@@ -190,7 +192,7 @@ const emailPreviewBlock = () => {
     return emailPreviewBlockInstance;
 };
 
-// Members auth: Rate limits member authentication attempts
+// Members authentication: Rate limits member sign-in attempts
 const membersAuth = () => {
     if (!membersAuthInstance) {
         membersAuthInstance = createBruteInstance(spamUserLogin, {
@@ -206,7 +208,7 @@ const membersAuth = () => {
     return membersAuthInstance;
 };
 
-// Members auth enumeration: Rate limits sign-in attempts across multiple email addresses
+// Members authentication enumeration: Rate limits across multiple email addresses
 const membersAuthEnumeration = () => {
     if (!membersAuthEnumerationInstance) {
         membersAuthEnumerationInstance = createBruteInstance(spamMemberLogin, {
@@ -402,3 +404,5 @@ module.exports = {
         resetInstances();
         reloadSpamConfig();
     }
+};
+```

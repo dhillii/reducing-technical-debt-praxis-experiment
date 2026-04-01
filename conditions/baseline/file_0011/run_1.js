@@ -116,7 +116,7 @@ const fontClassName = (fontName: string, heading: boolean = true): string => {
     return clsx(fontConfig.base, heading && fontConfig.headingWeight);
 };
 
-const createFontOptions = (fonts: typeof CUSTOM_FONTS.heading, isHeading: boolean, themeNameVersion: string): (HeadingFontOption | BodyFontOption)[] => {
+const createFontOptions = (fonts: typeof CUSTOM_FONTS.heading, isHeading: boolean, themeNameVersion: string): HeadingFontOption[] => {
     const options = fonts.map((font) => ({
         label: font.name,
         value: font.name,
@@ -157,14 +157,14 @@ const handleFontSelect = (
     updateSetting: (key: string, value: SettingValue) => void,
     themeNameVersion: string
 ): void => {
-    const fontArray = isHeading ? CUSTOM_FONTS.heading : CUSTOM_FONTS.body;
     const settingKey = isHeading ? 'heading_font' : 'body_font';
+    const fontList = isHeading ? CUSTOM_FONTS.heading : CUSTOM_FONTS.body;
 
     if (option?.value === DEFAULT_FONT) {
         setFont({name: DEFAULT_FONT, creator: themeNameVersion});
         updateSetting(settingKey, '');
     } else {
-        const selectedFont = fontArray.find(f => f.name === option?.value);
+        const selectedFont = fontList.find(f => f.name === option?.value);
         setFont({
             name: option?.value || '',
             creator: selectedFont?.creator || ''
@@ -180,7 +180,6 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
     const [showUnsplash, setShowUnsplash] = useState<boolean>(false);
     const {unsplashConfig} = useFramework();
     const handleError = useHandleError();
-
     const editor = usePinturaEditor();
 
     const {data: themesData} = useBrowseThemes();
@@ -291,3 +290,48 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
                                 onClose={() => {
                                     setShowUnsplash(false);
                                 }}
+                                onImageInsert={(image) => {
+                                    if (image.src) {
+                                        updateSetting('cover_image', image.src);
+                                    }
+                                    setShowUnsplash(false);
+                                }}
+                            />
+                        )
+                    }
+                </div>
+            </Form>
+            <Form className='-mt-4' gap='sm' margins='lg' title='Typography'>
+                <Select
+                    className={selectFont(selectedHeadingFont.label, true)}
+                    components={{Option, SingleValue}}
+                    controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
+                    hint={''}
+                    menuShouldScrollIntoView={true}
+                    options={customHeadingFonts}
+                    selectedOption={selectedHeadingFont}
+                    testId='heading-font-select'
+                    title={'Heading font'}
+                    onSelect={(option) => handleFontSelect(option, true, setHeadingFont, updateSetting, themeNameVersion)}
+                />
+                <Select
+                    className={selectFont(selectedBodyFont.label, false)}
+                    components={{Option, SingleValue}}
+                    controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
+                    hint={''}
+                    maxMenuHeight={200}
+                    menuPosition='fixed'
+                    menuShouldScrollIntoView={true}
+                    options={customBodyFonts}
+                    selectedOption={selectedBodyFont}
+                    testId='body-font-select'
+                    title={'Body font'}
+                    onSelect={(option) => handleFontSelect(option, false, setBodyFont, updateSetting, themeNameVersion)}
+                />
+            </Form>
+        </>
+    );
+};
+
+export default GlobalSettings;
+```

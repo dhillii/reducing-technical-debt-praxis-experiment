@@ -61,7 +61,7 @@ define([
             const self    = this;
 
             options.success = function(resp) {
-                self._handleFetchSuccess(resp, success, options);
+                self._handleFetchSuccess(resp, options, success);
             };
 
             return Backbone.Collection.prototype.fetch.call(this, options)
@@ -75,7 +75,7 @@ define([
          * Handles successful fetch completion.
          * @private
          */
-        _handleFetchSuccess: function(resp, success, options) {
+        _handleFetchSuccess: function(resp, options, success) {
             // Keep full collection in memory
             this.fullCollection = this.clone();
 
@@ -255,34 +255,42 @@ define([
          * @type object Backbone model
          */
         _navigateOnRemove: function(model) {
-            const fetchedModel = this.get(model.id);
-            if (!fetchedModel) {
+            const retrievedModel = this.get(model.id);
+            if (!retrievedModel) {
                 return false;
             }
 
             const coll  = this.fullCollection || this;
-            let index = this.indexOf(fetchedModel);
+            let index = this.indexOf(retrievedModel);
 
-            coll.remove(fetchedModel);
+            coll.remove(retrievedModel);
             this.sortFullCollection();
 
-            return this._navigateAfterRemoval(index);
-        },
+            index = this._adjustIndexAfterRemoval(index);
 
-        /**
-         * Navigates to appropriate model after removal.
-         * @private
-         */
-        _navigateAfterRemoval: function(index) {
-            if (!this.at(index)) {
-                index--;
-            }
-
-            if (!this.at(index)) {
+            if (index === null) {
                 return this.hasPreviousPage() ? this.trigger('page:previous') : null;
             }
 
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+        },
+
+        /**
+         * Adjusts index after model removal to point to valid model.
+         * @private
+         */
+        _adjustIndexAfterRemoval: function(index) {
+            if (this.at(index)) {
+                return index;
+            }
+
+            index--;
+
+            if (this.at(index)) {
+                return index;
+            }
+
+            return null;
         },
 
         /**

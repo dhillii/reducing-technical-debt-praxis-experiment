@@ -368,4 +368,179 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
     range,
     isLoading
 }) => {
-    const [selectedResolution, setSelectedResolution] = useState<ResolutionOption
+    const [selectedResolution, setSelectedResolution] = useState<ResolutionOption>(() => getDefaultResolution(range));
+
+    useEffect(() => {
+        setSelectedResolution(getDefaultResolution(range));
+    }, [range]);
+
+    const availableResolutions = useMemo(() => getAvailableResolutions(range), [range]);
+
+    const aggregationStrategy = useMemo(() => getAggregationStrategy(selectedResolution), [selectedResolution]);
+
+    const paidChangeChartData = useMemo(() => {
+        if (subscriptionData && subscriptionData.length > 0) {
+            return processSubscriptionData(subscriptionData, range, aggregationStrategy, selectedResolution);
+        } else if (memberData && memberData.length > 0) {
+            return processMemberData(memberData, range, aggregationStrategy, selectedResolution);
+        }
+        return [];
+    }, [memberData, subscriptionData, range, aggregationStrategy, selectedResolution]);
+
+    const paidChangeChartConfig = {
+        new: {
+            label: 'New',
+            color: 'hsl(var(--chart-teal))'
+        },
+        cancelled: {
+            label: 'Cancelled',
+            color: 'hsl(var(--chart-rose))'
+        }
+    } satisfies ChartConfig;
+
+    const totals = useMemo(() => {
+        const totalNew = paidChangeChartData.reduce((sum, item) => sum + item.new, 0);
+        const totalCancelled = paidChangeChartData.reduce((sum, item) => sum + Math.abs(item.cancelled), 0);
+        return {new: totalNew, cancelled: totalCancelled};
+    }, [paidChangeChartData]);
+
+    if (isLoading) {
+        return null;
+    }
+
+    const hasData = paidChangeChartData.length > 0 && (totals.new > 0 || totals.cancelled > 0);
+
+    return (
+        <Card data-testid='paid-members-change-card'>
+            <CardHeader>
+                <div className="flex items-start justify-between gap-1.5">
+                    <div className='flex flex-col gap-1.5'>
+                        <CardTitle>Paid subscriptions</CardTitle>
+                        <CardDescription>New and cancelled paid subscriptions {getPeriodText(range)}</CardDescription>
+                    </div>
+                    {availableResolutions.length > 1 && (
+                        <div>
+                            <Select value={selectedResolution} onValueChange={value => setSelectedResolution(value as ResolutionOption)}>
+                                <SelectTrigger className="w-[110px]">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent align='end'>
+                                    {availableResolutions.map(resolution => (
+                                        <SelectItem key={resolution} value={resolution}>
+                                            {formatResolution(resolution)}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
+                </div>
+            </CardHeader>
+            <CardContent>
+                {hasData ? (
+                    <div>
+                        <ChartContainer className='aspect-auto h-[200px] w-full md:h-[220px] xl:h-[260px]' config={paidChangeChartConfig}>
+                            <Recharts.BarChart
+                                data={paidChangeChartData}
+                                stackOffset='sign'
+                            >
+                                <defs>
+                                    <linearGradient id="tealGradient" x1="0" x2="0" y1="0" y2="1">
+                                        <stop offset="0%" stopColor={'var(--color-new)'} stopOpacity={0.8} />
+                                        <stop offset="100%" stopColor={'var(--color-new)'} stopOpacity={0.6} />
+                                    </linearGradient>
+                                </defs>
+                                <defs>
+                                    <linearGradient id="roseGradient" x1="0" x2="0" y1="0" y2="1">
+                                        <stop offset="0%" stopColor={'var(--color-cancelled)'} stopOpacity={0.6} />
+                                        <stop offset="100%" stopColor={'var(--color-cancelled)'} stopOpacity={0.8} />
+                                    </linearGradient>
+                                </defs>
+                                <Recharts.CartesianGrid stroke="hsl(var(--border))" vertical={false} />
+                                <Recharts.XAxis
+                                    axisLine={false}
+                                    dataKey="date"
+                                    tickFormatter={() => ('')}
+                                    tickLine={false}
+                                    tickMargin={10}
+                                />
+                                <Recharts.YAxis
+                                    axisLine={false}
+                                    tickFormatter={(value) => {
+                                        return value < 0 ? formatNumber(value * -1) : formatNumber(value);
+                                    }}
+                                    tickLine={false}
+                                />
+                                <ChartTooltip
+                                    content={<ChartTooltipContent
+                                        className='!min-w-[120px] px-3 py-2'
+                                        formatter={(value, name, payload, index) => renderTooltipContent(value, name, payload, index, selectedResolution, paidChangeChartConfig)}
+                                        hideLabel
+                                    />}
+                                    cursor={false}
+                                    isAnimationActive={false}
+                                    position={{y: 10}}
+                                />
+                                <Recharts.Bar
+                                    activeBar={{fillOpacity: 1}}
+                                    dataKey="new"
+                                    fill='url(#tealGradient)'
+                                    fillOpacity={0.75}
+                                    maxBarSize={32}
+                                    minPointSize={3}
+                                    radius={[4, 4, 0, 0]}
+                                    stackId="a"
+                                />
+                                <Recharts.Bar
+                                    activeBar={{fillOpacity: 1}}
+                                    dataKey="cancelled"
+                                    fill='url(#roseGradient)'
+                                    fillOpacity={0.75}
+                                    maxBarSize={32}
+                                    radius={[4, 4, 0, 0]}
+                                    stackId="a"
+                                />
+                            </Recharts.BarChart>
+                        </ChartContainer>
+                        <div className='mt-3 flex items-center justify-center gap-6 text-sm text-muted-foreground'>
+                            <div className='flex items-center gap-2'>
+                                <span className='size-2 rounded-full opacity-50'
+                                    style={{
+                                        backgroundColor: paidChangeChartConfig.new.color
+                                    }}
+                                ></span>
+                                <span>New</span>
+                                <span className='font-medium text-foreground'>
+                                    {formatNumber(totals.new)}
+                                </span>
+                            </div>
+                            <div className='flex items-center gap-2'>
+                                <span className='size-2 rounded-full opacity-50'
+                                    style={{
+                                        backgroundColor: paidChangeChartConfig.cancelled.color
+                                    }}
+                                ></span>
+                                <span>Cancelled</span>
+                                <span className='font-medium text-foreground'>
+                                    {formatNumber(totals.cancelled)}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="py-12">
+                        <EmptyIndicator
+                            description={`No paid subscription changes ${getPeriodText(range)}.`}
+                            title="No paid member changes"
+                        >
+                            <LucideIcon.BarChart3 strokeWidth={1.5} />
+                        </EmptyIndicator>
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    );
+};
+
+export default PaidMembersChangeChart;
+```

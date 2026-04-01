@@ -168,7 +168,7 @@ function showDiff (err) {
 }
 
 /**
- * Stringify actual and expected values if not already strings.
+ * Stringify actual and expected values if they are not strings.
  *
  * @param {Error} err
  * @api private
@@ -198,14 +198,14 @@ function extractErrorMessage (err) {
 }
 
 /**
- * Parse error message and stack into separate parts.
+ * Parse error message and stack to separate message from stack trace.
  *
  * @param {string} message
  * @param {string} stack
  * @return {Object} with msg and stack properties
  * @api private
  */
-function parseErrorStack (message, stack) {
+function parseErrorMessageAndStack (message, stack) {
   const index = message ? stack.indexOf(message) : -1;
 
   if (index === -1) {
@@ -220,29 +220,7 @@ function parseErrorStack (message, stack) {
 }
 
 /**
- * Format error message with diff information.
- *
- * @param {Error} err
- * @param {string} message
- * @return {string}
- * @api private
- */
-function formatErrorWithDiff (err, message) {
-  let msg = '\n      ' + color('error message', message);
-  const match = message.match(/^([^:]+): expected/);
-  msg = '\n      ' + color('error message', match ? match[1] : message);
-
-  if (exports.inlineDiffs) {
-    msg += inlineDiff(err);
-  } else {
-    msg += unifiedDiff(err);
-  }
-
-  return msg;
-}
-
-/**
- * Build test title path string.
+ * Build test title path string with proper indentation.
  *
  * @param {Object} test
  * @return {string}
@@ -263,6 +241,36 @@ function buildTestTitlePath (test) {
 }
 
 /**
+ * Format error output with diff if applicable.
+ *
+ * @param {Error} err
+ * @param {string} message
+ * @return {Object} with fmt and msg properties
+ * @api private
+ */
+function formatErrorWithDiff (err, message) {
+  let fmt = color('error title', '  %s) %s:\n') +
+    color('error message', '     %s') +
+    color('error stack', '\n%s\n');
+  let msg = message;
+
+  if (!exports.hideDiff && showDiff(err)) {
+    stringifyDiffObjs(err);
+    fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
+    const match = message.match(/^([^:]+): expected/);
+    msg = '\n      ' + color('error message', match ? match[1] : msg);
+
+    if (exports.inlineDiffs) {
+      msg += inlineDiff(err);
+    } else {
+      msg += unifiedDiff(err);
+    }
+  }
+
+  return { fmt: fmt, msg: msg };
+}
+
+/**
  * Output the given `failures` as a list.
  *
  * @param {Array} failures
@@ -275,29 +283,18 @@ exports.list = function (failures) {
     const err = test.err;
     const message = extractErrorMessage(err);
     const stack = err.stack || message;
-    const parsed = parseErrorStack(message, stack);
 
-    let msg = parsed.msg;
-    let fmt = color('error title', '  %s) %s:\n') +
-      color('error message', '     %s') +
-      color('error stack', '\n%s\n');
+    const { msg: parsedMsg, stack: parsedStack } = parseErrorMessageAndStack(message, stack);
+    let msg = parsedMsg;
 
-    // uncaught
     if (err.uncaught) {
       msg = 'Uncaught ' + msg;
     }
 
-    // explicitly show diff
-    if (!exports.hideDiff && showDiff(err)) {
-      stringifyDiffObjs(err);
-      fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
-      msg = formatErrorWithDiff(err, message);
-    }
+    const { fmt, msg: formattedMsg } = formatErrorWithDiff(err, msg);
+    msg = formattedMsg;
 
-    // indent stack trace
-    const indentedStack = parsed.stack.replace(/^/gm, '  ');
-
-    // indented test title
+    const indentedStack = parsedStack.replace(/^/gm, '  ');
     const testTitle = buildTestTitlePath(test);
 
     console.log(fmt, (i + 1), testTitle, msg, indentedStack);
@@ -305,36 +302,98 @@ exports.list = function (failures) {
 };
 
 /**
- * Initialize runner event handlers for statistics tracking.
+ * Initialize stats object with default values.
+ *
+ * @return {Object}
+ * @api private
+ */
+function createStatsObject () {
+  return { suites: 0, tests: 0, passes: 0, pending: 0, failures: 0 };
+}
+
+/**
+ * Determine test speed based on duration.
+ *
+ * @param {Object} test
+ * @api private
+ */
+function setTestSpeed (test) {
+  if (test.duration > test.slow()) {
+    test.speed = 'slow';
+  } else if (test.duration > test.slow() / 2) {
+    test.speed = 'medium';
+  } else {
+    test.speed = 'fast';
+  }
+}
+
+/**
+ * Attach event listeners for test start.
  *
  * @param {Runner} runner
  * @param {Object} stats
- * @param {Array} failures
  * @api private
  */
-function initializeRunnerHandlers (runner, stats, failures) {
+function attachStartListener (runner, stats) {
   runner.on('start', function () {
     stats.start = new GlobalDate();
   });
+}
 
+/**
+ * Attach event listeners for suite events.
+ *
+ * @param {Runner} runner
+ * @param {Object} stats
+ * @api private
+ */
+function attachSuiteListener (runner, stats) {
   runner.on('suite', function (suite) {
     stats.suites = stats.suites || 0;
     if (!suite.root) {
       stats.suites++;
     }
   });
+}
 
+/**
+ * Attach event listeners for test end events.
+ *
+ * @param {Runner} runner
+ * @param {Object} stats
+ * @api private
+ */
+function attachTestEndListener (runner, stats) {
   runner.on('test end', function () {
     stats.tests = stats.tests || 0;
     stats.tests++;
   });
+}
 
+/**
+ * Attach event listeners for test pass events.
+ *
+ * @param {Runner} runner
+ * @param {Object} stats
+ * @api private
+ */
+function attachPassListener (runner, stats) {
   runner.on('pass', function (test) {
     stats.passes = stats.passes || 0;
     setTestSpeed(test);
     stats.passes++;
   });
+}
 
+/**
+ * Attach event listeners for test fail events.
+ *
+ * @param {Runner} runner
+ * @param {Object} stats
+ * @param {Array} failures
+ * @api private
+ */
+function attachFailListener (runner, stats, failures) {
   runner.on('fail', function (test, err) {
     stats.failures = stats.failures || 0;
     stats.failures++;
@@ -344,32 +403,51 @@ function initializeRunnerHandlers (runner, stats, failures) {
     test.err = err;
     failures.push(test);
   });
+}
 
+/**
+ * Attach event listeners for test end events.
+ *
+ * @param {Runner} runner
+ * @param {Object} stats
+ * @api private
+ */
+function attachEndListener (runner, stats) {
   runner.on('end', function () {
     stats.end = new GlobalDate();
     stats.duration = new GlobalDate() - stats.start;
   });
+}
 
+/**
+ * Attach event listeners for pending test events.
+ *
+ * @param {Runner} runner
+ * @param {Object} stats
+ * @api private
+ */
+function attachPendingListener (runner, stats) {
   runner.on('pending', function () {
     stats.pending++;
   });
 }
 
 /**
- * Determine and set test speed based on duration.
+ * Attach all event listeners to runner.
  *
- * @param {Object} test
+ * @param {Runner} runner
+ * @param {Object} stats
+ * @param {Array} failures
  * @api private
  */
-function setTestSpeed (test) {
-  const slowThreshold = test.slow();
-  if (test.duration > slowThreshold) {
-    test.speed = 'slow';
-  } else if (test.duration > slowThreshold / 2) {
-    test.speed = 'medium';
-  } else {
-    test.speed = 'fast';
-  }
+function attachAllListeners (runner, stats, failures) {
+  attachStartListener(runner, stats);
+  attachSuiteListener(runner, stats);
+  attachTestEndListener(runner, stats);
+  attachPassListener(runner, stats);
+  attachFailListener(runner, stats, failures);
+  attachEndListener(runner, stats);
+  attachPendingListener(runner, stats);
 }
 
 /**
@@ -385,7 +463,7 @@ function setTestSpeed (test) {
  */
 
 function Base (runner) {
-  const stats = this.stats = { suites: 0, tests: 0, passes: 0, pending: 0, failures: 0 };
+  const stats = this.stats = createStatsObject();
   const failures = this.failures = [];
 
   if (!runner) {
@@ -394,7 +472,55 @@ function Base (runner) {
 
   this.runner = runner;
   runner.stats = stats;
-  initializeRunnerHandlers(runner, stats, failures);
+
+  attachAllListeners(runner, stats, failures);
+}
+
+/**
+ * Output passing tests count and duration.
+ *
+ * @param {Object} stats
+ * @api private
+ */
+function outputPassingTests (stats) {
+  const fmt = color('bright pass', ' ') +
+    color('green', ' %d passing') +
+    color('light', ' (%s)');
+
+  console.log(fmt, stats.passes || 0, ms(stats.duration));
+}
+
+/**
+ * Output pending tests count.
+ *
+ * @param {Object} stats
+ * @api private
+ */
+function outputPendingTests (stats) {
+  if (stats.pending) {
+    const fmt = color('pending', ' ') +
+      color('pending', ' %d pending');
+
+    console.log(fmt, stats.pending);
+  }
+}
+
+/**
+ * Output failing tests count and list.
+ *
+ * @param {Object} stats
+ * @param {Array} failures
+ * @api private
+ */
+function outputFailingTests (stats, failures) {
+  if (stats.failures) {
+    const fmt = color('fail', '  %d failing');
+
+    console.log(fmt, stats.failures);
+
+    Base.list(failures);
+    console.log();
+  }
 }
 
 /**
@@ -408,32 +534,9 @@ Base.prototype.epilogue = function () {
 
   console.log();
 
-  // passes
-  let fmt = color('bright pass', ' ') +
-    color('green', ' %d passing') +
-    color('light', ' (%s)');
-
-  console.log(fmt,
-    stats.passes || 0,
-    ms(stats.duration));
-
-  // pending
-  if (stats.pending) {
-    fmt = color('pending', ' ') +
-      color('pending', ' %d pending');
-
-    console.log(fmt, stats.pending);
-  }
-
-  // failures
-  if (stats.failures) {
-    fmt = color('fail', '  %d failing');
-
-    console.log(fmt, stats.failures);
-
-    Base.list(this.failures);
-    console.log();
-  }
+  outputPassingTests(stats);
+  outputPendingTests(stats);
+  outputFailingTests(stats, this.failures);
 
   console.log();
 };
@@ -460,14 +563,13 @@ function pad (str, len) {
  */
 function addLineNumbers (msg) {
   const lines = msg.split('\n');
-  if (lines.length <= 4) {
-    return msg;
+  if (lines.length > 4) {
+    const width = String(lines.length).length;
+    return lines.map(function (str, i) {
+      return pad(++i, width) + ' |' + ' ' + str;
+    }).join('\n');
   }
-
-  const width = String(lines.length).length;
-  return lines.map(function (str, i) {
-    return pad(++i, width) + ' |' + ' ' + str;
-  }).join('\n');
+  return msg;
 }
 
 /**
@@ -480,7 +582,6 @@ function addLineNumbers (msg) {
 function inlineDiff (err) {
   let msg = errorDiff(err);
 
-  // linenos
   msg = addLineNumbers(msg);
 
   // legend
@@ -505,7 +606,7 @@ function inlineDiff (err) {
  * @return {string|null}
  * @api private
  */
-function cleanDiffLine (line, indent) {
+function cleanUpDiffLine (line, indent) {
   if (line[0] === '+') {
     return indent + colorLines('diff added', line);
   }
@@ -522,13 +623,13 @@ function cleanDiffLine (line, indent) {
 }
 
 /**
- * Filter out null/undefined lines.
+ * Check if line is not blank.
  *
  * @param {string} line
  * @return {boolean}
  * @api private
  */
-function isNotBlank (line) {
+function notBlank (line) {
   return typeof line !== 'undefined' && line !== null;
 }
 
@@ -543,12 +644,13 @@ function unifiedDiff (err) {
   const indent = '      ';
   const msg = diff.createPatch('string', err.actual, err.expected);
   const lines = msg.split('\n').splice(5);
-
   return '\n      ' +
     colorLines('diff added', '+ expected') + ' ' +
     colorLines('diff removed', '- actual') +
     '\n\n' +
-    lines.map(line => cleanDiffLine(line, indent)).filter(isNotBlank).join('\n');
+    lines.map(function (line) {
+      return cleanUpDiffLine(line, indent);
+    }).filter(notBlank).join('\n');
 }
 
 /**
@@ -567,3 +669,37 @@ function errorDiff (err) {
       return colorLines('diff removed', str.value);
     }
     return str.value;
+  }).join('');
+}
+
+/**
+ * Color lines for `str`, using the color `name`.
+ *
+ * @api private
+ * @param {string} name
+ * @param {string} str
+ * @return {string}
+ */
+function colorLines (name, str) {
+  return str.split('\n').map(function (str) {
+    return color(name, str);
+  }).join('\n');
+}
+
+/**
+ * Object#toString reference.
+ */
+const objToString = Object.prototype.toString;
+
+/**
+ * Check that a / b have the same type.
+ *
+ * @api private
+ * @param {Object} a
+ * @param {Object} b
+ * @return {boolean}
+ */
+function sameType (a, b) {
+  return objToString.call(a) === objToString.call(b);
+}
+```

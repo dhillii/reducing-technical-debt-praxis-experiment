@@ -447,4 +447,98 @@ async function openCommentForm({data: newForm, api, state}: {data: OpenCommentFo
 
     if (openFormIndexForId > -1) {
         openFormsAfterAutoclose[openFormIndexForId] = newForm;
-        return {openCommentF
+        return {openCommentForms: openFormsAfterAutoclose, ...otherStateChanges};
+    }
+
+    return {openCommentForms: [...openFormsAfterAutoclose, newForm], ...otherStateChanges};
+}
+
+function setHighlightComment({data: commentId}: {data: string | null}) {
+    return {
+        commentIdToHighlight: commentId
+    };
+}
+
+function highlightComment({
+    data: {commentId},
+    dispatchAction
+
+}: {
+    data: { commentId: string | null };
+    state: EditableAppContext;
+    dispatchAction: DispatchActionType;
+}) {
+    setTimeout(() => {
+        dispatchAction('setHighlightComment', null);
+    }, 3000);
+    return {
+        commentIdToHighlight: commentId
+    };
+}
+
+function setCommentFormHasUnsavedChanges({data: {id, hasUnsavedChanges}, state}: {data: {id: string, hasUnsavedChanges: boolean}, state: EditableAppContext}) {
+    const updatedForms = state.openCommentForms.map((f) => {
+        return f.id === id ? {...f, hasUnsavedChanges} : {...f};
+    });
+
+    return {openCommentForms: updatedForms};
+}
+
+function closeCommentForm({data: id, state}: {data: string, state: EditableAppContext}) {
+    return {openCommentForms: state.openCommentForms.filter(f => f.id !== id)};
+}
+
+function setScrollTarget({data: commentId}: {data: string | null}) {
+    return {commentIdToScrollTo: commentId};
+}
+
+// Sync actions make use of setState((currentState) => newState), to avoid 'race' conditions
+export const SyncActions = {
+    openPopup,
+    closePopup,
+    closeCommentForm,
+    setCommentFormHasUnsavedChanges,
+    setScrollTarget
+};
+
+export type SyncActionType = keyof typeof SyncActions;
+
+export const Actions = {
+    addComment,
+    editComment,
+    hideComment,
+    deleteComment,
+    showComment,
+    likeComment,
+    unlikeComment,
+    reportComment,
+    addReply,
+    loadMoreComments,
+    loadMoreReplies,
+    updateMember,
+    setOrder,
+    openCommentForm,
+    highlightComment,
+    setHighlightComment,
+    setCommentsIsLoading,
+    updateCommentLikeState
+};
+
+export type ActionType = keyof typeof Actions;
+
+export function isSyncAction(action: string): action is SyncActionType {
+    return !!(SyncActions as any)[action];
+}
+
+/** Handle actions in the App, returns updated state */
+export async function ActionHandler({action, data, state, api, adminApi, options, dispatchAction}: {action: ActionType, data: any, state: EditableAppContext, options: CommentsOptions, api: GhostApi, adminApi: AdminApi, dispatchAction: DispatchActionType}): Promise<Partial<EditableAppContext>> {
+    const handler = Actions[action];
+    return await handler?.({data, state, api, adminApi, options, dispatchAction} as any) || {};
+}
+
+/** Handle actions in the App, returns updated state */
+export function SyncActionHandler({action, data, state, api, adminApi, options}: {action: SyncActionType, data: any, state: EditableAppContext, options: CommentsOptions, api: GhostApi, adminApi: AdminApi}): Partial<EditableAppContext> {
+    const handler = SyncActions[action];
+    return handler?.({data, state, api, adminApi, options} as any) || {};
+}
+```

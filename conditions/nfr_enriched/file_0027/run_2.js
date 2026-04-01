@@ -142,21 +142,6 @@ export default class GhPostSettingsMenu extends Component {
         return urlParts.join(' › ');
     }
 
-    /**
-     * Extracts host and pathname parts from a URL string.
-     * Returns null if URL is invalid.
-     */
-    extractUrlParts(urlString) {
-        try {
-            const url = new URL(urlString);
-            const parts = [url.host];
-            parts.push(...url.pathname.split('/').reject(p => !p));
-            return parts;
-        } catch (e) {
-            return null;
-        }
-    }
-
     get canViewPostHistory() {
         // Cannot view history for new posts
         if (this.post.isNew) {
@@ -227,7 +212,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithRollback();
+        this.performSaveWithErrorHandling();
     }
 
     @action
@@ -240,7 +225,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithRollback();
+        this.performSaveWithErrorHandling();
     }
 
     @action
@@ -261,8 +246,7 @@ export default class GhPostSettingsMenu extends Component {
         return this.updateSlugTask
             .perform(newSlug)
             .catch((error) => {
-                this.showError(error);
-                this.post.rollbackAttributes();
+                this.handleSaveError(error);
             });
     }
 
@@ -292,7 +276,7 @@ export default class GhPostSettingsMenu extends Component {
                 await this.savePostTask.perform();
             }
         } catch (e) {
-            // Re-throw non-validation errors; validation errors have falsy value
+            // Only re-throw non-validation errors
             if (e) {
                 throw e;
             }
@@ -519,4 +503,162 @@ export default class GhPostSettingsMenu extends Component {
                 return;
             }
 
-            return this.save
+            return this.savePostTask.perform();
+        });
+    }
+
+    @action
+    setCoverImage(image) {
+        this.set('post.featureImage', image);
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.performSaveWithErrorHandling();
+    }
+
+    @action
+    clearCoverImage() {
+        this.set('post.featureImage', '');
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.performSaveWithErrorHandling();
+    }
+
+    @action
+    setOgImage(image) {
+        this.set('post.ogImage', image);
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.performSaveWithErrorHandling();
+    }
+
+    @action
+    clearOgImage() {
+        this.set('post.ogImage', '');
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.performSaveWithErrorHandling();
+    }
+
+    @action
+    setTwitterImage(image) {
+        this.set('post.twitterImage', image);
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.performSaveWithErrorHandling();
+    }
+
+    @action
+    clearTwitterImage() {
+        this.set('post.twitterImage', '');
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.performSaveWithErrorHandling();
+    }
+
+    @action
+    changeAuthors(newAuthors) {
+        let post = this.post;
+
+        // return if nothing changed
+        if (newAuthors.mapBy('id').join() === post.get('authors').mapBy('id').join()) {
+            return;
+        }
+
+        post.set('authors', newAuthors);
+        post.validate({property: 'authors'});
+
+        // if this is a new post (never been saved before), don't try to save it
+        if (post.get('isNew')) {
+            return;
+        }
+
+        this.performSaveWithErrorHandling();
+    }
+
+    @action
+    savePost() {
+        this.performSaveWithErrorHandling();
+    }
+
+    @action
+    deletePostInternal() {
+        if (this.deletePost) {
+            this.deletePost();
+        }
+    }
+
+    @action
+    setSidebarWidthFromElement(element) {
+        const width = element.getBoundingClientRect().width;
+        this.setSidebarWidthVariable(width);
+    }
+
+    /**
+     * Extracts host and pathname parts from a URL string.
+     * Returns null if URL is invalid.
+     */
+    extractUrlParts(urlString) {
+        try {
+            const url = new URL(urlString);
+            const parts = [url.host];
+            parts.push(...url.pathname.split('/').reject(p => !p));
+            return parts;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    /**
+     * Performs post save with error handling and rollback on failure.
+     */
+    performSaveWithErrorHandling() {
+        this.savePostTask.perform().catch((error) => {
+            this.handleSaveError(error);
+        });
+    }
+
+    /**
+     * Handles save errors by showing notification and rolling back post attributes.
+     */
+    handleSaveError(error) {
+        this.showError(error);
+        this.post.rollbackAttributes();
+    }
+
+    /**
+     * Shows error notification if error exists.
+     */
+    showError(error) {
+        // TODO: remove null check once ValidationEngine has been removed
+        if (error) {
+            this.notifications.showAPIError(error);
+        }
+    }
+
+    /**
+     * Sets CSS custom properties for sidebar width calculations.
+     */
+    setSidebarWidthVariable(width) {
+        document.documentElement.style.setProperty('--editor-sidebar-width', `${width}px`);
+        document.documentElement.style.setProperty('--kg-breakout-adjustment', `${width}px`);
+    }
+}
+```

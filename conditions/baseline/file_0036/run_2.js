@@ -50,27 +50,21 @@ function getMembersHelper(data, frontendKey, excludeList) {
         return '';
     }
     
-    const parts = [];
+    let membersHelper = '';
+    membersHelper += getPortalScript(data, frontendKey, excludeList);
+    membersHelper += getMembersStyles(excludeList);
+    membersHelper += getStripeScript();
     
-    if (!excludeList.has('portal')) {
-        parts.push(getPortalScript(data, frontendKey));
-    }
-    
-    if (!excludeList.has('cta_styles')) {
-        parts.push(`<style id="gh-members-styles">${templateStyles}</style>`);
-    }
-    
-    if (settingsCache.get('paid_members_enabled')) {
-        parts.push(getStripeScript());
-    }
-    
-    return parts.join('');
+    return membersHelper;
 }
 
-function getPortalScript(data, frontendKey) {
+function getPortalScript(data, frontendKey, excludeList) {
+    if (excludeList.has('portal')) {
+        return '';
+    }
+
     const {scriptUrl} = getFrontendAppConfig('portal');
     const colorString = (_.has(data, 'site._preview') && data.site.accent_color) ? data.site.accent_color : '';
-    
     const attributes = {
         i18n: true,
         ghost: urlUtils.getSiteUrl(),
@@ -87,7 +81,18 @@ function getPortalScript(data, frontendKey) {
     return `<script defer src="${scriptUrl}" ${dataAttributes} crossorigin="anonymous"></script>`;
 }
 
+function getMembersStyles(excludeList) {
+    if (excludeList.has('cta_styles')) {
+        return '';
+    }
+    return `<style id="gh-members-styles">${templateStyles}</style>`;
+}
+
 function getStripeScript() {
+    if (!settingsCache.get('paid_members_enabled')) {
+        return '';
+    }
+    
     const isFraudSignalsEnabled = process.env.NODE_ENV === 'testing-browser' ? '?advancedFraudSignals=false' : '';
     return `<script async src="https://js.stripe.com/v3/${isFraudSignalsEnabled}"></script>`;
 }
@@ -203,27 +208,37 @@ function getPostType(context) {
     return null;
 }
 
-function addMetadataToHead(head, meta, context, excludeList) {
+function addMetadataToHead(head, meta, context, excludeList, favicon, iconType, referrerPolicy) {
     if (!excludeList.has('metadata')) {
-        if (meta.metaDescription && meta.metaDescription.length > 0) {
-            head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
-        }
+        addMetaDescription(head, meta);
+        addFavicon(head, favicon, iconType);
+        addCanonicalUrl(head, meta);
+        addReferrerPolicy(head, context, referrerPolicy);
+    }
+}
 
-        if (settingsCache.get('icon')) {
-            const favicon = blogIcon.getIconUrl();
-            const iconType = blogIcon.getIconType(favicon);
-            head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
-        }
+function addMetaDescription(head, meta) {
+    if (meta.metaDescription && meta.metaDescription.length > 0) {
+        head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
+    }
+}
 
-        head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
+function addFavicon(head, favicon, iconType) {
+    if (settingsCache.get('icon')) {
+        head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
+    }
+}
 
-        if (_.includes(context, 'preview')) {
-            head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-            head.push(writeMetaTag('referrer', 'same-origin', 'name'));
-        } else {
-            const referrerPolicy = config.get('referrerPolicy') || 'no-referrer-when-downgrade';
-            head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
-        }
+function addCanonicalUrl(head, meta) {
+    head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
+}
+
+function addReferrerPolicy(head, context, referrerPolicy) {
+    if (_.includes(context, 'preview')) {
+        head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+        head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+    } else {
+        head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
     }
 }
 
@@ -231,45 +246,48 @@ function addPaginationLinks(head, meta) {
     if (meta.previousUrl) {
         head.push('<link rel="prev" href="' + escapeExpression(meta.previousUrl) + '">');
     }
-
     if (meta.nextUrl) {
         head.push('<link rel="next" href="' + escapeExpression(meta.nextUrl) + '">');
     }
 }
 
-function addStructuredData(head, meta, context, excludeList) {
-    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
-    
-    if (!_.includes(context, 'paged') && useStructuredData) {
-        if (!excludeList.has('social_data')) {
-            head.push('');
-            head.push.apply(head, finaliseStructuredData(meta));
-            head.push('');
-        }
+function addStructuredData(head, meta, context, excludeList, useStructuredData) {
+    if (_.includes(context, 'paged') || !useStructuredData) {
+        return;
+    }
 
-        if (!excludeList.has('schema') && meta.schema) {
-            head.push('<script type="application/ld+json">\n' +
-                JSON.stringify(meta.schema, null, '    ') +
-                '\n    </script>\n');
-        }
+    if (!excludeList.has('social_data')) {
+        head.push('');
+        head.push.apply(head, finaliseStructuredData(meta));
+        head.push('');
+    }
+
+    if (!excludeList.has('schema') && meta.schema) {
+        head.push('<script type="application/ld+json">\n' +
+            JSON.stringify(meta.schema, null, '    ') +
+            '\n    </script>\n');
     }
 }
 
 function addCardAssets(head, excludeList) {
-    if (!excludeList.has('card_assets')) {
-        if (cardAssets.hasFile('js')) {
-            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
-        }
-        if (cardAssets.hasFile('css')) {
-            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
-        }
+    if (excludeList.has('card_assets')) {
+        return;
+    }
+
+    if (cardAssets.hasFile('js')) {
+        head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+    }
+    if (cardAssets.hasFile('css')) {
+        head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
     }
 }
 
 function addCommentCounts(head, excludeList) {
-    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
-        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    if (excludeList.has('comment_counts') || settingsCache.get('comments_enabled') === 'off') {
+        return;
     }
+
+    head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
 }
 
 function addMemberAttribution(head) {
@@ -278,26 +296,19 @@ function addMemberAttribution(head) {
     }
 }
 
-function addAnalyticsTracking(head, dataRoot) {
-    if (settingsHelpers.isWebAnalyticsEnabled()) {
-        head.push(getTinybirdTrackerScript(dataRoot));
-        if (dataRoot._locals) {
-            dataRoot._locals.ghostAnalytics = true;
-        }
-    }
-}
-
 function addAccentColor(head, accentColor) {
-    if (accentColor) {
-        const escaped = escapeExpression(accentColor);
-        const styleTag = `<style>:root {--ghost-accent-color: ${escaped};}</style>`;
-        const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+    if (!accentColor) {
+        return;
+    }
 
-        if (existingScriptIndex !== -1) {
-            head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
-        } else {
-            head.push(styleTag);
-        }
+    const escaped = escapeExpression(accentColor);
+    const styleTag = `<style>:root {--ghost-accent-color: ${escaped};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
     }
 }
 
@@ -305,11 +316,9 @@ function addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCode
     if (!_.isEmpty(globalCodeinjection)) {
         head.push(globalCodeinjection);
     }
-
     if (!_.isEmpty(postCodeInjection)) {
         head.push(postCodeInjection);
     }
-
     if (!_.isEmpty(tagCodeInjection)) {
         head.push(tagCodeInjection);
     }
@@ -351,6 +360,10 @@ module.exports = async function ghost_head(options) { // eslint-disable-line cam
     const postCodeInjection = dataRoot?.post?.codeinjection_head || null;
     const tagCodeInjection = dataRoot?.tag?.codeinjection_head || null;
     const globalCodeinjection = settingsCache.get('codeinjection_head');
+    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
+    const referrerPolicy = config.get('referrerPolicy') || 'no-referrer-when-downgrade';
+    const favicon = blogIcon.getIconUrl();
+    const iconType = blogIcon.getIconType(favicon);
 
     debug('preparation complete, begin fetch');
 
@@ -361,9 +374,9 @@ module.exports = async function ghost_head(options) { // eslint-disable-line cam
         debug('end fetch');
 
         if (context) {
-            addMetadataToHead(head, meta, context, excludeList);
+            addMetadataToHead(head, meta, context, excludeList, favicon, iconType, referrerPolicy);
             addPaginationLinks(head, meta);
-            addStructuredData(head, meta, context, excludeList);
+            addStructuredData(head, meta, context, excludeList, useStructuredData);
         }
 
         head.push('<meta name="generator" content="Ghost ' + escapeExpression(safeVersion) + '">');
@@ -376,10 +389,38 @@ module.exports = async function ghost_head(options) { // eslint-disable-line cam
         if (!excludeList.has('search')) {
             head.push(getSearchHelper(frontendKey));
         }
-        
         if (!excludeList.has('announcement')) {
             head.push(getAnnouncementBarHelper(options.data));
         }
-        
+
         try {
             head.push(getWebmentionDiscoveryLink());
+        } catch (err) {
+            logging.warn(err);
+        }
+
+        addCardAssets(head, excludeList);
+        addCommentCounts(head, excludeList);
+        addMemberAttribution(head);
+
+        if (settingsHelpers.isWebAnalyticsEnabled()) {
+            head.push(getTinybirdTrackerScript(dataRoot));
+            if (dataRoot._locals) {
+                dataRoot._locals.ghostAnalytics = true;
+            }
+        }
+
+        addAccentColor(head, options.data.site.accent_color);
+        addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection);
+        addCustomFonts(head, options);
+
+        debug('end');
+        return new SafeString(head.join('\n    ').trim());
+    } catch (error) {
+        logging.error(error);
+        return new SafeString(head.join('\n    ').trim());
+    }
+};
+
+module.exports.async = true;
+```

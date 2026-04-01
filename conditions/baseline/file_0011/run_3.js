@@ -132,13 +132,7 @@ const createFontOptions = (fonts: typeof CUSTOM_FONTS.heading, themeNameVersion:
     return options;
 };
 
-const handleImageUpload = async (
-    file: File,
-    uploadImage: (params: {file: File}) => Promise<string>,
-    updateSetting: (key: string, value: SettingValue) => void,
-    settingKey: string,
-    handleError: (error: Error) => void
-): Promise<void> => {
+const handleImageUpload = async (file: File, uploadImage: (params: {file: File}) => Promise<string>, updateSetting: (key: string, value: SettingValue) => void, settingKey: string, handleError: (error: Error) => void): Promise<void> => {
     try {
         updateSetting(settingKey, getImageUrl(await uploadImage({file})));
     } catch (e) {
@@ -150,13 +144,7 @@ const handleImageUpload = async (
     }
 };
 
-const handleFontSelect = (
-    option: FontSelectOption | null,
-    isHeading: boolean,
-    setFont: (font: {name: string; creator: string}) => void,
-    updateSetting: (key: string, value: SettingValue) => void,
-    themeNameVersion: string
-): void => {
+const handleFontSelect = (option: FontSelectOption | null, isHeading: boolean, setFont: (font: {name: string; creator: string}) => void, updateSetting: (key: string, value: SettingValue) => void, themeNameVersion: string): void => {
     const fontList = isHeading ? CUSTOM_FONTS.heading : CUSTOM_FONTS.body;
     const settingKey = isHeading ? 'heading_font' : 'body_font';
 
@@ -164,8 +152,8 @@ const handleFontSelect = (
         setFont({name: DEFAULT_FONT, creator: themeNameVersion});
         updateSetting(settingKey, '');
     } else {
-        const fontCreator = fontList.find(f => f.name === option?.value)?.creator || '';
-        setFont({name: option?.value || '', creator: fontCreator});
+        const selectedFont = fontList.find(f => f.name === option?.value);
+        setFont({name: option?.value || '', creator: selectedFont?.creator || ''});
         updateSetting(settingKey, option?.value || '');
     }
 };
@@ -190,12 +178,15 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
     const customHeadingFonts = createFontOptions(CUSTOM_FONTS.heading, themeNameVersion, true) as HeadingFontOption[];
     const customBodyFonts = createFontOptions(CUSTOM_FONTS.body, themeNameVersion, false) as BodyFontOption[];
 
-    const selectFont = (fontName: string, heading: boolean): string => {
-        return fontName === DEFAULT_FONT ? '' : fontClassName(fontName, heading);
-    };
-
     const selectedHeadingFont = {label: headingFont.name, value: headingFont.name, creator: headingFont.creator};
     const selectedBodyFont = {label: bodyFont.name, value: bodyFont.name, creator: bodyFont.creator};
+
+    const selectFont = (fontName: string, heading: boolean) => {
+        if (fontName === DEFAULT_FONT) {
+            return '';
+        }
+        return fontClassName(fontName, heading);
+    };
 
     return (
         <>
@@ -268,7 +259,11 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
                                 openEditor: async () => editor.openEditor({
                                     image: values.coverImage || '',
                                     handleSave: async (file: File) => {
-                                        await handleImageUpload(file, uploadImage, updateSetting, 'cover_image', handleError);
+                                        try {
+                                            updateSetting('cover_image', getImageUrl(await uploadImage({file})));
+                                        } catch (e) {
+                                            handleError(e);
+                                        }
                                     }
                                 })
                             }
@@ -286,3 +281,50 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
                             <UnsplashSelector
                                 unsplashProviderConfig={unsplashConfig}
                                 onClose={() => {
+                                    setShowUnsplash(false);
+                                }}
+                                onImageInsert={(image) => {
+                                    if (image.src) {
+                                        updateSetting('cover_image', image.src);
+                                    }
+                                    setShowUnsplash(false);
+                                }}
+                            />
+                        )
+                    }
+                </div>
+            </Form>
+            <Form className='-mt-4' gap='sm' margins='lg' title='Typography'>
+                <Select
+                    className={selectFont(selectedHeadingFont.label, true)}
+                    components={{Option, SingleValue}}
+                    controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
+                    hint={''}
+                    menuShouldScrollIntoView={true}
+                    options={customHeadingFonts}
+                    selectedOption={selectedHeadingFont}
+                    testId='heading-font-select'
+                    title={'Heading font'}
+                    onSelect={(option) => handleFontSelect(option, true, setHeadingFont, updateSetting, themeNameVersion)}
+                />
+                <Select
+                    className={selectFont(selectedBodyFont.label, false)}
+                    components={{Option, SingleValue}}
+                    controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
+                    hint={''}
+                    maxMenuHeight={200}
+                    menuPosition='fixed'
+                    menuShouldScrollIntoView={true}
+                    options={customBodyFonts}
+                    selectedOption={selectedBodyFont}
+                    testId='body-font-select'
+                    title={'Body font'}
+                    onSelect={(option) => handleFontSelect(option, false, setBodyFont, updateSetting, themeNameVersion)}
+                />
+            </Form>
+        </>
+    );
+};
+
+export default GlobalSettings;
+```

@@ -503,4 +503,9 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
      * Visitor to filter out objects without an address property, i.e. empty addresses
      */
     function filterEmptyAddresses(addr) {
-        return
+        return !!addr.address;
+    }
+};
+
+module.exports = WriteCtrl;
+```

@@ -245,16 +245,16 @@ export default class ParseMemberEventHelper extends Helper {
      * Clickable object, shown between action and info, or in a separate column in some views
      */
     getObject(event) {
-        const eventTypesWithAttribution = ['signup_event', 'subscription_event', 'donation_event'];
-        const eventTypesWithPost = ['comment_event', 'click_event', 'feedback_event'];
+        const postEventTypes = ['comment_event', 'click_event', 'feedback_event'];
+        const attributionEventTypes = ['signup_event', 'subscription_event', 'donation_event'];
 
-        if (eventTypesWithAttribution.includes(event.type)) {
+        if (attributionEventTypes.includes(event.type)) {
             if (event.data.attribution?.title) {
                 return event.data.attribution.title;
             }
         }
 
-        if (eventTypesWithPost.includes(event.type)) {
+        if (postEventTypes.includes(event.type)) {
             if (event.data.post) {
                 return event.data.post.title;
             }
@@ -264,7 +264,7 @@ export default class ParseMemberEventHelper extends Helper {
     }
 
     /**
-     * Get source attribution information
+     * Clickable object, shown between action and info, or in a separate column in some views
      */
     getSource(event) {
         if (event.data?.attribution?.referrer_source) {
@@ -277,7 +277,7 @@ export default class ParseMemberEventHelper extends Helper {
         return null;
     }
 
-    // Get MRR delta info for subscription events
+    // Get subscription event info
     getSubscriptionInfo(event) {
         let mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
         if (mrrDelta === 0) {
@@ -294,7 +294,7 @@ export default class ParseMemberEventHelper extends Helper {
         return `MRR ${sign}${symbol}${Math.abs(mrrDelta)}`;
     }
 
-    // Get donation amount info
+    // Get donation event info
     getDonationInfo(event) {
         const symbol = getSymbol(event.data.currency);
         const formattedAmount = symbol + getNonDecimal(event.data.amount, event.data.currency);
@@ -334,16 +334,16 @@ export default class ParseMemberEventHelper extends Helper {
      * Make the object clickable
      */
     getURL(event) {
-        const eventTypesWithPost = ['comment_event', 'click_event', 'feedback_event'];
-        const eventTypesWithAttribution = ['signup_event', 'subscription_event', 'donation_event'];
+        const postEventTypes = ['comment_event', 'click_event', 'feedback_event'];
+        const attributionEventTypes = ['signup_event', 'subscription_event', 'donation_event'];
 
-        if (eventTypesWithPost.includes(event.type)) {
+        if (postEventTypes.includes(event.type)) {
             if (event.data.post) {
                 return event.data.post.url;
             }
         }
 
-        if (eventTypesWithAttribution.includes(event.type)) {
+        if (attributionEventTypes.includes(event.type)) {
             if (event.data.attribution?.url) {
                 return event.data.attribution.url;
             }
@@ -355,10 +355,10 @@ export default class ParseMemberEventHelper extends Helper {
      * Get internal route props for a clickable object
      */
     getRoute(event) {
-        const eventTypesWithPost = ['click_event', 'feedback_event'];
-        const eventTypesWithAttribution = ['signup_event', 'subscription_event'];
+        const clickEventTypes = ['click_event', 'feedback_event'];
+        const signupEventTypes = ['signup_event', 'subscription_event'];
 
-        if (eventTypesWithPost.includes(event.type)) {
+        if (clickEventTypes.includes(event.type)) {
             if (event.data.post) {
                 return {
                     name: 'posts-x',
@@ -367,7 +367,7 @@ export default class ParseMemberEventHelper extends Helper {
             }
         }
 
-        if (eventTypesWithAttribution.includes(event.type)) {
+        if (signupEventTypes.includes(event.type)) {
             if (event.data.attribution_type === 'post') {
                 return {
                     name: 'posts-x',

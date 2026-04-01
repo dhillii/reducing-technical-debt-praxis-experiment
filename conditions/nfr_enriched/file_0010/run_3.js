@@ -14,16 +14,8 @@ export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
     trial_days: string;
 };
 
-/** Determines the title for the tier detail modal based on tier state */
-const getTierModalTitle = (tier: Tier | undefined): string => {
-    if (!tier) {
-        return 'New tier';
-    }
-    return tier.active ? 'Edit tier' : 'Edit archived tier';
-};
-
-/** Builds the left button props for tier status changes (archive/reactivate) */
-const buildTierStatusButtonProps = (tier: Tier | undefined, onStatusChange: () => void): ButtonProps => {
+/** Determines the left button properties based on tier status and type */
+const getLeftButtonProps = (tier: Tier | undefined, onStatusChange: () => void): ButtonProps => {
     if (!tier) {
         return {};
     }
@@ -49,8 +41,17 @@ const buildTierStatusButtonProps = (tier: Tier | undefined, onStatusChange: () =
     return {};
 };
 
-/** Generates the confirmation prompt content for tier status changes */
-const getTierStatusPromptContent = (tier: Tier) => {
+/** Determines the modal title based on tier state */
+const getModalTitle = (tier: Tier | undefined): string => {
+    if (!tier) {
+        return 'New tier';
+    }
+
+    return tier.active ? 'Edit tier' : 'Edit archived tier';
+};
+
+/** Builds the confirmation prompt content for tier status changes */
+const buildTierStatusPrompt = (tier: Tier): React.ReactNode => {
     if (tier.active) {
         return <>
             <div className='mb-6'>Members will no longer be able to subscribe to <strong>{tier.name}</strong> and it will be removed from the list of available tiers in portal.</div>
@@ -64,19 +65,52 @@ const getTierStatusPromptContent = (tier: Tier) => {
     </>;
 };
 
-/** Generates the confirmation title for tier status changes */
-const getTierStatusPromptTitle = (tier: Tier): string => {
-    return tier.active ? 'Archive tier' : 'Reactivate tier';
+/** Gets the appropriate label for tier status confirmation */
+const getTierStatusLabel = (isActive: boolean): string => {
+    return isActive ? 'Archive' : 'Reactivate';
 };
 
-/** Generates the confirmation button label for tier status changes */
-const getTierStatusOkLabel = (tier: Tier): string => {
-    return tier.active ? 'Archive' : 'Reactivate';
+/** Gets the appropriate title for tier status confirmation */
+const getTierStatusTitle = (isActive: boolean): string => {
+    return isActive ? 'Archive tier' : 'Reactivate tier';
 };
 
-/** Determines the button color for tier status confirmation */
-const getTierStatusOkColor = (tier: Tier): 'red' | 'black' => {
-    return tier.active ? 'red' : 'black';
+/** Gets the appropriate color for tier status confirmation button */
+const getTierStatusColor = (isActive: boolean): 'red' | 'black' => {
+    return isActive ? 'red' : 'black';
+};
+
+/** Gets the success message for tier status change */
+const getTierStatusMessage = (isActive: boolean): string => {
+    return `Tier ${isActive ? 'archived' : 'reactivated'}`;
+};
+
+/** Updates portal plans based on free tier visibility */
+const updatePortalPlansForFreeTier = async (
+    visible: boolean,
+    portalPlans: string[],
+    editSettings: (settings: Array<{key: string; value: string}>) => Promise<void>
+): Promise<void> => {
+    let shouldSave = false;
+
+    if (portalPlans.includes('free') && !visible) {
+        portalPlans.splice(portalPlans.indexOf('free'), 1);
+        shouldSave = true;
+    }
+
+    if (!portalPlans.includes('free') && visible) {
+        portalPlans.push('free');
+        shouldSave = true;
+    }
+
+    if (shouldSave) {
+        await editSettings([
+            {
+                key: 'portal_plans',
+                value: JSON.stringify(portalPlans)
+            }
+        ]);
+    }
 };
 
 const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
@@ -96,30 +130,6 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         name: () => (formState.name ? undefined : 'Enter a name for the tier'),
         monthly_price: () => (formState.type !== 'free' ? validateCurrencyAmount(formState.monthly_price || 0, formState.currency, {allowZero: false}) : undefined),
         yearly_price: () => (formState.type !== 'free' ? validateCurrencyAmount(formState.yearly_price || 0, formState.currency, {allowZero: false}) : undefined)
-    };
-
-    /** Updates portal plans settings when free tier visibility changes */
-    const updatePortalPlansForFreeTier = async (visible: boolean) => {
-        let shouldSave = false;
-
-        if (portalPlans.includes('free') && !visible) {
-            portalPlans.splice(portalPlans.indexOf('free'), 1);
-            shouldSave = true;
-        }
-
-        if (!portalPlans.includes('free') && visible) {
-            portalPlans.push('free');
-            shouldSave = true;
-        }
-
-        if (shouldSave) {
-            await editSettings([
-                {
-                    key: 'portal_plans',
-                    value: JSON.stringify(portalPlans)
-                }
-            ]);
-        }
     };
 
     const {formState, saveState, updateForm, handleSave, errors, clearError, okProps} = useForm<TierFormState>({
@@ -160,7 +170,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
 
             if (isFreeTier) {
                 const visible = formState.visibility === 'public';
-                await updatePortalPlansForFreeTier(visible);
+                await updatePortalPlansForFreeTier(visible, portalPlans, editSettings);
             }
         },
         onSaveError: handleError
@@ -195,32 +205,34 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
     }, [formState.currency]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const confirmTierStatusChange = () => {
-        if (tier) {
-            const promptTitle = getTierStatusPromptTitle(tier);
-            const prompt = getTierStatusPromptContent(tier);
-            const okLabel = getTierStatusOkLabel(tier);
-            const okColor = getTierStatusOkColor(tier);
-
-            NiceModal.show(ConfirmationModal, {
-                title: promptTitle,
-                prompt: prompt,
-                okLabel: okLabel,
-                cancelLabel: 'Cancel',
-                okColor: okColor,
-                onOk: (confirmModal) => {
-                    updateTier({...tier, active: !tier.active});
-                    confirmModal?.remove();
-                    showToast({
-                        type: 'success',
-                        title: `Tier ${tier.active ? 'archived' : 'reactivated'}`
-                    });
-                }
-            });
+        if (!tier) {
+            return;
         }
+
+        const promptTitle = getTierStatusTitle(tier.active);
+        const prompt = buildTierStatusPrompt(tier);
+        const okLabel = getTierStatusLabel(tier.active);
+        const okColor = getTierStatusColor(tier.active);
+
+        NiceModal.show(ConfirmationModal, {
+            title: promptTitle,
+            prompt: prompt,
+            okLabel: okLabel,
+            cancelLabel: 'Cancel',
+            okColor: okColor,
+            onOk: (confirmModal) => {
+                updateTier({...tier, active: !tier.active});
+                confirmModal?.remove();
+                showToast({
+                    type: 'success',
+                    title: getTierStatusMessage(tier.active)
+                });
+            }
+        });
     };
 
-    const leftButtonProps = buildTierStatusButtonProps(tier, confirmTierStatusChange);
-    const modalTitle = getTierModalTitle(tier);
+    const leftButtonProps = getLeftButtonProps(tier, confirmTierStatusChange);
+    const modalTitle = getModalTitle(tier);
 
     return <Modal
         afterClose={() => {
@@ -351,4 +363,74 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                             renderItem={({id, item}) => <div className='relative flex w-full items-center gap-5'>
                                 <div className='absolute left-[-32px] top-[7px] flex size-6 items-center justify-center bg-white group-hover:hidden dark:bg-black'><Icon name='check' size='sm' /></div>
                                 <TextField
-                                    // className='grow border-b border-grey-500 py-2 focus
+                                    // className='grow border-b border-grey-500 py-2 focus:border-grey-800 group-hover:border-grey-600'
+                                    maxLength={191}
+                                    value={item}
+                                    onChange={e => benefits.updateItem(id, e.target.value)}
+                                />
+                                <Button className='absolute right-1 top-1 z-10 opacity-0 group-hover:opacity-100' color='grey' icon='trash' size='sm' onClick={() => benefits.removeItem(id)} />
+                            </div>}
+                            onMove={benefits.moveItem}
+                        />
+                    </div>
+                    <div className="relative mt-1 flex items-center gap-3">
+                        <Icon className='dark:text-white' name='check' size='sm' />
+                        <TextField
+                            className='grow'
+                            containerClassName='w-100'
+                            maxLength={191}
+                            placeholder='Expert analysis'
+                            title='New benefit'
+                            value={benefits.newItem}
+                            hideTitle
+                            onChange={e => benefits.setNewItem(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    benefits.addItem();
+                                }
+                            }}
+                        />
+                        <Button
+                            className='absolute right-[5px] top-[5px] z-10'
+                            color='green'
+                            icon='add'
+                            iconColorClass='text-white'
+                            label='Add'
+                            size='sm'
+                            hideLabel
+                            onClick={() => benefits.addItem()}
+                        />
+                    </div>
+                </Form>
+            </div>
+            <div className='sticky top-[96px] hidden shrink-0 basis-[380px] min-[920px]:!visible min-[920px]:!block'>
+                <TierDetailPreview isFreeTier={isFreeTier} tier={formState} />
+            </div>
+        </div>
+    </Modal>;
+};
+
+const TierDetailModal: React.FC<RoutingModalProps> = ({params}) => {
+    const {data: {tiers, isEnd} = {}, fetchNextPage} = useBrowseTiers();
+
+    let tier: Tier | undefined;
+
+    useEffect(() => {
+        if (params?.id && !tier && !isEnd) {
+            fetchNextPage();
+        }
+    }, [fetchNextPage, isEnd, params?.id, tier]);
+
+    if (params?.id) {
+        tier = tiers?.find(({id}) => id === params?.id);
+
+        if (!tier) {
+            return null;
+        }
+    }
+
+    return <TierDetailModalContent tier={tier} />;
+};
+
+export default NiceModal.create(TierDetailModal);
+```

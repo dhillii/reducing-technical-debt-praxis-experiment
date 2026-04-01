@@ -219,18 +219,22 @@ function addMetadataToHead(head, meta, context, excludeList, favicon, iconType) 
         }
 
         head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
-
-        if (_.includes(context, 'preview')) {
-            head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-            head.push(writeMetaTag('referrer', 'same-origin', 'name'));
-        } else {
-            const referrerPolicy = config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade';
-            head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
-        }
+        addReferrerPolicy(head, context);
     }
 }
 
-function addNavigationLinksToHead(head, meta) {
+function addReferrerPolicy(head, context) {
+    const referrerPolicy = config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade';
+    
+    if (_.includes(context, 'preview')) {
+        head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+        head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+    } else {
+        head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
+    }
+}
+
+function addPaginationLinks(head, meta) {
     if (meta.previousUrl) {
         head.push('<link rel="prev" href="' + escapeExpression(meta.previousUrl) + '">');
     }
@@ -240,25 +244,25 @@ function addNavigationLinksToHead(head, meta) {
     }
 }
 
-function addStructuredDataToHead(head, meta, context, excludeList) {
-    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
-    
-    if (!_.includes(context, 'paged') && useStructuredData) {
-        if (!excludeList.has('social_data')) {
-            head.push('');
-            head.push.apply(head, finaliseStructuredData(meta));
-            head.push('');
-        }
+function addStructuredData(head, meta, context, excludeList, useStructuredData) {
+    if (_.includes(context, 'paged') || !useStructuredData) {
+        return;
+    }
 
-        if (!excludeList.has('schema') && meta.schema) {
-            head.push('<script type="application/ld+json">\n' +
-                JSON.stringify(meta.schema, null, '    ') +
-                '\n    </script>\n');
-        }
+    if (!excludeList.has('social_data')) {
+        head.push('');
+        head.push.apply(head, finaliseStructuredData(meta));
+        head.push('');
+    }
+
+    if (!excludeList.has('schema') && meta.schema) {
+        head.push('<script type="application/ld+json">\n' +
+            JSON.stringify(meta.schema, null, '    ') +
+            '\n    </script>\n');
     }
 }
 
-function addCardAssetsToHead(head, excludeList) {
+function addCardAssets(head, excludeList) {
     if (excludeList.has('card_assets')) {
         return;
     }
@@ -271,7 +275,7 @@ function addCardAssetsToHead(head, excludeList) {
     }
 }
 
-function addCommentCountsToHead(head, excludeList) {
+function addCommentCounts(head, excludeList) {
     if (excludeList.has('comment_counts') || settingsCache.get('comments_enabled') === 'off') {
         return;
     }
@@ -279,22 +283,24 @@ function addCommentCountsToHead(head, excludeList) {
     head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
 }
 
-function addMemberAttributionToHead(head) {
+function addMemberAttribution(head) {
     if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
         head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
     }
 }
 
-function addAnalyticsToHead(head, dataRoot) {
-    if (settingsHelpers.isWebAnalyticsEnabled()) {
-        head.push(getTinybirdTrackerScript(dataRoot));
-        if (dataRoot._locals) {
-            dataRoot._locals.ghostAnalytics = true;
-        }
+function addWebAnalytics(head, dataRoot) {
+    if (!settingsHelpers.isWebAnalyticsEnabled()) {
+        return;
+    }
+
+    head.push(getTinybirdTrackerScript(dataRoot));
+    if (dataRoot._locals) {
+        dataRoot._locals.ghostAnalytics = true;
     }
 }
 
-function addAccentColorToHead(head, accentColor) {
+function addAccentColor(head, accentColor) {
     if (!accentColor) {
         return;
     }
@@ -310,7 +316,7 @@ function addAccentColorToHead(head, accentColor) {
     }
 }
 
-function addCodeInjectionsToHead(head, globalCodeinjection, postCodeInjection, tagCodeInjection) {
+function addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection) {
     if (!_.isEmpty(globalCodeinjection)) {
         head.push(globalCodeinjection);
     }
@@ -324,7 +330,7 @@ function addCodeInjectionsToHead(head, globalCodeinjection, postCodeInjection, t
     }
 }
 
-function addCustomFontsToHead(head, options) {
+function addCustomFonts(head, options) {
     const isSitePreview = options.data?.site?._preview ?? false;
     const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
     const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
@@ -360,6 +366,7 @@ module.exports = async function ghost_head(options) { // eslint-disable-line cam
     const postCodeInjection = dataRoot?.post?.codeinjection_head || null;
     const tagCodeInjection = dataRoot?.tag?.codeinjection_head || null;
     const globalCodeinjection = settingsCache.get('codeinjection_head');
+    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
     const favicon = blogIcon.getIconUrl();
     const iconType = blogIcon.getIconType(favicon);
 
@@ -373,8 +380,8 @@ module.exports = async function ghost_head(options) { // eslint-disable-line cam
 
         if (context) {
             addMetadataToHead(head, meta, context, excludeList, favicon, iconType);
-            addNavigationLinksToHead(head, meta);
-            addStructuredDataToHead(head, meta, context, excludeList);
+            addPaginationLinks(head, meta);
+            addStructuredData(head, meta, context, excludeList, useStructuredData);
         }
 
         head.push('<meta name="generator" content="Ghost ' + escapeExpression(safeVersion) + '">');
@@ -382,4 +389,37 @@ module.exports = async function ghost_head(options) { // eslint-disable-line cam
             escapeExpression(meta.site.title) + '" href="' +
             escapeExpression(meta.rssUrl) + '">');
 
-        head.push(getMembersHelper(options.data,
+        head.push(getMembersHelper(options.data, frontendKey, excludeList));
+        
+        if (!excludeList.has('search')) {
+            head.push(getSearchHelper(frontendKey));
+        }
+        
+        if (!excludeList.has('announcement')) {
+            head.push(getAnnouncementBarHelper(options.data));
+        }
+        
+        try {
+            head.push(getWebmentionDiscoveryLink());
+        } catch (err) {
+            logging.warn(err);
+        }
+
+        addCardAssets(head, excludeList);
+        addCommentCounts(head, excludeList);
+        addMemberAttribution(head);
+        addWebAnalytics(head, dataRoot);
+        addAccentColor(head, options.data.site.accent_color);
+        addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection);
+        addCustomFonts(head, options);
+
+        debug('end');
+        return new SafeString(head.join('\n    ').trim());
+    } catch (error) {
+        logging.error(error);
+        return new SafeString(head.join('\n    ').trim());
+    }
+};
+
+module.exports.async = true;
+```

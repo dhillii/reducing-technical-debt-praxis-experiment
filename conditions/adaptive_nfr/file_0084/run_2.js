@@ -52,7 +52,7 @@ function shouldSkipNullUpdateValidation(
   return kind === 'update' && initial === null && input === null
 }
 
-/** Check if required field is missing */
+/** Check if required field is missing value */
 function isRequiredFieldMissing(isRequired: boolean, input: number | null): boolean {
   return isRequired && input === null
 }
@@ -119,13 +119,15 @@ export function controller(
   validation: Validation
   hasAutoIncrementDefault: boolean
 } {
+  const hasAutoIncrementDefault = config.fieldMeta.defaultValue === 'autoincrement'
+
   const validate = (value: Value, opts: { isRequired: boolean }) => {
     return validate_(
       value,
       config.fieldMeta.validation,
       opts.isRequired,
       config.label,
-      config.fieldMeta.defaultValue === 'autoincrement'
+      hasAutoIncrementDefault
     )
   }
 
@@ -137,8 +139,7 @@ export function controller(
     validation: config.fieldMeta.validation,
     defaultValue: {
       kind: 'create',
-      value:
-        config.fieldMeta.defaultValue === 'autoincrement' ? null : config.fieldMeta.defaultValue,
+      value: hasAutoIncrementDefault ? null : config.fieldMeta.defaultValue,
     },
     deserialize: data => ({
       kind: 'update',
@@ -146,7 +147,7 @@ export function controller(
       initial: data[config.fieldKey],
     }),
     serialize: value => ({ [config.fieldKey]: value.value }),
-    hasAutoIncrementDefault: config.fieldMeta.defaultValue === 'autoincrement',
+    hasAutoIncrementDefault,
     validate: (value, opts) => validate(value, opts) === undefined,
     filter: {
       Filter(props: Readonly<{
@@ -155,8 +156,8 @@ export function controller(
         forceValidation?: boolean
         typeLabel?: string
         onChange?: (value: number | null) => void
-        type: string
-        value: number | null
+        type?: string
+        value?: number | null
         [key: string]: unknown
       }>) {
         const {

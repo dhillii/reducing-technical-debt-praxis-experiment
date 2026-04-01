@@ -94,7 +94,7 @@ define([
         },
 
         /**
-         * Builds array of password validation promises.
+         * Builds password validation promises for old and new passwords.
          */
         buildPasswordValidationPromises: function(data) {
             const promises = [];
@@ -147,7 +147,7 @@ define([
                     transformedItem = JSON.stringify(item);
                 }
 
-                return { name: key, value: transformedItem };
+                return {name: key, value: transformedItem};
             });
         },
 
@@ -162,21 +162,24 @@ define([
         },
 
         /**
-         * Creates promise chain for re-encrypting all profiles.
+         * Creates encryption promise for a single profile.
          */
-        createProfileEncryptionChain: function() {
-            const promises = [];
+        createProfileEncryptionPromise: function(profile) {
+            return () => {
+                this.vent.request('change:configs', this.backup);
 
-            _.each(this.profiles, (profile) => {
-                promises.push(() => {
-                    this.vent.request('change:configs', this.backup);
+                return this.vent.request('save:secureKey', this.passwords.old)
+                .then(() => this.encryptProfile({profile: profile}));
+            };
+        },
 
-                    return this.vent.request('save:secureKey', this.passwords.old)
-                    .then(() => this.encryptProfile({ profile: profile }));
-                });
-            });
-
-            return promises;
+        /**
+         * Builds array of profile encryption promises.
+         */
+        buildProfileEncryptionPromises: function() {
+            return _.map(this.profiles, (profile) => 
+                this.createProfileEncryptionPromise(profile)
+            );
         },
 
         /**
@@ -186,7 +189,7 @@ define([
             const profile = (this.profiles.length === 1 ? this.profiles[0] : 'notes-db');
 
             this.initializeRawData(profile);
-            const promises = this.createProfileEncryptionChain();
+            const promises = this.buildProfileEncryptionPromises();
 
             return _.reduce(promises, Q.when, new Q())
             .then(() => this.resetBackup())
@@ -232,7 +235,7 @@ define([
             this.rawData[options.profile] = this.rawData[options.profile] || {};
 
             return this.fetchCollections(options)
-            .spread((...collections) => {
+            .then((collections) => {
                 this.filterAndStoreCollections(collections, options.profile);
                 this.view.trigger('encrypt:init', this.collections.length);
             })
@@ -252,32 +255,38 @@ define([
         },
 
         /**
-         * Creates promise chain for encrypting all collections.
+         * Creates encryption promise for a single collection.
          */
-        createCollectionEncryptionChain: function() {
-            const promises = [];
+        createCollectionEncryptionPromise: function(collection) {
+            return () => {
+                return this.vent.request('encrypt:models', collection)
+                .then(() => this.checkEncryption(collection));
+            };
+        },
 
-            _.each(this.collections, (collection) => {
-                promises.push(() => {
-                    return this.vent.request('encrypt:models', collection)
-                    .then(() => this.checkEncryption(collection));
-                });
-            });
-
-            return promises;
+        /**
+         * Builds array of collection encryption promises.
+         */
+        buildCollectionEncryptionPromises: function() {
+            return _.map(this.collections, (collection) =>
+                this.createCollectionEncryptionPromise(collection)
+            );
         },
 
         /**
          * Encrypt every collection with new encryption configs.
          */
         encrypt: function() {
+            // Encryption is disabled
             if (Number(this.configs.encrypt) === 0) {
                 this.disableEncryption();
                 return;
             }
 
+            const promises = this.buildCollectionEncryptionPromises();
+
+            // Use new encryption configs
             this.vent.request('change:configs', this.configs);
-            const promises = this.createCollectionEncryptionChain();
 
             return this.vent.request('save:secureKey', this.passwords.password)
             .then(() => _.reduce(promises, Q.when, new Q()));
@@ -302,16 +311,21 @@ define([
         },
 
         /**
+         * Creates save promise for a single collection.
+         */
+        createCollectionSavePromise: function(collection) {
+            return () => {
+                return new Q(Radio.request(collection.storeName, 'save:collection', collection));
+            };
+        },
+
+        /**
          * Save all changes in every collection.
          */
         saveChanges: function() {
-            const promises = [];
-
-            _.each(this.collections, (collection) => {
-                promises.push(() => {
-                    return new Q(Radio.request(collection.storeName, 'save:collection', collection));
-                });
-            });
+            const promises = _.map(this.collections, (collection) =>
+                this.createCollectionSavePromise(collection)
+            );
 
             return _.reduce(promises, Q.when, new Q());
         },

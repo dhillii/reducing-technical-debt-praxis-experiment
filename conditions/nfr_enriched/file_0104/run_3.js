@@ -89,15 +89,31 @@
     };
 
     /**
-     * Applies styling to an anchor element based on options.
-     * @param {HTMLElement} anchor - The anchor element to style
-     * @param {String} visibleOptionToUse - The visibility option
+     * Creates and configures an anchor element with appropriate styles and attributes.
+     * @param {String} elementID - The ID of the target element
+     * @param {String} readableID - Human-readable version of the ID
+     * @param {String} visibleOptionToUse - The visibility setting
+     * @return {HTMLElement} - The configured anchor element
      */
-    var _styleAnchor = function(anchor, visibleOptionToUse) {
+    var _createAnchorElement = function(elementID, readableID, visibleOptionToUse) {
+      var anchor = document.createElement('a');
+      anchor.className = 'anchorjs-link ' + this.options.class;
+      anchor.href = '#' + elementID;
+      anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
+      anchor.setAttribute('data-anchorjs-icon', this.options.icon);
+
       if (visibleOptionToUse === 'always') {
         anchor.style.opacity = '1';
       }
 
+      return anchor;
+    }.bind(this);
+
+    /**
+     * Applies icon-specific styles to the anchor element.
+     * @param {HTMLElement} anchor - The anchor element
+     */
+    var _applyIconStyles = function(anchor) {
       if (this.options.icon === '\ue9cb') {
         anchor.style.font = '1em/1 anchorjs-icons';
         if (this.options.placement === 'left') {
@@ -107,11 +123,11 @@
     }.bind(this);
 
     /**
-     * Positions an anchor element within its parent based on placement option.
-     * @param {HTMLElement} anchor - The anchor element to position
-     * @param {HTMLElement} element - The parent element
+     * Applies placement-specific styles and inserts the anchor into the DOM.
+     * @param {HTMLElement} anchor - The anchor element
+     * @param {HTMLElement} element - The target element
      */
-    var _positionAnchor = function(anchor, element) {
+    var _insertAnchorElement = function(anchor, element) {
       if (this.options.placement === 'left') {
         anchor.style.position = 'absolute';
         anchor.style.marginLeft = '-1em';
@@ -124,46 +140,42 @@
     }.bind(this);
 
     /**
-     * Creates an anchor element with appropriate attributes.
-     * @param {String} elementID - The ID of the target element
-     * @param {String} readableID - Human-readable version of the ID
-     * @return {HTMLElement} - The created anchor element
-     */
-    var _createAnchorElement = function(elementID, readableID) {
-      var anchor = document.createElement('a');
-      anchor.className = 'anchorjs-link ' + this.options.class;
-      anchor.href = '#' + elementID;
-      anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
-      anchor.setAttribute('data-anchorjs-icon', this.options.icon);
-      return anchor;
-    }.bind(this);
-
-    /**
-     * Processes an element to add an anchor link if it doesn't already have one.
+     * Processes a single element to add an anchor link.
      * @param {HTMLElement} element - The element to process
      * @param {Array} idList - List of existing IDs
-     * @param {String} visibleOptionToUse - The visibility option
-     * @return {Boolean} - true if anchor was added, false if skipped
+     * @param {String} visibleOptionToUse - The visibility setting
+     * @return {String} - The element's ID (existing or newly generated)
      */
-    var _processElementForAnchor = function(element, idList, visibleOptionToUse) {
-      var elementID, tidyText, readableID, anchor;
+    var _processElement = function(element, idList, visibleOptionToUse) {
+      var elementID;
 
       if (element.hasAttribute('id')) {
         elementID = element.getAttribute('id');
       } else {
-        tidyText = this.urlify(element.textContent);
+        var tidyText = this.urlify(element.textContent);
         elementID = _generateUniqueId(tidyText, idList);
         element.setAttribute('id', elementID);
       }
 
-      readableID = elementID.replace(/-/g, ' ');
-      anchor = _createAnchorElement(elementID, readableID);
+      var readableID = elementID.replace(/-/g, ' ');
+      var anchor = _createAnchorElement(elementID, readableID, visibleOptionToUse);
 
-      _styleAnchor(anchor, visibleOptionToUse);
-      _positionAnchor(anchor, element);
+      _applyIconStyles(anchor);
+      _insertAnchorElement(anchor, element);
 
-      return true;
+      return elementID;
     }.bind(this);
+
+    /**
+     * Collects existing IDs from the document.
+     * @return {Array} - Array of existing element IDs
+     */
+    var _getExistingIds = function() {
+      var elsWithIds = document.querySelectorAll('[id]');
+      return [].map.call(elsWithIds, function(el) {
+        return el.id;
+      });
+    };
 
     /**
      * Add anchor links to page elements.
@@ -172,12 +184,11 @@
      * @return {this}                           - The AnchorJS object
      */
     this.add = function(selector) {
-      var elements,
-          elsWithIds,
-          idList,
-          i,
-          visibleOptionToUse,
-          indexesToDrop = [];
+      var elements;
+      var idList;
+      var indexesToDrop = [];
+      var visibleOptionToUse;
+      var i;
 
       _applyRemainingDefaultOptions(this.options);
 
@@ -195,10 +206,7 @@
 
       _addBaselineStyles();
 
-      elsWithIds = document.querySelectorAll('[id]');
-      idList = [].map.call(elsWithIds, function assign(el) {
-        return el.id;
-      });
+      idList = _getExistingIds();
 
       for (i = 0; i < elements.length; i++) {
         if (this.hasAnchorJSLink(elements[i])) {
@@ -206,12 +214,13 @@
           continue;
         }
 
-        _processElementForAnchor(elements[i], idList, visibleOptionToUse);
+        _processElement(elements[i], idList, visibleOptionToUse);
       }
 
       for (i = 0; i < indexesToDrop.length; i++) {
         elements.splice(indexesToDrop[i] - i, 1);
       }
+
       this.elements = this.elements.concat(elements);
 
       return this;
@@ -224,22 +233,29 @@
      * @return {this}                           - The AnchorJS object
      */
     this.remove = function(selector) {
-      var index,
-          domAnchor,
-          elements = _getElements(selector);
+      var elements = _getElements(selector);
 
       for (var i = 0; i < elements.length; i++) {
-        domAnchor = elements[i].querySelector('.anchorjs-link');
-        if (domAnchor) {
-          index = this.elements.indexOf(elements[i]);
-          if (index !== -1) {
-            this.elements.splice(index, 1);
-          }
-          elements[i].removeChild(domAnchor);
-        }
+        _removeAnchorFromElement(elements[i]);
       }
+
       return this;
     };
+
+    /**
+     * Removes the anchor link from a single element.
+     * @param {HTMLElement} element - The element to process
+     */
+    var _removeAnchorFromElement = function(element) {
+      var domAnchor = element.querySelector('.anchorjs-link');
+      if (domAnchor) {
+        var index = this.elements.indexOf(element);
+        if (index !== -1) {
+          this.elements.splice(index, 1);
+        }
+        element.removeChild(domAnchor);
+      }
+    }.bind(this);
 
     /**
      * Removes all anchorjs links. Mostly used for tests.
@@ -258,8 +274,8 @@
      * @return {String}      - hyphen-delimited text for use in IDs and URLs.
      */
     this.urlify = function(text) {
-      var nonsafeChars = /[& +$,:;=?@"#{}|^~[`%!'\]\.\/\(\)\*\\]/g,
-          urlText;
+      var nonsafeChars = /[& +$,:;=?@"#{}|^~[`%!'\]\.\/\(\)\*\\]/g;
+      var urlText;
 
       if (!this.options.truncate) {
         _applyRemainingDefaultOptions(this.options);
@@ -283,8 +299,8 @@
      * @return   {Boolean}     true/false
      */
     this.hasAnchorJSLink = function(el) {
-      var hasLeftAnchor = el.firstChild && ((' ' + el.firstChild.className + ' ').indexOf(' anchorjs-link ') > -1),
-          hasRightAnchor = el.lastChild && ((' ' + el.lastChild.className + ' ').indexOf(' anchorjs-link ') > -1);
+      var hasLeftAnchor = el.firstChild && ((' ' + el.firstChild.className + ' ').indexOf(' anchorjs-link ') > -1);
+      var hasRightAnchor = el.lastChild && ((' ' + el.lastChild.className + ' ').indexOf(' anchorjs-link ') > -1);
 
       return hasLeftAnchor || hasRightAnchor || false;
     };
@@ -310,26 +326,81 @@
 
     /**
      * Builds the CSS rules for anchor styling.
-     * @return {String} - Concatenated CSS rules
+     * @return {Array} - Array of CSS rule strings
      */
-    function _buildCSSRules() {
+    var _buildCssRules = function() {
       var linkRule =
-          ' .anchorjs-link {'                       +
-          '   opacity: 0;'                          +
-          '   text-decoration: none;'               +
-          '   -webkit-font-smoothing: antialiased;' +
-          '   -moz-osx-font-smoothing: grayscale;'  +
-          ' }',
-          hoverRule =
-          ' *:hover > .anchorjs-link,'              +
-          ' .anchorjs-link:focus  {'                +
-          '   opacity: 1;'                          +
-          ' }',
-          pseudoElContent =
-          ' [data-anchorjs-icon]::after {'          +
-          '   content: attr(data-anchorjs-icon);'   +
-          ' }',
-          anchorjsLinkFontFace =
-          ' @font-face {'                           +
-          '   font-family: "anchorjs-icons";'       +
-          '   src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgK
+        ' .anchorjs-link {' +
+        '   opacity: 0;' +
+        '   text-decoration: none;' +
+        '   -webkit-font-smoothing: antialiased;' +
+        '   -moz-osx-font-smoothing: grayscale;' +
+        ' }';
+
+      var hoverRule =
+        ' *:hover > .anchorjs-link,' +
+        ' .anchorjs-link:focus  {' +
+        '   opacity: 1;' +
+        ' }';
+
+      var pseudoElContent =
+        ' [data-anchorjs-icon]::after {' +
+        '   content: attr(data-anchorjs-icon);' +
+        ' }';
+
+      var anchorjsLinkFontFace =
+        ' @font-face {' +
+        '   font-family: "anchorjs-icons";' +
+        '   src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0NDXoaShoKGwoFBe8XFi6ALjgJCQobCjgaShoNDQ0NehpKGgobCgoKLYEuehYXAAAADACWAAEAAAAAAAEACAAAAAEAAAAAAAIAAwAIAAEAAAAAAAMACAAAAAEAAAAAAAQACAAAAAEAAAAAAAUAAQALAAEAAAAAAAYACAAAAAMAAQQJAAEAEAAMAAMAAQQJAAIABgAcAAMAAQQJAAMAEAAMAAMAAQQJAAQAEAAMAAMAAQQJAAUAAgAiAAMAAQQJAAYAEAAMYW5jaG9yanM0MDBAAGEAbgBjAGgAbwByAGoAcwA0ADAAMABAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAP) format("truetype");' +
+        ' }';
+
+      return [linkRule, hoverRule, pseudoElContent, anchorjsLinkFontFace];
+    };
+
+    /**
+     * Inserts the style element into the document head.
+     * @param {HTMLElement} style - The style element to insert
+     */
+    var _insertStyleElement = function(style) {
+      var firstStyleEl = document.head.querySelector('[rel="stylesheet"], style');
+      if (firstStyleEl === undefined) {
+        document.head.appendChild(style);
+      } else {
+        document.head.insertBefore(style, firstStyleEl);
+      }
+    };
+
+    /**
+     * Adds CSS rules to the style sheet.
+     * @param {CSSStyleSheet} sheet - The style sheet
+     * @param {Array} rules - Array of CSS rule strings
+     */
+    var _addCssRules = function(sheet, rules) {
+      for (var i = 0; i < rules.length; i++) {
+        sheet.insertRule(rules[i], sheet.cssRules.length);
+      }
+    };
+
+    /**
+     * _addBaselineStyles
+     * Adds baseline styles to the page, used by all AnchorJS links irregardless of configuration.
+     */
+    function _addBaselineStyles() {
+      if (document.head.querySelector('style.anchorjs') !== null) {
+        return;
+      }
+
+      var style = document.createElement('style');
+      style.className = 'anchorjs';
+      style.appendChild(document.createTextNode(''));
+
+      _insertStyleElement(style);
+
+      var rules = _buildCssRules();
+      _addCssRules(style.sheet, rules);
+    }
+  }
+
+  return AnchorJS;
+}));
+```

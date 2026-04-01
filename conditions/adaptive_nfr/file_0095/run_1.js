@@ -46,12 +46,25 @@ define([
 
             this.sjcl = new Sjcl(this.configs);
 
-            // Pass requests directly to Sjcl class
-            Radio.reply('encrypt', {
-                'sha256'           : this.sjcl.sha256,
-            }, this.sjcl);
+            this._registerDirectReplies();
+            this._registerDelegatedReplies();
+        },
 
-            // Replies
+        /**
+         * Register replies that pass directly to Sjcl class.
+         * @private
+         */
+        _registerDirectReplies: function() {
+            Radio.reply('encrypt', {
+                'sha256': this.sjcl.sha256,
+            }, this.sjcl);
+        },
+
+        /**
+         * Register replies that are handled by this class.
+         * @private
+         */
+        _registerDelegatedReplies: function() {
             Radio.reply('encrypt', {
                 'randomize'        : this.randomize,
                 'change:configs'   : this.changeConfigs,
@@ -117,7 +130,7 @@ define([
         },
 
         /**
-         * Check if encryption backup indicates a change.
+         * Check if encryption backup is not empty (user changed settings).
          * @private
          * @return bool
          */
@@ -176,10 +189,18 @@ define([
                 password: password
             }))
             .then(function(keys) {
-                self.keys.key    = keys.key;
-                self.keys.hexKey = keys.hexKey;
+                self._setKeys(keys);
                 self._saveSession();
             });
+        },
+
+        /**
+         * Set encryption keys.
+         * @private
+         */
+        _setKeys: function(keys) {
+            this.keys.key    = keys.key;
+            this.keys.hexKey = keys.hexKey;
         },
 
         /**
@@ -277,7 +298,6 @@ define([
         /**
          * Check if collection can be encrypted.
          * @private
-         * @param {Object} collection
          * @return bool
          */
         _canEncryptCollection: function(collection) {
@@ -294,7 +314,7 @@ define([
                 return new Q();
             }
 
-            if (!this._hasDecryptionKey()) {
+            if (!this._hasEncryptionKey()) {
                 Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
                 return new Q();
             }
@@ -316,7 +336,6 @@ define([
         /**
          * Check if collection can be decrypted.
          * @private
-         * @param {Object} collection
          * @return bool
          */
         _canDecryptCollection: function(collection) {
@@ -324,25 +343,23 @@ define([
         },
 
         /**
-         * Check if decryption key exists.
+         * Check if encryption key exists.
          * @private
          * @return bool
          */
-        _hasDecryptionKey: function() {
-            return !!this.keys.key;
+        _hasEncryptionKey: function() {
+            return this.keys.key;
         },
 
         /**
-         * Execute promise chain with error handling.
+         * Execute a chain of promises sequentially.
          * @private
-         * @param {Array} promises
-         * @param {string} errorPrefix
          * @return promise
          */
-        _executePromiseChain: function(promises, errorPrefix) {
+        _executePromiseChain: function(promises, errorLabel) {
             return _.reduce(promises, Q.when, new Q())
             .fail(function(e) {
-                console.error(errorPrefix, e);
+                console.error(errorLabel, e);
             });
         },
 

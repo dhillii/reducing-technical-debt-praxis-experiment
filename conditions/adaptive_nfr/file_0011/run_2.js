@@ -141,24 +141,26 @@ const handleImageUpload = async (
     }
 };
 
-/** Create font option objects from custom fonts list */
-const createFontOptions = (
+/** Create font options from custom fonts list */
+const createFontOptions = <T extends HeadingFontOption | BodyFontOption>(
     fonts: Array<{name: string; creator: string}>,
-    themeNameVersion: string,
-    isHeading: boolean
-): (HeadingFontOption | BodyFontOption)[] => {
+    isHeading: boolean,
+    themeNameVersion: string
+): T[] => {
     const options = fonts.map((font) => ({
         label: font.name,
         value: font.name,
         creator: font.creator,
         className: getFontClassName(font.name, isHeading)
-    }));
+    })) as T[];
+    
     options.unshift({
         label: DEFAULT_FONT,
         value: DEFAULT_FONT,
         creator: themeNameVersion,
         className: 'font-sans font-normal'
-    });
+    } as T);
+    
     return options;
 };
 
@@ -166,18 +168,18 @@ const createFontOptions = (
 const handleFontSelect = (
     option: FontSelectOption | undefined,
     isHeading: boolean,
-    themeNameVersion: string,
     setFont: (font: {name: string; creator: string}) => void,
-    updateSetting: (key: string, value: SettingValue) => void
+    updateSetting: (key: string, value: SettingValue) => void,
+    themeNameVersion: string,
+    fontsList: Array<{name: string; creator: string}>
 ): void => {
     const settingKey = isHeading ? 'heading_font' : 'body_font';
-    const fontList = isHeading ? CUSTOM_FONTS.heading : CUSTOM_FONTS.body;
-
+    
     if (option?.value === DEFAULT_FONT) {
         setFont({name: DEFAULT_FONT, creator: themeNameVersion});
         updateSetting(settingKey, '');
     } else {
-        const selectedFont = fontList.find(f => f.name === option?.value);
+        const selectedFont = fontsList.find(f => f.name === option?.value);
         setFont({
             name: option?.value || '',
             creator: selectedFont?.creator || ''
@@ -203,8 +205,8 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
     const [headingFont, setHeadingFont] = useState(CUSTOM_FONTS.heading.find(f => f.name === values.headingFont) || {name: DEFAULT_FONT, creator: themeNameVersion});
     const [bodyFont, setBodyFont] = useState(CUSTOM_FONTS.body.find(f => f.name === values.bodyFont) || {name: DEFAULT_FONT, creator: themeNameVersion});
 
-    const customHeadingFonts = createFontOptions(CUSTOM_FONTS.heading, themeNameVersion, true) as HeadingFontOption[];
-    const customBodyFonts = createFontOptions(CUSTOM_FONTS.body, themeNameVersion, false) as BodyFontOption[];
+    const customHeadingFonts = createFontOptions<HeadingFontOption>(CUSTOM_FONTS.heading, true, themeNameVersion);
+    const customBodyFonts = createFontOptions<BodyFontOption>(CUSTOM_FONTS.body, false, themeNameVersion);
 
     const selectFont = (fontName: string, isHeading: boolean): string => {
         return isDefaultFont(fontName) ? '' : getFontClassName(fontName, isHeading);
@@ -285,4 +287,81 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
                         pintura={
                             {
                                 isEnabled: editor.isEnabled,
-                                openEditor: async
+                                openEditor: async () => editor.openEditor({
+                                    image: values.coverImage || '',
+                                    handleSave: async (file:File) => {
+                                        try {
+                                            updateSetting('cover_image', getImageUrl(await uploadImage({file})));
+                                        } catch (e) {
+                                            handleError(e);
+                                        }
+                                    }
+                                })
+                            }
+                        }
+                        unsplashButtonClassName='!bg-transparent !h-6 !top-1.5 !w-6 !right-1.5 z-50'
+                        unsplashEnabled={unsplashEnabled}
+                        width='160px'
+                        onDelete={() => updateSetting('cover_image', null)}
+                        onUpload={async (file: any) => {
+                            await handleImageUpload(file, uploadImage, updateSetting, 'cover_image', handleError);
+                        }}
+                    >
+                    Upload cover
+                    </ImageUpload>
+                    {
+                        showUnsplash && unsplashConfig && unsplashEnabled && (
+                            <UnsplashSelector
+                                unsplashProviderConfig={unsplashConfig}
+                                onClose={() => {
+                                    setShowUnsplash(false);
+                                }}
+                                onImageInsert={(image) => {
+                                    if (image.src) {
+                                        updateSetting('cover_image', image.src);
+                                    }
+                                    setShowUnsplash(false);
+                                }}
+                            />
+                        )
+                    }
+                </div>
+            </Form>
+            <Form className='-mt-4' gap='sm' margins='lg' title='Typography'>
+                <Select
+                    className={selectFont(selectedHeadingFont.label, true)}
+                    components={{Option, SingleValue}}
+                    controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
+                    hint={''}
+                    menuShouldScrollIntoView={true}
+                    options={customHeadingFonts}
+                    selectedOption={selectedHeadingFont}
+                    testId='heading-font-select'
+                    title={'Heading font'}
+                    onSelect={(option) => {
+                        handleFontSelect(option, true, setHeadingFont, updateSetting, themeNameVersion, CUSTOM_FONTS.heading);
+                    }}
+                />
+                <Select
+                    className={selectFont(selectedBodyFont.label, false)}
+                    components={{Option, SingleValue}}
+                    controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
+                    hint={''}
+                    maxMenuHeight={200}
+                    menuPosition='fixed'
+                    menuShouldScrollIntoView={true}
+                    options={customBodyFonts}
+                    selectedOption={selectedBodyFont}
+                    testId='body-font-select'
+                    title={'Body font'}
+                    onSelect={(option) => {
+                        handleFontSelect(option, false, setBodyFont, updateSetting, themeNameVersion, CUSTOM_FONTS.body);
+                    }}
+                />
+            </Form>
+        </>
+    );
+};
+
+export default GlobalSettings;
+```

@@ -127,6 +127,7 @@ define([
         },
 
         checkPasswords: function(data) {
+            const self     = this;
             const promises = [];
 
             this._adjustOldPassword(data);
@@ -134,13 +135,15 @@ define([
             this._checkNewPassword(data, promises);
 
             return Q.all(promises)
-            .then((results) => this._handlePasswordResults(results, data));
+            .then(function(results) {
+                return self._handlePasswordResults(results, data);
+            });
         },
 
         /**
-         * Build raw data configs from current configs.
+         * Transform configs into raw data format.
          */
-        _buildRawDataConfigs: function() {
+        _transformConfigsToRawData: function(profile) {
             return _.map(this.configs, function(item, key) {
                 if (key === 'encrypt') {
                     item = '0';
@@ -156,11 +159,13 @@ define([
         },
 
         /**
-         * Initialize raw data structure for profiles.
+         * Initialize raw data structure with configs.
          */
         _initializeRawData: function(profile) {
             this.rawData = {};
-            this.rawData[profile] = {configs: this._buildRawDataConfigs()};
+            this.rawData[profile] = {
+                configs: this._transformConfigsToRawData(profile)
+            };
         },
 
         /**
@@ -222,40 +227,47 @@ define([
         },
 
         /**
-         * Process fetched collections and prepare for encryption.
+         * Filter and store non-empty collections.
          */
-        _processFetchedCollections: function(options) {
+        _filterAndStoreCollections: function(options, collections) {
             const self = this;
-            return function() {
-                self.collections = _.filter(arguments, function(collection) {
-                    self.rawData[options.profile][collection.storeName] = collection.toJSON();
-                    return collection.length > 0;
-                });
-                self.view.trigger('encrypt:init', self.collections.length);
-            };
+            self.collections = _.filter(collections, function(collection) {
+                self.rawData[options.profile][collection.storeName] = collection.toJSON();
+                return collection.length > 0;
+            });
+            self.view.trigger('encrypt:init', self.collections.length);
         },
 
         /**
          * Start encryption process
          */
         encryptProfile: function(options) {
+            const self = this;
+
+            // Fetch options
             options          = options || this.options;
             options.pageSize = 0;
 
             this.rawData[options.profile] = this.rawData[options.profile] || {};
 
+            // Fetch all collections in a profile
             const promises = this._fetchCollections(options);
 
+            /**
+             * After the collections are fetched, start re-encryption process.
+             */
             return Q.all(promises)
-            .spread(this._processFetchedCollections(options))
+            .spread(function() {
+                self._filterAndStoreCollections(options, Array.prototype.slice.call(arguments));
+            })
             .then(this.encrypt)
             .then(this.saveChanges);
         },
 
         /**
-         * Handle encryption disabled case.
+         * Handle disabled encryption case.
          */
-        _disableEncryption: function() {
+        _handleDisabledEncryption: function() {
             _.each(this.collections, function(collection) {
                 collection.each(function(model) {
                     model.set('encryptedData', null);
@@ -294,11 +306,16 @@ define([
         encrypt: function() {
             // Encryption is disabled
             if (Number(this.configs.encrypt) === 0) {
-                this._disableEncryption();
+                this._handleDisabledEncryption();
                 return;
             }
 
+            const self = this;
+
+            // Use new encryption configs
             this.vent.request('change:configs', this.configs);
+
+            // Encrypt every collection
             const promises = this._buildCollectionEncryptionPromises();
 
             return this.vent.request('save:secureKey', this.passwords.password)

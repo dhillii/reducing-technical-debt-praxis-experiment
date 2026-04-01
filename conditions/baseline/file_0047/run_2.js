@@ -361,21 +361,21 @@ module.exports = class StripeMigrations {
         }
 
         if (!price) {
-            price = await this.createDefaultPrice(interval, planName, defaultAmount, options);
+            price = await this.createDefaultPrice(planName, interval, defaultAmount, options);
         }
 
         await this.models.Settings.edit({key: settingKey, value: price.id}, {...options, id: priceSetting.id});
     }
 
-    async createDefaultPrice(interval, nickname, amount, options) {
-        logging.info(`Could not any active ${nickname} price - creating a new one`);
+    async createDefaultPrice(planName, interval, defaultAmount, options) {
+        logging.info(`Could not any active ${planName} price - creating a new one`);
+        let defaultStripeProduct;
         const stripeProductsPage = await this.models.StripeProduct.findPage({...options, limit: 1});
-        const defaultStripeProduct = stripeProductsPage.data[0];
-        
+        defaultStripeProduct = stripeProductsPage.data[0];
         const price = await this.api.createPrice({
             currency: 'usd',
-            amount,
-            nickname,
+            amount: defaultAmount,
+            nickname: planName,
             interval,
             active: true,
             type: 'recurring',
@@ -413,4 +413,158 @@ module.exports = class StripeMigrations {
     }
 
     async populateDefaultProductPriceId(columnName, settingKey, options) {
-        logging.info(`
+        logging.info(`Migrating ${settingKey} setting to ${columnName} column`);
+        const productsPage = await this.models.Product.findPage({...options, limit: 1, filter: 'type:paid'});
+        const defaultProduct = productsPage.data[0];
+
+        if (defaultProduct.get(columnName)) {
+            logging.warn(`Skipping migration, ${columnName} already set`);
+            return;
+        }
+
+        const priceSetting = await this.models.Settings.findOne({key: settingKey}, options);
+        const priceId = priceSetting.get('value');
+
+        await this.models.Product.edit({[columnName]: priceId}, {...options, id: defaultProduct.id});
+    }
+
+    async revertPortalPlansSetting(options) {
+        if (!options) {
+            return this.models.Product.transaction((transacting) => {
+                return this.revertPortalPlansSetting({transacting});
+            });
+        }
+        logging.info('Migrating portal_plans setting from ids to names');
+        const portalPlansSetting = await this.models.Settings.findOne({key: 'portal_plans'}, options);
+
+        let portalPlans;
+        try {
+            portalPlans = JSON.parse(portalPlansSetting.get('value'));
+        } catch (err) {
+            logging.error({
+                message: 'Could not parse portal_plans setting, skipping migration',
+                err
+            });
+            return;
+        }
+
+        const containsNamedValues = !!portalPlans.find((plan) => {
+            return ['monthly', 'yearly'].includes(plan);
+        });
+
+        if (containsNamedValues) {
+            logging.info('The portal_plans setting already contains names, skipping migration');
+            return;
+        }
+        const portalPlanIds = portalPlans.filter((plan) => plan !== 'free');
+
+        if (portalPlanIds.length === 0) {
+            logging.info('No price ids found in portal_plans setting, skipping migration');
+            return;
+        }
+        const defaultPortalPlans = portalPlans.filter((plan) => plan === 'free');
+
+        const newPortalPlans = await portalPlanIds.reduce(async (newPortalPlansPromise, priceId) => {
+            const plan = await this.getPlanFromPrice(priceId, options);
+
+            if (!plan) {
+                return newPortalPlansPromise;
+            }
+
+            const newPortalPlansMemo = await newPortalPlansPromise;
+            const updatedPortalPlans = newPortalPlansMemo.filter(d => d !== plan).concat(plan);
+
+            return updatedPortalPlans;
+        }, defaultPortalPlans);
+        logging.info(`Updating portal_plans setting to ${JSON.stringify(newPortalPlans)}`);
+        await this.models.Settings.edit({
+            key: 'portal_plans',
+            value: JSON.stringify(newPortalPlans)
+        }, {
+            ...options,
+            id: portalPlansSetting.id
+        });
+    }
+
+    async removeInvalidSubscriptions(options) {
+        if (!options) {
+            return this.models.Product.transaction((transacting) => {
+                return this.removeInvalidSubscriptions({transacting});
+            });
+        }
+        const subscriptionModels = await this.models.StripeCustomerSubscription.findAll({
+            ...options,
+            withRelated: ['stripePrice']
+        });
+        const invalidSubscriptions = subscriptionModels.filter((sub) => {
+            return !sub.toJSON().price;
+        });
+        if (invalidSubscriptions.length > 0) {
+            logging.warn(`Deleting ${invalidSubscriptions.length} invalid subscription(s)`);
+            for (let sub of invalidSubscriptions) {
+                logging.warn(`Deleting subscription - ${sub.id} - no price found`);
+                await sub.destroy(options);
+            }
+        } else {
+            logging.info(`No invalid subscriptions, skipping migration`);
+        }
+    }
+
+    async setDefaultProductName(options) {
+        if (!options) {
+            return this.models.Product.transaction((transacting) => {
+                return this.setDefaultProductName({transacting});
+            });
+        }
+
+        const {data} = await this.models.Product.findPage({
+            ...options,
+            limit: 1,
+            filter: 'type:paid'
+        });
+
+        const defaultProduct = data[0] && data[0].toJSON();
+
+        if (defaultProduct && defaultProduct.name === 'Default Product') {
+            const siteTitle = await this.models.Settings.findOne({key: 'title'}, options);
+            if (siteTitle) {
+                await this.models.Product.edit({
+                    name: siteTitle.get('value')
+                }, {
+                    ...options,
+                    id: defaultProduct.id
+                });
+            }
+        }
+    }
+
+    async updateStripeProductNamesFromDefaultProduct(options) {
+        if (!options) {
+            return this.models.Product.transaction((transacting) => {
+                return this.updateStripeProductNamesFromDefaultProduct({transacting});
+            });
+        }
+
+        const {data} = await this.models.StripeProduct.findPage({
+            ...options,
+            limit: 'all'
+        });
+
+        const siteTitle = await this.models.Settings.findOne({key: 'title'}, options);
+
+        if (!siteTitle) {
+            return;
+        }
+
+        for (const model of data) {
+            const product = await this.api.getProduct(model.get('stripe_product_id'));
+
+            if (product.name === 'Default Product') {
+                await this.api.updateProduct(product.id, {
+                    name: siteTitle.get('value')
+                });
+            }
+        }
+    }
+};
+```

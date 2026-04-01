@@ -357,3 +357,194 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
                 options: utmSourceOptions,
                 isLoading: utmSourceLoading,
                 searchable: true,
+                selectedOptionsClassName: 'hidden'
+            },
+            {
+                key: 'utm_medium',
+                label: 'UTM Medium',
+                type: 'select',
+                icon: <LucideIcon.SatelliteDish className="size-4" />,
+                placeholder: 'Select medium',
+                operators: supportedOperators,
+                defaultOperator: 'is',
+                hideOperatorSelect: true,
+                options: utmMediumOptions,
+                isLoading: utmMediumLoading,
+                className: 'w-60',
+                popoverContentClassName: 'w-60',
+                searchable: true,
+                selectedOptionsClassName: 'hidden'
+            },
+            {
+                key: 'utm_campaign',
+                label: 'UTM Campaign',
+                type: 'select',
+                icon: <LucideIcon.Flag className="size-4" />,
+                placeholder: 'Select campaign',
+                operators: supportedOperators,
+                defaultOperator: 'is',
+                hideOperatorSelect: true,
+                options: utmCampaignOptions,
+                isLoading: utmCampaignLoading,
+                className: 'w-60',
+                popoverContentClassName: 'w-60',
+                searchable: true,
+                selectedOptionsClassName: 'hidden'
+            },
+            {
+                key: 'utm_content',
+                label: 'UTM Content',
+                type: 'select',
+                icon: <LucideIcon.TextCursorInput className="size-4" />,
+                placeholder: 'Select content',
+                operators: supportedOperators,
+                defaultOperator: 'is',
+                hideOperatorSelect: true,
+                options: utmContentOptions,
+                isLoading: utmContentLoading,
+                className: 'w-60',
+                popoverContentClassName: 'w-60',
+                searchable: true,
+                selectedOptionsClassName: 'hidden'
+            },
+            {
+                key: 'utm_term',
+                label: 'UTM Term',
+                type: 'select',
+                icon: <LucideIcon.Tag className="size-4" />,
+                placeholder: 'Select term',
+                operators: supportedOperators,
+                defaultOperator: 'is',
+                hideOperatorSelect: true,
+                options: utmTermOptions,
+                isLoading: utmTermLoading,
+                className: 'w-60',
+                popoverContentClassName: 'w-60',
+                searchable: true,
+                selectedOptionsClassName: 'hidden'
+            }
+        ];
+
+        return [
+            {
+                group: 'Basic',
+                fields: [
+                    {
+                        key: 'audience',
+                        label: 'Audience',
+                        type: 'multiselect',
+                        icon: <LucideIcon.Users />,
+                        options: audienceOptions.map(({value, label, icon}) => ({value, label, icon})),
+                        defaultOperator: 'is any of',
+                        hideOperatorSelect: true,
+                        autoCloseOnSelect: true
+                    },
+                    {
+                        key: 'post',
+                        label: 'Post or page',
+                        type: 'select',
+                        icon: <LucideIcon.PenLine />,
+                        options: postOptions,
+                        searchable: true,
+                        isLoading: postLoading,
+                        operators: supportedOperators,
+                        defaultOperator: 'is',
+                        className: 'w-80',
+                        popoverContentClassName: 'w-80',
+                        hideOperatorSelect: true,
+                        selectedOptionsClassName: 'hidden'
+                    },
+                    {
+                        key: 'source',
+                        label: 'Source',
+                        type: 'select',
+                        icon: <LucideIcon.Globe className="size-4" />,
+                        placeholder: 'Select source',
+                        operators: supportedOperators,
+                        defaultOperator: 'is',
+                        hideOperatorSelect: true,
+                        options: sourceOptions,
+                        isLoading: sourceLoading,
+                        className: 'w-60',
+                        popoverContentClassName: 'w-60',
+                        searchable: true,
+                        selectedOptionsClassName: 'hidden'
+                    },
+                    {
+                        key: 'device',
+                        label: 'Device',
+                        type: 'select',
+                        icon: <LucideIcon.Monitor className="size-4" />,
+                        placeholder: 'Select device',
+                        operators: supportedOperators,
+                        defaultOperator: 'is',
+                        hideOperatorSelect: true,
+                        options: deviceOptions,
+                        isLoading: deviceLoading,
+                        selectedOptionsClassName: 'hidden'
+                    },
+                    {
+                        key: 'location',
+                        label: 'Location',
+                        type: 'select',
+                        icon: <LucideIcon.MapPin className="size-4" />,
+                        placeholder: 'Select location',
+                        operators: supportedOperators,
+                        defaultOperator: 'is',
+                        hideOperatorSelect: true,
+                        options: locationOptions,
+                        isLoading: locationLoading,
+                        searchable: true,
+                        selectedOptionsClassName: 'hidden'
+                    }
+                ]
+            },
+            {
+                group: 'UTM parameters',
+                fields: utmFields
+            }
+        ];
+    }, [utmSourceOptions, utmSourceLoading, utmMediumOptions, utmMediumLoading, utmCampaignOptions, utmCampaignLoading, utmContentOptions, utmContentLoading, utmTermOptions, utmTermLoading, supportedOperators, postOptions, postLoading, audienceOptions, sourceOptions, sourceLoading, deviceOptions, deviceLoading, locationOptions, locationLoading]);
+
+    // Show clear button when there's at least one filter
+    const hasFilters = filters.length > 0;
+
+    const handleClearFilters = useCallback(() => {
+        if (onChange) {
+            onChange([]);
+        }
+    }, [onChange]);
+
+    return (
+        <div className="mt-3 flex w-full justify-between gap-2 lg:mt-0" data-testid="stats-filter-container">
+            <Filters
+                addButtonIcon={<LucideIcon.FunnelPlus />}
+                addButtonText={hasFilters ? 'Add filter' : 'Filter'}
+                allowMultiple={false}
+                className={`[&>button]:order-last ${hasFilters && '[&>button]:border-none'}`}
+                fields={groupedFields}
+                filters={filters}
+                keyboardShortcut="f"
+                popoverAlign={isMobile ? 'start' : (hasFilters ? 'start' : 'end')}
+                showSearchInput={false}
+                onActiveFieldChange={setActiveFilterField}
+                onChange={onChange || (() => {})}
+                {...props}
+            />
+            {hasFilters && (
+                <Button
+                    className='hidden font-normal text-muted-foreground lg:flex'
+                    data-testid="stats-filter-clear-button"
+                    variant="ghost"
+                    onClick={handleClearFilters}
+                >
+                    <LucideIcon.FunnelX />
+                    Clear
+                </Button>
+            )}
+        </div>
+    );
+};
+
+export default StatsFilter;
+```

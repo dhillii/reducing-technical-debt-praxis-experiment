@@ -52,9 +52,9 @@ function isRequiredFieldMissing(value: number | null, isRequired: boolean): bool
   return isRequired && value === null
 }
 
-/** Check if value is not a valid integer */
-function isInvalidInteger(value: number | null): boolean {
-  return typeof value === 'number' && !Number.isInteger(value)
+/** Check if value is a valid integer */
+function isValidInteger(value: number): boolean {
+  return Number.isInteger(value)
 }
 
 /** Check if value violates minimum constraint */
@@ -92,7 +92,7 @@ function validate_(
     return
   }
 
-  if (isInvalidInteger(input)) {
+  if (!isValidInteger(input)) {
     return `${label} is not a valid integer`
   }
 
@@ -124,8 +124,6 @@ export function controller(
     )
   }
 
-  const hasAutoIncrementDefault = config.fieldMeta.defaultValue === 'autoincrement'
-
   return {
     fieldKey: config.fieldKey,
     label: config.label,
@@ -134,7 +132,8 @@ export function controller(
     validation: config.fieldMeta.validation,
     defaultValue: {
       kind: 'create',
-      value: hasAutoIncrementDefault ? null : config.fieldMeta.defaultValue,
+      value:
+        config.fieldMeta.defaultValue === 'autoincrement' ? null : config.fieldMeta.defaultValue,
     },
     deserialize: data => ({
       kind: 'update',
@@ -142,18 +141,17 @@ export function controller(
       initial: data[config.fieldKey],
     }),
     serialize: value => ({ [config.fieldKey]: value.value }),
-    hasAutoIncrementDefault,
+    hasAutoIncrementDefault: config.fieldMeta.defaultValue === 'autoincrement',
     validate: (value, opts) => validate(value, opts) === undefined,
     filter: {
-      Filter(props: Readonly<{
-        readonly autoFocus?: boolean
-        readonly context?: string
-        readonly forceValidation?: boolean
-        readonly typeLabel?: string
-        readonly onChange?: (value: number | null) => void
-        readonly type: string
-        readonly value: number | null
-        readonly [key: string]: unknown
+      Filter(props: Readonly<Parameters<typeof NumberField>[0] & {
+        autoFocus?: boolean
+        context?: string
+        forceValidation?: boolean
+        typeLabel?: string
+        onChange?: (value: number | null) => void
+        type?: string
+        value?: number | null
       }>) {
         const {
           autoFocus,
@@ -197,12 +195,15 @@ export function controller(
         if (type === 'empty') {
           return { [config.fieldKey]: { equals: null } }
         }
+
         if (type === 'not_empty') {
           return { [config.fieldKey]: { not: { equals: null } } }
         }
+
         if (type === 'not') {
           return { [config.fieldKey]: { not: { equals: value } } }
         }
+
         return { [config.fieldKey]: { [type]: value } }
       },
 
@@ -224,9 +225,11 @@ export function controller(
             if (value?.equals === null) {
               return { type: 'not_empty', value: null }
             }
+
             if (value?.equals === undefined) {
               return []
             }
+
             return { type: 'not', value: value.equals }
           }
 
@@ -239,13 +242,14 @@ export function controller(
       },
 
       Label({ label, type, value }: Readonly<{
-        readonly label: string
-        readonly type: string
-        readonly value: number | null
+        label: string
+        type: string
+        value: number | null
       }>) {
         if (type === 'empty' || type === 'not_empty') {
           return label.toLocaleLowerCase()
         }
+
         const operator = TYPE_OPERATOR_MAP[type as keyof typeof TYPE_OPERATOR_MAP]
         return `${operator} ${value}`
       },

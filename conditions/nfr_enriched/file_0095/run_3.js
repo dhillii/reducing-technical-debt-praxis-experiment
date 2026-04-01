@@ -105,18 +105,37 @@ define([
          * @return bool
          */
         checkAuth: function() {
-            // If encryption backup is not empty, it means a user changed encryption settings.
-            if (!_.isEmpty(this.configs.encryptBackup)) {
-                Radio.trigger('encrypt', 'changed');
+            if (this._isEncryptionChanged()) {
                 return {isChanged: true};
             }
 
-            // Encryption is disabled
-            if (!Number(this.configs.encrypt) || this.configs.encryptPass === '') {
+            if (this._isEncryptionDisabled()) {
                 return true;
             }
 
             return !_.isEmpty(this.keys) || this._getSession() !== null;
+        },
+
+        /**
+         * Check if encryption settings have been changed.
+         *
+         * @return bool
+         */
+        _isEncryptionChanged: function() {
+            if (!_.isEmpty(this.configs.encryptBackup)) {
+                Radio.trigger('encrypt', 'changed');
+                return true;
+            }
+            return false;
+        },
+
+        /**
+         * Check if encryption is disabled.
+         *
+         * @return bool
+         */
+        _isEncryptionDisabled: function() {
+            return !Number(this.configs.encrypt) || this.configs.encryptPass === '';
         },
 
         /**
@@ -226,7 +245,6 @@ define([
          * @return promise
          */
         encryptModels: function(collection) {
-            // The collection is empty or PBKDF2 wasn't generated
             if (!this._canEncryptCollection(collection)) {
                 return new Q();
             }
@@ -249,19 +267,21 @@ define([
         },
 
         /**
+         * Check if collection can be encrypted.
+         *
+         * @return bool
+         */
+        _canEncryptCollection: function(collection) {
+            return collection.length && Number(this.configs.encrypt) && this.keys.key;
+        },
+
+        /**
          * Decrypt a collection.
          *
          * @return promise
          */
         decryptModels: function(collection) {
-            // The collection is empty or encryption is disabled
-            if (!collection.length || !Number(this.configs.encrypt)) {
-                return new Q();
-            }
-
-            // PBKDF2 wasn't generated
-            if (!this.keys.key) {
-                Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
+            if (!this._canDecryptCollection(collection)) {
                 return new Q();
             }
 
@@ -280,6 +300,24 @@ define([
             .fail(function(e) {
                 console.error('DecryptModels Error:', e);
             });
+        },
+
+        /**
+         * Check if collection can be decrypted.
+         *
+         * @return bool
+         */
+        _canDecryptCollection: function(collection) {
+            if (!collection.length || !Number(this.configs.encrypt)) {
+                return false;
+            }
+
+            if (!this.keys.key) {
+                Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
+                return false;
+            }
+
+            return true;
         },
 
         /**
@@ -304,7 +342,7 @@ define([
         },
 
         /**
-         * Deprecated decryption. Decrypts individual model keys.
+         * Deprecated decryption.
          *
          * @return promise
          */
@@ -377,16 +415,6 @@ define([
             let profile = Radio.request('uri', 'profile') || 'default';
             profile = (Number(this.configs.useDefaultConfigs) ? 'default' : profile);
             return 'secureKey.' + profile;
-        },
-
-        /**
-         * Check if collection can be encrypted. Validates collection length,
-         * encryption config, and key availability.
-         *
-         * @return boolean
-         */
-        _canEncryptCollection: function(collection) {
-            return collection.length && Number(this.configs.encrypt) && this.keys.key;
         }
 
     });

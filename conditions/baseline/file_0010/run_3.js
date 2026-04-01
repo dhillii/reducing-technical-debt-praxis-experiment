@@ -343,3 +343,52 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                             hideTitle
                             onChange={e => benefits.setNewItem(e.target.value)}
                             onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    benefits.addItem();
+                                }
+                            }}
+                        />
+                        <Button
+                            className='absolute right-[5px] top-[5px] z-10'
+                            color='green'
+                            icon='add'
+                            iconColorClass='text-white'
+                            label='Add'
+                            size='sm'
+                            hideLabel
+                            onClick={() => benefits.addItem()}
+                        />
+                    </div>
+                </Form>
+            </div>
+            <div className='sticky top-[96px] hidden shrink-0 basis-[380px] min-[920px]:!visible min-[920px]:!block'>
+                <TierDetailPreview isFreeTier={isFreeTier} tier={formState} />
+            </div>
+        </div>
+    </Modal>;
+};
+
+const TierDetailModal: React.FC<RoutingModalProps> = ({params}) => {
+    const {data: {tiers, isEnd} = {}, fetchNextPage} = useBrowseTiers();
+
+    let tier: Tier | undefined;
+
+    useEffect(() => {
+        if (params?.id && !tier && !isEnd) {
+            fetchNextPage();
+        }
+    }, [fetchNextPage, isEnd, params?.id, tier]);
+
+    if (params?.id) {
+        tier = tiers?.find(({id}) => id === params?.id);
+
+        if (!tier) {
+            return null;
+        }
+    }
+
+    return <TierDetailModalContent tier={tier} />;
+};
+
+export default NiceModal.create(TierDetailModal);
+```

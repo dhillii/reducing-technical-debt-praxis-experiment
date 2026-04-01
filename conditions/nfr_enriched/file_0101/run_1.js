@@ -64,7 +64,7 @@ Keychain.prototype.refreshKeyForUserId = function(options) {
     const userId = options.userId;
     const overridePermission = options.overridePermission;
 
-    return self.getReceiverPublicKey(userId).then(function(localKey) {
+    return self.getReceiverPublicKey(userId).then((localKey) => {
         if (!localKey || !localKey._id) {
             return;
         }
@@ -76,17 +76,17 @@ Keychain.prototype.refreshKeyForUserId = function(options) {
 };
 
 /**
- * Checks if the user's key has been revoked by looking up the key id
+ * Checks if the user's key exists on the key server
  * @private
  */
 Keychain.prototype._checkKeyExists = function(localKey, userId, overridePermission) {
     const self = this;
-    return self._publicKeyDao.getByUserId(userId).then(function(cloudKey) {
+    return self._publicKeyDao.getByUserId(userId).then((cloudKey) => {
         if (cloudKey && cloudKey._id === localKey._id) {
             return localKey;
         }
         return self._updateKey(localKey, cloudKey, userId, overridePermission);
-    }).catch(function(err) {
+    }).catch((err) => {
         if (err && err.code === 42) {
             return localKey;
         }
@@ -112,11 +112,11 @@ Keychain.prototype._updateKey = function(localKey, newKey, userId, overridePermi
  */
 Keychain.prototype._requestPermission = function(localKey, newKey, userId) {
     const self = this;
-    return new Promise(function(resolve, reject) {
+    return new Promise((resolve, reject) => {
         self.requestPermissionForKeyUpdate({
             userId: userId,
             newKey: newKey
-        }, function(granted) {
+        }, (granted) => {
             if (!granted) {
                 resolve(localKey);
                 return;
@@ -127,18 +127,16 @@ Keychain.prototype._requestPermission = function(localKey, newKey, userId) {
 };
 
 /**
- * Handles the key update after permission is granted
+ * Persists the new key after permission is granted
  * @private
  */
 Keychain.prototype._permissionGranted = function(localKey, newKey) {
     const self = this;
-    return self.removeLocalPublicKey(localKey._id).then(function() {
+    return self.removeLocalPublicKey(localKey._id).then(() => {
         if (!newKey) {
             return;
         }
-        return self.saveLocalPublicKey(newKey).then(function() {
-            return newKey;
-        });
+        return self.saveLocalPublicKey(newKey).then(() => newKey);
     });
 };
 
@@ -149,31 +147,21 @@ Keychain.prototype._permissionGranted = function(localKey, newKey) {
 Keychain.prototype.getReceiverPublicKey = function(userId) {
     const self = this;
 
-    return self._lawnchairDAO.list(DB_PUBLICKEY).then(function(allPubkeys) {
+    return self._lawnchairDAO.list(DB_PUBLICKEY).then((allPubkeys) => {
         const pubkey = self._findPublicKeyByUserId(allPubkeys, userId);
         
         if (pubkey && pubkey._id) {
             return pubkey;
         }
 
-        return self._publicKeyDao.getByUserId(userId).then(function(cloudPubkey) {
-            if (!cloudPubkey) {
-                return;
-            }
-            return self.saveLocalPublicKey(cloudPubkey).then(function() {
-                return cloudPubkey;
-            });
-        }).catch(function(err) {
-            if (err && err.code === 42) {
-                return;
-            }
-            throw err;
-        });
+        return self._publicKeyDao.getByUserId(userId)
+            .then((cloudPubkey) => self._onKeyReceived(cloudPubkey))
+            .catch((err) => self._onKeyError(err));
     });
 };
 
 /**
- * Finds a public key by user id in the local keyring
+ * Finds a public key in the local keyring by user id
  * @private
  */
 Keychain.prototype._findPublicKeyByUserId = function(allPubkeys, userId) {
@@ -193,6 +181,29 @@ Keychain.prototype._findPublicKeyByUserId = function(allPubkeys, userId) {
     return pubkey;
 };
 
+/**
+ * Handles successful key retrieval from cloud
+ * @private
+ */
+Keychain.prototype._onKeyReceived = function(cloudPubkey) {
+    const self = this;
+    if (!cloudPubkey) {
+        return;
+    }
+    return self.saveLocalPublicKey(cloudPubkey).then(() => cloudPubkey);
+};
+
+/**
+ * Handles key retrieval errors
+ * @private
+ */
+Keychain.prototype._onKeyError = function(err) {
+    if (err && err.code === 42) {
+        return;
+    }
+    throw err;
+};
+
 //
 // Keypair functions
 //
@@ -206,14 +217,14 @@ Keychain.prototype._findPublicKeyByUserId = function(allPubkeys, userId) {
 Keychain.prototype.getUserKeyPair = function(userId) {
     const self = this;
 
-    return self._lawnchairDAO.list(DB_PUBLICKEY).then(function(allPubkeys) {
+    return self._lawnchairDAO.list(DB_PUBLICKEY).then((allPubkeys) => {
         const pubkey = _.findWhere(allPubkeys, { userId: userId });
 
         if (pubkey && pubkey._id && !pubkey.source) {
             return self._syncKeypair(pubkey._id);
         }
 
-        return self._publicKeyDao.getByUserId(userId).then(function(cloudPubkey) {
+        return self._publicKeyDao.getByUserId(userId).then((cloudPubkey) => {
             if (cloudPubkey && cloudPubkey._id && !cloudPubkey.source) {
                 return self._syncKeypair(cloudPubkey._id);
             }
@@ -230,13 +241,15 @@ Keychain.prototype._syncKeypair = function(keypairId) {
     let savedPubkey;
     let savedPrivkey;
 
-    return self.lookupPublicKey(keypairId).then(function(pub) {
-        savedPubkey = pub;
-        return self.lookupPrivateKey(keypairId);
-    }).then(function(priv) {
-        savedPrivkey = priv;
-        return self._buildKeypairObject(savedPubkey, savedPrivkey);
-    });
+    return self.lookupPublicKey(keypairId)
+        .then((pub) => {
+            savedPubkey = pub;
+            return self.lookupPrivateKey(keypairId);
+        })
+        .then((priv) => {
+            savedPrivkey = priv;
+            return self._buildKeypairObject(savedPubkey, savedPrivkey);
+        });
 };
 
 /**
@@ -265,18 +278,14 @@ Keychain.prototype.putUserKeyPair = function(keypair) {
     const self = this;
 
     if (!self._isValidKeypair(keypair)) {
-        return new Promise(function() {
-            throw new Error('Cannot put user key pair: Incorrect input!');
-        });
+        return Promise.reject(new Error('Cannot put user key pair: Incorrect input!'));
     }
 
     keypair.publicKey.imported = true;
 
-    return self.saveLocalPublicKey(keypair.publicKey).then(function() {
-        return self._publicKeyDao.put(keypair.publicKey);
-    }).then(function() {
-        return self.saveLocalPrivateKey(keypair.privateKey);
-    });
+    return self.saveLocalPublicKey(keypair.publicKey)
+        .then(() => self._publicKeyDao.put(keypair.publicKey))
+        .then(() => self.saveLocalPrivateKey(keypair.privateKey));
 };
 
 /**
@@ -298,9 +307,7 @@ Keychain.prototype._isValidKeypair = function(keypair) {
  */
 Keychain.prototype.uploadPublicKey = function(publicKey) {
     if (!publicKey || !publicKey.userId || !publicKey.publicKey) {
-        return new Promise(function() {
-            throw new Error('Cannot upload user key pair: Incorrect input!');
-        });
+        return Promise.reject(new Error('Cannot upload user key pair: Incorrect input!'));
     }
 
     return this._publicKeyDao.put(publicKey);
@@ -312,24 +319,18 @@ Keychain.prototype.uploadPublicKey = function(publicKey) {
 
 Keychain.prototype.lookupPublicKey = function(id) {
     const self = this;
-    let cloudPubkey;
 
     if (!id) {
-        return new Promise(function() {
-            throw new Error('ID must be set for public key query!');
-        });
+        return Promise.reject(new Error('ID must be set for public key query!'));
     }
 
-    return self._lawnchairDAO.read(DB_PUBLICKEY + '_' + id).then(function(pubkey) {
+    return self._lawnchairDAO.read(DB_PUBLICKEY + '_' + id).then((pubkey) => {
         if (pubkey) {
             return pubkey;
         }
 
-        return self._publicKeyDao.get(id).then(function(pub) {
-            cloudPubkey = pub;
-            return self.saveLocalPublicKey(cloudPubkey);
-        }).then(function() {
-            return cloudPubkey;
+        return self._publicKeyDao.get(id).then((pub) => {
+            return self.saveLocalPublicKey(pub).then(() => pub);
         });
     });
 };

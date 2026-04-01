@@ -212,7 +212,7 @@ exports.list = function (failures) {
     // explicitly show diff
     if (!exports.hideDiff && showDiff(err)) {
       stringifyDiffObjs(err);
-      let diffFmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
+      let fmtDiff = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
       const match = message.match(/^([^:]+): expected/);
       msg = '\n      ' + color('error message', match ? match[1] : msg);
 
@@ -228,11 +228,11 @@ exports.list = function (failures) {
 
     // indented test title
     let testTitle = '';
-    test.titlePath().forEach(function (str, titleIndex) {
-      if (titleIndex !== 0) {
+    test.titlePath().forEach(function (str, index) {
+      if (index !== 0) {
         testTitle += '\n     ';
       }
-      for (let j = 0; j < titleIndex; j++) {
+      for (let i = 0; i < index; i++) {
         testTitle += '  ';
       }
       testTitle += str;

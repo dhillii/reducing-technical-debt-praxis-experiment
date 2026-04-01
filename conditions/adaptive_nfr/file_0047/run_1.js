@@ -191,11 +191,11 @@ module.exports = class StripeMigrations {
     }
 
     /**
-     * Get or create default stripe product
+     * Create default stripe product if not exists
      * @param {object} options
      * @returns {Promise<object>}
      */
-    async getOrCreateDefaultStripeProduct(options) {
+    async ensureDefaultStripeProduct(options) {
         const stripeProductsPage = await this.models.StripeProduct.findPage({...options, limit: 1});
         let defaultStripeProduct = stripeProductsPage.data[0];
 
@@ -225,12 +225,12 @@ module.exports = class StripeMigrations {
     }
 
     /**
-     * Create and add stripe price to database
+     * Create stripe price from plan
      * @param {object} plan
      * @param {object} defaultStripeProduct
      * @param {object} options
      */
-    async createAndAddStripePrice(plan, defaultStripeProduct, options) {
+    async createStripePriceFromPlan(plan, defaultStripeProduct, options) {
         try {
             logging.info(`Creating Stripe Price ${JSON.stringify(plan)}`);
             const price = await this.api.createPrice({
@@ -272,7 +272,7 @@ module.exports = class StripeMigrations {
             return;
         }
 
-        const defaultStripeProduct = await this.getOrCreateDefaultStripeProduct(options);
+        const defaultStripeProduct = await this.ensureDefaultStripeProduct(options);
         if (!defaultStripeProduct) {
             return;
         }
@@ -282,7 +282,7 @@ module.exports = class StripeMigrations {
 
             if (!existingPrice) {
                 logging.info(`Could not find Stripe Price ${JSON.stringify(plan)}`);
-                await this.createAndAddStripePrice(plan, defaultStripeProduct, options);
+                await this.createStripePriceFromPlan(plan, defaultStripeProduct, options);
             }
         }
     }
@@ -293,33 +293,19 @@ module.exports = class StripeMigrations {
      * @returns {boolean}
      */
     containsOldPortalPlanValues(portalPlans) {
-        return !!portalPlans.find((plan) => {
-            return ['monthly', 'yearly'].includes(plan);
-        });
+        return portalPlans.some(plan => ['monthly', 'yearly'].includes(plan));
     }
 
     /**
-     * Find plan by name
-     * @param {Array} plans
-     * @param {string} planName
-     * @returns {object|undefined}
-     */
-    findPlanByName(plans, planName) {
-        return plans.find((planItem) => {
-            return planItem.name === planName;
-        });
-    }
-
-    /**
-     * Convert portal plan to price id
+     * Convert old plan name to price id
      * @param {string} plan
      * @param {Array} plans
      * @param {object} options
      * @returns {Promise<string|null>}
      */
-    async convertPortalPlanToPriceId(plan, plans, options) {
+    async convertPlanNameToId(plan, plans, options) {
         if (plan === 'monthly') {
-            const monthlyPlan = this.findPlanByName(plans, 'Monthly');
+            const monthlyPlan = plans.find(p => p.name === 'Monthly');
             if (!monthlyPlan) {
                 return null;
             }
@@ -328,7 +314,7 @@ module.exports = class StripeMigrations {
         }
 
         if (plan === 'yearly') {
-            const yearlyPlan = this.findPlanByName(plans, 'Yearly');
+            const yearlyPlan = plans.find(p => p.name === 'Yearly');
             if (!yearlyPlan) {
                 return null;
             }
@@ -365,8 +351,8 @@ module.exports = class StripeMigrations {
         }
 
         const newPortalPlans = await portalPlans.reduce(async (newPortalPlansPromise, plan) => {
-            const newPlan = await this.convertPortalPlanToPriceId(plan, plans, options);
-            if (newPlan === null) {
+            const newPlan = await this.convertPlanNameToId(plan, plans, options);
+            if (!newPlan) {
                 return newPortalPlansPromise;
             }
             const newPortalPlansMemo = await newPortalPlansPromise;
@@ -381,6 +367,29 @@ module.exports = class StripeMigrations {
             ...options,
             id: portalPlansSetting.id
         });
+    }
+
+    /**
+     * Parse stripe plans setting
+     * @param {object} stripePlans
+     * @returns {Array|null}
+     */
+    parseStripePlans(stripePlans) {
+        try {
+            return JSON.parse(stripePlans.get('value'));
+        } catch (err) {
+            return null;
+        }
+    }
+
+    /**
+     * Find plan by name
+     * @param {Array} plans
+     * @param {string} planName
+     * @returns {object|undefined}
+     */
+    findPlanByName(plans, planName) {
+        return plans.find(plan => plan.name === planName);
     }
 
     /**
@@ -443,4 +452,348 @@ module.exports = class StripeMigrations {
             });
         }
         logging.info('Populating members_monthly_price_id from stripe_plans');
-        const monthlyP
+        const monthlyPriceId = await this.models.Settings.findOne({key: 'members_monthly_price_id'}, options);
+
+        if (monthlyPriceId.get('value')) {
+            logging.info('Skipping population of members_monthly_price_id, already populated');
+            return;
+        }
+
+        const stripePlans = await this.models.Settings.findOne({key: 'stripe_plans'}, options);
+        const plans = this.parseStripePlans(stripePlans);
+
+        if (!plans) {
+            logging.warn('Skipping population of members_monthly_price_id, could not parse stripe_plans');
+            return;
+        }
+
+        const monthlyPlan = this.findPlanByName(plans, 'Monthly');
+
+        if (!monthlyPlan) {
+            logging.warn('Skipping population of members_monthly_price_id, could not find Monthly plan');
+            return;
+        }
+
+        const monthlyPrice = await this.findOrCreateMonthlyPrice(monthlyPlan, options);
+
+        await this.models.Settings.edit({key: 'members_monthly_price_id', value: monthlyPrice.id}, {...options, id: monthlyPriceId.id});
+    }
+
+    /**
+     * Find or create yearly price
+     * @param {object} yearlyPlan
+     * @param {object} options
+     * @returns {Promise<object>}
+     */
+    async findOrCreateYearlyPrice(yearlyPlan, options) {
+        let yearlyPrice = await this.models.StripePrice.findOne({
+            amount: yearlyPlan.amount,
+            currency: yearlyPlan.currency,
+            interval: yearlyPlan.interval,
+            active: true
+        }, options);
+
+        if (yearlyPrice) {
+            return yearlyPrice;
+        }
+
+        logging.info('Could not find active yearly price from stripe_plans - searching by interval');
+        yearlyPrice = await this.models.StripePrice.where('amount', '>', 0)
+            .where({interval: 'year', active: true}).fetch(options);
+
+        if (yearlyPrice) {
+            return yearlyPrice;
+        }
+
+        logging.info('Could not any active yearly price - creating a new one');
+        const stripeProductsPage = await this.models.StripeProduct.findPage({...options, limit: 1});
+        const defaultStripeProduct = stripeProductsPage.data[0];
+        const price = await this.api.createPrice({
+            currency: 'usd',
+            amount: 500,
+            nickname: 'Yearly',
+            interval: 'year',
+            active: true,
+            type: 'recurring',
+            product: defaultStripeProduct.get('stripe_product_id')
+        });
+
+        yearlyPrice = await this.models.StripePrice.add({
+            stripe_price_id: price.id,
+            stripe_product_id: defaultStripeProduct.get('stripe_product_id'),
+            active: price.active,
+            nickname: price.nickname,
+            currency: price.currency,
+            amount: price.unit_amount,
+            type: 'recurring',
+            interval: price.recurring.interval
+        }, options);
+
+        return yearlyPrice;
+    }
+
+    async populateMembersYearlyPriceIdSettings(options) {
+        if (!options) {
+            return this.models.Product.transaction((transacting) => {
+                return this.populateMembersYearlyPriceIdSettings({transacting});
+            });
+        }
+        logging.info('Populating members_yearly_price_id from stripe_plans');
+        const yearlyPriceId = await this.models.Settings.findOne({key: 'members_yearly_price_id'}, options);
+
+        if (yearlyPriceId.get('value')) {
+            logging.info('Skipping population of members_yearly_price_id, already populated');
+            return;
+        }
+
+        const stripePlans = await this.models.Settings.findOne({key: 'stripe_plans'}, options);
+        const plans = this.parseStripePlans(stripePlans);
+
+        if (!plans) {
+            logging.warn('Skipping population of members_yearly_price_id, could not parse stripe_plans');
+            return;
+        }
+
+        const yearlyPlan = this.findPlanByName(plans, 'Yearly');
+
+        if (!yearlyPlan) {
+            logging.warn('Skipping population of members_yearly_price_id, could not find yearly plan');
+            return;
+        }
+
+        const yearlyPrice = await this.findOrCreateYearlyPrice(yearlyPlan, options);
+
+        await this.models.Settings.edit({key: 'members_yearly_price_id', value: yearlyPrice.id}, {...options, id: yearlyPriceId.id});
+    }
+
+    async populateDefaultProductMonthlyPriceId(options) {
+        if (!options) {
+            return this.models.Product.transaction((transacting) => {
+                return this.populateDefaultProductMonthlyPriceId({transacting});
+            });
+        }
+        logging.info('Migrating members_monthly_price_id setting to monthly_price_id column');
+        const productsPage = await this.models.Product.findPage({...options, limit: 1, filter: 'type:paid'});
+        const defaultProduct = productsPage.data[0];
+
+        if (defaultProduct.get('monthly_price_id')) {
+            logging.warn('Skipping migration, monthly_price_id already set');
+            return;
+        }
+
+        const monthlyPriceIdSetting = await this.models.Settings.findOne({key: 'members_monthly_price_id'}, options);
+        const monthlyPriceId = monthlyPriceIdSetting.get('value');
+
+        await this.models.Product.edit({monthly_price_id: monthlyPriceId}, {...options, id: defaultProduct.id});
+    }
+
+    async populateDefaultProductYearlyPriceId(options) {
+        if (!options) {
+            return this.models.Product.transaction((transacting) => {
+                return this.populateDefaultProductYearlyPriceId({transacting});
+            });
+        }
+        logging.info('Migrating members_yearly_price_id setting to yearly_price_id column');
+        const productsPage = await this.models.Product.findPage({...options, limit: 1, filter: 'type:paid'});
+        const defaultProduct = productsPage.data[0];
+
+        if (defaultProduct.get('yearly_price_id')) {
+            logging.warn('Skipping migration, yearly_price_id already set');
+            return;
+        }
+
+        const yearlyPriceIdSetting = await this.models.Settings.findOne({key: 'members_yearly_price_id'}, options);
+        const yearlyPriceId = yearlyPriceIdSetting.get('value');
+
+        await this.models.Product.edit({yearly_price_id: yearlyPriceId}, {...options, id: defaultProduct.id});
+    }
+
+    /**
+     * Check if portal plans contain named values
+     * @param {Array} portalPlans
+     * @returns {boolean}
+     */
+    containsNamedPortalPlanValues(portalPlans) {
+        return portalPlans.some(plan => ['monthly', 'yearly'].includes(plan));
+    }
+
+    /**
+     * Convert price id to plan name
+     * @param {string} priceId
+     * @param {Array} portalPlanIds
+     * @param {object} options
+     * @returns {Promise<Array>}
+     */
+    async convertPriceIdToPlanName(priceId, portalPlanIds, options) {
+        const plan = await this.getPlanFromPrice(priceId, options);
+
+        if (!plan) {
+            return portalPlanIds;
+        }
+
+        const filtered = portalPlanIds.filter(d => d !== plan);
+        return filtered.concat(plan);
+    }
+
+    async revertPortalPlansSetting(options) {
+        if (!options) {
+            return this.models.Product.transaction((transacting) => {
+                return this.revertPortalPlansSetting({transacting});
+            });
+        }
+        logging.info('Migrating portal_plans setting from ids to names');
+        const portalPlansSetting = await this.models.Settings.findOne({key: 'portal_plans'}, options);
+
+        let portalPlans;
+        try {
+            portalPlans = JSON.parse(portalPlansSetting.get('value'));
+        } catch (err) {
+            logging.error({
+                message: 'Could not parse portal_plans setting, skipping migration',
+                err
+            });
+            return;
+        }
+
+        if (this.containsNamedPortalPlanValues(portalPlans)) {
+            logging.info('The portal_plans setting already contains names, skipping migration');
+            return;
+        }
+
+        const portalPlanIds = portalPlans.filter(plan => plan !== 'free');
+
+        if (portalPlanIds.length === 0) {
+            logging.info('No price ids found in portal_plans setting, skipping migration');
+            return;
+        }
+
+        const defaultPortalPlans = portalPlans.filter(plan => plan === 'free');
+
+        const newPortalPlans = await portalPlanIds.reduce(async (newPortalPlansPromise, priceId) => {
+            const newPortalPlansMemo = await newPortalPlansPromise;
+            return this.convertPriceIdToPlanName(priceId, newPortalPlansMemo, options);
+        }, defaultPortalPlans);
+
+        logging.info(`Updating portal_plans setting to ${JSON.stringify(newPortalPlans)}`);
+        await this.models.Settings.edit({
+            key: 'portal_plans',
+            value: JSON.stringify(newPortalPlans)
+        }, {
+            ...options,
+            id: portalPlansSetting.id
+        });
+    }
+
+    /**
+     * Check if subscription has valid price
+     * @param {object} sub
+     * @returns {boolean}
+     */
+    isValidSubscription(sub) {
+        return !!sub.toJSON().price;
+    }
+
+    async removeInvalidSubscriptions(options) {
+        if (!options) {
+            return this.models.Product.transaction((transacting) => {
+                return this.removeInvalidSubscriptions({transacting});
+            });
+        }
+        const subscriptionModels = await this.models.StripeCustomerSubscription.findAll({
+            ...options,
+            withRelated: ['stripePrice']
+        });
+        const invalidSubscriptions = subscriptionModels.filter(sub => !this.isValidSubscription(sub));
+
+        if (invalidSubscriptions.length === 0) {
+            logging.info(`No invalid subscriptions, skipping migration`);
+            return;
+        }
+
+        logging.warn(`Deleting ${invalidSubscriptions.length} invalid subscription(s)`);
+        for (let sub of invalidSubscriptions) {
+            logging.warn(`Deleting subscription - ${sub.id} - no price found`);
+            await sub.destroy(options);
+        }
+    }
+
+    /**
+     * Check if product is default product
+     * @param {object} product
+     * @returns {boolean}
+     */
+    isDefaultProduct(product) {
+        return product && product.name === 'Default Product';
+    }
+
+    async setDefaultProductName(options) {
+        if (!options) {
+            return this.models.Product.transaction((transacting) => {
+                return this.setDefaultProductName({transacting});
+            });
+        }
+
+        const {data} = await this.models.Product.findPage({
+            ...options,
+            limit: 1,
+            filter: 'type:paid'
+        });
+
+        const defaultProduct = data[0] && data[0].toJSON();
+
+        if (!this.isDefaultProduct(defaultProduct)) {
+            return;
+        }
+
+        const siteTitle = await this.models.Settings.findOne({key: 'title'}, options);
+        if (!siteTitle) {
+            return;
+        }
+
+        await this.models.Product.edit({
+            name: siteTitle.get('value')
+        }, {
+            ...options,
+            id: defaultProduct.id
+        });
+    }
+
+    /**
+     * Check if stripe product needs name update
+     * @param {object} product
+     * @returns {boolean}
+     */
+    shouldUpdateStripeProductName(product) {
+        return product.name === 'Default Product';
+    }
+
+    async updateStripeProductNamesFromDefaultProduct(options) {
+        if (!options) {
+            return this.models.Product.transaction((transacting) => {
+                return this.updateStripeProductNamesFromDefaultProduct({transacting});
+            });
+        }
+
+        const {data} = await this.models.StripeProduct.findPage({
+            ...options,
+            limit: 'all'
+        });
+
+        const siteTitle = await this.models.Settings.findOne({key: 'title'}, options);
+
+        if (!siteTitle) {
+            return;
+        }
+
+        for (const model of data) {
+            const product = await this.api.getProduct(model.get('stripe_product_id'));
+
+            if (this.shouldUpdateStripeProductName(product)) {
+                await this.api.updateProduct(product.id, {
+                    name: siteTitle.get('value')
+                });
+            }
+        }
+    }
+};
+```

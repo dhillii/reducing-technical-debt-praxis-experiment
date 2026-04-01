@@ -260,7 +260,7 @@ Runnable.prototype.globals = function (globals) {
  * @param {*} err
  * @return {boolean}
  */
-function isErrorInstance (err) {
+function isError (err) {
   return err instanceof Error || toString.call(err) === '[object Error]';
 }
 
@@ -276,12 +276,12 @@ function isPlainObject (val) {
 /**
  * Handle error from done callback in async context.
  * @param {*} err
- * @param {Function} done
  * @param {*} result
+ * @param {Function} done
  * @return {*}
  */
-function handleDoneError (err, done, result) {
-  if (isErrorInstance(err)) {
+function handleDoneError (err, result, done) {
+  if (isError(err)) {
     return done(err);
   }
   if (err) {
@@ -379,7 +379,7 @@ Runnable.prototype.run = function (fn) {
   }
 
   // sync or promise-returning
-  const runSync = () => {
+  const runTest = () => {
     if (this.isPending()) {
       done();
     } else {
@@ -388,12 +388,12 @@ Runnable.prototype.run = function (fn) {
   };
 
   if (this.allowUncaught) {
-    runSync();
+    runTest();
     return;
   }
 
   try {
-    runSync();
+    runTest();
   } catch (err) {
     emitted = true;
     done(utils.getError(err));
@@ -427,12 +427,12 @@ Runnable.prototype.run = function (fn) {
   }
 
   /**
-   * Execute async function with done callback.
+   * Execute asynchronous function with done callback.
    * @param {Function} fn
    */
   function callFnAsync (fn) {
     const result = fn.call(ctx, function (err) {
-      handleDoneError(err, done, result);
+      handleDoneError(err, result, done);
     });
   }
 };

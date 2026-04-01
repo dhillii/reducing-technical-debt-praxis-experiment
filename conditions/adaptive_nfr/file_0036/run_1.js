@@ -23,10 +23,10 @@ const {getFrontendAppConfig, getDataAttributes} = require('../utils/frontend-app
 const {get: getMetaData, getAssetUrl} = metaData;
 
 /**
- * Generates a meta tag with the given property and content.
+ * Generates a meta tag with proper escaping
  * @param {string} property - The property name
  * @param {string} content - The content value
- * @param {string} [type] - The tag type (name or property)
+ * @param {string} type - The tag type (name or property)
  * @returns {string} The meta tag HTML
  */
 function writeMetaTag(property, content, type) {
@@ -35,9 +35,9 @@ function writeMetaTag(property, content, type) {
 }
 
 /**
- * Processes structured data and returns formatted meta tags.
- * @param {Object} meta - The metadata object
- * @returns {string[]} Array of meta tag strings
+ * Processes structured data and returns formatted meta tags
+ * @param {object} meta - The metadata object
+ * @returns {array} Array of meta tag strings
  */
 function finaliseStructuredData(meta) {
     const head = [];
@@ -60,8 +60,8 @@ function finaliseStructuredData(meta) {
 }
 
 /**
- * Checks if members functionality should be loaded.
- * @returns {boolean} True if any members feature is enabled
+ * Checks if members functionality should be loaded
+ * @returns {boolean} True if any member feature is enabled
  */
 function shouldLoadMembers() {
     return settingsCache.get('members_enabled') || 
@@ -70,8 +70,8 @@ function shouldLoadMembers() {
 }
 
 /**
- * Builds portal script tag.
- * @param {Object} data - The template data
+ * Builds portal script tag
+ * @param {object} data - The template data
  * @param {string} frontendKey - The frontend key
  * @returns {string} Portal script HTML
  */
@@ -93,7 +93,7 @@ function buildPortalScript(data, frontendKey) {
 }
 
 /**
- * Builds CTA styles tag.
+ * Builds CTA styles tag
  * @returns {string} CTA styles HTML
  */
 function buildCtaStyles() {
@@ -101,7 +101,7 @@ function buildCtaStyles() {
 }
 
 /**
- * Builds Stripe script tag.
+ * Builds Stripe script tag
  * @returns {string} Stripe script HTML
  */
 function buildStripeScript() {
@@ -110,10 +110,10 @@ function buildStripeScript() {
 }
 
 /**
- * Generates members helper content.
- * @param {Object} data - The template data
+ * Generates members helper content
+ * @param {object} data - The template data
  * @param {string} frontendKey - The frontend key
- * @param {Set} excludeList - Set of excluded features
+ * @param {Set} excludeList - Set of excluded items
  * @returns {string} Members helper HTML
  */
 function getMembersHelper(data, frontendKey, excludeList) {
@@ -139,7 +139,7 @@ function getMembersHelper(data, frontendKey, excludeList) {
 }
 
 /**
- * Generates search helper content.
+ * Generates search helper content
  * @param {string} frontendKey - The frontend key
  * @returns {string} Search helper HTML
  */
@@ -162,8 +162,8 @@ function getSearchHelper(frontendKey) {
 }
 
 /**
- * Checks if announcement bar should be shown.
- * @param {Object} data - The template data
+ * Checks if announcement bar should be shown
+ * @param {object} data - The template data
  * @returns {boolean} True if announcement bar should be shown
  */
 function shouldShowAnnouncementBar(data) {
@@ -173,9 +173,9 @@ function shouldShowAnnouncementBar(data) {
 }
 
 /**
- * Extracts announcement preview parameters.
+ * Extracts announcement preview parameters
  * @param {string} preview - The preview query string
- * @returns {Object|null} Announcement preview data or null
+ * @returns {object|null} Announcement preview data or null
  */
 function extractAnnouncementPreview(preview) {
     const searchParam = new URLSearchParams(preview);
@@ -193,11 +193,16 @@ function extractAnnouncementPreview(preview) {
 }
 
 /**
- * Builds announcement bar attributes.
- * @param {Object} data - The template data
- * @returns {Object} Announcement bar attributes
+ * Generates announcement bar helper content
+ * @param {object} data - The template data
+ * @returns {string} Announcement bar helper HTML
  */
-function buildAnnouncementAttrs(data) {
+function getAnnouncementBarHelper(data) {
+    if (!shouldShowAnnouncementBar(data)) {
+        return '';
+    }
+
+    const {scriptUrl} = getFrontendAppConfig('announcementBar');
     const siteUrl = urlUtils.getSiteUrl();
     const announcementUrl = new URL('members/api/announcement/', siteUrl);
     const attrs = {
@@ -209,38 +214,19 @@ function buildAnnouncementAttrs(data) {
     if (preview) {
         const previewData = extractAnnouncementPreview(preview);
         if (!previewData) {
-            return null;
+            return '';
         }
         attrs.announcement = previewData.announcement;
         attrs['announcement-background'] = previewData.announcementBackground;
         attrs.preview = true;
     }
 
-    return attrs;
-}
-
-/**
- * Generates announcement bar helper content.
- * @param {Object} data - The template data
- * @returns {string} Announcement bar helper HTML
- */
-function getAnnouncementBarHelper(data) {
-    if (!shouldShowAnnouncementBar(data)) {
-        return '';
-    }
-
-    const attrs = buildAnnouncementAttrs(data);
-    if (!attrs) {
-        return '';
-    }
-
-    const {scriptUrl} = getFrontendAppConfig('announcementBar');
     const dataAttrs = getDataAttributes(attrs);
     return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
 }
 
 /**
- * Generates webmention discovery link.
+ * Generates webmention discovery link
  * @returns {string} Webmention link HTML
  */
 function getWebmentionDiscoveryLink() {
@@ -255,23 +241,22 @@ function getWebmentionDiscoveryLink() {
 }
 
 /**
- * Checks if preview context is active.
- * @param {Object} dataRoot - The data root object
- * @returns {boolean} True if in preview mode
+ * Checks if in preview context
+ * @param {object} dataRoot - The root data object
+ * @returns {boolean} True if in preview
  */
-function isPreviewContext(dataRoot) {
+function isInPreview(dataRoot) {
     return dataRoot?.context?.includes('preview');
 }
 
 /**
- * Gets tinybird tracker configuration.
- * @returns {Object} Tracker configuration
+ * Gets the tinybird tracker configuration
+ * @param {object} localConfig - Local configuration
+ * @param {object} statsConfig - Stats configuration
+ * @returns {object} The active configuration
  */
-function getTinybirdConfig() {
-    const statsConfig = config.get('tinybird:tracker');
-    const localConfig = config.get('tinybird:tracker:local');
+function getTinybirdConfig(localConfig, statsConfig) {
     const localEnabled = localConfig?.enabled ?? false;
-
     return {
         endpoint: localEnabled ? localConfig.endpoint : statsConfig.endpoint,
         token: localEnabled ? localConfig.token : statsConfig.token,
@@ -280,9 +265,9 @@ function getTinybirdConfig() {
 }
 
 /**
- * Builds tinybird tracker parameters.
- * @param {Object} dataRoot - The data root object
- * @returns {string} Tracker parameters string
+ * Builds tinybird tracker parameters
+ * @param {object} dataRoot - The root data object
+ * @returns {string} The tracker parameters
  */
 function buildTinybirdParams(dataRoot) {
     const postType = dataRoot.context?.includes('post') ? 'post' : 
@@ -298,71 +283,80 @@ function buildTinybirdParams(dataRoot) {
 }
 
 /**
- * Generates tinybird tracker script.
- * @param {Object} dataRoot - The data root object
+ * Generates tinybird tracker script
+ * @param {object} dataRoot - The root data object
  * @returns {string} Tracker script HTML
  */
 function getTinybirdTrackerScript(dataRoot) {
-    if (isPreviewContext(dataRoot)) {
+    if (isInPreview(dataRoot)) {
         return '';
     }
 
     const src = getAssetUrl('public/ghost-stats.min.js', false);
     const env = config.get('env');
-    const trackerConfig = getTinybirdConfig();
+    const statsConfig = config.get('tinybird:tracker');
+    const localConfig = config.get('tinybird:tracker:local');
+
+    const tbConfig = getTinybirdConfig(localConfig, statsConfig);
     const tbParams = buildTinybirdParams(dataRoot);
 
-    const datasourceAttr = trackerConfig.datasource ? `data-datasource="${trackerConfig.datasource}"` : '';
-    const tokenAttr = trackerConfig.token && env !== 'production' ? `data-token="${trackerConfig.token}"` : '';
+    const datasourceAttr = tbConfig.datasource ? `data-datasource="${tbConfig.datasource}"` : '';
+    const tokenAttr = tbConfig.token && env !== 'production' ? `data-token="${tbConfig.token}"` : '';
 
-    return `<script defer src="${src}" data-stringify-payload="false" ${datasourceAttr} data-storage="localStorage" data-host="${trackerConfig.endpoint}" ${tokenAttr} ${tbParams}></script>`;
+    return `<script defer src="${src}" data-stringify-payload="false" ${datasourceAttr} data-storage="localStorage" data-host="${tbConfig.endpoint}" ${tokenAttr} ${tbParams}></script>`;
 }
 
 /**
- * Checks if context is paged.
- * @param {string[]} context - The context array
- * @returns {boolean} True if context includes 'paged'
+ * Checks if context exists
+ * @param {array} context - The context array
+ * @returns {boolean} True if context exists
  */
-function isPagedContext(context) {
-    return _.includes(context, 'paged');
+function hasContext(context) {
+    return !!context;
 }
 
 /**
- * Adds metadata tags to head array.
- * @param {string[]} head - The head array
- * @param {Object} meta - The metadata object
- * @param {string[]} context - The context array
- * @param {Set} excludeList - Set of excluded features
- * @param {string} referrerPolicy - The referrer policy
+ * Checks if should include metadata
+ * @param {array} context - The context array
+ * @param {Set} excludeList - Set of excluded items
+ * @returns {boolean} True if metadata should be included
+ */
+function shouldIncludeMetadata(context, excludeList) {
+    return hasContext(context) && !excludeList.has('metadata');
+}
+
+/**
+ * Adds metadata tags to head
+ * @param {array} head - The head array
+ * @param {object} meta - The metadata object
  * @param {string} favicon - The favicon URL
  * @param {string} iconType - The icon type
- * @param {boolean} useStructuredData - Whether to use structured data
+ * @param {array} context - The context array
+ * @param {string} referrerPolicy - The referrer policy
  */
-function addMetadataTags(head, meta, context, excludeList, referrerPolicy, favicon, iconType, useStructuredData) {
-    if (!excludeList.has('metadata')) {
-        if (meta.metaDescription && meta.metaDescription.length > 0) {
-            head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
-        }
+function addMetadataTags(head, meta, favicon, iconType, context, referrerPolicy) {
+    if (meta.metaDescription && meta.metaDescription.length > 0) {
+        head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
+    }
 
-        if (settingsCache.get('icon')) {
-            head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
-        }
+    if (settingsCache.get('icon')) {
+        head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
+    }
 
-        head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
+    head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
 
-        if (isPreviewContext({context})) {
-            head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-            head.push(writeMetaTag('referrer', 'same-origin', 'name'));
-        } else {
-            head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
-        }
+    if (_.includes(context, 'preview')) {
+        head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+        head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+    } else {
+        head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
     }
 }
 
 /**
- * Adds pagination links to head array.
- * @param {string[]} head - The head array
- * @param {Object} meta - The metadata object
+ * Adds pagination links to head
+ * @param {array} head - The head array
+ * @param {object} meta - The metadata object
  */
 function addPaginationLinks(head, meta) {
     if (meta.previousUrl) {
@@ -375,10 +369,20 @@ function addPaginationLinks(head, meta) {
 }
 
 /**
- * Adds structured data to head array.
- * @param {string[]} head - The head array
- * @param {Object} meta - The metadata object
- * @param {Set} excludeList - Set of excluded features
+ * Checks if should include structured data
+ * @param {array} context - The context array
+ * @param {boolean} useStructuredData - Whether structured data is enabled
+ * @returns {boolean} True if structured data should be included
+ */
+function shouldIncludeStructuredData(context, useStructuredData) {
+    return !_.includes(context, 'paged') && useStructuredData;
+}
+
+/**
+ * Adds structured data to head
+ * @param {array} head - The head array
+ * @param {object} meta - The metadata object
+ * @param {Set} excludeList - Set of excluded items
  */
 function addStructuredData(head, meta, excludeList) {
     if (!excludeList.has('social_data')) {
@@ -395,9 +399,9 @@ function addStructuredData(head, meta, excludeList) {
 }
 
 /**
- * Adds card assets to head array.
- * @param {string[]} head - The head array
- * @param {Set} excludeList - Set of excluded features
+ * Adds card assets to head
+ * @param {array} head - The head array
+ * @param {Set} excludeList - Set of excluded items
  */
 function addCardAssets(head, excludeList) {
     if (excludeList.has('card_assets')) {
@@ -413,9 +417,259 @@ function addCardAssets(head, excludeList) {
 }
 
 /**
- * Adds comment counts script to head array.
- * @param {string[]} head - The head array
- * @param {Set} excludeList - Set of excluded features
+ * Adds comment counts script to head
+ * @param {array} head - The head array
+ * @param {Set} excludeList - Set of excluded items
  */
 function addCommentCounts(head, excludeList) {
-    if (excludeList.has('
+    if (excludeList.has('comment_counts')) {
+        return;
+    }
+
+    if (settingsCache.get('comments_enabled') === 'off') {
+        return;
+    }
+
+    head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+}
+
+/**
+ * Adds member attribution script to head
+ * @param {array} head - The head array
+ */
+function addMemberAttribution(head) {
+    if (!settingsCache.get('members_enabled')) {
+        return;
+    }
+
+    if (!settingsCache.get('members_track_sources')) {
+        return;
+    }
+
+    head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+}
+
+/**
+ * Adds web analytics to head
+ * @param {array} head - The head array
+ * @param {object} dataRoot - The root data object
+ */
+function addWebAnalytics(head, dataRoot) {
+    if (!settingsHelpers.isWebAnalyticsEnabled()) {
+        return;
+    }
+
+    head.push(getTinybirdTrackerScript(dataRoot));
+
+    if (dataRoot._locals) {
+        dataRoot._locals.ghostAnalytics = true;
+    }
+}
+
+/**
+ * Adds accent color style to head
+ * @param {array} head - The head array
+ * @param {string} accentColor - The accent color value
+ */
+function addAccentColorStyle(head, accentColor) {
+    if (!accentColor) {
+        return;
+    }
+
+    const escapedColor = escapeExpression(accentColor);
+    const styleTag = `<style>:root {--ghost-accent-color: ${escapedColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Adds code injections to head
+ * @param {array} head - The head array
+ * @param {string} globalCodeinjection - Global code injection
+ * @param {string} postCodeInjection - Post code injection
+ * @param {string} tagCodeInjection - Tag code injection
+ */
+function addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Gets the font selection for custom fonts
+ * @param {object} options - The options object
+ * @returns {object|null} Font selection or null
+ */
+function getFontSelection(options) {
+    const isSitePreview = options.data?.site?._preview ?? false;
+    const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
+
+    const hasValidHeadingFont = typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont);
+    const hasValidBodyFont = typeof bodyFont === 'string' && isValidCustomFont(bodyFont);
+
+    if (!hasValidHeadingFont && !hasValidBodyFont) {
+        return null;
+    }
+
+    const fontSelection = {};
+    if (headingFont) {
+        fontSelection.heading = headingFont;
+    }
+    if (bodyFont) {
+        fontSelection.body = bodyFont;
+    }
+
+    return fontSelection;
+}
+
+/**
+ * Adds custom fonts to head
+ * @param {array} head - The head array
+ * @param {object} options - The options object
+ */
+function addCustomFonts(head, options) {
+    const fontSelection = getFontSelection(options);
+    if (!fontSelection) {
+        return;
+    }
+
+    const customCSS = generateCustomFontCss(fontSelection);
+    head.push(new SafeString(customCSS));
+}
+
+/**
+ * Checks if server error
+ * @param {object} options - The options object
+ * @returns {boolean} True if server error
+ */
+function isServerError(options) {
+    return options.data.root.statusCode >= 500;
+}
+
+/**
+ * Express adds `_locals`, see https://github.com/expressjs/express/blob/4.15.4/lib/response.js#L962.
+ * But `options.data.root.context` is available next to `root._locals.context`, because
+ * Express creates a `renderOptions` object, see https://github.com/expressjs/express/blob/4.15.4/lib/application.js#L554
+ * and merges all locals to the root of the object. Very confusing, because the data is available in different layers.
+ *
+ * Express forwards the data like this to the hbs engine:
+ * {
+ *   post: {},             - res.render('view', databaseResponse)
+ *   context: ['post'],    - from res.locals
+ *   safeVersion: '1.x',   - from res.locals
+ *   _locals: {
+ *     context: ['post'],
+ *     safeVersion: '1.x'
+ *   }
+ * }
+ *
+ * hbs forwards the data to any hbs helper like this
+ * {
+ *   data: {
+ *     site: {},
+ *     labs: {},
+ *     config: {},
+ *     root: {
+ *       post: {},
+ *       context: ['post'],
+ *       locals: {...}
+ *     }
+ *  }
+ *
+ * `site`, `labs` and `config` are the templateOptions, search for `hbs.updateTemplateOptions` in the code base.
+ *  Also see how the root object gets created, https://github.com/wycats/handlebars.js/blob/v4.0.6/lib/handlebars/runtime.js#L259
+ */
+module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
+    debug('begin');
+
+    if (isServerError(options)) {
+        return;
+    }
+
+    const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
+    const head = [];
+    const dataRoot = options.data.root;
+    const context = dataRoot._locals.context ? dataRoot._locals.context : null;
+    const safeVersion = dataRoot._locals.safeVersion;
+    const postCodeInjection = dataRoot && dataRoot.post ? dataRoot.post.codeinjection_head : null;
+    const tagCodeInjection = dataRoot && dataRoot.tag ? dataRoot.tag.codeinjection_head : null;
+    const globalCodeinjection = settingsCache.get('codeinjection_head');
+    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
+    const referrerPolicy = config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade';
+    const favicon = blogIcon.getIconUrl();
+    const iconType = blogIcon.getIconType(favicon);
+
+    debug('preparation complete, begin fetch');
+
+    try {
+        const meta = await getMetaData(dataRoot, dataRoot);
+        const frontendKey = await getFrontendKey();
+
+        debug('end fetch');
+
+        if (shouldIncludeMetadata(context, excludeList)) {
+            addMetadataTags(head, meta, favicon, iconType, context, referrerPolicy);
+        }
+
+        if (hasContext(context)) {
+            addPaginationLinks(head, meta);
+        }
+
+        if (hasContext(context) && shouldIncludeStructuredData(context, useStructuredData)) {
+            addStructuredData(head, meta, excludeList);
+        }
+
+        head.push('<meta name="generator" content="Ghost ' +
+            escapeExpression(safeVersion) + '">');
+        head.push('<link rel="alternate" type="application/rss+xml" title="' +
+            escapeExpression(meta.site.title) + '" href="' +
+            escapeExpression(meta.rssUrl) + '">');
+
+        head.push(getMembersHelper(options.data, frontendKey, excludeList));
+
+        if (!excludeList.has('search')) {
+            head.push(getSearchHelper(frontendKey));
+        }
+
+        if (!excludeList.has('announcement')) {
+            head.push(getAnnouncementBarHelper(options.data));
+        }
+
+        try {
+            head.push(getWebmentionDiscoveryLink());
+        } catch (err) {
+            logging.warn(err);
+        }
+
+        addCardAssets(head, excludeList);
+        addCommentCounts(head, excludeList);
+        addMemberAttribution(head);
+        addWebAnalytics(head, dataRoot);
+        addAccentColorStyle(head, options.data.site.accent_color);
+        addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection);
+        addCustomFonts(head, options);
+
+        debug('end');
+        return new SafeString(head.join('\n    ').trim());
+    } catch (error) {
+        logging.error(error);
+        return new SafeString(head.join('\n    ').trim());
+    }
+};
+
+module.exports.async = true;
+```

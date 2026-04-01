@@ -314,7 +314,6 @@ define([
         /**
          * Save only models which don't exist locally or which were updated
          * remotely.
-         *
          * @param {ChangeDetectionParams} params - Change detection parameters
          * @returns {Array} Array of promise-returning functions
          */
@@ -341,7 +340,6 @@ define([
         /**
          * Save only models which don't exist on Dropbox or
          * which were updated locally.
-         *
          * @param {ChangeDetectionParams} params - Change detection parameters
          * @returns {Array} Array of promise-returning functions
          */

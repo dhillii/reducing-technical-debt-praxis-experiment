@@ -55,67 +55,34 @@
     };
 
     /**
-     * Generates a unique ID for an element based on its text content.
-     * @param  {String} tidyText - The tidied text to base the ID on
-     * @param  {Array} idList - List of existing IDs
-     * @return {String} - A unique ID
+     * Generate unique ID for element
+     * @param {String} tidyText - Base text for ID
+     * @param {Array} idList - List of existing IDs
+     * @return {String} - Unique ID
      */
     function _generateUniqueId(tidyText, idList) {
-      var newTidyText = tidyText;
-      var count = 0;
-      var index;
+      let newTidyText = tidyText;
+      let count = 0;
+      let index = idList.indexOf(newTidyText);
 
-      do {
-        if (count > 0) {
-          newTidyText = tidyText + '-' + count;
-        }
+      while (index !== -1) {
+        newTidyText = tidyText + '-' + count;
         index = idList.indexOf(newTidyText);
         count += 1;
-      } while (index !== -1);
+      }
 
       return newTidyText;
     }
 
     /**
-     * Processes an element and adds an anchor link to it.
-     * @param  {HTMLElement} element - The element to process
-     * @param  {String} visibleOptionToUse - The visibility option
-     * @param  {Array} idList - List of existing IDs
-     * @return {Boolean} - true if element was processed, false if skipped
-     */
-    function _processElement(element, visibleOptionToUse, idList) {
-      var elementID, tidyText, newTidyText, readableID, anchor;
-
-      if (this.hasAnchorJSLink(element)) {
-        return false;
-      }
-
-      if (element.hasAttribute('id')) {
-        elementID = element.getAttribute('id');
-      } else {
-        tidyText = this.urlify(element.textContent);
-        newTidyText = _generateUniqueId(tidyText, idList);
-        idList.push(newTidyText);
-        element.setAttribute('id', newTidyText);
-        elementID = newTidyText;
-      }
-
-      readableID = elementID.replace(/-/g, ' ');
-      anchor = _createAnchorElement.call(this, elementID, readableID, visibleOptionToUse);
-      _insertAnchor(element, anchor);
-
-      return true;
-    }
-
-    /**
-     * Creates an anchor element with appropriate attributes and styles.
-     * @param  {String} elementID - The ID of the target element
-     * @param  {String} readableID - Human-readable version of the ID
-     * @param  {String} visibleOptionToUse - The visibility option
-     * @return {HTMLElement} - The created anchor element
+     * Create and configure anchor element
+     * @param {String} elementID - ID of target element
+     * @param {String} readableID - Human-readable version of ID
+     * @param {String} visibleOptionToUse - Visibility option
+     * @return {HTMLElement} - Configured anchor element
      */
     function _createAnchorElement(elementID, readableID, visibleOptionToUse) {
-      var anchor = document.createElement('a');
+      const anchor = document.createElement('a');
       anchor.className = 'anchorjs-link ' + this.options.class;
       anchor.href = '#' + elementID;
       anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
@@ -125,16 +92,6 @@
         anchor.style.opacity = '1';
       }
 
-      _applyAnchorStyles.call(this, anchor);
-
-      return anchor;
-    }
-
-    /**
-     * Applies styles to an anchor element based on options.
-     * @param  {HTMLElement} anchor - The anchor element
-     */
-    function _applyAnchorStyles(anchor) {
       if (this.options.icon === '\ue9cb') {
         anchor.style.font = '1em/1 anchorjs-icons';
         if (this.options.placement === 'left') {
@@ -142,26 +99,53 @@
         }
       }
 
+      return anchor;
+    }
+
+    /**
+     * Position anchor element
+     * @param {HTMLElement} anchor - Anchor element
+     * @param {HTMLElement} element - Target element
+     */
+    function _positionAnchor(anchor, element) {
       if (this.options.placement === 'left') {
         anchor.style.position = 'absolute';
         anchor.style.marginLeft = '-1em';
         anchor.style.paddingRight = '0.5em';
+        element.insertBefore(anchor, element.firstChild);
       } else {
         anchor.style.paddingLeft = '0.375em';
+        element.appendChild(anchor);
       }
     }
 
     /**
-     * Inserts an anchor element into the DOM.
-     * @param  {HTMLElement} element - The target element
-     * @param  {HTMLElement} anchor - The anchor element to insert
+     * Process element and add anchor if needed
+     * @param {HTMLElement} element - Element to process
+     * @param {Array} idList - List of existing IDs
+     * @param {String} visibleOptionToUse - Visibility option
+     * @return {Boolean} - true if element was processed, false if skipped
      */
-    function _insertAnchor(element, anchor) {
-      if (this.options.placement === 'left') {
-        element.insertBefore(anchor, element.firstChild);
-      } else {
-        element.appendChild(anchor);
+    function _processElement(element, idList, visibleOptionToUse) {
+      if (this.hasAnchorJSLink(element)) {
+        return false;
       }
+
+      let elementID;
+      if (element.hasAttribute('id')) {
+        elementID = element.getAttribute('id');
+      } else {
+        const tidyText = this.urlify(element.textContent);
+        elementID = _generateUniqueId(tidyText, idList);
+        idList.push(elementID);
+        element.setAttribute('id', elementID);
+      }
+
+      const readableID = elementID.replace(/-/g, ' ');
+      const anchor = _createAnchorElement.call(this, elementID, readableID, visibleOptionToUse);
+      _positionAnchor.call(this, anchor, element);
+
+      return true;
     }
 
     /**
@@ -171,11 +155,9 @@
      * @return {this}                           - The AnchorJS object
      */
     this.add = function(selector) {
-      var elements, elsWithIds, idList, visibleOptionToUse, processedElements = [];
-
       _applyRemainingDefaultOptions(this.options);
 
-      visibleOptionToUse = this.options.visible;
+      let visibleOptionToUse = this.options.visible;
       if (visibleOptionToUse === 'touch') {
         visibleOptionToUse = this.isTouchDevice() ? 'always' : 'hover';
       }
@@ -184,7 +166,7 @@
         selector = 'h1, h2, h3, h4, h5, h6';
       }
 
-      elements = _getElements(selector);
+      const elements = _getElements(selector);
 
       if (elements.length === 0) {
         return false;
@@ -192,13 +174,14 @@
 
       _addBaselineStyles();
 
-      elsWithIds = document.querySelectorAll('[id]');
-      idList = [].map.call(elsWithIds, function assign(el) {
+      const elsWithIds = document.querySelectorAll('[id]');
+      const idList = [].map.call(elsWithIds, function assign(el) {
         return el.id;
       });
 
-      for (var i = 0; i < elements.length; i++) {
-        if (_processElement.call(this, elements[i], visibleOptionToUse, idList)) {
+      const processedElements = [];
+      for (let i = 0; i < elements.length; i++) {
+        if (_processElement.call(this, elements[i], idList, visibleOptionToUse)) {
           processedElements.push(elements[i]);
         }
       }
@@ -215,14 +198,12 @@
      * @return {this}                           - The AnchorJS object
      */
     this.remove = function(selector) {
-      var index,
-          domAnchor,
-          elements = _getElements(selector);
+      const elements = _getElements(selector);
 
-      for (var i = 0; i < elements.length; i++) {
-        domAnchor = elements[i].querySelector('.anchorjs-link');
+      for (let i = 0; i < elements.length; i++) {
+        const domAnchor = elements[i].querySelector('.anchorjs-link');
         if (domAnchor) {
-          index = this.elements.indexOf(elements[i]);
+          const index = this.elements.indexOf(elements[i]);
           if (index !== -1) {
             this.elements.splice(index, 1);
           }
@@ -249,14 +230,13 @@
      * @return {String}      - hyphen-delimited text for use in IDs and URLs.
      */
     this.urlify = function(text) {
-      var nonsafeChars = /[& +$,:;=?@"#{}|^~[`%!'\]\.\/\(\)\*\\]/g,
-          urlText;
+      const nonsafeChars = /[& +$,:;=?@"#{}|^~[`%!'\]\.\/\(\)\*\\]/g;
 
       if (!this.options.truncate) {
         _applyRemainingDefaultOptions(this.options);
       }
 
-      urlText = text.trim()
+      const urlText = text.trim()
                     .replace(/\'/gi, '')
                     .replace(nonsafeChars, '-')
                     .replace(/-{2,}/g, '-')
@@ -274,8 +254,8 @@
      * @return   {Boolean}     true/false
      */
     this.hasAnchorJSLink = function(el) {
-      var hasLeftAnchor = el.firstChild && ((' ' + el.firstChild.className + ' ').indexOf(' anchorjs-link ') > -1),
-          hasRightAnchor = el.lastChild && ((' ' + el.lastChild.className + ' ').indexOf(' anchorjs-link ') > -1);
+      const hasLeftAnchor = el.firstChild && ((' ' + el.firstChild.className + ' ').indexOf(' anchorjs-link ') > -1);
+      const hasRightAnchor = el.lastChild && ((' ' + el.lastChild.className + ' ').indexOf(' anchorjs-link ') > -1);
 
       return hasLeftAnchor || hasRightAnchor || false;
     };
@@ -288,15 +268,13 @@
      * @return {Array} - An array containing the elements we want.
      */
     function _getElements(input) {
-      var elements;
       if (typeof input === 'string' || input instanceof String) {
-        elements = [].slice.call(document.querySelectorAll(input));
+        return [].slice.call(document.querySelectorAll(input));
       } else if (Array.isArray(input) || input instanceof NodeList) {
-        elements = [].slice.call(input);
+        return [].slice.call(input);
       } else {
         throw new Error('The selector provided to AnchorJS was invalid.');
       }
-      return elements;
     }
 
     /**
@@ -308,20 +286,46 @@
         return;
       }
 
-      var style = document.createElement('style'),
-          linkRule =
-          ' .anchorjs-link {'                       +
-          '   opacity: 0;'                          +
-          '   text-decoration: none;'               +
+      const style = document.createElement('style');
+      const linkRule =
+          ' .anchorjs-link {' +
+          '   opacity: 0;' +
+          '   text-decoration: none;' +
           '   -webkit-font-smoothing: antialiased;' +
-          '   -moz-osx-font-smoothing: grayscale;'  +
-          ' }',
-          hoverRule =
-          ' *:hover > .anchorjs-link,'              +
-          ' .anchorjs-link:focus  {'                +
-          '   opacity: 1;'                          +
-          ' }',
-          anchorjsLinkFontFace =
-          ' @font-face {'                           +
-          '   font-family: "anchorjs-icons";'       +
-          '   src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0ND
+          '   -moz-osx-font-smoothing: grayscale;' +
+          ' }';
+      const hoverRule =
+          ' *:hover > .anchorjs-link,' +
+          ' .anchorjs-link:focus  {' +
+          '   opacity: 1;' +
+          ' }';
+      const anchorjsLinkFontFace =
+          ' @font-face {' +
+          '   font-family: "anchorjs-icons";' +
+          '   src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0NDXoaShoKGwoFBe8XFi6ALjgJCQobCjgaShoNDQ0NehpKGgobCgoKLYEuehYXAAAADACWAAEAAAAAAAEACAAAAAEAAAAAAAIAAwAIAAEAAAAAAAMACAAAAAEAAAAAAAQACAAAAAEAAAAAAAUAAQALAAEAAAAAAAYACAAAAAMAAQQJAAEAEAAMAAMAAQQJAAIABgAcAAMAAQQJAAMAEAAMAAMAAQQJAAQAEAAMAAMAAQQJAAUAAgAiAAMAAQQJAAYAEAAMYW5jaG9yanM0MDBAAGEAbgBjAGgAbwByAGoAcwA0ADAAMABAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAP) format("truetype");' +
+          ' }';
+      const pseudoElContent =
+          ' [data-anchorjs-icon]::after {' +
+          '   content: attr(data-anchorjs-icon);' +
+          ' }';
+
+      style.className = 'anchorjs';
+      style.appendChild(document.createTextNode(''));
+
+      const firstStyleEl = document.head.querySelector('[rel="stylesheet"], style');
+      if (firstStyleEl === undefined) {
+        document.head.appendChild(style);
+      } else {
+        document.head.insertBefore(style, firstStyleEl);
+      }
+
+      style.sheet.insertRule(linkRule, style.sheet.cssRules.length);
+      style.sheet.insertRule(hoverRule, style.sheet.cssRules.length);
+      style.sheet.insertRule(pseudoElContent, style.sheet.cssRules.length);
+      style.sheet.insertRule(anchorjsLinkFontFace, style.sheet.cssRules.length);
+    }
+  }
+
+  return AnchorJS;
+}));
+```

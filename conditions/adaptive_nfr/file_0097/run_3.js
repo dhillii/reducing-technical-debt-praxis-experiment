@@ -277,27 +277,15 @@ define([
          * @returns {boolean} True if model should be removed
          */
         _shouldRemoveModel: function(model) {
-            return !model;
-        },
-
-        /**
-         * Determines the next index after removal.
-         * @param {number} index - Current index
-         * @returns {number} Adjusted index
-         */
-        _getNextIndexAfterRemoval: function(index) {
-            if (!this.at(index)) {
-                return index - 1;
-            }
-            return index;
+            return !this.at(model);
         },
 
         /**
          * Handles navigation after model removal.
          * @param {number} index - Current index
-         * @returns {boolean|void} False or trigger event if at boundary
+         * @returns {boolean|void} False or trigger event if no model at index
          */
-        _handleNavigationAfterRemoval: function(index) {
+        _handleRemovalNavigation: function(index) {
             if (!this.at(index)) {
                 return this.hasPreviousPage() ? this.trigger('page:previous') : null;
             }
@@ -311,19 +299,22 @@ define([
          * @type object Backbone model
          */
         _navigateOnRemove: function(model) {
-            const retrievedModel = this.get(model.id);
-            if (this._shouldRemoveModel(retrievedModel)) {
+            model     = this.get(model.id);
+            if (!model) {
                 return false;
             }
 
             const coll  = this.fullCollection || this;
-            let index = this.indexOf(retrievedModel);
+            let index = this.indexOf(model);
 
-            coll.remove(retrievedModel);
+            coll.remove(model);
             this.sortFullCollection();
 
-            index = this._getNextIndexAfterRemoval(index);
-            this._handleNavigationAfterRemoval(index);
+            if (!this.at(index)) {
+                index--;
+            }
+
+            this._handleRemovalNavigation(index);
         },
 
         /**
@@ -336,50 +327,33 @@ define([
         },
 
         /**
-         * Determines if restored model should trigger add or remove logic.
-         * @param {object} model - Backbone model being restored
-         * @returns {boolean} True if should use add logic
+         * Handles adding or updating a model in the collection.
+         * @param {object} model - Backbone model to add/update
+         * @returns {void}
          */
-        _shouldAddRestoredModel: function(model) {
-            return this.conditionFilter !== 'trashed' || this.length <= 1;
+        _addOrUpdateModel: function(model) {
+            const coll     = this.fullCollection || this;
+            const colModel = coll.get(model.id);
+
+            if (colModel) {
+                return colModel.set(model.toJSON());
+            }
+
+            coll.add(model, {at: 0});
+            this.sortFullCollection();
         },
 
         /**
          * When a model was restored from trash.
          */
         _onRestore: function(model) {
-            if (this._shouldAddRestoredModel(model)) {
+            if (this.conditionFilter !== 'trashed') {
                 return this._onAddItem(model);
             }
 
-            return this._navigateOnRemove(model);
-        },
-
-        /**
-         * Handles updating existing model in collection.
-         * @param {object} coll - Collection to update in
-         * @param {object} model - Model to update
-         * @returns {boolean|void} True if model was updated
-         */
-        _updateExistingModel: function(coll, model) {
-            const colModel = coll.get(model.id);
-
-            if (colModel) {
-                colModel.set(model.toJSON());
-                return true;
+            if (this.length > 1) {
+                return this._navigateOnRemove(model);
             }
-
-            return false;
-        },
-
-        /**
-         * Handles adding new model to collection.
-         * @param {object} coll - Collection to add to
-         * @param {object} model - Model to add
-         */
-        _addNewModel: function(coll, model) {
-            coll.add(model, {at: 0});
-            this.sortFullCollection();
         },
 
         /**
@@ -400,15 +374,7 @@ define([
                 return this._navigateOnRemove(model);
             }
 
-            // If the model already exists, update it
-            const coll = this.fullCollection || this;
-
-            if (this._updateExistingModel(coll, model)) {
-                return;
-            }
-
-            // Or add it to fullCollection and sort the collection again
-            this._addNewModel(coll, model);
+            this._addOrUpdateModel(model);
         },
 
         /**

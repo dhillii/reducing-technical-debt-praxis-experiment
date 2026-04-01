@@ -127,14 +127,8 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
 
     const confirmTierStatusChange = () => {
         if (tier) {
-            const promptTitle = tier.active ? 'Archive tier' : 'Reactivate tier';
-            const prompt = tier.active ? <>
-                <div className='mb-6'>Members will no longer be able to subscribe to <strong>{tier.name}</strong> and it will be removed from the list of available tiers in portal.</div>
-                <div>Existing members on this tier will remain unchanged. Offers using this tier will be disabled.</div>
-            </> : <>
-                <div className='mb-6'>Reactivating <strong>{tier.name}</strong> will re-enable it as an option in portal and allow new members to subscribe to this tier.</div>
-                <div>Existing members will remain unchanged.</div>
-            </>;
+            const promptTitle = getPromptTitle(tier.active);
+            const prompt = getPromptContent(tier.active, tier.name);
             const okLabel = tier.active ? 'Archive' : 'Reactivate';
             NiceModal.show(ConfirmationModal, {
                 title: promptTitle,
@@ -152,6 +146,23 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                 }
             });
         }
+    };
+
+    const getPromptTitle = (isActive: boolean): string => {
+        return isActive ? 'Archive tier' : 'Reactivate tier';
+    };
+
+    const getPromptContent = (isActive: boolean, tierName: string) => {
+        if (isActive) {
+            return <>
+                <div className='mb-6'>Members will no longer be able to subscribe to <strong>{tierName}</strong> and it will be removed from the list of available tiers in portal.</div>
+                <div>Existing members on this tier will remain unchanged. Offers using this tier will be disabled.</div>
+            </>;
+        }
+        return <>
+            <div className='mb-6'>Reactivating <strong>{tierName}</strong> will re-enable it as an option in portal and allow new members to subscribe to this tier.</div>
+            <div>Existing members will remain unchanged.</div>
+        </>;
     };
 
     const getLeftButtonProps = (): ButtonProps => {
@@ -180,16 +191,14 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         return {};
     };
 
-    const leftButtonProps = getLeftButtonProps();
-
     const getModalTitle = (): string => {
         if (!tier) {
             return 'New tier';
         }
-
         return tier.active ? 'Edit tier' : 'Edit archived tier';
     };
 
+    const leftButtonProps = getLeftButtonProps();
     const modalTitle = getModalTitle();
 
     return <Modal
@@ -263,7 +272,11 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                                         title='Monthly price'
                                         valueInCents={formState.monthly_price || ''}
                                         hideTitle
-                                        onBlur={event => ((event.target.value === '') ? updateForm(state => ({...state, monthly_price: 0})) : null)}
+                                        onBlur={event => {
+                                            if (event.target.value === '') {
+                                                updateForm(state => ({...state, monthly_price: 0}));
+                                            }
+                                        }}
                                         onChange={price => updateForm(state => ({...state, monthly_price: price}))}
                                         onKeyDown={() => clearError('monthly_price')}
                                     />
@@ -275,7 +288,11 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                                         title='Yearly price'
                                         valueInCents={formState.yearly_price || ''}
                                         hideTitle
-                                        onBlur={event => ((event.target.value === '') ? updateForm(state => ({...state, yearly_price: 0})) : null)}
+                                        onBlur={event => {
+                                            if (event.target.value === '') {
+                                                updateForm(state => ({...state, yearly_price: 0}));
+                                            }
+                                        }}
                                         onChange={price => updateForm(state => ({...state, yearly_price: price}))}
                                         onKeyDown={() => clearError('yearly_price')}
                                     />
@@ -343,3 +360,52 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                             hideTitle
                             onChange={e => benefits.setNewItem(e.target.value)}
                             onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    benefits.addItem();
+                                }
+                            }}
+                        />
+                        <Button
+                            className='absolute right-[5px] top-[5px] z-10'
+                            color='green'
+                            icon='add'
+                            iconColorClass='text-white'
+                            label='Add'
+                            size='sm'
+                            hideLabel
+                            onClick={() => benefits.addItem()}
+                        />
+                    </div>
+                </Form>
+            </div>
+            <div className='sticky top-[96px] hidden shrink-0 basis-[380px] min-[920px]:!visible min-[920px]:!block'>
+                <TierDetailPreview isFreeTier={isFreeTier} tier={formState} />
+            </div>
+        </div>
+    </Modal>;
+};
+
+const TierDetailModal: React.FC<RoutingModalProps> = ({params}) => {
+    const {data: {tiers, isEnd} = {}, fetchNextPage} = useBrowseTiers();
+
+    let tier: Tier | undefined;
+
+    useEffect(() => {
+        if (params?.id && !tier && !isEnd) {
+            fetchNextPage();
+        }
+    }, [fetchNextPage, isEnd, params?.id, tier]);
+
+    if (params?.id) {
+        tier = tiers?.find(({id}) => id === params?.id);
+
+        if (!tier) {
+            return null;
+        }
+    }
+
+    return <TierDetailModalContent tier={tier} />;
+};
+
+export default NiceModal.create(TierDetailModal);
+```

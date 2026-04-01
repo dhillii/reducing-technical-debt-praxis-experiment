@@ -272,29 +272,26 @@ define([
         },
 
         /**
-         * Determines if model should be removed from collection.
-         * @param {object} model - Backbone model to check
-         * @returns {boolean} True if model should be removed
+         * Determines if navigation should occur after model removal.
+         * @param {number} index - Current index
+         * @returns {boolean} True if model exists at index
          */
-        _shouldRemoveModel: function(model) {
-            return !model;
+        _shouldNavigateAfterRemoval: function(index) {
+            return !!this.at(index);
         },
 
         /**
-         * Navigates to appropriate model after removal.
-         * @param {number} index - Index of removed model
+         * Handles page navigation when no model exists at current index.
+         * @param {number} index - Current index
          * @returns {boolean|void} False or trigger event
          */
-        _navigateAfterRemoval: function(index) {
-            if (!this.at(index)) {
-                index--;
+        _handleMissingModelNavigation: function(index) {
+            if (!this._shouldNavigateAfterRemoval(index)) {
+                const event = this._getPreviousPageBoundaryEvent(this.hasPreviousPage());
+                return event ? this.trigger(event) : null;
             }
 
-            if (!this.at(index)) {
-                return this.hasPreviousPage() ? this.trigger('page:previous') : null;
-            }
-
-            Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+            return true;
         },
 
         /**
@@ -304,7 +301,7 @@ define([
          */
         _navigateOnRemove: function(model) {
             model = this.get(model.id);
-            if (this._shouldRemoveModel(model)) {
+            if (!model) {
                 return false;
             }
 
@@ -314,12 +311,19 @@ define([
             coll.remove(model);
             this.sortFullCollection();
 
-            this._navigateAfterRemoval(index);
+            if (!this._shouldNavigateAfterRemoval(index)) {
+                index--;
+            }
+
+            const shouldContinue = this._handleMissingModelNavigation(index);
+            if (shouldContinue) {
+                Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+            }
         },
 
         /**
-         * Determines if model should be added based on filter condition.
-         * @param {object} model - Backbone model to check
+         * Determines if model should be processed based on filter condition.
+         * @param {object} model - Model to check
          * @returns {boolean} True if model matches current filter
          */
         _modelMatchesFilter: function(model) {
@@ -327,11 +331,28 @@ define([
         },
 
         /**
-         * Determines if restore action should navigate away.
-         * @returns {boolean} True if should navigate on remove
+         * Determines if model belongs to current profile.
+         * @param {object} model - Model to check
+         * @returns {boolean} True if model belongs to profile
          */
-        _shouldNavigateOnRestore: function() {
-            return this.length > 1;
+        _modelBelongsToProfile: function(model) {
+            return this.profileId === model.profileId;
+        },
+
+        /**
+         * Handles adding or updating a model in the collection.
+         * @param {object} model - Model to add or update
+         */
+        _addOrUpdateModel: function(model) {
+            const coll     = this.fullCollection || this;
+            const colModel = coll.get(model.id);
+
+            if (colModel) {
+                colModel.set(model.toJSON());
+            } else {
+                coll.add(model, {at: 0});
+                this.sortFullCollection();
+            }
         },
 
         /**
@@ -342,42 +363,9 @@ define([
                 return this._onAddItem(model);
             }
 
-            if (this._shouldNavigateOnRestore()) {
+            if (this.length > 1) {
                 return this._navigateOnRemove(model);
             }
-        },
-
-        /**
-         * Determines if model belongs to current profile.
-         * @param {object} model - Backbone model to check
-         * @returns {boolean} True if model belongs to profile
-         */
-        _modelBelongsToProfile: function(model) {
-            return this.profileId === model.profileId;
-        },
-
-        /**
-         * Handles adding existing model to collection.
-         * @param {object} model - Backbone model
-         * @param {object} coll - Collection to update
-         * @returns {void}
-         */
-        _updateExistingModel: function(model, coll) {
-            const colModel = coll.get(model.id);
-            if (colModel) {
-                return colModel.set(model.toJSON());
-            }
-        },
-
-        /**
-         * Handles adding new model to collection.
-         * @param {object} model - Backbone model
-         * @param {object} coll - Collection to add to
-         * @returns {void}
-         */
-        _addNewModel: function(model, coll) {
-            coll.add(model, {at: 0});
-            this.sortFullCollection();
         },
 
         /**
@@ -398,11 +386,7 @@ define([
                 return this._navigateOnRemove(model);
             }
 
-            // If the model already exists, update it
-            const coll = this.fullCollection || this;
-
-            this._updateExistingModel(model, coll);
-            this._addNewModel(model, coll);
+            this._addOrUpdateModel(model);
         },
 
         /**

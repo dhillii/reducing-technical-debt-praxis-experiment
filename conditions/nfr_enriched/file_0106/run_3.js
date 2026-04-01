@@ -270,7 +270,7 @@ function checkTimeout(duration, ms, enableTimeouts) {
 }
 
 /**
- * Handle promise resolution for sync/promise-returning functions.
+ * Handle promise resolution for sync/promise-returning tests.
  *
  * @api private
  * @param {*} result
@@ -310,7 +310,7 @@ function callFn(fn, ctx, done, self) {
 }
 
 /**
- * Execute asynchronous function with callback.
+ * Execute async function with callback.
  *
  * @api private
  * @param {Function} fn
@@ -318,7 +318,7 @@ function callFn(fn, ctx, done, self) {
  * @param {Function} done
  */
 function callFnAsync(fn, ctx, done) {
-  fn.call(ctx, function(err) {
+  const result = fn.call(ctx, function(err) {
     if (err instanceof Error || objectToString.call(err) === '[object Error]') {
       return done(err);
     }
@@ -329,98 +329,42 @@ function callFnAsync(fn, ctx, done) {
       }
       return done(new Error('done() invoked with non-Error: ' + err));
     }
+    if (result && utils.isPromise(result)) {
+      return done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
+    }
+
     done();
   });
 }
 
 /**
- * Create the done callback for test execution.
+ * Handle multiple done() calls.
  *
  * @api private
- * @param {Runnable} self
- * @param {number} start
- * @param {Function} fn
- * @return {Function}
+ * @param {Error} err
+ * @param {boolean} emitted
+ * @param {*} self
  */
-function createDoneCallback(self, start, fn) {
-  let finished = false;
-  let emitted = false;
-
-  function multiple(err) {
-    if (emitted) {
-      return;
-    }
-    emitted = true;
-    self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
+function handleMultipleDone(err, emitted, self) {
+  if (emitted) {
+    return;
   }
-
-  return function done(err) {
-    const ms = self.timeout();
-    if (self.timedOut) {
-      return;
-    }
-    if (finished) {
-      return multiple(err || self._trace);
-    }
-
-    self.clearTimeout();
-    self.duration = new savedDate() - start;
-    finished = true;
-
-    const timeoutErr = checkTimeout(self.duration, ms, self._enableTimeouts);
-    if (!err && timeoutErr) {
-      err = timeoutErr;
-    }
-    fn(err);
-  };
+  self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
+  return true;
 }
 
 /**
- * Setup async execution context with skip override.
+ * Create async skip function for explicit async context.
  *
  * @api private
- * @param {Runnable} self
  * @param {Function} done
+ * @return {Function}
  */
-function setupAsyncContext(self, done) {
-  self.skip = function asyncSkip() {
+function createAsyncSkip(done) {
+  return function asyncSkip() {
     done(new Pending('async skip call'));
     throw new Pending('async skip; aborting execution');
   };
-}
-
-/**
- * Execute async function with proper error handling.
- *
- * @api private
- * @param {Runnable} self
- * @param {Function} done
- */
-function executeAsync(self, done) {
-  try {
-    callFnAsync(self.fn, self.ctx, done);
-  } catch (err) {
-    done(utils.getError(err));
-  }
-}
-
-/**
- * Execute sync function with proper error handling.
- *
- * @api private
- * @param {Runnable} self
- * @param {Function} done
- */
-function executeSync(self, done) {
-  try {
-    if (self.isPending()) {
-      done();
-    } else {
-      callFn(self.fn, self.ctx, done, self);
-    }
-  } catch (err) {
-    done(utils.getError(err));
-  }
 }
 
 /**
@@ -433,13 +377,37 @@ Runnable.prototype.run = function(fn) {
   const self = this;
   const start = new savedDate();
   const ctx = this.ctx;
+  let finished = false;
+  let emitted = false;
 
   // Sometimes the ctx exists, but it is not runnable
   if (ctx && ctx.runnable) {
     ctx.runnable(this);
   }
 
-  const done = createDoneCallback(this, start, fn);
+  // finished
+  const done = (err) => {
+    const ms = self.timeout();
+    if (self.timedOut) {
+      return;
+    }
+    if (finished) {
+      if (handleMultipleDone(err || self._trace, emitted, self)) {
+        emitted = true;
+      }
+      return;
+    }
+
+    self.clearTimeout();
+    self.duration = new savedDate() - start;
+    finished = true;
+
+    const timeoutErr = checkTimeout(self.duration, ms, self._enableTimeouts);
+    if (!err && timeoutErr) {
+      err = timeoutErr;
+    }
+    fn(err);
+  };
 
   // for .resetTimeout()
   this.callback = done;
@@ -447,14 +415,18 @@ Runnable.prototype.run = function(fn) {
   // explicit async with `done` argument
   if (this.async) {
     this.resetTimeout();
-    setupAsyncContext(this, done);
+    this.skip = createAsyncSkip(done);
 
     if (this.allowUncaught) {
-      callFnAsync(this.fn, this.ctx, done);
+      callFnAsync(this.fn, ctx, done);
       return;
     }
-
-    executeAsync(this, done);
+    try {
+      callFnAsync(this.fn, ctx, done);
+    } catch (err) {
+      emitted = true;
+      done(utils.getError(err));
+    }
     return;
   }
 
@@ -462,12 +434,21 @@ Runnable.prototype.run = function(fn) {
     if (this.isPending()) {
       done();
     } else {
-      callFn(this.fn, this.ctx, done, this);
+      callFn(this.fn, ctx, done, self);
     }
     return;
   }
 
   // sync or promise-returning
-  executeSync(this, done);
+  try {
+    if (this.isPending()) {
+      done();
+    } else {
+      callFn(this.fn, ctx, done, self);
+    }
+  } catch (err) {
+    emitted = true;
+    done(utils.getError(err));
+  }
 };
 ```

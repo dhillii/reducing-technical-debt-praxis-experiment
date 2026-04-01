@@ -395,10 +395,10 @@ export default class Analytics extends Component {
             return;
         }
 
-        const classSelectors = Array.from(element.classList).map(className => `.${className}`).join('');
+        const classSelector = Array.from(element.classList).map(className => `.${className}`).join('');
 
         anime({
-            targets: `${classSelectors} .new-number span`,
+            targets: `${classSelector} .new-number span`,
             translateY: [10, 0],
             opacity: [0, 1],
             easing: 'easeOutElastic',
@@ -408,7 +408,7 @@ export default class Analytics extends Component {
         });
 
         anime({
-            targets: `${classSelectors} .old-number span`,
+            targets: `${classSelector} .old-number span`,
             translateY: [0, -10],
             opacity: [1, 0],
             easing: 'easeOutExpo',

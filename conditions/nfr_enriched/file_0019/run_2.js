@@ -356,31 +356,6 @@ html[dir=rtl] .gh-portal-signup-terms .checkbox:before {
 }
 `;
 
-// Helper function to build input field configuration
-const buildInputField = (config) => config;
-
-// Helper function to determine if checkbox has only error
-const hasOnlyCheckboxError = (errors) => {
-    if (!errors?.checkbox) {
-        return false;
-    }
-    const otherErrors = {...errors};
-    delete otherErrors.checkbox;
-    return Object.values(otherErrors).every(error => !error);
-};
-
-// Helper function to scroll checkbox into view
-const scrollCheckboxIntoView = (termsRef) => {
-    if (termsRef?.current) {
-        termsRef.current.scrollIntoView({behavior: 'smooth', block: 'center'});
-    }
-};
-
-// Helper function to check if form has errors
-const hasFormErrors = (errors) => {
-    return errors && Object.values(errors).filter(d => !!d).length > 0;
-};
-
 class SignupPage extends React.Component {
     static contextType = AppContext;
 
@@ -438,20 +413,36 @@ class SignupPage extends React.Component {
         };
     }
 
-    handleNewsletterSelection(name, email, plan, phonenumber, token) {
-        this.setState({
-            showNewsletterSelection: true,
-            pageData: {name, email, plan, phonenumber, token},
-            errors: {}
-        });
+    // Handles scrolling checkbox into view when it's the only error
+    scrollCheckboxIntoView() {
+        if (this.termsRef.current) {
+            this.termsRef.current.scrollIntoView({behavior: 'smooth', block: 'center'});
+        }
     }
 
-    handleDirectSignup(name, email, phonenumber, plan, token) {
-        const {doAction} = this.context;
-        this.setState({
-            errors: {}
-        });
-        doAction('signup', {name, email, phonenumber, plan, token});
+    // Determines if only checkbox validation failed
+    hasOnlyCheckboxError(errors) {
+        const otherErrors = {...errors};
+        delete otherErrors.checkbox;
+        return errors?.checkbox && Object.values(otherErrors).every(error => !error);
+    }
+
+    // Handles form submission with validation
+    submitSignupForm(name, email, plan, phonenumber, token) {
+        const {site, doAction} = this.context;
+
+        if (hasMultipleNewsletters({site})) {
+            this.setState({
+                showNewsletterSelection: true,
+                pageData: {name, email, plan, phonenumber, token},
+                errors: {}
+            });
+        } else {
+            this.setState({
+                errors: {}
+            });
+            doAction('signup', {name, email, phonenumber, plan, token});
+        }
     }
 
     doSignup() {
@@ -460,19 +451,15 @@ class SignupPage extends React.Component {
                 errors: this.getFormErrors(state)
             };
         }, () => {
-            const {site} = this.context;
             const {name, email, plan, phonenumber, token, errors} = this.state;
+            const hasFormErrors = (errors && Object.values(errors).filter(d => !!d).length > 0);
 
-            if (hasOnlyCheckboxError(errors)) {
-                scrollCheckboxIntoView(this.termsRef);
+            if (this.hasOnlyCheckboxError(errors)) {
+                this.scrollCheckboxIntoView();
             }
 
-            if (!hasFormErrors(errors)) {
-                if (hasMultipleNewsletters({site})) {
-                    this.handleNewsletterSelection(name, email, plan, phonenumber, token);
-                } else {
-                    this.handleDirectSignup(name, email, phonenumber, plan, token);
-                }
+            if (!hasFormErrors) {
+                this.submitSignupForm(name, email, plan, phonenumber, token);
             }
         });
     }
@@ -495,3 +482,519 @@ class SignupPage extends React.Component {
         this.setState({
             [fieldName]: value
         });
+    }
+
+    handleSelectPlan = (e, priceId) => {
+        e && e.preventDefault();
+        // Hack: React checkbox gets out of sync with dom state with instant update
+        this.timeoutId = setTimeout(() => {
+            this.setState(() => {
+                return {
+                    plan: priceId
+                };
+            });
+        }, 5);
+    };
+
+    onKeyDown(e) {
+        // Handles submit on Enter press
+        if (e.keyCode === 13){
+            this.handleSignup(e);
+        }
+    }
+
+    getSelectedPriceId(prices = [], selectedPriceId) {
+        if (!prices || prices.length === 0 || selectedPriceId === 'free') {
+            return 'free';
+        }
+        const hasSelectedPlan = prices.some((p) => {
+            return p.id === selectedPriceId;
+        });
+
+        if (!hasSelectedPlan) {
+            return prices[0].id || 'free';
+        }
+
+        return selectedPriceId;
+    }
+
+    // Builds email field configuration
+    buildEmailField(state, errors) {
+        return {
+            type: 'email',
+            value: state.email,
+            placeholder: t('jamie@example.com'),
+            label: t('Email'),
+            name: 'email',
+            required: true,
+            errorMessage: errors.email || ''
+        };
+    }
+
+    // Builds phone number field configuration (hidden field)
+    buildPhoneNumberField(state) {
+        return {
+            type: 'text',
+            value: state.phonenumber,
+            placeholder: t('+1 (123) 456-7890'),
+            label: t('Phone number'),
+            name: 'phonenumber',
+            required: false,
+            autoComplete: 'off',
+            hidden: true
+        };
+    }
+
+    // Builds name field configuration
+    buildNameField(state, errors) {
+        return {
+            type: 'text',
+            value: state.name,
+            placeholder: t('Jamie Larson'),
+            label: t('Name'),
+            name: 'name',
+            required: true,
+            errorMessage: errors.name || ''
+        };
+    }
+
+    getInputFields({state, fieldNames}) {
+        const {site: {portal_name: portalName}} = this.context;
+        const errors = state.errors || {};
+
+        const fields = [
+            this.buildEmailField(state, errors),
+            this.buildPhoneNumberField(state)
+        ];
+
+        // Show Name field if portal option is set
+        if (portalName) {
+            fields.unshift(this.buildNameField(state, errors));
+        }
+
+        fields[0].autoFocus = true;
+
+        if (fieldNames && fieldNames.length > 0) {
+            return fields.filter((f) => {
+                return fieldNames.includes(f.name);
+            });
+        }
+        return fields;
+    }
+
+    // Renders checkbox for terms acceptance
+    renderTermsCheckbox(handleCheckboxChange) {
+        const {site} = this.context;
+        const termsText = (
+            <div className="gh-portal-signup-terms-content"
+                dangerouslySetInnerHTML={{__html: sanitizeHtml(site.portal_signup_terms_html)}}
+            ></div>
+        );
+
+        return (
+            <label>
+                <input
+                    type="checkbox"
+                    checked={!!this.state.termsCheckboxChecked}
+                    required={true}
+                    onChange={handleCheckboxChange}
+                />
+                <span className="checkbox"></span>
+                {termsText}
+            </label>
+        );
+    }
+
+    renderSignupTerms() {
+        const {site} = this.context;
+
+        if (site.portal_signup_terms_html === null || site.portal_signup_terms_html === '') {
+            return null;
+        }
+
+        const handleCheckboxChange = (e) => {
+            this.setState({
+                termsCheckboxChecked: e.target.checked
+            });
+        };
+
+        const termsText = (
+            <div className="gh-portal-signup-terms-content"
+                dangerouslySetInnerHTML={{__html: sanitizeHtml(site.portal_signup_terms_html)}}
+            ></div>
+        );
+
+        const signupTerms = site.portal_signup_checkbox_required ? 
+            this.renderTermsCheckbox(handleCheckboxChange) : 
+            termsText;
+
+        const errorClassName = this.state.errors?.checkbox ? 'gh-portal-error' : '';
+        const className = `gh-portal-signup-terms ${errorClassName}`;
+
+        return (
+            <div className={className} onClick={interceptAnchorClicks} ref={this.termsRef}>
+                {signupTerms}
+            </div>
+        );
+    }
+
+    // Determines submit button label based on action state
+    getSubmitButtonLabel(action) {
+        if (action === 'signup:running') {
+            return t('Sending...');
+        }
+        if (action === 'signup:failed') {
+            return t('Retry');
+        }
+        return t('Continue');
+    }
+
+    // Determines if submit button should show "Sign up" label
+    shouldShowSignUpLabel(pageQuery) {
+        const {site} = this.context;
+        return pageQuery === 'free' && isFreeSignupAllowed({site});
+    }
+
+    // Determines submit button state
+    getSubmitButtonState(action) {
+        return {
+            isRunning: action === 'signup:running',
+            isRetry: action === 'signup:failed',
+            isDisabled: action === 'signup:running'
+        };
+    }
+
+    renderSubmitButton() {
+        const {action, site, brandColor, pageQuery} = this.context;
+
+        if (isInviteOnly({site}) || !hasAvailablePrices({site, pageQuery})) {
+            return null;
+        }
+
+        const showOnlyFree = this.shouldShowSignUpLabel(pageQuery);
+        const hasOnlyFree = hasOnlyFreePlan({site}) || showOnlyFree;
+
+        if (!hasOnlyFree) {
+            return null;
+        }
+
+        let label = t('Continue');
+        if (hasOnlyFree) {
+            label = t('Sign up');
+        }
+
+        const buttonState = this.getSubmitButtonState(action);
+        if (action === 'signup:running') {
+            label = t('Sending...');
+        } else if (action === 'signup:failed') {
+            label = t('Retry');
+        }
+
+        return (
+            <ActionButton
+                style={{width: '100%'}}
+                retry={buttonState.isRetry}
+                onClick={e => this.handleSignup(e)}
+                disabled={buttonState.isDisabled}
+                brandColor={brandColor}
+                label={label}
+                isRunning={buttonState.isRunning}
+            />
+        );
+    }
+
+    renderProducts() {
+        const {site, pageQuery} = this.context;
+        const products = getSiteProducts({site, pageQuery});
+        const errors = this.state.errors || {};
+        const priceErrors = {};
+
+        // If we have at least one error, set an error message for the current selected plan
+        if (Object.keys(errors).length > 0 && this.state.plan) {
+            priceErrors[this.state.plan] = t('Please fill in required fields');
+        }
+
+        return (
+            <>
+                <ProductsSection
+                    handleChooseSignup={(...args) => this.handleChooseSignup(...args)}
+                    products={products}
+                    onPlanSelect={this.handleSelectPlan}
+                    errors={priceErrors}
+                />
+            </>
+        );
+    }
+
+    renderFreeTrialMessage() {
+        const {site, pageQuery} = this.context;
+        if (hasFreeTrialTier({site, pageQuery}) && !isInviteOnly({site}) && hasAvailablePrices({site, pageQuery})) {
+            return (
+                <p className='gh-portal-free-trial-notification' data-testid="free-trial-notification-text">
+                    {t('After a free trial ends, you will be charged the regular price for the tier you\'ve chosen. You can always cancel before then.')}
+                </p>
+            );
+        }
+        return null;
+    }
+
+    renderLoginMessage() {
+        const {brandColor, doAction} = this.context;
+        return (
+            <div>
+                {this.renderFreeTrialMessage()}
+                <div className='gh-portal-signup-message'>
+                    <div>{t('Already a member?')}</div>
+                    <button
+                        data-test-button='signin-switch'
+                        data-testid='signin-switch'
+                        className='gh-portal-btn gh-portal-btn-link'
+                        style={{color: brandColor}}
+                        onClick={() => doAction('switchPage', {page: 'signin'})}
+                    >
+                        <span>{t('Sign in')}</span>
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // Renders form content when signup is allowed
+    renderSignupForm() {
+        const {site, pageQuery} = this.context;
+        const fields = this.getInputFields({state: this.state});
+        const showOnlyFree = pageQuery === 'free' && isFreeSignupAllowed({site});
+        const hasOnlyFree = hasOnlyFreePlan({site}) || showOnlyFree;
+        const signupTerms = this.renderSignupTerms();
+
+        return (
+            <section className="gh-portal-signup">
+                <div className='gh-portal-section'>
+                    <div className='gh-portal-logged-out-form-container'>
+                        <InputForm
+                            fields={fields}
+                            onChange={(e, field) => this.handleInputChange(e, field)}
+                            onKeyDown={e => this.onKeyDown(e)}
+                        />
+                    </div>
+                    <div>
+                        {(hasOnlyFree ?
+                            <>
+                                {this.renderProducts()}
+                                {signupTerms &&
+                                <div className='gh-portal-signup-terms-wrapper free-only'>
+                                    {signupTerms}
+                                </div>
+                                }
+                            </> :
+                            <>
+                                {signupTerms &&
+                                <div className='gh-portal-signup-terms-wrapper'>
+                                    {signupTerms}
+                                </div>
+                                }
+                                {this.renderProducts()}
+                            </>)}
+
+                        {(hasOnlyFree ?
+                            <div className='gh-portal-btn-container'>
+                                <div className='gh-portal-logged-out-form-container'>
+                                    {this.renderSubmitButton()}
+                                    {this.renderLoginMessage()}
+                                </div>
+                            </div>
+                            :
+                            this.renderLoginMessage())}
+                    </div>
+                </div>
+            </section>
+        );
+    }
+
+    renderForm() {
+        const {site} = this.context;
+
+        if (this.state.showNewsletterSelection) {
+            return (
+                <NewsletterSelectionPage
+                    pageData={this.state.pageData}
+                    onBack={() => {
+                        this.setState({
+                            showNewsletterSelection: false
+                        });
+                    }}
+                />
+            );
+        }
+
+        // Invite-only site: block signups, offer to sign in
+        if (isInviteOnly({site})) {
+            return this.renderInviteOnlyMessage();
+        }
+
+        // Paid-members-only site: block free signups, offer to sign in
+        if (isPaidMembersOnly({site})) {
+            return this.renderPaidMembersOnlyMessage();
+        }
+
+        // Signup is not allowed or no prices are available: block signup with the relevant message, offer signin when available
+        const {pageQuery} = this.context;
+        if (!isSignupAllowed({site}) || !hasAvailablePrices({site, pageQuery})) {
+            if (!isSigninAllowed({site})) {
+                return this.renderMembersDisabledMessage();
+            }
+
+            return this.renderInviteOnlyMessage();
+        }
+
+        return this.renderSignupForm();
+    }
+
+    renderPaidMembersOnlyMessage() {
+        return (
+            <section>
+                <div className='gh-portal-section'>
+                    <p
+                        className='gh-portal-paid-members-only-notification'
+                        data-testid="paid-members-only-notification-text"
+                    >
+                        {t('This site only accepts paid members.')}
+                    </p>
+                    {this.renderLoginMessage()}
+                </div>
+            </section>
+        );
+    }
+
+    renderInviteOnlyMessage() {
+        return (
+            <section>
+                <div className='gh-portal-section'>
+                    <p
+                        className='gh-portal-invite-only-notification'
+                        data-testid="invite-only-notification-text"
+                    >
+                        {t('This site is invite-only, contact the owner for access.')}
+                    </p>
+                    {this.renderLoginMessage()}
+                </div>
+            </section>
+        );
+    }
+
+    renderMembersDisabledMessage() {
+        return (
+            <section>
+                <div className='gh-portal-section'>
+                    <p
+                        className='gh-portal-members-disabled-notification'
+                        data-testid="members-disabled-notification-text"
+                    >
+                        {t('Memberships unavailable, contact the owner for access.')}
+                    </p>
+                </div>
+            </section>
+        );
+    }
+
+    renderSiteIcon() {
+        const {site, pageQuery} = this.context;
+        const siteIcon = site.icon;
+
+        if (siteIcon) {
+            return (
+                <img className='gh-portal-signup-logo' src={siteIcon} alt={site.title} />
+            );
+        }
+
+        if (!hasAvailablePrices({site, pageQuery}) || isInviteOnly({site}) || !isSignupAllowed({site})) {
+            return (
+                <InvitationIcon className='gh-portal-icon gh-portal-icon-invitation' />
+            );
+        }
+
+        return null;
+    }
+
+    renderFormHeader() {
+        const {site} = this.context;
+        const siteTitle = site.title || '';
+        return (
+            <header className='gh-portal-signup-header'>
+                {this.renderSiteIcon()}
+                <h1 className="gh-portal-main-title" data-testid='site-title-text'>{siteTitle}</h1>
+            </header>
+        );
+    }
+
+    // Determines section class based on plan configuration
+    determineSectionClass(plansData) {
+        const {site} = this.context;
+        const fields = this.getInputFields({state: this.state});
+
+        if (plansData.length <= 1 || isInviteOnly({site})) {
+            if ((plansData.length === 1 && plansData[0].type === 'free') || isInviteOnly({site})) {
+                if (isInviteOnly({site})) {
+                    return 'invite-only';
+                }
+                if (fields.length === 1) {
+                    return 'single-field';
+                }
+                return freeHasBenefitsOrDescription({site}) ? 'singleplan' : 'noplan';
+            }
+            return 'singleplan';
+        }
+
+        return '';
+    }
+
+    // Determines footer class based on site configuration
+    determineFooterClass(plansData) {
+        const {site} = this.context;
+
+        if (plansData.length <= 1 && isInviteOnly({site})) {
+            return 'invite-only';
+        }
+
+        return '';
+    }
+
+    getClassNames() {
+        const {site, pageQuery} = this.context;
+        const plansData = getSitePrices({site, pageQuery});
+
+        return {
+            sectionClass: this.determineSectionClass(plansData),
+            footerClass: this.determineFooterClass(plansData)
+        };
+    }
+
+    render() {
+        let {sectionClass} = this.getClassNames();
+        return (
+            <>
+                <div className='gh-portal-back-sitetitle'>
+                    <SiteTitleBackButton
+                        onBack={() => {
+                            if (this.state.showNewsletterSelection) {
+                                this.setState({
+                                    showNewsletterSelection: false
+                                });
+                            } else {
+                                this.context.doAction('closePopup');
+                            }
+                        }}
+                    />
+                </div>
+                <CloseButton />
+                <div className={'gh-portal-content signup ' + sectionClass}>
+                    {this.renderFormHeader()}
+                    {this.renderForm()}
+                </div>
+            </>
+        );
+    }
+}
+
+export default SignupPage;
+```

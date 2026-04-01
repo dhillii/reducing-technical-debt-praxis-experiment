@@ -31,20 +31,20 @@ define([
      */
 
     /**
-     * Sync data context for collection synchronization.
-     * @typedef {Object} SyncContext
+     * Parameters for sync operations.
+     * @typedef {Object} SyncParams
      * @property {Array} localData - Local collection data
      * @property {Array} remoteData - Remote collection data
      * @property {string} module - Module name (notes, notebooks, tags)
-     * @property {Object} encryptKeys - Encryption keys for the model
      */
 
     /**
-     * Change detection context.
-     * @typedef {Object} ChangeContext
-     * @property {Array} localData - Local data
-     * @property {Array} remoteData - Remote data
+     * Parameters for change detection.
+     * @typedef {Object} ChangeDetectionParams
+     * @property {Array} localData - Local collection data
+     * @property {Array} remoteData - Remote collection data
      * @property {string} module - Module name
+     * @property {Object} [encryptKeys] - Encryption keys for local data
      */
 
     /**
@@ -163,9 +163,9 @@ define([
 
                 if (parts.length > 1) {
                     const key = parts.shift();
-                    const val = parts.length > 0 ? parts.join('=') : undefined;
-                    const decodedVal = undefined ? null : decodeURIComponent(val.trim());
-                    ret[key] = decodedVal;
+                    let val = parts.length > 0 ? parts.join('=') : undefined;
+                    val = undefined ? null : decodeURIComponent(val.trim());
+                    ret[key] = val;
                 }
             });
 
@@ -236,11 +236,7 @@ define([
                         adapter.getAll(module)
                     ])
                         .spread((localData, remoteData) => {
-                            return this.syncAll({
-                                localData,
-                                remoteData,
-                                module
-                            });
+                            return this.syncAll({localData, remoteData, module});
                         });
                 });
             });
@@ -285,16 +281,16 @@ define([
         /**
          * Synchronize a collection.
          *
-         * @param {SyncContext} context - Sync context object
+         * @param {SyncParams} params - Sync parameters object
          * @return {Promise}
          */
-        syncAll: function(context) {
-            const {localData, remoteData, module} = context;
+        syncAll: function(params) {
+            const {localData, remoteData, module} = params;
             const encryptKeys = localData.model.prototype.encryptKeys;
-            const jsonData = (localData.fullCollection || localData).toJSON();
+            const normalizedLocalData = (localData.fullCollection || localData).toJSON();
 
             const promises = this.checkRemoteChanges({
-                localData: jsonData,
+                localData: normalizedLocalData,
                 remoteData,
                 module
             });
@@ -302,7 +298,7 @@ define([
             promises.push.apply(
                 promises,
                 this.checkLocalChanges({
-                    localData: jsonData,
+                    localData: normalizedLocalData,
                     remoteData,
                     module,
                     encryptKeys
@@ -318,11 +314,11 @@ define([
         /**
          * Save only models which don't exist locally or which were updated
          * remotely.
-         * @param {ChangeContext} context - Change context object
+         * @param {ChangeDetectionParams} params - Change detection parameters
          * @returns {Array} Array of promise-returning functions
          */
-        checkRemoteChanges: function(context) {
-            const {localData, remoteData, module} = context;
+        checkRemoteChanges: function(params) {
+            const {localData, remoteData, module} = params;
             const promises = [];
             const newData = _.filter(remoteData, (rModel) => {
                 const model = _.findWhere(localData, {id: rModel.id});
@@ -344,15 +340,11 @@ define([
         /**
          * Save only models which don't exist on Dropbox or
          * which were updated locally.
-         * @param {Object} context - Change context with encryptKeys
-         * @param {Array} context.localData - Local data
-         * @param {Array} context.remoteData - Remote data
-         * @param {string} context.module - Module name
-         * @param {Object} context.encryptKeys - Encryption keys
+         * @param {ChangeDetectionParams} params - Change detection parameters
          * @returns {Array} Array of promise-returning functions
          */
-        checkLocalChanges: function(context) {
-            const {localData, remoteData, module, encryptKeys} = context;
+        checkLocalChanges: function(params) {
+            const {localData, remoteData, module, encryptKeys} = params;
             const promises = [];
 
             _.each(localData, (lModel) => {

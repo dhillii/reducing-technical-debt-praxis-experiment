@@ -143,9 +143,9 @@ const buildFontOptions = (
 const handleImageUpload = async (
     file: File,
     uploadImage: (params: {file: File}) => Promise<string>,
+    handleError: (error: APIError) => void,
     updateSetting: (key: string, value: SettingValue) => void,
-    settingKey: string,
-    handleError: (error: Error) => void
+    settingKey: string
 ): Promise<void> => {
     try {
         const uploadedUrl = await uploadImage({file});
@@ -159,53 +159,60 @@ const handleImageUpload = async (
     }
 };
 
-/** Handles font selection and updates both state and settings */
-const handleFontSelect = (
-    option: FontSelectOption | null,
-    isHeading: boolean,
-    themeNameVersion: string,
-    setFont: (font: {name: string, creator: string}) => void,
-    updateSetting: (key: string, value: SettingValue) => void
-): void => {
-    const fontList = isHeading ? CUSTOM_FONTS.heading : CUSTOM_FONTS.body;
-    const settingKey = isHeading ? 'heading_font' : 'body_font';
-
-    if (option?.value === DEFAULT_FONT) {
-        setFont({name: DEFAULT_FONT, creator: themeNameVersion});
-        updateSetting(settingKey, '');
-    } else {
-        const fontCreator = fontList.find(f => f.name === option?.value)?.creator || '';
-        setFont({name: option?.value || '', creator: fontCreator});
-        updateSetting(settingKey, option?.value || '');
-    }
-};
-
-interface AccentColorSectionProps {
-    accentColor: string;
-    updateSetting: (key: string, value: SettingValue) => void;
-}
-
-/** Renders the accent color picker section */
-const AccentColorSection: React.FC<AccentColorSectionProps> = ({accentColor, updateSetting}) => (
-    <ColorPickerField
-        debounceMs={200}
-        direction='rtl'
-        testId='accent-color-picker'
-        title={<div>Accent color</div>}
-        value={accentColor}
-        onChange={value => updateSetting('accent_color', value)}
-    />
+/** Renders the accent color and publication media section */
+const AccentColorAndMediaSection: React.FC<{
+    values: GlobalSettingValues,
+    updateSetting: (key: string, value: SettingValue) => void,
+    uploadImage: (params: {file: File}) => Promise<string>,
+    handleError: (error: APIError) => void,
+    unsplashEnabled: boolean,
+    unsplashConfig: any,
+    editor: any,
+    showUnsplash: boolean,
+    setShowUnsplash: (show: boolean) => void
+}> = ({
+    values,
+    updateSetting,
+    uploadImage,
+    handleError,
+    unsplashEnabled,
+    unsplashConfig,
+    editor,
+    showUnsplash,
+    setShowUnsplash
+}) => (
+    <Form className='mt-6' gap='sm' margins='lg' title=''>
+        <ColorPickerField
+            debounceMs={200}
+            direction='rtl'
+            testId='accent-color-picker'
+            title={<div>Accent color</div>}
+            value={values.accentColor}
+            onChange={value => updateSetting('accent_color', value)}
+        />
+        <IconUploadField values={values} updateSetting={updateSetting} uploadImage={uploadImage} handleError={handleError} />
+        <LogoUploadField values={values} updateSetting={updateSetting} uploadImage={uploadImage} handleError={handleError} />
+        <CoverImageUploadField
+            values={values}
+            updateSetting={updateSetting}
+            uploadImage={uploadImage}
+            handleError={handleError}
+            unsplashEnabled={unsplashEnabled}
+            unsplashConfig={unsplashConfig}
+            editor={editor}
+            showUnsplash={showUnsplash}
+            setShowUnsplash={setShowUnsplash}
+        />
+    </Form>
 );
 
-interface IconUploadSectionProps {
-    icon: string | null;
-    uploadImage: (params: {file: File}) => Promise<string>;
-    updateSetting: (key: string, value: SettingValue) => void;
-    handleError: (error: Error) => void;
-}
-
-/** Renders the publication icon upload section */
-const IconUploadSection: React.FC<IconUploadSectionProps> = ({icon, uploadImage, updateSetting, handleError}) => (
+/** Renders the publication icon upload field */
+const IconUploadField: React.FC<{
+    values: GlobalSettingValues,
+    updateSetting: (key: string, value: SettingValue) => void,
+    uploadImage: (params: {file: File}) => Promise<string>,
+    handleError: (error: APIError) => void
+}> = ({values, updateSetting, uploadImage, handleError}) => (
     <div className='flex items-start justify-between'>
         <div>
             <div>Publication icon</div>
@@ -215,15 +222,13 @@ const IconUploadSection: React.FC<IconUploadSectionProps> = ({icon, uploadImage,
             <ImageUpload
                 deleteButtonClassName='!top-1 !right-1'
                 editButtonClassName='!top-1 !right-1'
-                height={icon ? '66px' : '36px'}
+                height={values.icon ? '66px' : '36px'}
                 id='logo'
                 imageBWCheckedBg={true}
-                imageURL={icon || ''}
-                width={icon ? '66px' : '160px'}
+                imageURL={values.icon || ''}
+                width={values.icon ? '66px' : '160px'}
                 onDelete={() => updateSetting('icon', null)}
-                onUpload={async (file) => {
-                    await handleImageUpload(file, uploadImage, updateSetting, 'icon', handleError);
-                }}
+                onUpload={(file) => handleImageUpload(file, uploadImage, handleError, updateSetting, 'icon')}
             >
                 Upload icon
             </ImageUpload>
@@ -231,17 +236,14 @@ const IconUploadSection: React.FC<IconUploadSectionProps> = ({icon, uploadImage,
     </div>
 );
 
-interface LogoUploadSectionProps {
-    logo: string | null;
-    icon: string | null;
-    uploadImage: (params: {file: File}) => Promise<string>;
-    updateSetting: (key: string, value: SettingValue) => void;
-    handleError: (error: Error) => void;
-}
-
-/** Renders the publication logo upload section */
-const LogoUploadSection: React.FC<LogoUploadSectionProps> = ({logo, icon, uploadImage, updateSetting, handleError}) => (
-    <div className={`flex items-start justify-between ${icon && 'mt-2'}`}>
+/** Renders the publication logo upload field */
+const LogoUploadField: React.FC<{
+    values: GlobalSettingValues,
+    updateSetting: (key: string, value: SettingValue) => void,
+    uploadImage: (params: {file: File}) => Promise<string>,
+    handleError: (error: APIError) => void
+}> = ({values, updateSetting, uploadImage, handleError}) => (
+    <div className={`flex items-start justify-between ${values.icon && 'mt-2'}`}>
         <div>
             <div>Publication logo</div>
             <Hint className='!mt-0 mr-5 max-w-[160px]'>Appears usually in the main header of your theme</Hint>
@@ -253,12 +255,10 @@ const LogoUploadSection: React.FC<LogoUploadSectionProps> = ({logo, icon, upload
                 id='site-logo'
                 imageBWCheckedBg={true}
                 imageFit='contain'
-                imageURL={logo || ''}
+                imageURL={values.logo || ''}
                 width='160px'
                 onDelete={() => updateSetting('logo', null)}
-                onUpload={async (file) => {
-                    await handleImageUpload(file, uploadImage, updateSetting, 'logo', handleError);
-                }}
+                onUpload={(file) => handleImageUpload(file, uploadImage, handleError, updateSetting, 'logo')}
             >
                 Upload logo
             </ImageUpload>
@@ -266,26 +266,24 @@ const LogoUploadSection: React.FC<LogoUploadSectionProps> = ({logo, icon, upload
     </div>
 );
 
-interface CoverUploadSectionProps {
-    coverImage: string | null;
-    unsplashEnabled: boolean;
-    unsplashConfig: any;
-    uploadImage: (params: {file: File}) => Promise<string>;
-    updateSetting: (key: string, value: SettingValue) => void;
-    handleError: (error: Error) => void;
-    editor: any;
-    showUnsplash: boolean;
-    setShowUnsplash: (show: boolean) => void;
-}
-
-/** Renders the publication cover image upload section with Unsplash integration */
-const CoverUploadSection: React.FC<CoverUploadSectionProps> = ({
-    coverImage,
+/** Renders the publication cover image upload field with Unsplash integration */
+const CoverImageUploadField: React.FC<{
+    values: GlobalSettingValues,
+    updateSetting: (key: string, value: SettingValue) => void,
+    uploadImage: (params: {file: File}) => Promise<string>,
+    handleError: (error: APIError) => void,
+    unsplashEnabled: boolean,
+    unsplashConfig: any,
+    editor: any,
+    showUnsplash: boolean,
+    setShowUnsplash: (show: boolean) => void
+}> = ({
+    values,
+    updateSetting,
+    uploadImage,
+    handleError,
     unsplashEnabled,
     unsplashConfig,
-    uploadImage,
-    updateSetting,
-    handleError,
     editor,
     showUnsplash,
     setShowUnsplash
@@ -300,14 +298,14 @@ const CoverUploadSection: React.FC<CoverUploadSectionProps> = ({
             editButtonClassName='!top-1 !right-10'
             height='95px'
             id='cover'
-            imageURL={coverImage || ''}
+            imageURL={values.coverImage || ''}
             openUnsplash={() => setShowUnsplash(true)}
             pintura={{
                 isEnabled: editor.isEnabled,
                 openEditor: async () => editor.openEditor({
-                    image: coverImage || '',
+                    image: values.coverImage || '',
                     handleSave: async (file: File) => {
-                        await handleImageUpload(file, uploadImage, updateSetting, 'cover_image', handleError);
+                        await handleImageUpload(file, uploadImage, handleError, updateSetting, 'cover_image');
                     }
                 })
             }}
@@ -315,12 +313,139 @@ const CoverUploadSection: React.FC<CoverUploadSectionProps> = ({
             unsplashEnabled={unsplashEnabled}
             width='160px'
             onDelete={() => updateSetting('cover_image', null)}
-            onUpload={async (file: any) => {
-                await handleImageUpload(file, uploadImage, updateSetting, 'cover_image', handleError);
-            }}
+            onUpload={(file: File) => handleImageUpload(file, uploadImage, handleError, updateSetting, 'cover_image')}
         >
             Upload cover
         </ImageUpload>
         {showUnsplash && unsplashConfig && unsplashEnabled && (
             <UnsplashSelector
                 unsplashProviderConfig={unsplashConfig}
+                onClose={() => setShowUnsplash(false)}
+                onImageInsert={(image) => {
+                    if (image.src) {
+                        updateSetting('cover_image', image.src);
+                    }
+                    setShowUnsplash(false);
+                }}
+            />
+        )}
+    </div>
+);
+
+/** Handles font selection and updates both state and settings */
+const handleFontSelect = (
+    option: FontSelectOption | undefined,
+    isHeading: boolean,
+    setFont: (font: {name: string, creator: string}) => void,
+    updateSetting: (key: string, value: SettingValue) => void,
+    themeNameVersion: string
+): void => {
+    const fontList = isHeading ? CUSTOM_FONTS.heading : CUSTOM_FONTS.body;
+    const settingKey = isHeading ? 'heading_font' : 'body_font';
+
+    if (option?.value === DEFAULT_FONT) {
+        setFont({name: DEFAULT_FONT, creator: themeNameVersion});
+        updateSetting(settingKey, '');
+    } else {
+        const fontName = option?.value || '';
+        const fontCreator = fontList.find(f => f.name === fontName)?.creator || '';
+        setFont({name: fontName, creator: fontCreator});
+        updateSetting(settingKey, fontName);
+    }
+};
+
+/** Renders the typography section with heading and body font selectors */
+const TypographySection: React.FC<{
+    selectedHeadingFont: FontSelectOption,
+    selectedBodyFont: FontSelectOption,
+    customHeadingFonts: HeadingFontOption[],
+    customBodyFonts: BodyFontOption[],
+    onHeadingFontSelect: (option: FontSelectOption | undefined) => void,
+    onBodyFontSelect: (option: FontSelectOption | undefined) => void
+}> = ({
+    selectedHeadingFont,
+    selectedBodyFont,
+    customHeadingFonts,
+    customBodyFonts,
+    onHeadingFontSelect,
+    onBodyFontSelect
+}) => (
+    <Form className='-mt-4' gap='sm' margins='lg' title='Typography'>
+        <Select
+            className={getFontClassName(selectedHeadingFont.label, true)}
+            components={{Option, SingleValue}}
+            controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
+            hint={''}
+            menuShouldScrollIntoView={true}
+            options={customHeadingFonts}
+            selectedOption={selectedHeadingFont}
+            testId='heading-font-select'
+            title={'Heading font'}
+            onSelect={onHeadingFontSelect}
+        />
+        <Select
+            className={getFontClassName(selectedBodyFont.label, false)}
+            components={{Option, SingleValue}}
+            controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
+            hint={''}
+            maxMenuHeight={200}
+            menuPosition='fixed'
+            menuShouldScrollIntoView={true}
+            options={customBodyFonts}
+            selectedOption={selectedBodyFont}
+            testId='body-font-select'
+            title={'Body font'}
+            onSelect={onBodyFontSelect}
+        />
+    </Form>
+);
+
+const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (key: string, value: SettingValue) => void }> = ({values, updateSetting}) => {
+    const {mutateAsync: uploadImage} = useUploadImage();
+    const {settings} = useGlobalData();
+    const [unsplashEnabled] = getSettingValues<boolean>(settings, ['unsplash']);
+    const [showUnsplash, setShowUnsplash] = useState<boolean>(false);
+    const {unsplashConfig} = useFramework();
+    const handleError = useHandleError();
+    const editor = usePinturaEditor();
+
+    const {data: themesData} = useBrowseThemes();
+    const activeTheme = themesData?.themes.find((theme: Theme) => theme.active);
+    const themeNameVersion = activeTheme ? `${capitalizeWords(activeTheme.name)} (v${activeTheme.package?.version || '1.0'})` : 'Loading...';
+
+    const [headingFont, setHeadingFont] = useState(CUSTOM_FONTS.heading.find(f => f.name === values.headingFont) || {name: DEFAULT_FONT, creator: themeNameVersion});
+    const [bodyFont, setBodyFont] = useState(CUSTOM_FONTS.body.find(f => f.name === values.bodyFont) || {name: DEFAULT_FONT, creator: themeNameVersion});
+
+    const customHeadingFonts = buildFontOptions(CUSTOM_FONTS.heading, true, themeNameVersion) as HeadingFontOption[];
+    const customBodyFonts = buildFontOptions(CUSTOM_FONTS.body, false, themeNameVersion) as BodyFontOption[];
+
+    const selectedHeadingFont = {label: headingFont.name, value: headingFont.name, creator: headingFont.creator};
+    const selectedBodyFont = {label: bodyFont.name, value: bodyFont.name, creator: bodyFont.creator};
+
+    return (
+        <>
+            <AccentColorAndMediaSection
+                values={values}
+                updateSetting={updateSetting}
+                uploadImage={uploadImage}
+                handleError={handleError}
+                unsplashEnabled={unsplashEnabled}
+                unsplashConfig={unsplashConfig}
+                editor={editor}
+                showUnsplash={showUnsplash}
+                setShowUnsplash={setShowUnsplash}
+            />
+            <TypographySection
+                selectedHeadingFont={selectedHeadingFont}
+                selectedBodyFont={selectedBodyFont}
+                customHeadingFonts={customHeadingFonts}
+                customBodyFonts={customBodyFonts}
+                onHeadingFontSelect={(option) => handleFontSelect(option, true, setHeadingFont, updateSetting, themeNameVersion)}
+                onBodyFontSelect={(option) => handleFontSelect(option, false, setBodyFont, updateSetting, themeNameVersion)}
+            />
+        </>
+    );
+};
+
+export default GlobalSettings;
+```

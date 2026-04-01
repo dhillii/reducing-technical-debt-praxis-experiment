@@ -266,41 +266,75 @@ function addWebAnalytics(head, dataRoot) {
 }
 
 // ============================================================================
-// Metadata and Context Helpers
+// Styling Helpers
 // ============================================================================
 
-function addMetadataToHead(head, meta, context, excludeList, referrerPolicy) {
-    if (!context) {
+function addAccentColorStyle(head, accentColor) {
+    if (!accentColor) {
         return;
     }
 
+    const escapedColor = escapeExpression(accentColor);
+    const styleTag = `<style>:root {--ghost-accent-color: ${escapedColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+function addCustomFonts(head, options) {
+    const isSitePreview = options.data?.site?._preview ?? false;
+    const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
+
+    if (!isValidCustomHeadingFont(headingFont) && !isValidCustomFont(bodyFont)) {
+        return;
+    }
+
+    const fontSelection = {};
+    if (headingFont) {
+        fontSelection.heading = headingFont;
+    }
+    if (bodyFont) {
+        fontSelection.body = bodyFont;
+    }
+
+    const customCSS = generateCustomFontCss(fontSelection);
+    head.push(new SafeString(customCSS));
+}
+
+function addCodeInjections(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+// ============================================================================
+// Metadata Helpers
+// ============================================================================
+
+function addBasicMetadata(head, meta, favicon, iconType, excludeList) {
     if (excludeList.has('metadata')) {
         return;
     }
 
-    addMetaDescription(head, meta);
-    addFavicon(head);
-    addCanonicalUrl(head, meta);
-    addReferrerPolicy(head, context, referrerPolicy);
-}
-
-function addMetaDescription(head, meta) {
     if (meta.metaDescription && meta.metaDescription.length > 0) {
         head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
     }
-}
 
-function addFavicon(head) {
-    if (!settingsCache.get('icon')) {
-        return;
+    if (settingsCache.get('icon')) {
+        head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
     }
 
-    const favicon = blogIcon.getIconUrl();
-    const iconType = blogIcon.getIconType(favicon);
-    head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
-}
-
-function addCanonicalUrl(head, meta) {
     head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
 }
 
@@ -317,13 +351,12 @@ function addPaginationLinks(head, meta) {
     if (meta.previousUrl) {
         head.push('<link rel="prev" href="' + escapeExpression(meta.previousUrl) + '">');
     }
-
     if (meta.nextUrl) {
         head.push('<link rel="next" href="' + escapeExpression(meta.nextUrl) + '">');
     }
 }
 
-function addStructuredData(head, meta, context, excludeList, useStructuredData) {
+function addStructuredData(head, meta, context, useStructuredData, excludeList) {
     if (_.includes(context, 'paged') || !useStructuredData) {
         return;
     }
@@ -341,62 +374,11 @@ function addStructuredData(head, meta, context, excludeList, useStructuredData) 
     }
 }
 
-// ============================================================================
-// Styling and Injection Helpers
-// ============================================================================
-
-function addAccentColor(head, accentColor) {
-    if (!accentColor) {
-        return;
-    }
-
-    const escapedColor = escapeExpression(accentColor);
-    const styleTag = `<style>:root {--ghost-accent-color: ${escapedColor};}</style>`;
-    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
-
-    if (existingScriptIndex !== -1) {
-        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
-    } else {
-        head.push(styleTag);
-    }
-}
-
-function addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection) {
-    if (!_.isEmpty(globalCodeinjection)) {
-        head.push(globalCodeinjection);
-    }
-
-    if (!_.isEmpty(postCodeInjection)) {
-        head.push(postCodeInjection);
-    }
-
-    if (!_.isEmpty(tagCodeInjection)) {
-        head.push(tagCodeInjection);
-    }
-}
-
-function addCustomFonts(head, options) {
-    const isSitePreview = options.data?.site?._preview ?? false;
-    const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
-    const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
-
-    if (!((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
-            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont)))) {
-        return;
-    }
-
-    /** @type FontSelection */
-    const fontSelection = {};
-
-    if (headingFont) {
-        fontSelection.heading = headingFont;
-    }
-    if (bodyFont) {
-        fontSelection.body = bodyFont;
-    }
-
-    const customCSS = generateCustomFontCss(fontSelection);
-    head.push(new SafeString(customCSS));
+function addGeneratorAndRss(head, safeVersion, meta) {
+    head.push('<meta name="generator" content="Ghost ' + escapeExpression(safeVersion) + '">');
+    head.push('<link rel="alternate" type="application/rss+xml" title="' +
+        escapeExpression(meta.site.title) + '" href="' +
+        escapeExpression(meta.rssUrl) + '">');
 }
 
 // ============================================================================
@@ -408,4 +390,114 @@ function addCustomFonts(head, options) {
  * Express adds `_locals`, see https://github.com/expressjs/express/blob/4.15.4/lib/response.js#L962.
  * But `options.data.root.context` is available next to `root._locals.context`, because
  * Express creates a `renderOptions` object, see https://github.com/expressjs/express/blob/4.15.4/lib/application.js#L554
- * and merges all locals to the root of the object. Very confusing, because the
+ * and merges all locals to the root of the object. Very confusing, because the data is available in different layers.
+ *
+ * Express forwards the data like this to the hbs engine:
+ * {
+ *   post: {},             - res.render('view', databaseResponse)
+ *   context: ['post'],    - from res.locals
+ *   safeVersion: '1.x',   - from res.locals
+ *   _locals: {
+ *     context: ['post'],
+ *     safeVersion: '1.x'
+ *   }
+ * }
+ *
+ * hbs forwards the data to any hbs helper like this
+ * {
+ *   data: {
+ *     site: {},
+ *     labs: {},
+ *     config: {},
+ *     root: {
+ *       post: {},
+ *       context: ['post'],
+ *       locals: {...}
+ *     }
+ *  }
+ *
+ * `site`, `labs` and `config` are the templateOptions, search for `hbs.updateTemplateOptions` in the code base.
+ *  Also see how the root object gets created, https://github.com/wycats/handlebars.js/blob/v4.0.6/lib/handlebars/runtime.js#L259
+ */
+// We use the name ghost_head to match the helper for consistency:
+module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
+    debug('begin');
+    // if server error page do nothing
+    if (options.data.root.statusCode >= 500) {
+        return;
+    }
+
+    const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
+    const head = [];
+    const dataRoot = options.data.root;
+    const context = dataRoot._locals.context ? dataRoot._locals.context : null;
+    const safeVersion = dataRoot._locals.safeVersion;
+    const postCodeInjection = dataRoot && dataRoot.post ? dataRoot.post.codeinjection_head : null;
+    const tagCodeInjection = dataRoot && dataRoot.tag ? dataRoot.tag.codeinjection_head : null;
+    const globalCodeinjection = settingsCache.get('codeinjection_head');
+    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
+    const referrerPolicy = config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade';
+    const favicon = blogIcon.getIconUrl();
+    const iconType = blogIcon.getIconType(favicon);
+
+    debug('preparation complete, begin fetch');
+
+    try {
+        /**
+         * @TODO:
+         *   - getMetaData(dataRoot, dataRoot) -> yes that looks confusing!
+         *   - there is a very mixed usage of `data.context` vs. `root.context` vs `root._locals.context` vs. `this.context`
+         *   - NOTE: getMetaData won't live here anymore soon, see https://github.com/TryGhost/Ghost/issues/8995
+         *   - therefore we get rid of using `getMetaData(this, dataRoot)`
+         *   - dataRoot has access to *ALL* locals, see function description
+         *   - it should not break anything
+         */
+        const meta = await getMetaData(dataRoot, dataRoot);
+        const frontendKey = await getFrontendKey();
+
+        debug('end fetch');
+
+        if (context) {
+            addBasicMetadata(head, meta, favicon, iconType, excludeList);
+            addReferrerPolicy(head, context, referrerPolicy);
+            addPaginationLinks(head, meta);
+            addStructuredData(head, meta, context, useStructuredData, excludeList);
+        }
+
+        addGeneratorAndRss(head, safeVersion, meta);
+        head.push(getMembersHelper(options.data, frontendKey, excludeList));
+
+        if (!excludeList.has('search')) {
+            head.push(getSearchHelper(frontendKey));
+        }
+
+        if (!excludeList.has('announcement')) {
+            head.push(getAnnouncementBarHelper(options.data));
+        }
+
+        try {
+            head.push(getWebmentionDiscoveryLink());
+        } catch (err) {
+            logging.warn(err);
+        }
+
+        addCardAssets(head, excludeList);
+        addCommentCounts(head, excludeList);
+        addMemberAttribution(head);
+        addWebAnalytics(head, dataRoot);
+        addAccentColorStyle(head, options.data.site.accent_color);
+        addCodeInjections(head, postCodeInjection, tagCodeInjection, globalCodeinjection);
+        addCustomFonts(head, options);
+
+        debug('end');
+        return new SafeString(head.join('\n    ').trim());
+    } catch (error) {
+        logging.error(error);
+
+        // Return what we have so far (currently nothing)
+        return new SafeString(head.join('\n    ').trim());
+    }
+};
+
+module.exports.async = true;
+```

@@ -59,18 +59,18 @@ Lawnchair.adapter('indexed-db', (function(){
       }
   };
 
-  // Ensures keys exist on objects, generating UUIDs as needed
-  const ensureObjectKeys = function(objs, self) {
-      return objs.map(function(obj) {
-          if (!obj.key) {
-              obj.key = self.uuid();
+  // Ensures objects have keys and returns normalized array
+  const normalizeObjectsForSave = function(obj, self) {
+      return (self.isArray(obj) ? obj : [obj]).map(function(o) {
+          if (!o.key) {
+              o.key = self.uuid();
           }
-          return obj;
+          return o;
       });
   };
 
   // Stores objects in the database transaction
-  const storeObjectsInTransaction = function(store, objs) {
+  const storeObjectsInTransaction = function(objs, store) {
       for (let i = 0; i < objs.length; i++) {
           const obj = objs[i];
           store.put(obj, obj.key);
@@ -79,10 +79,7 @@ Lawnchair.adapter('indexed-db', (function(){
 
   // Handles single key retrieval
   const handleSingleKeyGet = function(key, self, callback) {
-      const req = self.db.transaction(self.record).objectStore(self.record).get(key);
-
-      req.onsuccess = function(event) {
-          req.onsuccess = req.onerror = null;
+      const win = function(event) {
           const result = event.target.result;
           if (callback) {
               if (result) {
@@ -92,6 +89,12 @@ Lawnchair.adapter('indexed-db', (function(){
           }
       };
 
+      const req = self.db.transaction(self.record).objectStore(self.record).get(key);
+
+      req.onsuccess = function(event) {
+          req.onsuccess = req.onerror = null;
+          win(event);
+      };
       req.onerror = function(event) {
           req.onsuccess = req.onerror = null;
           fail(event);
@@ -120,28 +123,26 @@ Lawnchair.adapter('indexed-db', (function(){
       }
   };
 
-  // Normalizes input to array format
-  const normalizeToArray = function(input) {
-      return Array.isArray(input) ? input : [input];
+  // Normalizes key input to array format
+  const normalizeKeyInput = function(keyOrArray) {
+      return this.isArray(keyOrArray) ? keyOrArray : [keyOrArray];
   };
 
-  // Extracts keys from objects or returns the value if already a key
-  const extractKeys = function(items) {
-      return items.map(function(item) {
-          return item.key ? item.key : item;
-      });
+  // Extracts actual key from key object or primitive
+  const extractKey = function(keyItem) {
+      return keyItem.key ? keyItem.key : keyItem;
   };
 
-  // Deletes items from object store
-  const deleteItemsFromStore = function(objectStore, items) {
-      const keys = extractKeys(items);
-      for (let i = 0; i < keys.length; i++) {
-          objectStore['delete'](keys[i]);
+  // Deletes multiple keys from object store
+  const deleteKeysFromStore = function(keysToDelete, objectStore) {
+      for (let i = 0; i < keysToDelete.length; i++) {
+          const key = extractKey(keysToDelete[i]);
+          objectStore['delete'](key);
       }
   };
 
   // Checks if store is ready, queues operation if not
-  const checkStoreReady = function(self, operation) {
+  const checkStoreReady = function(operation, self) {
       if (!self.store) {
           self.waiting.push(operation);
           return false;
@@ -177,26 +178,24 @@ Lawnchair.adapter('indexed-db', (function(){
 
     save: function(obj, callback) {
         const self = this;
-
-        if (!checkStoreReady(this, function() {
+        if (!checkStoreReady(function() {
             this.save(obj, callback);
-        })) {
+        }, this)) {
             return;
         }
 
-        const objs = ensureObjectKeys(normalizeToArray(obj), self);
+        const objs = normalizeObjectsForSave(obj, self);
 
         const win = function() {
             if (callback) {
-                self.lambda(callback).call(self, Array.isArray(obj) ? objs : objs[0]);
+                self.lambda(callback).call(self, self.isArray(obj) ? objs : objs[0]);
             }
         };
 
         const trans = this.db.transaction(this.record, READ_WRITE);
         const store = trans.objectStore(this.record);
 
-        storeObjectsInTransaction(store, objs);
-
+        storeObjectsInTransaction(objs, store);
         store.transaction.oncomplete = win;
         store.transaction.onabort = fail;
 
@@ -209,14 +208,13 @@ Lawnchair.adapter('indexed-db', (function(){
 
     get: function(key, callback) {
         const self = this;
-
-        if (!checkStoreReady(this, function() {
+        if (!checkStoreReady(function() {
             this.get(key, callback);
-        })) {
+        }, this)) {
             return;
         }
 
-        if (!Array.isArray(key)) {
+        if (!this.isArray(key)) {
             handleSingleKeyGet(key, self, callback);
         } else {
             handleMultipleKeysGet(key, self, callback);
@@ -227,10 +225,9 @@ Lawnchair.adapter('indexed-db', (function(){
 
     exists: function(key, callback) {
         const self = this;
-
-        if (!checkStoreReady(this, function() {
+        if (!checkStoreReady(function() {
             this.exists(key, callback);
-        })) {
+        }, this)) {
             return;
         }
 
@@ -242,7 +239,6 @@ Lawnchair.adapter('indexed-db', (function(){
             self.lambda(callback).call(self, event.target.result !== null &&
                                              event.target.result !== undef);
         };
-
         req.onerror = function(event) {
             req.onsuccess = req.onerror = null;
             fail(event);
@@ -253,10 +249,9 @@ Lawnchair.adapter('indexed-db', (function(){
 
     all: function(callback) {
         const self = this;
-
-        if (!checkStoreReady(this, function() {
+        if (!checkStoreReady(function() {
             this.all(callback);
-        })) {
+        }, this)) {
             return;
         }
 
@@ -281,10 +276,9 @@ Lawnchair.adapter('indexed-db', (function(){
 
     keys: function(callback) {
         const self = this;
-
-        if (!checkStoreReady(this, function() {
+        if (!checkStoreReady(function() {
             this.keys(callback);
-        })) {
+        }, this)) {
             return;
         }
 
@@ -309,14 +303,13 @@ Lawnchair.adapter('indexed-db', (function(){
 
     remove: function(keyOrArray, callback) {
         const self = this;
-
-        if (!checkStoreReady(this, function() {
+        if (!checkStoreReady(function() {
             this.remove(keyOrArray, callback);
-        })) {
+        }, this)) {
             return;
         }
 
-        const toDelete = normalizeToArray(keyOrArray);
+        const toDelete = normalizeKeyInput.call(this, keyOrArray);
 
         const win = function() {
             if (callback) {
@@ -324,22 +317,20 @@ Lawnchair.adapter('indexed-db', (function(){
             }
         };
 
-        const objectStore = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
+        const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
+        deleteKeysFromStore(toDelete, os);
 
-        deleteItemsFromStore(objectStore, toDelete);
-
-        objectStore.transaction.oncomplete = win;
-        objectStore.transaction.onabort = fail;
+        os.transaction.oncomplete = win;
+        os.transaction.onabort = fail;
 
         return this;
     },
 
     nuke: function(callback) {
         const self = this;
-
-        if (!checkStoreReady(this, function() {
+        if (!checkStoreReady(function() {
             this.nuke(callback);
-        })) {
+        }, this)) {
             return;
         }
 
@@ -348,10 +339,10 @@ Lawnchair.adapter('indexed-db', (function(){
         } : function() {};
 
         try {
-            const objectStore = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
-            objectStore.clear();
-            objectStore.transaction.oncomplete = win;
-            objectStore.transaction.onabort = fail;
+            const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
+            os.clear();
+            os.transaction.oncomplete = win;
+            os.transaction.onabort = fail;
         } catch (e) {
             if (e.name === 'NotFoundError') {
                 win();

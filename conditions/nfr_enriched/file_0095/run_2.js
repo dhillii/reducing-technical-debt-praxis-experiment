@@ -113,12 +113,12 @@ define([
                 return true;
             }
 
-            return this._hasValidKeys();
+            return !_.isEmpty(this.keys) || this._getSession() !== null;
         },
 
         /**
          * Check if encryption settings have been changed.
-         * @private
+         *
          * @return bool
          */
         _isEncryptionChanged: function() {
@@ -131,20 +131,11 @@ define([
 
         /**
          * Check if encryption is disabled.
-         * @private
+         *
          * @return bool
          */
         _isEncryptionDisabled: function() {
             return !Number(this.configs.encrypt) || this.configs.encryptPass === '';
-        },
-
-        /**
-         * Check if valid encryption keys exist.
-         * @private
-         * @return bool
-         */
-        _hasValidKeys: function() {
-            return !_.isEmpty(this.keys) || this._getSession() !== null;
         },
 
         /**
@@ -277,7 +268,7 @@ define([
 
         /**
          * Check if collection can be encrypted.
-         * @private
+         *
          * @return bool
          */
         _canEncryptCollection: function(collection) {
@@ -313,7 +304,7 @@ define([
 
         /**
          * Check if collection can be decrypted.
-         * @private
+         *
          * @return bool
          */
         _canDecryptCollection: function(collection) {

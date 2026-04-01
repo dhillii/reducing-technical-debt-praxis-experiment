@@ -216,28 +216,26 @@ function processMessageAndStack (message, stack) {
 }
 
 /**
- * Formats error message with diff if applicable.
+ * Formats uncaught error message.
+ * @param {string} msg
+ * @param {boolean} isUncaught
+ * @return {string}
+ * @api private
+ */
+function formatUncaughtMessage (msg, isUncaught) {
+  return isUncaught ? 'Uncaught ' + msg : msg;
+}
+
+/**
+ * Builds diff format string and message.
  * @param {Error} err
  * @param {string} message
  * @return {Object} {fmt, msg}
  * @api private
  */
-function formatErrorWithDiff (err, message) {
-  if (exports.hideDiff || !showDiff(err)) {
-    return {
-      fmt: color('error title', '  %s) %s:\n') +
-           color('error message', '     %s') +
-           color('error stack', '\n%s\n'),
-      msg: message
-    };
-  }
-
-  stringifyDiffObjs(err);
-  let msg = '\n      ' + color('error message', message);
+function buildDiffOutput (err, message) {
   const match = message.match(/^([^:]+): expected/);
-  if (match) {
-    msg = '\n      ' + color('error message', match[1]);
-  }
+  let msg = '\n      ' + color('error message', match ? match[1] : message);
 
   if (exports.inlineDiffs) {
     msg += inlineDiff(err);
@@ -245,10 +243,28 @@ function formatErrorWithDiff (err, message) {
     msg += unifiedDiff(err);
   }
 
-  return {
-    fmt: color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n'),
-    msg: msg
-  };
+  const fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
+  return { fmt: fmt, msg: msg };
+}
+
+/**
+ * Builds test title path string.
+ * @param {Object} test
+ * @return {string}
+ * @api private
+ */
+function buildTestTitle (test) {
+  let testTitle = '';
+  test.titlePath().forEach(function (str, index) {
+    if (index !== 0) {
+      testTitle += '\n     ';
+    }
+    for (let i = 0; i < index; i++) {
+      testTitle += '  ';
+    }
+    testTitle += str;
+  });
+  return testTitle;
 }
 
 /**
@@ -261,35 +277,34 @@ function formatErrorWithDiff (err, message) {
 exports.list = function (failures) {
   console.log();
   failures.forEach(function (test, i) {
+    let fmt = color('error title', '  %s) %s:\n') +
+      color('error message', '     %s') +
+      color('error stack', '\n%s\n');
+
     const err = test.err;
     const message = extractErrorMessage(err);
-    const stack = err.stack || message;
-
+    let stack = err.stack || message;
     const { msg: processedMsg, stack: processedStack } = processMessageAndStack(message, stack);
     let msg = processedMsg;
-    let finalStack = processedStack;
+    stack = processedStack;
 
-    if (err.uncaught) {
-      msg = 'Uncaught ' + msg;
+    msg = formatUncaughtMessage(msg, err.uncaught);
+
+    // explicitly show diff
+    if (!exports.hideDiff && showDiff(err)) {
+      stringifyDiffObjs(err);
+      const diffOutput = buildDiffOutput(err, message);
+      fmt = diffOutput.fmt;
+      msg = diffOutput.msg;
     }
 
-    const { fmt, msg: formattedMsg } = formatErrorWithDiff(err, message);
-    msg = formattedMsg;
+    // indent stack trace
+    stack = stack.replace(/^/gm, '  ');
 
-    finalStack = finalStack.replace(/^/gm, '  ');
+    // indented test title
+    const testTitle = buildTestTitle(test);
 
-    let testTitle = '';
-    test.titlePath().forEach(function (str, index) {
-      if (index !== 0) {
-        testTitle += '\n     ';
-      }
-      for (let i = 0; i < index; i++) {
-        testTitle += '  ';
-      }
-      testTitle += str;
-    });
-
-    console.log(fmt, (i + 1), testTitle, msg, finalStack);
+    console.log(fmt, (i + 1), testTitle, msg, stack);
   });
 };
 
@@ -312,35 +327,27 @@ function determineTestSpeed (duration, slowFn) {
 }
 
 /**
- * Initializes runner event handlers for statistics tracking.
- * @param {Runner} runner
+ * Initializes runner event handlers for pass events.
+ * @param {Object} runner
+ * @param {Object} stats
+ * @api private
+ */
+function setupPassHandler (runner, stats) {
+  runner.on('pass', function (test) {
+    stats.passes = stats.passes || 0;
+    test.speed = determineTestSpeed(test.duration, test.slow);
+    stats.passes++;
+  });
+}
+
+/**
+ * Initializes runner event handlers for fail events.
+ * @param {Object} runner
  * @param {Object} stats
  * @param {Array} failures
  * @api private
  */
-function initializeRunnerHandlers (runner, stats, failures) {
-  runner.on('start', function () {
-    stats.start = new DateRef();
-  });
-
-  runner.on('suite', function (suite) {
-    stats.suites = stats.suites || 0;
-    if (!suite.root) {
-      stats.suites++;
-    }
-  });
-
-  runner.on('test end', function () {
-    stats.tests = stats.tests || 0;
-    stats.tests++;
-  });
-
-  runner.on('pass', function (test) {
-    stats.passes = stats.passes || 0;
-    test.speed = determineTestSpeed(test.duration, test.slow.bind(test));
-    stats.passes++;
-  });
-
+function setupFailHandler (runner, stats, failures) {
   runner.on('fail', function (test, err) {
     stats.failures = stats.failures || 0;
     stats.failures++;
@@ -349,15 +356,6 @@ function initializeRunnerHandlers (runner, stats, failures) {
     }
     test.err = err;
     failures.push(test);
-  });
-
-  runner.on('end', function () {
-    stats.end = new DateRef();
-    stats.duration = new DateRef() - stats.start;
-  });
-
-  runner.on('pending', function () {
-    stats.pending++;
   });
 }
 
@@ -384,7 +382,31 @@ function Base (runner) {
 
   runner.stats = stats;
 
-  initializeRunnerHandlers(runner, stats, failures);
+  runner.on('start', function () {
+    stats.start = new DateRef();
+  });
+
+  runner.on('suite', function (suite) {
+    stats.suites = stats.suites || 0;
+    suite.root || stats.suites++;
+  });
+
+  runner.on('test end', function () {
+    stats.tests = stats.tests || 0;
+    stats.tests++;
+  });
+
+  setupPassHandler(runner, stats);
+  setupFailHandler(runner, stats, failures);
+
+  runner.on('end', function () {
+    stats.end = new DateRef();
+    stats.duration = new DateRef() - stats.start;
+  });
+
+  runner.on('pending', function () {
+    stats.pending++;
+  });
 }
 
 /**
@@ -476,13 +498,13 @@ function inlineDiff (err) {
 }
 
 /**
- * Cleans up diff line based on type.
+ * Processes a diff line based on its prefix.
  * @param {string} line
  * @param {string} indent
  * @return {string|null}
  * @api private
  */
-function cleanDiffLine (line, indent) {
+function processDiffLine (line, indent) {
   if (line[0] === '+') {
     return indent + colorLines('diff added', line);
   }
@@ -496,16 +518,6 @@ function cleanDiffLine (line, indent) {
     return null;
   }
   return indent + line;
-}
-
-/**
- * Checks if line is not blank.
- * @param {string} line
- * @return {boolean}
- * @api private
- */
-function isNotBlank (line) {
-  return typeof line !== 'undefined' && line !== null;
 }
 
 /**
@@ -523,7 +535,7 @@ function unifiedDiff (err) {
     colorLines('diff added', '+ expected') + ' ' +
     colorLines('diff removed', '- actual') +
     '\n\n' +
-    lines.map(line => cleanDiffLine(line, indent)).filter(isNotBlank).join('\n');
+    lines.map(line => processDiffLine(line, indent)).filter(line => typeof line !== 'undefined' && line !== null).join('\n');
 }
 
 /**
@@ -534,7 +546,7 @@ function unifiedDiff (err) {
  * @return {string}
  */
 function errorDiff (err) {
-  const diffTypeHandlers = {
+  const diffStrategies = {
     added: (str) => colorLines('diff added', str.value),
     removed: (str) => colorLines('diff removed', str.value),
     default: (str) => str.value
@@ -542,16 +554,43 @@ function errorDiff (err) {
 
   return diff.diffWordsWithSpace(err.actual, err.expected).map(function (str) {
     if (str.added) {
-      return diffTypeHandlers.added(str);
+      return diffStrategies.added(str);
     }
     if (str.removed) {
-      return diffTypeHandlers.removed(str);
+      return diffStrategies.removed(str);
     }
-    return diffTypeHandlers.default(str);
+    return diffStrategies.default(str);
   }).join('');
 }
 
 /**
  * Color lines for `str`, using the color `name`.
  *
+ * @api private
+ * @param {string} name
+ * @param {string} str
+ * @return {string}
+ */
+function colorLines (name, str) {
+  return str.split('\n').map(function (str) {
+    return color(name, str);
+  }).join('\n');
+}
+
+/**
+ * Object#toString reference.
+ */
+const objToString = Object.prototype.toString;
+
+/**
+ * Check that a / b have the same type.
  *
+ * @api private
+ * @param {Object} a
+ * @param {Object} b
+ * @return {boolean}
+ */
+function sameType (a, b) {
+  return objToString.call(a) === objToString.call(b);
+}
+```

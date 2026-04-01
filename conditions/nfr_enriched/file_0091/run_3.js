@@ -67,7 +67,7 @@ const TEXT_TAGS: Record<string, Mark | undefined> = {
   KBD: 'keyboard',
 }
 
-/** Extracts mark from element's node name */
+/** Extracts marks from element's node name */
 function getMarkFromNodeName(nodeName: string): Mark | undefined {
   return TEXT_TAGS[nodeName]
 }
@@ -150,27 +150,28 @@ type DeserializedNode = InlineFromExternalPaste | Block
 
 type DeserializedNodes = [DeserializedNode, ...DeserializedNode[]]
 
+/** Handles deserialization of text nodes */
+function deserializeTextNode(el: globalThis.Node): DeserializedNode[] {
+  const text = el.textContent
+  if (!text) {
+    return []
+  }
+  return getInlineNodes(text)
+}
+
 /** Handles deserialization of image elements */
 function deserializeImageNode(el: HTMLElement): DeserializedNode[] {
-  const alt = el.dataset.alt ?? el.getAttribute('alt') ?? ''
+  const alt = el.dataset.alt ?? ''
   return getInlineNodes(alt)
 }
 
-/** Handles deserialization of anchor elements */
-function deserializeAnchorNode(el: HTMLElement): DeserializedNode[] {
-  const href = el.getAttribute('href')
+/** Handles deserialization of link elements */
+function deserializeLinkNode(el: HTMLElement): DeserializedNode[] {
+  const href = el.dataset.href
   if (href) {
     return setLinkForChildren(href, () =>
       forceDisableMarkForChildren('underline', () => deserializeNodes(el.childNodes))
     )
-  }
-  return deserializeNodes(el.childNodes)
-}
-
-/** Handles deserialization of pre elements */
-function deserializePreNode(el: HTMLElement): DeserializedNode[] {
-  if (el.textContent) {
-    return [{ type: 'code', children: [{ text: el.textContent }] }]
   }
   return deserializeNodes(el.childNodes)
 }
@@ -232,17 +233,30 @@ function deserializeDivNode(children: DeserializedNode[]): DeserializedNode[] {
   if (!isBlock(children[0])) {
     return [{ type: 'paragraph', children }]
   }
-  return children
+  return []
+}
+
+/** Handles deserialization of pre elements */
+function deserializePreNode(el: HTMLElement): DeserializedNode[] {
+  if (el.textContent) {
+    return [{ type: 'code', children: [{ text: el.textContent }] }]
+  }
+  return []
+}
+
+/** Handles deserialization of Dropbox Paper blockquotes */
+function deserializeDropboxBlockquoteNode(el: HTMLElement, marks: Set<Mark>): DeserializedNode[] {
+  marks.delete('italic')
+  return addMarksToChildren(marks, () => [
+    { type: 'blockquote', children: fixNodesForBlockChildren(deserializeNodes(el.childNodes)) },
+  ])
 }
 
 export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
   if (!(el instanceof globalThis.HTMLElement)) {
-    const text = el.textContent
-    if (!text) {
-      return []
-    }
-    return getInlineNodes(text)
+    return deserializeTextNode(el)
   }
+
   if (el.nodeName === 'BR') {
     return getInlineNodes('\n')
   }
@@ -258,17 +272,14 @@ export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
   const marks = marksFromElementAttributes(el)
 
   if (el.classList.contains('listtype-quote')) {
-    marks.delete('italic')
-    return addMarksToChildren(marks, () => [
-      { type: 'blockquote', children: fixNodesForBlockChildren(deserializeNodes(el.childNodes)) },
-    ])
+    return deserializeDropboxBlockquoteNode(el, marks)
   }
 
   return addMarksToChildren(marks, (): DeserializedNode[] => {
     const { nodeName } = el
 
     if (nodeName === 'A') {
-      return deserializeAnchorNode(el)
+      return deserializeLinkNode(el)
     }
 
     if (nodeName === 'PRE') {
@@ -305,7 +316,10 @@ export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
     }
 
     if (nodeName === 'DIV') {
-      return deserializeDivNode(children)
+      const divResult = deserializeDivNode(children)
+      if (divResult.length > 0) {
+        return divResult
+      }
     }
 
     return deserialized
@@ -334,6 +348,7 @@ function fixNodesForBlockChildren(deserializedNodes: DeserializedNode[]): Deseri
   if (!deserializedNodes.length) {
     return [{ text: '' }]
   }
+
   if (deserializedNodes.some(isBlock)) {
     const result: DeserializedNode[] = []
     let queuedInlines: InlineFromExternalPaste[] = []
@@ -345,13 +360,16 @@ function fixNodesForBlockChildren(deserializedNodes: DeserializedNode[]): Deseri
         result.push(node)
         continue
       }
+
       if (Node.string(node).trim() !== '') {
         queuedInlines.push(node)
       }
     }
+
     flushInlinesToParagraph(queuedInlines, result)
     return result as DeserializedNodes
   }
+
   return deserializedNodes as DeserializedNodes
 }
 ```

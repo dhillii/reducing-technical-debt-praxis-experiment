@@ -238,15 +238,6 @@ define([
         },
 
         /**
-         * Normalize model identifier to string ID.
-         * @param {object|string} model - Backbone model or ID string
-         * @return {string} model ID
-         */
-        _normalizeModelId: function(model) {
-            return typeof model === 'string' ? model : model.id;
-        },
-
-        /**
          * Remove a model.
          * @type object Backbone model or ID
          * @type object options
@@ -255,14 +246,14 @@ define([
             const self = this;
 
             // Change model's attributes to default values (empty values)
-            const modelId = this._normalizeModelId(model);
-            const trashModel = new (this.changeDatabase(options)).prototype.model({id: modelId});
+            const modelId = typeof model === 'string' ? model : model.id;
+            const removedModel = new (this.changeDatabase(options)).prototype.model({id: modelId});
 
-            trashModel.set({'trash': 2, updated: Date.now()});
+            removedModel.set({'trash': 2, updated: Date.now()});
 
-            return this.save(trashModel, trashModel.attributes)
+            return this.save(removedModel, removedModel.attributes)
             .then(function() {
-                self.vent.trigger('destroy:model', trashModel);
+                self.vent.trigger('destroy:model', removedModel);
             });
         },
 
@@ -279,20 +270,11 @@ define([
         },
 
         /**
-         * Check if model ID is valid (not empty or zero).
-         * @param {string} modelId - Model ID
-         * @return {boolean}
-         */
-        _isValidModelId: function(modelId) {
-            return modelId && modelId !== '0';
-        },
-
-        /**
-         * Handle model fetch error.
+         * Handle model not found error.
          * @param {*} error - Error object or message
          * @return {null|Error}
          */
-        _handleModelFetchError: function(error) {
+        _handleModelNotFoundError: function(error) {
             if (typeof error === 'string' && error.search('not found') > -1) {
                 return null;
             }
@@ -311,7 +293,7 @@ define([
             const model = new Model(data);
 
             // If id was not provided, return a model with default values
-            if (!this._isValidModelId(options[idAttr])) {
+            if (!options[idAttr] || options[idAttr] === '0') {
                 model.set(idAttr, undefined);
                 return new Q(model);
             }
@@ -328,7 +310,9 @@ define([
                 return self.decryptModel(model)
                 .thenResolve(model);
             })
-            .fail(this._handleModelFetchError.bind(this));
+            .fail(function(e) {
+                return self._handleModelNotFoundError(e);
+            });
         },
 
         /**
@@ -381,12 +365,33 @@ define([
         },
 
         /**
-         * Check if decryption should be applied.
+         * Determine if decryption should be applied.
          * @param {object} options - Fetch options
          * @return {boolean}
          */
         _shouldDecryptCollection: function(options) {
             return !options.encrypt;
+        },
+
+        /**
+         * Decrypt collection if needed.
+         * @param {object} collection - Backbone collection
+         * @param {object} options - Fetch options
+         * @return {object} Promise
+         */
+        _decryptCollectionIfNeeded: function(collection, options) {
+            const self = this;
+
+            if (!this._shouldDecryptCollection(options)) {
+                return new Q(collection);
+            }
+
+            return self.decryptModels(collection.fullCollection || collection)
+            .then(function() {
+                collection.trigger('decrypted');
+                return;
+            })
+            .thenResolve(collection);
         },
 
         /**
@@ -399,23 +404,12 @@ define([
 
             return new Q(collection.fetch(options))
             .then(function() {
-
-                // Return in decrypted format
-                if (self._shouldDecryptCollection(options)) {
-                    return self.decryptModels(collection.fullCollection || collection)
-                    .then(function() {
-                        collection.trigger('decrypted');
-                        return;
-                    })
-                    .thenResolve(collection);
-                }
-
-                return collection;
+                return self._decryptCollectionIfNeeded(collection, options);
             });
         },
 
         /**
-         * Check if encryption is disabled for configs.
+         * Check if encryption is disabled for this store.
          * @return {boolean}
          */
         _isConfigStore: function() {
@@ -424,7 +418,7 @@ define([
 
         /**
          * Get encryption configuration.
-         * @return {object} encryption config
+         * @return {object}
          */
         _getEncryptionConfig: function() {
             const configs = Radio.request('configs', 'get:object');
@@ -446,7 +440,7 @@ define([
          * @param {object} configs - Main config
          * @return {boolean}
          */
-        _isEncryptionEnabled: function(backup, configs) {
+        _isEncryptionEnabledInConfig: function(backup, configs) {
             return (Number(configs.encrypt) || Number(backup.encrypt)) === 1;
         },
 
@@ -464,7 +458,7 @@ define([
             model = model || this.Collection.prototype.model.prototype;
 
             return this._hasEncryptionKeys(model) &&
-                this._isEncryptionEnabled(backup, configs);
+                this._isEncryptionEnabledInConfig(backup, configs);
         },
 
         /**

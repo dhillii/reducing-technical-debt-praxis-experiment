@@ -57,10 +57,9 @@
 
     /**
      * Determines the visible option to use based on device capabilities.
-     * @param {String} visibleOption - The configured visible option
-     * @return {String} - The resolved visible option
+     * @return {String} - The visibility option ('always' or 'hover')
      */
-    var _resolveVisibleOption = function(visibleOption) {
+    var _getVisibleOption = function(visibleOption) {
       if (visibleOption === 'touch') {
         return this.isTouchDevice() ? 'always' : 'hover';
       }
@@ -68,78 +67,97 @@
     }.bind(this);
 
     /**
-     * Checks if element already has an AnchorJS link.
+     * Checks if element already has an anchor link.
      * @param {HTMLElement} el - The element to check
      * @return {Boolean} - true if element has anchor link
      */
     var _elementHasAnchorLink = function(el) {
-      var hasLeftAnchor = el.firstChild && ((' ' + el.firstChild.className + ' ').indexOf(' anchorjs-link ') > -1);
-      var hasRightAnchor = el.lastChild && ((' ' + el.lastChild.className + ' ').indexOf(' anchorjs-link ') > -1);
-      return hasLeftAnchor || hasRightAnchor;
-    };
+      return this.hasAnchorJSLink(el);
+    }.bind(this);
 
     /**
-     * Generates a unique ID for an element based on its text content.
-     * @param {String} tidyText - The tidied text to base ID on
-     * @param {Array} idList - Existing IDs to avoid duplicates
-     * @return {String} - A unique ID
+     * Generates a unique ID for an element.
+     * @param {String} tidyText - The base text for the ID
+     * @param {Array} idList - List of existing IDs
+     * @return {String} - The generated unique ID
      */
-    var _generateUniqueId = function(tidyText, idList) {
+    function _generateUniqueId(tidyText, idList) {
       var newTidyText = tidyText;
       var count = 0;
-      var index = idList.indexOf(newTidyText);
+      var index;
 
-      while (index !== -1) {
-        newTidyText = tidyText + '-' + count;
+      do {
+        if (count > 0) {
+          newTidyText = tidyText + '-' + count;
+        }
         index = idList.indexOf(newTidyText);
         count += 1;
-      }
+      } while (index !== -1);
 
+      idList.push(newTidyText);
       return newTidyText;
-    };
+    }
 
     /**
-     * Determines the element ID, either from existing attribute or generated from text.
+     * Gets the element ID, generating one if necessary.
      * @param {HTMLElement} el - The element
-     * @param {Array} idList - Existing IDs
-     * @return {String} - The element ID
+     * @param {Array} idList - List of existing IDs
+     * @return {String} - The element's ID
      */
-    var _getOrGenerateElementId = function(el, idList) {
+    function _getOrGenerateElementId(el, idList) {
       if (el.hasAttribute('id')) {
         return el.getAttribute('id');
       }
 
       var tidyText = this.urlify(el.textContent);
-      var uniqueId = _generateUniqueId(tidyText, idList);
-      idList.push(uniqueId);
-      el.setAttribute('id', uniqueId);
-      return uniqueId;
-    }.bind(this);
+      var elementID = _generateUniqueId(tidyText, idList);
+      el.setAttribute('id', elementID);
+      return elementID;
+    }
 
     /**
-     * Applies styling to anchor element based on options.
-     * @param {HTMLElement} anchor - The anchor element
-     * @param {String} visibleOptionToUse - The visibility option
+     * Creates and configures an anchor element.
+     * @param {String} elementID - The target element ID
+     * @param {String} readableID - Human-readable version of ID
+     * @param {String} visibleOption - Visibility setting
+     * @return {HTMLElement} - The configured anchor element
      */
-    var _styleAnchor = function(anchor, visibleOptionToUse) {
-      if (visibleOptionToUse === 'always') {
+    function _createAnchorElement(elementID, readableID, visibleOption) {
+      var anchor = document.createElement('a');
+      anchor.className = 'anchorjs-link ' + this.options.class;
+      anchor.href = '#' + elementID;
+      anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
+      anchor.setAttribute('data-anchorjs-icon', this.options.icon);
+
+      if (visibleOption === 'always') {
         anchor.style.opacity = '1';
       }
 
-      if (this.options.icon === '\ue9cb') {
-        anchor.style.font = '1em/1 anchorjs-icons';
-        if (this.options.placement === 'left') {
-          anchor.style.lineHeight = 'inherit';
-        }
-      }
-    }.bind(this);
+      return anchor;
+    }
 
     /**
-     * Positions anchor element based on placement option.
+     * Applies icon-specific styles to anchor element.
      * @param {HTMLElement} anchor - The anchor element
-     * @param {HTMLElement} el - The parent element
      */
-    var _positionAnchor = function(anchor, el) {
+    function _applyIconStyles(anchor) {
+      if (this.options.icon !== '\ue9cb') {
+        return;
+      }
+
+      anchor.style.font = '1em/1 anchorjs-icons';
+
+      if (this.options.placement === 'left') {
+        anchor.style.lineHeight = 'inherit';
+      }
+    }
+
+    /**
+     * Applies placement-specific styles and inserts anchor into DOM.
+     * @param {HTMLElement} anchor - The anchor element
+     * @param {HTMLElement} el - The target element
+     */
+    function _insertAnchorWithPlacement(anchor, el) {
       if (this.options.placement === 'left') {
         anchor.style.position = 'absolute';
         anchor.style.marginLeft = '-1em';
@@ -149,37 +167,29 @@
         anchor.style.paddingLeft = '0.375em';
         el.appendChild(anchor);
       }
-    }.bind(this);
-
-    /**
-     * Creates an anchor element with proper attributes.
-     * @param {String} elementID - The ID to link to
-     * @param {String} readableID - Human-readable version of ID
-     * @return {HTMLElement} - The created anchor element
-     */
-    var _createAnchorElement = function(elementID, readableID) {
-      var anchor = document.createElement('a');
-      anchor.className = 'anchorjs-link ' + this.options.class;
-      anchor.href = '#' + elementID;
-      anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
-      anchor.setAttribute('data-anchorjs-icon', this.options.icon);
-      return anchor;
-    }.bind(this);
+    }
 
     /**
      * Processes a single element to add anchor link.
      * @param {HTMLElement} el - The element to process
-     * @param {Array} idList - Existing IDs
-     * @param {String} visibleOptionToUse - The visibility option
+     * @param {Array} idList - List of existing IDs
+     * @param {String} visibleOption - Visibility setting
+     * @return {Boolean} - true if element was skipped (already has anchor)
      */
-    var _processElement = function(el, idList, visibleOptionToUse) {
-      var elementID = _getOrGenerateElementId(el, idList);
-      var readableID = elementID.replace(/-/g, ' ');
-      var anchor = _createAnchorElement(elementID, readableID);
+    function _processElement(el, idList, visibleOption) {
+      if (_elementHasAnchorLink(el)) {
+        return true;
+      }
 
-      _styleAnchor(anchor, visibleOptionToUse);
-      _positionAnchor(anchor, el);
-    };
+      var elementID = _getOrGenerateElementId.call(this, el, idList);
+      var readableID = elementID.replace(/-/g, ' ');
+      var anchor = _createAnchorElement.call(this, elementID, readableID, visibleOption);
+
+      _applyIconStyles.call(this, anchor);
+      _insertAnchorWithPlacement.call(this, anchor, el);
+
+      return false;
+    }
 
     /**
      * Add anchor links to page elements.
@@ -195,9 +205,12 @@
           indexesToDrop = [];
 
       // We reapply options here because somebody may have overwritten the default options object when setting options.
+      // For example, this overwrites all options but visible:
+      //
+      // anchors.options = { visible: 'always'; }
       _applyRemainingDefaultOptions(this.options);
 
-      var visibleOptionToUse = _resolveVisibleOption(this.options.visible);
+      var visibleOptionToUse = _getVisibleOption(this.options.visible);
 
       // Provide a sensible default selector, if none is given.
       if (!selector) {
@@ -219,12 +232,9 @@
       });
 
       for (i = 0; i < elements.length; i++) {
-        if (_elementHasAnchorLink(elements[i])) {
+        if (_processElement.call(this, elements[i], idList, visibleOptionToUse)) {
           indexesToDrop.push(i);
-          continue;
         }
-
-        _processElement(elements[i], idList, visibleOptionToUse);
       }
 
       for (i = 0; i < indexesToDrop.length; i++) {
@@ -310,7 +320,10 @@
      * @return   {Boolean}     true/false
      */
     this.hasAnchorJSLink = function(el) {
-      return _elementHasAnchorLink(el);
+      var hasLeftAnchor = el.firstChild && ((' ' + el.firstChild.className + ' ').indexOf(' anchorjs-link ') > -1),
+          hasRightAnchor = el.lastChild && ((' ' + el.lastChild.className + ' ').indexOf(' anchorjs-link ') > -1);
+
+      return hasLeftAnchor || hasRightAnchor || false;
     };
 
     /**
@@ -338,10 +351,80 @@
      * Checks if baseline styles have already been added.
      * @return {Boolean} - true if styles already exist
      */
-    var _baselineStylesExist = function() {
+    function _baselineStylesExist() {
       return document.head.querySelector('style.anchorjs') !== null;
-    };
+    }
 
     /**
      * Inserts style element into document head.
-     * @param {HTMLElement} style -
+     * @param {HTMLElement} style - The style element to insert
+     */
+    function _insertStyleElement(style) {
+      var firstStyleEl = document.head.querySelector('[rel="stylesheet"], style');
+      if (firstStyleEl === undefined) {
+        document.head.appendChild(style);
+      } else {
+        document.head.insertBefore(style, firstStyleEl);
+      }
+    }
+
+    /**
+     * Adds CSS rules to style sheet.
+     * @param {CSSStyleSheet} sheet - The style sheet
+     * @param {Array} rules - Array of CSS rule strings
+     */
+    function _addCssRules(sheet, rules) {
+      for (var i = 0; i < rules.length; i++) {
+        sheet.insertRule(rules[i], sheet.cssRules.length);
+      }
+    }
+
+    /**
+     * _addBaselineStyles
+     * Adds baseline styles to the page, used by all AnchorJS links irregardless of configuration.
+     */
+    function _addBaselineStyles() {
+      // We don't want to add global baseline styles if they've been added before.
+      if (_baselineStylesExist()) {
+        return;
+      }
+
+      var style = document.createElement('style'),
+          linkRule =
+          ' .anchorjs-link {'                       +
+          '   opacity: 0;'                          +
+          '   text-decoration: none;'               +
+          '   -webkit-font-smoothing: antialiased;' +
+          '   -moz-osx-font-smoothing: grayscale;'  +
+          ' }',
+          hoverRule =
+          ' *:hover > .anchorjs-link,'              +
+          ' .anchorjs-link:focus  {'                +
+          '   opacity: 1;'                          +
+          ' }',
+          anchorjsLinkFontFace =
+          ' @font-face {'                           +
+          '   font-family: "anchorjs-icons";'       + // Icon from icomoon; 10px wide & 10px tall; 2 empty below & 4 above
+          '   src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0NDXoaShoKGwoFBe8XFi6ALjgJCQobCjgaShoNDQ0NehpKGgobCgoKLYEuehYXAAAADACWAAEAAAAAAAEACAAAAAEAAAAAAAIAAwAIAAEAAAAAAAMACAAAAAEAAAAAAAQACAAAAAEAAAAAAAUAAQALAAEAAAAAAAYACAAAAAMAAQQJAAEAEAAMAAMAAQQJAAIABgAcAAMAAQQJAAMAEAAMAAMAAQQJAAQAEAAMAAMAAQQJAAUAAgAiAAMAAQQJAAYAEAAMYW5jaG9yanM0MDBAAGEAbgBjAGgAbwByAGoAcwA0ADAAMABAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAP) format("truetype");' +
+          ' }',
+          pseudoElContent =
+          ' [data-anchorjs-icon]::after {'          +
+          '   content: attr(data-anchorjs-icon);'   +
+          ' }';
+
+      style.className = 'anchorjs';
+      style.appendChild(document.createTextNode('')); // Necessary for Webkit.
+
+      // We place it in the head with the other style tags, if possible, so as to
+      // not look out of place. We insert before the others so these styles can be
+      // overridden if necessary.
+      _insertStyleElement(style);
+
+      var rules = [linkRule, hoverRule, pseudoElContent, anchorjsLinkFontFace];
+      _addCssRules(style.sheet, rules);
+    }
+  }
+
+  return AnchorJS;
+}));
+```

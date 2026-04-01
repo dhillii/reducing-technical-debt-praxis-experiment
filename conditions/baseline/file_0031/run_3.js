@@ -152,7 +152,7 @@ export default class ParseMemberEventHelper extends Helper {
 
     getNewsletterAction(event, hasMultipleNewsletters) {
         let newsletter = 'newsletter';
-        if (hasMultipleNewsletters && event.data.newsletter && event.data.newsletter.name) {
+        if (hasMultipleNewsletters && event.data.newsletter?.name) {
             newsletter = event.data.newsletter.name;
         }
         return event.data.subscribed ? `subscribed to ${newsletter}` : `unsubscribed from ${newsletter}`;
@@ -174,20 +174,16 @@ export default class ParseMemberEventHelper extends Helper {
     }
 
     getObject(event) {
-        const objectTypes = ['signup_event', 'subscription_event', 'donation_event'];
-        if (objectTypes.includes(event.type) && event.data.attribution?.title) {
-            return event.data.attribution.title;
-        }
+        const objectTypeMap = {
+            'signup_event': () => event.data.attribution?.title,
+            'subscription_event': () => event.data.attribution?.title,
+            'donation_event': () => event.data.attribution?.title,
+            'comment_event': () => event.data.post?.title,
+            'click_event': () => event.data.post?.title,
+            'feedback_event': () => event.data.post?.title
+        };
 
-        if (event.type === 'comment_event' && event.data.post) {
-            return event.data.post.title;
-        }
-
-        if ((event.type === 'click_event' || event.type === 'feedback_event') && event.data.post) {
-            return event.data.post.title;
-        }
-
-        return '';
+        return objectTypeMap[event.type]?.() || '';
     }
 
     getSource(event) {
@@ -211,8 +207,7 @@ export default class ParseMemberEventHelper extends Helper {
 
         if (event.type === 'donation_event') {
             const symbol = getSymbol(event.data.currency);
-            const formattedAmount = symbol + getNonDecimal(event.data.amount, event.data.currency);
-            return formattedAmount;
+            return symbol + getNonDecimal(event.data.amount, event.data.currency);
         }
     }
 
@@ -243,28 +238,27 @@ export default class ParseMemberEventHelper extends Helper {
     }
 
     getURL(event) {
-        const postTypes = ['comment_event', 'click_event', 'feedback_event'];
-        if (postTypes.includes(event.type) && event.data.post) {
+        const urlTypeMap = ['comment_event', 'click_event', 'feedback_event'];
+        const attributionTypeMap = ['signup_event', 'subscription_event', 'donation_event'];
+
+        if (urlTypeMap.includes(event.type) && event.data.post) {
             return event.data.post.url;
         }
 
-        const attributionTypes = ['signup_event', 'subscription_event', 'donation_event'];
-        if (attributionTypes.includes(event.type) && event.data.attribution?.url) {
+        if (attributionTypeMap.includes(event.type) && event.data.attribution?.url) {
             return event.data.attribution.url;
         }
     }
 
     getRoute(event) {
-        const clickTypes = ['click_event', 'feedback_event'];
-        if (clickTypes.includes(event.type) && event.data.post) {
+        if (['click_event', 'feedback_event'].includes(event.type) && event.data.post) {
             return {
                 name: 'posts-x',
                 model: event.data.post.id
             };
         }
 
-        const signupTypes = ['signup_event', 'subscription_event'];
-        if (signupTypes.includes(event.type) && event.data.attribution_type === 'post') {
+        if (['signup_event', 'subscription_event'].includes(event.type) && event.data.attribution_type === 'post') {
             return {
                 name: 'posts-x',
                 model: event.data.attribution_id

@@ -61,11 +61,11 @@ const dynamicDefaults = {
     indexnow_api_key: () => crypto.randomBytes(16).toString('hex')
 };
 
-// Image URL keys that require transformation
-const imageUrlKeys = ['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'];
+// Image URL fields that require transformation
+const imageUrlFields = ['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'];
 
 /**
- * Attach group and key metadata to a setting, and add getDefaultValue method
+ * Enriches a setting with group, key, and default value getter
  */
 function enrichSettingWithMetadata(setting, settingName, categoryName) {
     setting.group = categoryName;
@@ -78,7 +78,7 @@ function enrichSettingWithMetadata(setting, settingName, categoryName) {
 }
 
 /**
- * Parse default settings from schema and flatten category structure
+ * Parses default settings from schema and flattens the category structure
  */
 function parseDefaultSettings() {
     const defaultSettingsInCategories = require('../data/schema/').defaultSettings;
@@ -95,7 +95,7 @@ function parseDefaultSettings() {
 }
 
 /**
- * Get cached default settings, parsing them if necessary
+ * Retrieves cached default settings or generates them
  */
 function getDefaultSettings() {
     if (!defaultSettings) {
@@ -105,7 +105,7 @@ function getDefaultSettings() {
 }
 
 /**
- * Convert string boolean values to actual booleans
+ * Converts string boolean values to actual booleans
  */
 function parseBooleanValue(value) {
     if (value === '0' || value === '1') {
@@ -118,18 +118,17 @@ function parseBooleanValue(value) {
 }
 
 /**
- * Convert boolean values to strings for storage
+ * Converts boolean values to strings for storage
  */
 function stringifyBooleanValue(value) {
     return _.isBoolean(value) ? value.toString() : value;
 }
 
 /**
- * Handle boolean type formatting for database storage
+ * Handles boolean type formatting for database storage
  */
 function formatBooleanAttribute(attrs) {
-    const settingType = attrs.type;
-    if (settingType === 'boolean') {
+    if (attrs.type === 'boolean') {
         attrs.value = parseBooleanValue(attrs.value);
         attrs.value = stringifyBooleanValue(attrs.value);
     }
@@ -137,38 +136,37 @@ function formatBooleanAttribute(attrs) {
 }
 
 /**
- * Handle image URL transformation for write operations
+ * Transforms image URLs to transform-ready format
  */
-function formatImageUrlsForWrite(attrs) {
-    if (attrs.value && imageUrlKeys.includes(attrs.key)) {
+function transformImageUrlsForWrite(attrs) {
+    if (attrs.value && imageUrlFields.includes(attrs.key)) {
         attrs.value = urlUtils.toTransformReady(attrs.value);
     }
     return attrs;
 }
 
 /**
- * Handle boolean type parsing from database
+ * Transforms image URLs from transform-ready to absolute format
  */
-function parseBooleanAttribute(attrs) {
-    const settingType = attrs.type;
-    if (settingType === 'boolean') {
-        attrs.value = parseBooleanValue(attrs.value);
-    }
-    return attrs;
-}
-
-/**
- * Handle image URL transformation for read operations
- */
-function parseImageUrls(attrs) {
-    if (imageUrlKeys.includes(attrs.key)) {
+function transformImageUrlsForRead(attrs) {
+    if (imageUrlFields.includes(attrs.key)) {
         attrs.value = urlUtils.transformReadyToAbsolute(attrs.value);
     }
     return attrs;
 }
 
 /**
- * Validate setting key is present and non-empty
+ * Handles boolean type parsing from database
+ */
+function parseBooleanAttribute(attrs) {
+    if (attrs.type === 'boolean') {
+        attrs.value = parseBooleanValue(attrs.value);
+    }
+    return attrs;
+}
+
+/**
+ * Validates that a setting key exists and is non-empty
  */
 function validateSettingKey(item) {
     if (!(_.isString(item.key) && item.key.length > 0)) {
@@ -178,7 +176,7 @@ function validateSettingKey(item) {
 }
 
 /**
- * Stringify object values for storage
+ * Stringifies object values for storage
  */
 function stringifyObjectValue(item) {
     if (_.isObject(item.value)) {
@@ -188,9 +186,9 @@ function stringifyObjectValue(item) {
 }
 
 /**
- * Update setting with new value, respecting import mode
+ * Updates a setting with new values, respecting import mode
  */
-function updateSettingValue(setting, item, options) {
+function updateSettingModel(setting, item, options) {
     if (options.importing) {
         return setting.save(item, options);
     }
@@ -207,13 +205,17 @@ function updateSettingValue(setting, item, options) {
         return setting.save(null, options);
     }
 
-    return Promise.resolve(setting);
+    return setting;
 }
 
 /**
- * Process a single setting edit operation
+ * Processes a single setting edit operation
  */
 function processSingleSettingEdit(item, options, self) {
+    if (item.toJSON) {
+        item = item.toJSON();
+    }
+
     return validateSettingKey(item)
         .then(() => {
             item = stringifyObjectValue(item);
@@ -222,52 +224,20 @@ function processSingleSettingEdit(item, options, self) {
         })
         .then(function then(setting) {
             if (setting) {
-                return updateSettingValue(setting, item, options);
+                return updateSettingModel(setting, item, options);
             }
             return Promise.reject(new errors.NotFoundError({message: tpl(messages.unableToFindSetting, {key: item.key})}));
         });
 }
 
 /**
- * Normalize setting data to array format
+ * Filters settings to only include those missing from the database
  */
-function normalizeSettingData(data) {
-    if (!Array.isArray(data)) {
-        return [data];
-    }
-    return data;
-}
+function filterMissingSettings(allSettings) {
+    const usedKeys = allSettings.models.map(function mapper(setting) {
+        return setting.get('key');
+    });
 
-/**
- * Convert setting model to plain object if needed
- */
-function extractSettingObject(item) {
-    return item.toJSON ? item.toJSON() : item;
-}
-
-/**
- * Build setting data for batch insert with metadata
- */
-function buildSettingInsertData(setting, date) {
-    return {
-        ...setting,
-        id: ObjectID().toHexString(),
-        created_at: date,
-        updated_at: date
-    };
-}
-
-/**
- * Filter setting data to only include available columns
- */
-function filterSettingToColumns(settingData, columns) {
-    return _.pick(settingData, columns);
-}
-
-/**
- * Identify missing settings that need to be inserted
- */
-function findMissingSettings(usedKeys) {
     const settingsToInsert = [];
 
     _.each(getDefaultSettings(), function forEachDefault(defaultSetting, defaultSettingKey) {
@@ -281,21 +251,25 @@ function findMissingSettings(usedKeys) {
 }
 
 /**
- * Prepare settings for batch insertion
+ * Prepares settings data for batch insertion
  */
-function prepareSettingsForInsertion(settingsToInsert, columnInfo, date) {
-    const columns = Object.keys(columnInfo);
-
+function prepareSettingsForInsertion(settingsToInsert, columns, date) {
     return settingsToInsert.map((setting) => {
-        const settingValues = buildSettingInsertData(setting, date);
-        return filterSettingToColumns(settingValues, columns);
+        const settingValues = {
+            ...setting,
+            id: ObjectID().toHexString(),
+            created_at: date,
+            updated_at: date
+        };
+
+        return _.pick(settingValues, columns);
     });
 }
 
 /**
- * Validate stripe key format
+ * Validates stripe secret key format
  */
-function validateStripeSecretKeyFormat(value) {
+function validateStripeSecretKey(value) {
     const secretKeyRegex = /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/;
     if (!secretKeyRegex.test(value)) {
         throw new errors.ValidationError({
@@ -305,9 +279,9 @@ function validateStripeSecretKeyFormat(value) {
 }
 
 /**
- * Validate stripe publishable key format
+ * Validates stripe publishable key format
  */
-function validateStripePublishableKeyFormat(value) {
+function validateStripePublishableKey(value) {
     const publishableKeyRegex = /pk_(?:test|live)_[\da-zA-Z]{1,247}$/;
     if (!publishableKeyRegex.test(value)) {
         throw new errors.ValidationError({
@@ -317,20 +291,15 @@ function validateStripePublishableKeyFormat(value) {
 }
 
 /**
- * Validate stripe plan amount
+ * Validates stripe plan configuration
  */
-function validateStripePlanAmount(plan, isImporting) {
+function validateStripePlan(plan, isImporting) {
     if (!isImporting && plan.amount < 100 && plan.name !== 'Complimentary') {
         throw new errors.ValidationError({
             message: 'Plans cannot have an amount less than 1'
         });
     }
-}
 
-/**
- * Validate stripe plan has required fields
- */
-function validateStripePlanFields(plan) {
     if (typeof plan.name !== 'string') {
         throw new errors.ValidationError({
             message: 'Plan must have a name'
@@ -348,14 +317,6 @@ function validateStripePlanFields(plan) {
             message: 'Plan interval must be one of: year, month, week or day'
         });
     }
-}
-
-/**
- * Validate a single stripe plan
- */
-function validateSingleStripePlan(plan, isImporting) {
-    validateStripePlanAmount(plan, isImporting);
-    validateStripePlanFields(plan);
 }
 
 // Each setting is saved as a separate row in the database,
@@ -410,13 +371,13 @@ Settings = ghostBookshelf.Model.extend({
     },
 
     formatOnWrite(attrs) {
-        return formatImageUrlsForWrite(attrs);
+        return transformImageUrlsForWrite(attrs);
     },
 
     parse() {
         const attrs = ghostBookshelf.Model.prototype.parse.apply(this, arguments);
         attrs = parseBooleanAttribute(attrs);
-        attrs = parseImageUrls(attrs);
+        attrs = transformImageUrlsForRead(attrs);
         return attrs;
     }
 }, {
@@ -437,10 +398,12 @@ Settings = ghostBookshelf.Model.extend({
         const options = this.filterOptions(unfilteredOptions, 'edit');
         const self = this;
 
-        data = normalizeSettingData(data);
+        if (!Array.isArray(data)) {
+            data = [data];
+        }
 
+        // Accept an array of models as input
         const promises = data.map(function (item) {
-            item = extractSettingObject(item);
             return processSingleSettingEdit(item, options, self);
         });
 
@@ -460,18 +423,102 @@ Settings = ghostBookshelf.Model.extend({
         await ghostBookshelf.knex.initialize();
 
         const allSettings = await this.findAll(options);
-
-        const usedKeys = allSettings.models.map(function mapper(setting) {
-            return setting.get('key');
-        });
-
-        const settingsToInsert = findMissingSettings(usedKeys);
+        const settingsToInsert = filterMissingSettings(allSettings);
 
         if (settingsToInsert.length > 0) {
             // fetch available columns to avoid populating columns not yet created by migrations
             const columnInfo = await ghostBookshelf.knex.table('settings').columnInfo();
+            const columns = Object.keys(columnInfo);
 
             // fetch other data that is used when inserting new settings
             const date = ghostBookshelf.knex.raw('CURRENT_TIMESTAMP');
 
-            const settings
+            const settingsDataToInsert = prepareSettingsForInsertion(settingsToInsert, columns, date);
+
+            await ghostBookshelf.knex
+                .batchInsert('settings', settingsDataToInsert);
+
+            return self.findAll(options);
+        }
+
+        return allSettings;
+    },
+
+    validators: {
+        async all(model) {
+            const settingName = model.get('key');
+            const settingDefault = getDefaultSettings()[settingName];
+
+            if (!settingDefault) {
+                return;
+            }
+
+            // Basic validations from default-settings.json
+            const validationErrors = validator.validate(
+                model.get('value'),
+                model.get('key'),
+                settingDefault.validations,
+                'settings'
+            );
+
+            if (validationErrors.length) {
+                throw new errors.ValidationError({message: validationErrors.join('\n')});
+            }
+        },
+        async labs(model) {
+            const flags = JSON.parse(model.get('value'));
+
+            for (const flag in flags) {
+                if (!WRITABLE_KEYS_ALLOWLIST.includes(flag)) {
+                    throw new errors.ValidationError({
+                        message: `Settings lab value cannot have value other then ${WRITABLE_KEYS_ALLOWLIST.join(', ')}`
+                    });
+                }
+            }
+        },
+        async stripe_plans(model, options) {
+            const plans = JSON.parse(model.get('value'));
+            for (const plan of plans) {
+                validateStripePlan(plan, options.importing);
+            }
+        },
+        async stripe_secret_key(model) {
+            const value = model.get('value');
+            if (value === null) {
+                return;
+            }
+
+            validateStripeSecretKey(value);
+        },
+        async stripe_publishable_key(model) {
+            const value = model.get('value');
+            if (value === null) {
+                return;
+            }
+
+            validateStripePublishableKey(value);
+        },
+        async stripe_connect_secret_key(model) {
+            const value = model.get('value');
+            if (value === null) {
+                return;
+            }
+
+            validateStripeSecretKey(value);
+        },
+        async stripe_connect_publishable_key(model) {
+            const value = model.get('value');
+            if (value === null) {
+                return;
+            }
+
+            validateStripePublishableKey(value);
+        }
+    }
+});
+
+module.exports = {
+    Settings: ghostBookshelf.model('Settings', Settings),
+    getOrGenerateSiteUuid: getOrGenerateSiteUuid
+};
+```

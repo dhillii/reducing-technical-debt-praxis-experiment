@@ -50,15 +50,8 @@ interface FontSelectOption {
     creator?: string;
 }
 
-/** Font class name mapping strategy */
-interface FontClassStrategy {
-    base: string;
-    headingWeight: string;
-    bodyWeight: string;
-}
-
-/** Lookup table for font to class name mappings */
-const FONT_CLASS_MAP: Record<string, FontClassStrategy> = {
+/** Font name to Tailwind CSS class mapping with weight variants */
+const FONT_CLASS_MAP: Record<string, {base: string; headingWeight: string; bodyWeight: string}> = {
     'Cardo': {base: 'font-cardo', headingWeight: 'font-bold', bodyWeight: ''},
     'Manrope': {base: 'font-manrope', headingWeight: 'font-bold', bodyWeight: ''},
     'Merriweather': {base: 'font-merriweather', headingWeight: 'font-bold', bodyWeight: ''},
@@ -117,34 +110,34 @@ const capitalizeWords = (str: string): string => str
     .join(' ');
 
 /**
- * Resolves font class name using lookup table strategy
- * @param fontName - The font name to resolve
+ * Resolves font class name from font name and type
+ * @param fontName - The name of the font
  * @param heading - Whether this is for heading (true) or body (false)
- * @returns CSS class name string
+ * @returns Tailwind CSS class string
  */
 const resolveFontClassName = (fontName: string, heading: boolean = true): string => {
-    const strategy = FONT_CLASS_MAP[fontName];
-    if (!strategy) {
+    const fontConfig = FONT_CLASS_MAP[fontName];
+    if (!fontConfig) {
         return '';
     }
-    const weight = heading ? strategy.headingWeight : strategy.bodyWeight;
-    return clsx(strategy.base, weight);
+    const weightClass = heading ? fontConfig.headingWeight : fontConfig.bodyWeight;
+    return clsx(fontConfig.base, weightClass);
 };
 
 /**
- * Handles image upload with error management
+ * Handles image upload with error handling
  * @param file - File to upload
  * @param uploadImage - Upload function
  * @param updateSetting - Setting update callback
- * @param handleError - Error handler
  * @param settingKey - Setting key to update
+ * @param handleError - Error handler
  */
 const handleImageUpload = async (
     file: File,
     uploadImage: (params: {file: File}) => Promise<{url: string}>,
     updateSetting: (key: string, value: SettingValue) => void,
-    handleError: (error: Error) => void,
-    settingKey: string
+    settingKey: string,
+    handleError: (error: Error) => void
 ): Promise<void> => {
     try {
         updateSetting(settingKey, getImageUrl(await uploadImage({file})));
@@ -158,7 +151,7 @@ const handleImageUpload = async (
 };
 
 /**
- * Handles font selection with state and setting updates
+ * Handles font selection and updates state and settings
  * @param option - Selected font option
  * @param isHeading - Whether this is heading font
  * @param setFont - Font state setter
@@ -166,7 +159,7 @@ const handleImageUpload = async (
  * @param themeNameVersion - Theme name and version
  * @param fontSource - Source array (CUSTOM_FONTS.heading or CUSTOM_FONTS.body)
  */
-const handleFontSelection = (
+const handleFontSelect = (
     option: FontSelectOption | undefined,
     isHeading: boolean,
     setFont: (font: {name: string; creator: string}) => void,
@@ -181,8 +174,8 @@ const handleFontSelection = (
         updateSetting(settingKey, '');
     } else {
         const fontName = option?.value || '';
-        const creator = fontSource.find(f => f.name === fontName)?.creator || '';
-        setFont({name: fontName, creator});
+        const fontCreator = fontSource.find(f => f.name === fontName)?.creator || '';
+        setFont({name: fontName, creator: fontCreator});
         updateSetting(settingKey, fontName);
     }
 };
@@ -204,9 +197,7 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
     const [headingFont, setHeadingFont] = useState(CUSTOM_FONTS.heading.find(f => f.name === values.headingFont) || {name: DEFAULT_FONT, creator: themeNameVersion});
     const [bodyFont, setBodyFont] = useState(CUSTOM_FONTS.heading.find(f => f.name === values.bodyFont) || {name: DEFAULT_FONT, creator: themeNameVersion});
 
-    /**
-     * Populate the heading and body font options
-     */
+    // Populate the heading and body font options
     const customHeadingFonts: HeadingFontOption[] = CUSTOM_FONTS.heading.map((x) => {
         const className = resolveFontClassName(x.name, true);
         return {label: x.name, value: x.name, creator: x.creator, className};
@@ -219,10 +210,7 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
     });
     customBodyFonts.unshift({label: DEFAULT_FONT, value: DEFAULT_FONT, creator: themeNameVersion, className: 'font-sans font-normal'});
 
-    /**
-     * Selects font class name, returns empty string for default font
-     */
-    const selectFont = (fontName: string, heading: boolean): string => {
+    const selectFont = (fontName: string, heading: boolean) => {
         if (fontName === DEFAULT_FONT) {
             return '';
         }
@@ -259,7 +247,7 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
                             width={values.icon ? '66px' : '160px'}
                             onDelete={() => updateSetting('icon', null)}
                             onUpload={async (file) => {
-                                await handleImageUpload(file, uploadImage, updateSetting, handleError, 'icon');
+                                await handleImageUpload(file, uploadImage, updateSetting, 'icon', handleError);
                             }}
                         >
                         Upload icon
@@ -282,11 +270,103 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
                             width='160px'
                             onDelete={() => updateSetting('logo', null)}
                             onUpload={async (file) => {
-                                await handleImageUpload(file, uploadImage, updateSetting, handleError, 'logo');
+                                await handleImageUpload(file, uploadImage, updateSetting, 'logo', handleError);
                             }}
                         >
                         Upload logo
                         </ImageUpload>
                     </div>
                 </div>
-                <div className='mt-2 flex items-
+                <div className='mt-2 flex items-start justify-between' data-testid="publication-cover">
+                    <div>
+                        <div>Publication cover</div>
+                        <Hint className='!mt-0 mr-5 max-w-[160px]'>Usually as a large banner image on your index pages</Hint>
+                    </div>
+                    <ImageUpload
+                        deleteButtonClassName='!top-1 !right-1'
+                        editButtonClassName='!top-1 !right-10'
+                        height='95px'
+                        id='cover'
+                        imageURL={values.coverImage || ''}
+                        openUnsplash={() => setShowUnsplash(true)}
+                        pintura={
+                            {
+                                isEnabled: editor.isEnabled,
+                                openEditor: async () => editor.openEditor({
+                                    image: values.coverImage || '',
+                                    handleSave: async (file:File) => {
+                                        try {
+                                            updateSetting('cover_image', getImageUrl(await uploadImage({file})));
+                                        } catch (e) {
+                                            handleError(e);
+                                        }
+                                    }
+                                })
+                            }
+                        }
+                        unsplashButtonClassName='!bg-transparent !h-6 !top-1.5 !w-6 !right-1.5 z-50'
+                        unsplashEnabled={unsplashEnabled}
+                        width='160px'
+                        onDelete={() => updateSetting('cover_image', null)}
+                        onUpload={async (file: any) => {
+                            await handleImageUpload(file, uploadImage, updateSetting, 'cover_image', handleError);
+                        }}
+                    >
+                    Upload cover
+                    </ImageUpload>
+                    {
+                        showUnsplash && unsplashConfig && unsplashEnabled && (
+                            <UnsplashSelector
+                                unsplashProviderConfig={unsplashConfig}
+                                onClose={() => {
+                                    setShowUnsplash(false);
+                                }}
+                                onImageInsert={(image) => {
+                                    if (image.src) {
+                                        updateSetting('cover_image', image.src);
+                                    }
+                                    setShowUnsplash(false);
+                                }}
+                            />
+                        )
+                    }
+                </div>
+            </Form>
+            <Form className='-mt-4' gap='sm' margins='lg' title='Typography'>
+                <Select
+                    className={selectFont(selectedHeadingFont.label, true)}
+                    components={{Option, SingleValue}}
+                    controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
+                    hint={''}
+                    menuShouldScrollIntoView={true}
+                    options={customHeadingFonts}
+                    selectedOption={selectedHeadingFont}
+                    testId='heading-font-select'
+                    title={'Heading font'}
+                    onSelect={(option) => {
+                        handleFontSelect(option, true, setHeadingFont, updateSetting, themeNameVersion, CUSTOM_FONTS.heading);
+                    }}
+                />
+                <Select
+                    className={selectFont(selectedBodyFont.label, false)}
+                    components={{Option, SingleValue}}
+                    controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
+                    hint={''}
+                    maxMenuHeight={200}
+                    menuPosition='fixed'
+                    menuShouldScrollIntoView={true}
+                    options={customBodyFonts}
+                    selectedOption={selectedBodyFont}
+                    testId='body-font-select'
+                    title={'Body font'}
+                    onSelect={(option) => {
+                        handleFontSelect(option, false, setBodyFont, updateSetting, themeNameVersion, CUSTOM_FONTS.body);
+                    }}
+                />
+            </Form>
+        </>
+    );
+};
+
+export default GlobalSettings;
+```

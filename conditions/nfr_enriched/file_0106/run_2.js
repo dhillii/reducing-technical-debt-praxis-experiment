@@ -254,49 +254,40 @@ Runnable.prototype.globals = function(globals) {
 };
 
 /**
- * Determine if result is a promise.
+ * Determine if an error occurred due to timeout.
  *
- * @param {*} result
- * @return {boolean}
  * @api private
+ * @param {number} ms
+ * @param {number} duration
+ * @return {Error|null}
  */
-function isPromiseResult(result) {
-  return result && typeof result.then === 'function';
+function checkTimeoutError(ms, duration, enableTimeouts) {
+  if (duration > ms && enableTimeouts) {
+    return new Error('Timeout of ' + ms +
+      'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.');
+  }
+  return null;
 }
 
 /**
- * Handle promise resolution for synchronous test functions.
+ * Handle promise resolution for sync/promise-returning functions.
  *
+ * @api private
  * @param {*} result
  * @param {Function} done
  * @param {Object} self
- * @api private
  */
 function handlePromiseResult(result, done, self) {
-  self.resetTimeout();
-  result
-    .then(function() {
-      done();
-      return null;
-    },
-    function(reason) {
-      done(reason || new Error('Promise rejected with no or falsy reason'));
-    });
-}
-
-/**
- * Execute synchronous test function and handle result.
- *
- * @param {Function} fn
- * @param {Object} ctx
- * @param {Function} done
- * @param {Object} self
- * @api private
- */
-function executeSyncFunction(fn, ctx, done, self) {
-  const result = fn.call(ctx);
-  if (isPromiseResult(result)) {
-    handlePromiseResult(result, done, self);
+  if (result && typeof result.then === 'function') {
+    self.resetTimeout();
+    result
+      .then(function() {
+        done();
+        return null;
+      },
+      function(reason) {
+        done(reason || new Error('Promise rejected with no or falsy reason'));
+      });
   } else {
     if (self.asyncOnly) {
       return done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
@@ -306,27 +297,30 @@ function executeSyncFunction(fn, ctx, done, self) {
 }
 
 /**
- * Validate error from done callback.
+ * Execute synchronous or promise-returning function.
  *
- * @param {*} err
- * @return {boolean}
  * @api private
- */
-function isValidError(err) {
-  return err instanceof Error || objectToString.call(err) === '[object Error]';
-}
-
-/**
- * Execute asynchronous test function with done callback.
- *
  * @param {Function} fn
  * @param {Object} ctx
  * @param {Function} done
- * @api private
+ * @param {Object} self
  */
-function executeAsyncFunction(fn, ctx, done) {
+function callFn(fn, ctx, done, self) {
+  const result = fn.call(ctx);
+  handlePromiseResult(result, done, self);
+}
+
+/**
+ * Execute async function with done callback.
+ *
+ * @api private
+ * @param {Function} fn
+ * @param {Object} ctx
+ * @param {Function} done
+ */
+function callFnAsync(fn, ctx, done) {
   const result = fn.call(ctx, function(err) {
-    if (isValidError(err)) {
+    if (err instanceof Error || objectToString.call(err) === '[object Error]') {
       return done(err);
     }
     if (err) {
@@ -336,7 +330,7 @@ function executeAsyncFunction(fn, ctx, done) {
       }
       return done(new Error('done() invoked with non-Error: ' + err));
     }
-    if (isPromiseResult(result)) {
+    if (result && utils.isPromise(result)) {
       return done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
     }
 
@@ -345,13 +339,59 @@ function executeAsyncFunction(fn, ctx, done) {
 }
 
 /**
- * Create async skip function for explicit async context.
+ * Handle multiple done() calls.
  *
+ * @api private
+ * @param {Object} state
+ * @param {Error} err
+ * @param {Object} self
+ */
+function handleMultipleDone(state, err, self) {
+  if (state.emitted) {
+    return;
+  }
+  state.emitted = true;
+  self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
+}
+
+/**
+ * Create the done callback for test execution.
+ *
+ * @api private
+ * @param {Object} self
+ * @param {Function} fn
+ * @param {number} start
+ * @param {Object} state
+ * @return {Function}
+ */
+function createDoneCallback(self, fn, start, state) {
+  return function done(err) {
+    const ms = self.timeout();
+    if (self.timedOut) {
+      return;
+    }
+    if (state.finished) {
+      return handleMultipleDone(state, err || self._trace, self);
+    }
+
+    self.clearTimeout();
+    self.duration = new savedDate() - start;
+    state.finished = true;
+    if (!err) {
+      err = checkTimeoutError(ms, self.duration, self._enableTimeouts);
+    }
+    fn(err);
+  };
+}
+
+/**
+ * Create async skip function.
+ *
+ * @api private
  * @param {Function} done
  * @return {Function}
- * @api private
  */
-function createAsyncSkipFn(done) {
+function createAsyncSkip(done) {
   return function asyncSkip() {
     done(new Pending('async skip call'));
     throw new Pending('async skip; aborting execution');
@@ -359,94 +399,55 @@ function createAsyncSkipFn(done) {
 }
 
 /**
- * Create done callback for test execution.
+ * Execute async test with proper error handling.
  *
- * @param {Function} fn
- * @param {number} start
- * @param {Object} self
- * @return {Function}
  * @api private
- */
-function createDoneCallback(fn, start, self) {
-  let finished = false;
-  let emitted = false;
-
-  function multiple(err) {
-    if (emitted) {
-      return;
-    }
-    emitted = true;
-    self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
-  }
-
-  return function done(err) {
-    const ms = self.timeout();
-    if (self.timedOut) {
-      return;
-    }
-    if (finished) {
-      return multiple(err || self._trace);
-    }
-
-    self.clearTimeout();
-    self.duration = new savedDate() - start;
-    finished = true;
-    if (!err && self.duration > ms && self._enableTimeouts) {
-      err = new Error('Timeout of ' + ms +
-        'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.');
-    }
-    fn(err);
-  };
-}
-
-/**
- * Handle synchronous test execution.
- *
  * @param {Object} self
+ * @param {Object} state
  * @param {Function} done
- * @api private
  */
-function runSync(self, done) {
-  if (self.allowUncaught) {
-    if (self.isPending()) {
-      done();
-    } else {
-      executeSyncFunction(self.fn, self.ctx, done, self);
-    }
-    return;
-  }
+function executeAsync(self, state, done) {
+  self.resetTimeout();
 
+  self.skip = createAsyncSkip(done);
+
+  if (self.allowUncaught) {
+    return callFnAsync(self.fn, self.ctx, done);
+  }
   try {
-    if (self.isPending()) {
-      done();
-    } else {
-      executeSyncFunction(self.fn, self.ctx, done, self);
-    }
+    callFnAsync(self.fn, self.ctx, done);
   } catch (err) {
+    state.emitted = true;
     done(utils.getError(err));
   }
 }
 
 /**
- * Handle asynchronous test execution.
+ * Execute sync or promise-returning test with proper error handling.
  *
- * @param {Object} self
- * @param {Function} done
  * @api private
+ * @param {Object} self
+ * @param {Object} state
+ * @param {Function} done
  */
-function runAsync(self, done) {
-  self.resetTimeout();
-
-  self.skip = createAsyncSkipFn(done);
-
+function executeSync(self, state, done) {
   if (self.allowUncaught) {
-    executeAsyncFunction(self.fn, self.ctx, done);
+    if (self.isPending()) {
+      done();
+    } else {
+      callFn(self.fn, self.ctx, done, self);
+    }
     return;
   }
 
   try {
-    executeAsyncFunction(self.fn, self.ctx, done);
+    if (self.isPending()) {
+      done();
+    } else {
+      callFn(self.fn, self.ctx, done, self);
+    }
   } catch (err) {
+    state.emitted = true;
     done(utils.getError(err));
   }
 }
@@ -461,24 +462,28 @@ Runnable.prototype.run = function(fn) {
   const self = this;
   const start = new savedDate();
   const ctx = this.ctx;
+  const state = {
+    finished: false,
+    emitted: false
+  };
 
   // Sometimes the ctx exists, but it is not runnable
   if (ctx && ctx.runnable) {
     ctx.runnable(this);
   }
 
-  const done = createDoneCallback(fn, start, self);
+  const done = createDoneCallback(self, fn, start, state);
 
   // for .resetTimeout()
   this.callback = done;
 
   // explicit async with `done` argument
   if (this.async) {
-    runAsync(this, done);
+    executeAsync(self, state, done);
     return;
   }
 
   // sync or promise-returning
-  runSync(this, done);
+  executeSync(self, state, done);
 };
 ```

@@ -174,6 +174,8 @@ Lawnchair.adapter('indexed-db', (function(){
         request.onsuccess = function(event) {
             handleInitSuccess(event, self, cb);
         };
+
+        return this;
     },
 
     save: function(obj, callback) {
@@ -181,7 +183,7 @@ Lawnchair.adapter('indexed-db', (function(){
         if (!ensureStoreReady.call(this, function() {
             this.save(obj, callback);
         })) {
-            return;
+            return this;
         }
 
         const objs = normalizeObjectsForSave(obj, self);
@@ -207,13 +209,12 @@ Lawnchair.adapter('indexed-db', (function(){
     },
 
     get: function(key, callback) {
+        const self = this;
         if (!ensureStoreReady.call(this, function() {
             this.get(key, callback);
         })) {
-            return;
+            return this;
         }
-
-        const self = this;
 
         if (!this.isArray(key)) {
             handleSingleKeyGet(key, self, callback);
@@ -225,13 +226,13 @@ Lawnchair.adapter('indexed-db', (function(){
     },
 
     exists: function(key, callback) {
+        const self = this;
         if (!ensureStoreReady.call(this, function() {
             this.exists(key, callback);
         })) {
-            return;
+            return this;
         }
 
-        const self = this;
         const req = this.db.transaction(self.record).objectStore(this.record).openCursor(getIDBKeyRange().only(key));
 
         req.onsuccess = function(event) {
@@ -249,14 +250,14 @@ Lawnchair.adapter('indexed-db', (function(){
     },
 
     all: function(callback) {
+        const self = this;
         if (!ensureStoreReady.call(this, function() {
             this.all(callback);
         })) {
-            return;
+            return this;
         }
 
         const cb = this.fn(this.name, callback) || undefined;
-        const self = this;
         const objectStore = this.db.transaction(this.record).objectStore(this.record);
         const toReturn = [];
 
@@ -276,14 +277,14 @@ Lawnchair.adapter('indexed-db', (function(){
     },
 
     keys: function(callback) {
+        const self = this;
         if (!ensureStoreReady.call(this, function() {
             this.keys(callback);
         })) {
-            return;
+            return this;
         }
 
         const cb = this.fn(this.name, callback) || undefined;
-        const self = this;
         const objectStore = this.db.transaction(this.record).objectStore(this.record);
         const toReturn = [];
 
@@ -303,13 +304,13 @@ Lawnchair.adapter('indexed-db', (function(){
     },
 
     remove: function(keyOrArray, callback) {
+        const self = this;
         if (!ensureStoreReady.call(this, function() {
             this.remove(keyOrArray, callback);
         })) {
-            return;
+            return this;
         }
 
-        const self = this;
         const toDelete = normalizeKeyInput.call(this, keyOrArray);
 
         const win = function() {
@@ -328,13 +329,13 @@ Lawnchair.adapter('indexed-db', (function(){
     },
 
     nuke: function(callback) {
+        const self = this;
         if (!ensureStoreReady.call(this, function() {
             this.nuke(callback);
         })) {
-            return;
+            return this;
         }
 
-        const self = this;
         const win = callback ? function() {
             self.lambda(callback).call(self);
         } : function() {};

@@ -254,14 +254,14 @@ Runnable.prototype.globals = function(globals) {
 };
 
 /**
- * Determine if an error indicates multiple done() calls.
+ * Determine if result is a promise.
  *
  * @api private
- * @param {Error} err
- * @return {Error}
+ * @param {*} result
+ * @return {boolean}
  */
-function resolveMultipleCallError(err, trace) {
-  return err || trace;
+function isPromiseResult(result) {
+  return result && typeof result.then === 'function';
 }
 
 /**
@@ -273,22 +273,15 @@ function resolveMultipleCallError(err, trace) {
  * @param {Object} self
  */
 function handlePromiseResult(result, done, self) {
-  if (result && typeof result.then === 'function') {
-    self.resetTimeout();
-    result
-      .then(function() {
-        done();
-        return null;
-      },
-      function(reason) {
-        done(reason || new Error('Promise rejected with no or falsy reason'));
-      });
-  } else {
-    if (self.asyncOnly) {
-      return done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
-    }
-    done();
-  }
+  self.resetTimeout();
+  result
+    .then(function() {
+      done();
+      return null;
+    },
+    function(reason) {
+      done(reason || new Error('Promise rejected with no or falsy reason'));
+    });
 }
 
 /**
@@ -302,7 +295,14 @@ function handlePromiseResult(result, done, self) {
  */
 function callFn(fn, ctx, done, self) {
   const result = fn.call(ctx);
-  handlePromiseResult(result, done, self);
+  if (isPromiseResult(result)) {
+    handlePromiseResult(result, done, self);
+  } else {
+    if (self.asyncOnly) {
+      return done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
+    }
+    done();
+  }
 }
 
 /**
@@ -325,7 +325,7 @@ function callFnAsync(fn, ctx, done) {
       }
       return done(new Error('done() invoked with non-Error: ' + err));
     }
-    if (result && utils.isPromise(result)) {
+    if (isPromiseResult(result)) {
       return done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
     }
 
@@ -334,33 +334,40 @@ function callFnAsync(fn, ctx, done) {
 }
 
 /**
- * Create the done callback for test execution.
+ * Handle multiple done() calls.
  *
  * @api private
- * @param {Function} fn
- * @param {Date} start
  * @param {Object} self
+ * @param {boolean} emitted
+ * @param {Error} err
+ */
+function handleMultipleDone(self, emitted, err) {
+  if (emitted) {
+    return;
+  }
+  self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
+}
+
+/**
+ * Create done callback for test execution.
+ *
+ * @api private
+ * @param {Object} self
+ * @param {number} start
+ * @param {Function} fn
  * @return {Function}
  */
-function createDoneCallback(fn, start, self) {
+function createDoneCallback(self, start, fn) {
   let finished = false;
   let emitted = false;
 
-  function multiple(err) {
-    if (emitted) {
-      return;
-    }
-    emitted = true;
-    self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
-  }
-
-  function done(err) {
+  return function done(err) {
     const ms = self.timeout();
     if (self.timedOut) {
       return;
     }
     if (finished) {
-      return multiple(err || self._trace);
+      return handleMultipleDone(self, emitted, err || self._trace);
     }
 
     self.clearTimeout();
@@ -371,67 +378,21 @@ function createDoneCallback(fn, start, self) {
         'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.');
     }
     fn(err);
-  }
-
-  return done;
+  };
 }
 
 /**
- * Execute async test with proper error handling.
+ * Create async skip function.
  *
  * @api private
- * @param {Object} self
  * @param {Function} done
- * @param {boolean} emitted
+ * @return {Function}
  */
-function runAsync(self, done, emitted) {
-  self.resetTimeout();
-
-  self.skip = function asyncSkip() {
+function createAsyncSkip(done) {
+  return function asyncSkip() {
     done(new Pending('async skip call'));
     throw new Pending('async skip; aborting execution');
   };
-
-  if (self.allowUncaught) {
-    return callFnAsync(self.fn, self.ctx, done);
-  }
-
-  try {
-    callFnAsync(self.fn, self.ctx, done);
-  } catch (err) {
-    emitted = true;
-    done(utils.getError(err));
-  }
-}
-
-/**
- * Execute sync or promise-returning test with proper error handling.
- *
- * @api private
- * @param {Object} self
- * @param {Function} done
- * @param {boolean} emitted
- */
-function runSync(self, done, emitted) {
-  if (self.allowUncaught) {
-    if (self.isPending()) {
-      done();
-    } else {
-      callFn(self.fn, self.ctx, done, self);
-    }
-    return;
-  }
-
-  try {
-    if (self.isPending()) {
-      done();
-    } else {
-      callFn(self.fn, self.ctx, done, self);
-    }
-  } catch (err) {
-    emitted = true;
-    done(utils.getError(err));
-  }
 }
 
 /**
@@ -450,18 +411,47 @@ Runnable.prototype.run = function(fn) {
     ctx.runnable(this);
   }
 
-  const done = createDoneCallback(fn, start, self);
+  const done = createDoneCallback(this, start, fn);
 
   // for .resetTimeout()
   this.callback = done;
 
   // explicit async with `done` argument
   if (this.async) {
-    runAsync(this, done, false);
+    this.resetTimeout();
+
+    // allows skip() to be used in an explicit async context
+    this.skip = createAsyncSkip(done);
+
+    if (this.allowUncaught) {
+      return callFnAsync(this.fn, ctx, done);
+    }
+    try {
+      callFnAsync(this.fn, ctx, done);
+    } catch (err) {
+      done(utils.getError(err));
+    }
+    return;
+  }
+
+  if (this.allowUncaught) {
+    if (this.isPending()) {
+      done();
+    } else {
+      callFn(this.fn, ctx, done, self);
+    }
     return;
   }
 
   // sync or promise-returning
-  runSync(this, done, false);
+  try {
+    if (this.isPending()) {
+      done();
+    } else {
+      callFn(this.fn, ctx, done, self);
+    }
+  } catch (err) {
+    done(utils.getError(err));
+  }
 };
 ```

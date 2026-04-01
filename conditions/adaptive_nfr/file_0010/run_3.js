@@ -166,7 +166,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
             } else {
                 await createTier(values);
             }
-            
+
             if (isFreeTier) {
                 const visible = formState.visibility === 'public';
                 await updatePortalPlansIfNeeded(visible, portalPlans, editSettings);
@@ -206,13 +206,12 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
     const confirmTierStatusChange = () => {
         if (tier) {
             const {title, prompt, okLabel, okColor} = getStatusChangeContent(tier);
-            
             NiceModal.show(ConfirmationModal, {
-                title,
-                prompt,
-                okLabel,
+                title: title,
+                prompt: prompt,
+                okLabel: okLabel,
                 cancelLabel: 'Cancel',
-                okColor,
+                okColor: okColor,
                 onOk: (confirmModal) => {
                     updateTier({...tier, active: !tier.active});
                     confirmModal?.remove();
@@ -356,4 +355,74 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                             renderItem={({id, item}) => <div className='relative flex w-full items-center gap-5'>
                                 <div className='absolute left-[-32px] top-[7px] flex size-6 items-center justify-center bg-white group-hover:hidden dark:bg-black'><Icon name='check' size='sm' /></div>
                                 <TextField
-                                    // className='grow border-b border-grey-500 py-2 focus:border-grey-800 group-hover:
+                                    // className='grow border-b border-grey-500 py-2 focus:border-grey-800 group-hover:border-grey-600'
+                                    maxLength={191}
+                                    value={item}
+                                    onChange={e => benefits.updateItem(id, e.target.value)}
+                                />
+                                <Button className='absolute right-1 top-1 z-10 opacity-0 group-hover:opacity-100' color='grey' icon='trash' size='sm' onClick={() => benefits.removeItem(id)} />
+                            </div>}
+                            onMove={benefits.moveItem}
+                        />
+                    </div>
+                    <div className="relative mt-1 flex items-center gap-3">
+                        <Icon className='dark:text-white' name='check' size='sm' />
+                        <TextField
+                            className='grow'
+                            containerClassName='w-100'
+                            maxLength={191}
+                            placeholder='Expert analysis'
+                            title='New benefit'
+                            value={benefits.newItem}
+                            hideTitle
+                            onChange={e => benefits.setNewItem(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    benefits.addItem();
+                                }
+                            }}
+                        />
+                        <Button
+                            className='absolute right-[5px] top-[5px] z-10'
+                            color='green'
+                            icon='add'
+                            iconColorClass='text-white'
+                            label='Add'
+                            size='sm'
+                            hideLabel
+                            onClick={() => benefits.addItem()}
+                        />
+                    </div>
+                </Form>
+            </div>
+            <div className='sticky top-[96px] hidden shrink-0 basis-[380px] min-[920px]:!visible min-[920px]:!block'>
+                <TierDetailPreview isFreeTier={isFreeTier} tier={formState} />
+            </div>
+        </div>
+    </Modal>;
+};
+
+const TierDetailModal: React.FC<RoutingModalProps> = ({params}) => {
+    const {data: {tiers, isEnd} = {}, fetchNextPage} = useBrowseTiers();
+
+    let tier: Tier | undefined;
+
+    useEffect(() => {
+        if (params?.id && !tier && !isEnd) {
+            fetchNextPage();
+        }
+    }, [fetchNextPage, isEnd, params?.id, tier]);
+
+    if (params?.id) {
+        tier = tiers?.find(({id}) => id === params?.id);
+
+        if (!tier) {
+            return null;
+        }
+    }
+
+    return <TierDetailModalContent tier={tier} />;
+};
+
+export default NiceModal.create(TierDetailModal);
+```

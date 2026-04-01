@@ -52,34 +52,34 @@ interface FontSelectOption {
 
 /** Font class name mapping strategy */
 interface FontClassStrategy {
-    baseClass: string;
+    base: string;
     headingWeight: string;
     bodyWeight: string;
 }
 
-/** Lookup table for font to class mappings */
+/** Lookup table for font to class name mappings */
 const FONT_CLASS_MAP: Record<string, FontClassStrategy> = {
-    'Cardo': {baseClass: 'font-cardo', headingWeight: 'font-bold', bodyWeight: ''},
-    'Manrope': {baseClass: 'font-manrope', headingWeight: 'font-bold', bodyWeight: ''},
-    'Merriweather': {baseClass: 'font-merriweather', headingWeight: 'font-bold', bodyWeight: ''},
-    'Nunito': {baseClass: 'font-nunito', headingWeight: 'font-semibold', bodyWeight: ''},
-    'Old Standard TT': {baseClass: 'font-old-standard-tt', headingWeight: 'font-bold', bodyWeight: ''},
-    'Prata': {baseClass: 'font-prata', headingWeight: 'font-normal', bodyWeight: ''},
-    'Roboto': {baseClass: 'font-roboto', headingWeight: 'font-bold', bodyWeight: ''},
-    'Rufina': {baseClass: 'font-rufina', headingWeight: 'font-bold', bodyWeight: ''},
-    'Tenor Sans': {baseClass: 'font-tenor-sans', headingWeight: 'font-normal', bodyWeight: ''},
-    'Chakra Petch': {baseClass: 'font-chakra-petch', headingWeight: 'font-normal', bodyWeight: ''},
-    'Fira Mono': {baseClass: 'font-fira-mono', headingWeight: 'font-bold', bodyWeight: ''},
-    'Fira Sans': {baseClass: 'font-fira-sans', headingWeight: 'font-bold', bodyWeight: ''},
-    'IBM Plex Serif': {baseClass: 'font-ibm-plex-serif', headingWeight: 'font-bold', bodyWeight: ''},
-    'Inter': {baseClass: 'font-inter', headingWeight: 'font-bold', bodyWeight: ''},
-    'JetBrains Mono': {baseClass: 'font-jetbrains-mono', headingWeight: 'font-bold', bodyWeight: ''},
-    'Lora': {baseClass: 'font-lora', headingWeight: 'font-bold', bodyWeight: ''},
-    'Noto Sans': {baseClass: 'font-noto-sans', headingWeight: 'font-bold', bodyWeight: ''},
-    'Noto Serif': {baseClass: 'font-noto-serif', headingWeight: 'font-bold', bodyWeight: ''},
-    'Poppins': {baseClass: 'font-poppins', headingWeight: 'font-bold', bodyWeight: ''},
-    'Space Grotesk': {baseClass: 'font-space-grotesk', headingWeight: 'font-bold', bodyWeight: ''},
-    'Space Mono': {baseClass: 'font-space-mono', headingWeight: 'font-bold', bodyWeight: ''}
+    'Cardo': {base: 'font-cardo', headingWeight: 'font-bold', bodyWeight: ''},
+    'Manrope': {base: 'font-manrope', headingWeight: 'font-bold', bodyWeight: ''},
+    'Merriweather': {base: 'font-merriweather', headingWeight: 'font-bold', bodyWeight: ''},
+    'Nunito': {base: 'font-nunito', headingWeight: 'font-semibold', bodyWeight: ''},
+    'Old Standard TT': {base: 'font-old-standard-tt', headingWeight: 'font-bold', bodyWeight: ''},
+    'Prata': {base: 'font-prata', headingWeight: 'font-normal', bodyWeight: ''},
+    'Roboto': {base: 'font-roboto', headingWeight: 'font-bold', bodyWeight: ''},
+    'Rufina': {base: 'font-rufina', headingWeight: 'font-bold', bodyWeight: ''},
+    'Tenor Sans': {base: 'font-tenor-sans', headingWeight: 'font-normal', bodyWeight: ''},
+    'Chakra Petch': {base: 'font-chakra-petch', headingWeight: 'font-normal', bodyWeight: ''},
+    'Fira Mono': {base: 'font-fira-mono', headingWeight: 'font-bold', bodyWeight: ''},
+    'Fira Sans': {base: 'font-fira-sans', headingWeight: 'font-bold', bodyWeight: ''},
+    'IBM Plex Serif': {base: 'font-ibm-plex-serif', headingWeight: 'font-bold', bodyWeight: ''},
+    'Inter': {base: 'font-inter', headingWeight: 'font-bold', bodyWeight: ''},
+    'JetBrains Mono': {base: 'font-jetbrains-mono', headingWeight: 'font-bold', bodyWeight: ''},
+    'Lora': {base: 'font-lora', headingWeight: 'font-bold', bodyWeight: ''},
+    'Noto Sans': {base: 'font-noto-sans', headingWeight: 'font-bold', bodyWeight: ''},
+    'Noto Serif': {base: 'font-noto-serif', headingWeight: 'font-bold', bodyWeight: ''},
+    'Poppins': {base: 'font-poppins', headingWeight: 'font-bold', bodyWeight: ''},
+    'Space Grotesk': {base: 'font-space-grotesk', headingWeight: 'font-bold', bodyWeight: ''},
+    'Space Mono': {base: 'font-space-mono', headingWeight: 'font-bold', bodyWeight: ''}
 };
 
 const SingleValue: React.FC<SingleValueProps<FontSelectOption, false>> = ({children, ...optionProps}) => (
@@ -117,18 +117,18 @@ const capitalizeWords = (str: string): string => str
     .join(' ');
 
 /**
- * Resolves font class name from lookup table
- * @param fontName - Name of the font
+ * Resolves font class name using lookup table strategy
+ * @param fontName - The font name to resolve
  * @param heading - Whether this is for heading (true) or body (false)
- * @returns CSS class string
+ * @returns CSS class name string
  */
 const resolveFontClassName = (fontName: string, heading: boolean = true): string => {
     const strategy = FONT_CLASS_MAP[fontName];
     if (!strategy) {
         return '';
     }
-    const weightClass = heading ? strategy.headingWeight : strategy.bodyWeight;
-    return clsx(strategy.baseClass, weightClass);
+    const weight = heading ? strategy.headingWeight : strategy.bodyWeight;
+    return clsx(strategy.base, weight);
 };
 
 /**
@@ -141,7 +141,7 @@ const resolveFontClassName = (fontName: string, heading: boolean = true): string
  */
 const handleImageUpload = async (
     file: File,
-    uploadImage: (params: {file: File}) => Promise<string>,
+    uploadImage: (params: {file: File}) => Promise<{url: string}>,
     updateSetting: (key: string, value: SettingValue) => void,
     handleError: (error: Error) => void,
     settingKey: string
@@ -220,7 +220,7 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
     customBodyFonts.unshift({label: DEFAULT_FONT, value: DEFAULT_FONT, creator: themeNameVersion, className: 'font-sans font-normal'});
 
     /**
-     * Selects appropriate font class, returns empty string for default font
+     * Selects appropriate font class name
      */
     const selectFont = (fontName: string, heading: boolean): string => {
         if (fontName === DEFAULT_FONT) {
@@ -288,3 +288,97 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
                         Upload logo
                         </ImageUpload>
                     </div>
+                </div>
+                <div className='mt-2 flex items-start justify-between' data-testid="publication-cover">
+                    <div>
+                        <div>Publication cover</div>
+                        <Hint className='!mt-0 mr-5 max-w-[160px]'>Usually as a large banner image on your index pages</Hint>
+                    </div>
+                    <ImageUpload
+                        deleteButtonClassName='!top-1 !right-1'
+                        editButtonClassName='!top-1 !right-10'
+                        height='95px'
+                        id='cover'
+                        imageURL={values.coverImage || ''}
+                        openUnsplash={() => setShowUnsplash(true)}
+                        pintura={
+                            {
+                                isEnabled: editor.isEnabled,
+                                openEditor: async () => editor.openEditor({
+                                    image: values.coverImage || '',
+                                    handleSave: async (file:File) => {
+                                        try {
+                                            updateSetting('cover_image', getImageUrl(await uploadImage({file})));
+                                        } catch (e) {
+                                            handleError(e);
+                                        }
+                                    }
+                                })
+                            }
+                        }
+                        unsplashButtonClassName='!bg-transparent !h-6 !top-1.5 !w-6 !right-1.5 z-50'
+                        unsplashEnabled={unsplashEnabled}
+                        width='160px'
+                        onDelete={() => updateSetting('cover_image', null)}
+                        onUpload={async (file: any) => {
+                            await handleImageUpload(file, uploadImage, updateSetting, handleError, 'cover_image');
+                        }}
+                    >
+                    Upload cover
+                    </ImageUpload>
+                    {
+                        showUnsplash && unsplashConfig && unsplashEnabled && (
+                            <UnsplashSelector
+                                unsplashProviderConfig={unsplashConfig}
+                                onClose={() => {
+                                    setShowUnsplash(false);
+                                }}
+                                onImageInsert={(image) => {
+                                    if (image.src) {
+                                        updateSetting('cover_image', image.src);
+                                    }
+                                    setShowUnsplash(false);
+                                }}
+                            />
+                        )
+                    }
+                </div>
+            </Form>
+            <Form className='-mt-4' gap='sm' margins='lg' title='Typography'>
+                <Select
+                    className={selectFont(selectedHeadingFont.label, true)}
+                    components={{Option, SingleValue}}
+                    controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
+                    hint={''}
+                    menuShouldScrollIntoView={true}
+                    options={customHeadingFonts}
+                    selectedOption={selectedHeadingFont}
+                    testId='heading-font-select'
+                    title={'Heading font'}
+                    onSelect={(option) => {
+                        handleFontSelection(option, true, setHeadingFont, updateSetting, themeNameVersion, CUSTOM_FONTS.heading);
+                    }}
+                />
+                <Select
+                    className={selectFont(selectedBodyFont.label, false)}
+                    components={{Option, SingleValue}}
+                    controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
+                    hint={''}
+                    maxMenuHeight={200}
+                    menuPosition='fixed'
+                    menuShouldScrollIntoView={true}
+                    options={customBodyFonts}
+                    selectedOption={selectedBodyFont}
+                    testId='body-font-select'
+                    title={'Body font'}
+                    onSelect={(option) => {
+                        handleFontSelection(option, false, setBodyFont, updateSetting, themeNameVersion, CUSTOM_FONTS.body);
+                    }}
+                />
+            </Form>
+        </>
+    );
+};
+
+export default GlobalSettings;
+```

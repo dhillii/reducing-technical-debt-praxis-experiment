@@ -424,3 +424,121 @@ async function openCommentForm({data: newForm, api, state}: {data: OpenCommentFo
             otherStateChanges = {...otherStateChanges, ...newCommentsState};
         }
     }
+
+    // We want to keep the number of displayed forms to a minimum so when opening a
+    // new form, we close any existing forms that are empty or have had no changes
+    const openFormsAfterAutoclose = state.openCommentForms.filter(form => form.hasUnsavedChanges);
+
+    // avoid multiple forms being open for the same id
+    // (e.g. if "Reply" is hit on two different replies, we don't want two forms open at the bottom of that comment thread)
+    const openFormIndexForId = openFormsAfterAutoclose.findIndex(form => form.id === newForm.id);
+    if (openFormIndexForId > -1) {
+        openFormsAfterAutoclose[openFormIndexForId] = newForm;
+
+        return {openCommentForms: openFormsAfterAutoclose, ...otherStateChanges};
+    } else {
+        return {openCommentForms: [...openFormsAfterAutoclose, newForm], ...otherStateChanges};
+    }
+}
+
+function setHighlightComment({data: commentId}: {data: string | null}) {
+    return {
+        commentIdToHighlight: commentId
+    };
+}
+
+function highlightComment({
+    data: {commentId},
+    dispatchAction
+
+}: {
+    data: { commentId: string | null };
+    state: EditableAppContext;
+    dispatchAction: DispatchActionType;
+}) {
+    setTimeout(() => {
+        dispatchAction('setHighlightComment', null);
+    }, 3000);
+    return {
+        commentIdToHighlight: commentId
+    };
+}
+
+function setCommentFormHasUnsavedChanges({data: {id, hasUnsavedChanges}, state}: {data: {id: string, hasUnsavedChanges: boolean}, state: EditableAppContext}) {
+    const updatedForms = state.openCommentForms.map((f) => {
+        if (f.id === id) {
+            return {...f, hasUnsavedChanges};
+        } else {
+            return {...f};
+        }
+    });
+
+    return {openCommentForms: updatedForms};
+}
+
+function closeCommentForm({data: id, state}: {data: string, state: EditableAppContext}) {
+    return {openCommentForms: state.openCommentForms.filter(f => f.id !== id)};
+}
+
+function setScrollTarget({data: commentId}: {data: string | null}) {
+    return {commentIdToScrollTo: commentId};
+}
+
+// Sync actions make use of setState((currentState) => newState), to avoid 'race' conditions
+export const SyncActions = {
+    openPopup,
+    closePopup,
+    closeCommentForm,
+    setCommentFormHasUnsavedChanges,
+    setScrollTarget
+};
+
+export type SyncActionType = keyof typeof SyncActions;
+
+export const Actions = {
+    // Put your actions here
+    addComment,
+    editComment,
+    hideComment,
+    deleteComment,
+    showComment,
+    likeComment,
+    unlikeComment,
+    reportComment,
+    addReply,
+    loadMoreComments,
+    loadMoreReplies,
+    updateMember,
+    setOrder,
+    openCommentForm,
+    highlightComment,
+    setHighlightComment,
+    setCommentsIsLoading,
+    updateCommentLikeState
+};
+
+export type ActionType = keyof typeof Actions;
+
+export function isSyncAction(action: string): action is SyncActionType {
+    return !!(SyncActions as any)[action];
+}
+
+/** Handle actions in the App, returns updated state */
+export async function ActionHandler({action, data, state, api, adminApi, options, dispatchAction}: {action: ActionType, data: any, state: EditableAppContext, options: CommentsOptions, api: GhostApi, adminApi: AdminApi, dispatchAction: DispatchActionType}): Promise<Partial<EditableAppContext>> {
+    const handler = Actions[action];
+    if (handler) {
+        return await handler({data, state, api, adminApi, options, dispatchAction} as any) || {};
+    }
+    return {};
+}
+
+/** Handle actions in the App, returns updated state */
+export function SyncActionHandler({action, data, state, api, adminApi, options}: {action: SyncActionType, data: any, state: EditableAppContext, options: CommentsOptions, api: GhostApi, adminApi: AdminApi}): Partial<EditableAppContext> {
+    const handler = SyncActions[action];
+    if (handler) {
+        // Do not await here
+        return handler({data, state, api, adminApi, options} as any) || {};
+    }
+    return {};
+}
+```

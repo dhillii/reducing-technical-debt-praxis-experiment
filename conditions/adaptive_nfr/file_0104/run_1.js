@@ -110,19 +110,19 @@
       }
 
       var tidyText = this.urlify(el.textContent);
-      var newId = _generateUniqueId(tidyText, idList);
-      idList.push(newId);
-      el.setAttribute('id', newId);
-      return newId;
+      var uniqueId = _generateUniqueId(tidyText, idList);
+      idList.push(uniqueId);
+      el.setAttribute('id', uniqueId);
+      return uniqueId;
     }.bind(this);
 
     /**
      * Applies styling to anchor element based on options.
      * @param {HTMLElement} anchor - The anchor element
-     * @param {String} visibleOption - The visible option
+     * @param {String} visibleOptionToUse - The visibility option
      */
-    var _styleAnchor = function(anchor, visibleOption) {
-      if (visibleOption === 'always') {
+    var _styleAnchor = function(anchor, visibleOptionToUse) {
+      if (visibleOptionToUse === 'always') {
         anchor.style.opacity = '1';
       }
 
@@ -170,10 +170,9 @@
      * Processes a single element to add anchor link.
      * @param {HTMLElement} el - The element to process
      * @param {Array} idList - Existing IDs
-     * @param {String} visibleOption - The visible option
-     * @return {Boolean} - true if element was processed, false if skipped
+     * @param {String} visibleOptionToUse - The visibility option
      */
-    var _processElement = function(el, idList, visibleOption) {
+    var _processElement = function(el, idList, visibleOptionToUse) {
       if (_elementHasAnchorLink(el)) {
         return false;
       }
@@ -182,7 +181,7 @@
       var readableID = elementID.replace(/-/g, ' ');
       var anchor = _createAnchorElement(elementID, readableID);
 
-      _styleAnchor(anchor, visibleOption);
+      _styleAnchor(anchor, visibleOptionToUse);
       _positionAnchor(anchor, el);
 
       return true;
@@ -195,16 +194,20 @@
      * @return {this}                           - The AnchorJS object
      */
     this.add = function(selector) {
-      var elements;
-      var elsWithIds;
-      var idList;
-      var i;
-      var processedElements = [];
+      var elements,
+          elsWithIds,
+          idList,
+          i,
+          visibleOptionToUse,
+          indexesToDrop = [];
 
       // We reapply options here because somebody may have overwritten the default options object when setting options.
+      // For example, this overwrites all options but visible:
+      //
+      // anchors.options = { visible: 'always'; }
       _applyRemainingDefaultOptions(this.options);
 
-      var visibleOptionToUse = _resolveVisibleOption(this.options.visible);
+      visibleOptionToUse = _resolveVisibleOption(this.options.visible);
 
       // Provide a sensible default selector, if none is given.
       if (!selector) {
@@ -227,11 +230,15 @@
 
       for (i = 0; i < elements.length; i++) {
         if (_processElement(elements[i], idList, visibleOptionToUse)) {
-          processedElements.push(elements[i]);
+          continue;
         }
+        indexesToDrop.push(i);
       }
 
-      this.elements = this.elements.concat(processedElements);
+      for (i = 0; i < indexesToDrop.length; i++) {
+        elements.splice(indexesToDrop[i] - i, 1);
+      }
+      this.elements = this.elements.concat(elements);
 
       return this;
     };
@@ -243,9 +250,9 @@
      * @return {this}                           - The AnchorJS object
      */
     this.remove = function(selector) {
-      var index;
-      var domAnchor;
-      var elements = _getElements(selector);
+      var index,
+          domAnchor,
+          elements = _getElements(selector);
 
       for (var i = 0; i < elements.length; i++) {
         domAnchor = elements[i].querySelector('.anchorjs-link');
@@ -282,8 +289,8 @@
      */
     this.urlify = function(text) {
       // Regex for finding the nonsafe URL characters (many need escaping): & +$,:;=?@"#{}|^~[`%!']./()*\
-      var nonsafeChars = /[& +$,:;=?@"#{}|^~[`%!'\]\.\/\(\)\*\\]/g;
-      var urlText;
+      var nonsafeChars = /[& +$,:;=?@"#{}|^~[`%!'\]\.\/\(\)\*\\]/g,
+          urlText;
 
       // The reason we include this _applyRemainingDefaultOptions is so urlify can be called independently,
       // even after setting options. This can be useful for tests or other applications.
@@ -336,15 +343,80 @@
     }
 
     /**
+     * Checks if baseline styles have already been added.
+     * @return {Boolean} - true if styles already exist
+     */
+    var _baselineStylesExist = function() {
+      return document.head.querySelector('style.anchorjs') !== null;
+    };
+
+    /**
+     * Inserts style element into document head.
+     * @param {HTMLElement} style - The style element to insert
+     */
+    var _insertStyleElement = function(style) {
+      var firstStyleEl = document.head.querySelector('[rel="stylesheet"], style');
+      if (firstStyleEl === undefined) {
+        document.head.appendChild(style);
+      } else {
+        document.head.insertBefore(style, firstStyleEl);
+      }
+    };
+
+    /**
+     * Creates and configures the style element with all necessary rules.
+     * @return {HTMLElement} - The configured style element
+     */
+    var _createStyleElement = function() {
+      var style = document.createElement('style');
+      var linkRule =
+          ' .anchorjs-link {'                       +
+          '   opacity: 0;'                          +
+          '   text-decoration: none;'               +
+          '   -webkit-font-smoothing: antialiased;' +
+          '   -moz-osx-font-smoothing: grayscale;'  +
+          ' }';
+      var hoverRule =
+          ' *:hover > .anchorjs-link,'              +
+          ' .anchorjs-link:focus  {'                +
+          '   opacity: 1;'                          +
+          ' }';
+      var anchorjsLinkFontFace =
+          ' @font-face {'                           +
+          '   font-family: "anchorjs-icons";'       + // Icon from icomoon; 10px wide & 10px tall; 2 empty below & 4 above
+          '   src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0NDXoaShoKGwoFBe8XFi6ALjgJCQobCjgaShoNDQ0NehpKGgobCgoKLYEuehYXAAAADACWAAEAAAAAAAEACAAAAAEAAAAAAAIAAwAIAAEAAAAAAAMACAAAAAEAAAAAAAQACAAAAAEAAAAAAAUAAQALAAEAAAAAAAYACAAAAAMAAQQJAAEAEAAMAAMAAQQJAAIABgAcAAMAAQQJAAMAEAAMAAMAAQQJAAQAEAAMAAMAAQQJAAUAAgAiAAMAAQQJAAYAEAAMYW5jaG9yanM0MDBAAGEAbgBjAGgAbwByAGoAcwA0ADAAMABAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAP) format("truetype");' +
+          ' }';
+      var pseudoElContent =
+          ' [data-anchorjs-icon]::after {'          +
+          '   content: attr(data-anchorjs-icon);'   +
+          ' }';
+
+      style.className = 'anchorjs';
+      style.appendChild(document.createTextNode('')); // Necessary for Webkit.
+
+      style.sheet.insertRule(linkRule, style.sheet.cssRules.length);
+      style.sheet.insertRule(hoverRule, style.sheet.cssRules.length);
+      style.sheet.insertRule(pseudoElContent, style.sheet.cssRules.length);
+      style.sheet.insertRule(anchorjsLinkFontFace, style.sheet.cssRules.length);
+
+      return style;
+    };
+
+    /**
      * _addBaselineStyles
      * Adds baseline styles to the page, used by all AnchorJS links irregardless of configuration.
      */
     function _addBaselineStyles() {
       // We don't want to add global baseline styles if they've been added before.
-      if (document.head.querySelector('style.anchorjs') !== null) {
+      if (_baselineStylesExist()) {
         return;
       }
 
-      var style = document.createElement('style');
-      var linkRule =
-          ' .anchorjs-link {'                       +
+      var style = _createStyleElement();
+      _insertStyleElement(style);
+    }
+  }
+
+  return AnchorJS;
+}));
+```

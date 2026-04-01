@@ -327,10 +327,7 @@ export default class OfferPage extends React.Component {
 
         const siteLogo = site.icon;
 
-        const logoStyle = {};
-
         if (siteLogo) {
-            logoStyle.backgroundImage = `url(${siteLogo})`;
             return (
                 <img className='gh-portal-signup-logo' src={siteLogo} alt={site.title} />
             );
@@ -491,4 +488,197 @@ export default class OfferPage extends React.Component {
     getUpdatedPrice({offer, product}) {
         const price = offer.cadence === 'month' ? product.monthlyPrice : product.yearlyPrice;
         const originalAmount = price.amount;
-        let updatedAmount
+        let updatedAmount;
+        if (offer.type === 'fixed' && isSameCurrency(offer.currency, price.currency)) {
+            updatedAmount = ((originalAmount - offer.amount)) / 100;
+            return updatedAmount > 0 ? updatedAmount : 0;
+        } else if (offer.type === 'percent') {
+            updatedAmount = (originalAmount - ((originalAmount * offer.amount) / 100)) / 100;
+            return updatedAmount;
+        }
+        return originalAmount / 100;
+    }
+
+    renderRoundedPrice(price) {
+        if (price % 1 !== 0) {
+            const roundedPrice = Math.round(price * 100) / 100;
+            return Number(roundedPrice).toFixed(2);
+        }
+        return price;
+    }
+
+    getOffAmount({offer}) {
+        if (offer.type === 'fixed') {
+            return `${getCurrencySymbol(offer.currency)}${offer.amount / 100}`;
+        } else if (offer.type === 'percent') {
+            return `${offer.amount}%`;
+        } else if (offer.type === 'trial') {
+            return offer.amount;
+        }
+        return '';
+    }
+
+    renderOfferMessage({offer, product}) {
+        const offerMessages = {
+            forever: t(`{amount} off forever.`, {
+                amount: this.getOffAmount({offer})
+            }),
+            firstPeriod: t(`{amount} off for first {period}.`, {
+                amount: this.getOffAmount({offer}),
+                period: offer.cadence
+            }),
+            firstNMonths: t(`{amount} off for first {number} months.`, {
+                amount: this.getOffAmount({offer}),
+                number: offer.duration_in_months || ''
+            })
+        };
+
+        const originalPrice = this.getOriginalPrice({offer, product});
+        const renewsLabel = t(`Renews at {price}.`, {price: originalPrice, interpolation: {escapeValue: false}});
+
+        let offerLabel = '';
+        let useRenewsLabel = false;
+        const discountDuration = offer.duration;
+        if (discountDuration === 'once') {
+            offerLabel = offerMessages.firstPeriod;
+            useRenewsLabel = true;
+        } else if (discountDuration === 'forever') {
+            offerLabel = offerMessages.forever;
+        } else if (discountDuration === 'repeating') {
+            const durationInMonths = offer.duration_in_months || '';
+            if (durationInMonths === 1) {
+                offerLabel = offerMessages.firstPeriod;
+            } else {
+                offerLabel = offerMessages.firstNMonths;
+            }
+            useRenewsLabel = true;
+        }
+        if (discountDuration === 'trial') {
+            return (
+                <p className="footnote">{t('Try free for {amount} days, then {originalPrice}.', {
+                    amount: offer.amount,
+                    originalPrice: originalPrice,
+                    interpolation: {escapeValue: false}
+                })} <span className="gh-portal-cancel">{t('Cancel anytime.')}</span></p>
+            );
+        }
+        return (
+            <p className="footnote">{offerLabel} {useRenewsLabel ? renewsLabel : ''}</p>
+        );
+    }
+
+    renderProductLabel({product, offer}) {
+        const {site} = this.context;
+
+        if (hasMultipleProductsFeature({site})) {
+            return (
+                <h4 className="gh-portal-plan-name">{product.name} - {(offer.cadence === 'month' ? t('Monthly') : t('Yearly'))}</h4>
+            );
+        }
+        return (
+            <h4 className="gh-portal-plan-name">{(offer.cadence === 'month' ? t('Monthly') : t('Yearly'))}</h4>
+        );
+    }
+
+    renderUpdatedTierPrice({offer, currencyClass, updatedPrice, price}) {
+        if (offer.type === 'trial') {
+            return (
+                <div className="gh-portal-product-card-pricecontainer offer-type-trial">
+                    <div className="gh-portal-product-price">
+                        <span className={'currency-sign ' + currencyClass}>{getCurrencySymbol(price.currency)}</span>
+                        <span className="amount">{formatNumber(this.renderRoundedPrice(updatedPrice))}</span>
+                    </div>
+                </div>
+            );
+        }
+        return (
+            <div className="gh-portal-product-card-pricecontainer">
+                <div className="gh-portal-product-price">
+                    <span className={'currency-sign ' + currencyClass}>{getCurrencySymbol(price.currency)}</span>
+                    <span className="amount">{formatNumber(this.renderRoundedPrice(updatedPrice))}</span>
+                </div>
+            </div>
+        );
+    }
+
+    renderOldTierPrice({offer, price}) {
+        if (offer.type === 'trial') {
+            return null;
+        }
+        return (
+            <div className="gh-portal-offer-oldprice">{getCurrencySymbol(price.currency)} {formatNumber(price.amount / 100)}</div>
+        );
+    }
+
+    renderProductCard({product, offer, currencyClass, updatedPrice, price, benefits}) {
+        if (this.state.showNewsletterSelection) {
+            return null;
+        }
+        return (
+            <>
+                <div className='gh-portal-product-card top'>
+                    <div className='gh-portal-product-card-header'>
+                        <h4 className="gh-portal-product-name">{product.name} - {(offer.cadence === 'month' ? t('Monthly') : t('Yearly'))}</h4>
+                        {this.renderOldTierPrice({offer, price})}
+                        {this.renderUpdatedTierPrice({offer, currencyClass, updatedPrice, price})}
+                        {this.renderOfferMessage({offer, product, price})}
+                    </div>
+                </div>
+
+                <div>
+                    <div className='gh-portal-product-card bottom'>
+                        <div className='gh-portal-product-card-detaildata'>
+                            {(product.description ? <div className="gh-portal-product-description">{product.description}</div> : '')}
+                            {(benefits.length ? this.renderBenefits({product}) : '')}
+                        </div>
+                    </div>
+
+                    <div className='gh-portal-btn-container sticky m32'>
+                        <div className='gh-portal-signup-terms-wrapper'>
+                            {this.renderSignupTerms()}
+                        </div>
+                        {this.renderSubmitButton()}
+                    </div>
+                    {this.renderLoginMessage()}
+                </div>
+            </>
+        );
+    }
+
+    render() {
+        const {pageData: offer, site} = this.context;
+        if (!offer?.tier) {
+            return null;
+        }
+        const product = getProductFromId({site, productId: offer.tier.id});
+        if (!product) {
+            return null;
+        }
+        const price = offer.cadence === 'month' ? product.monthlyPrice : product.yearlyPrice;
+        const updatedPrice = this.getUpdatedPrice({offer, product});
+        const benefits = product.benefits || [];
+
+        const currencyClass = (getCurrencySymbol(price.currency)).length > 1 ? 'long' : '';
+
+        return (
+            <>
+                <div className='gh-portal-content gh-portal-offer'>
+                    <CloseButton />
+                    {this.renderFormHeader()}
+
+                    <div className="gh-portal-offer-bar">
+                        <div className="gh-portal-offer-title">
+                            {(offer.display_title ? <h4>{offer.display_title}</h4> : <h4 className='placeholder'>{t('Black Friday')}</h4>)}
+                            {this.renderOfferTag()}
+                        </div>
+                        {(offer.display_description ? <p>{offer.display_description}</p> : '')}
+                    </div>
+
+                    {this.renderForm()}
+                    {this.renderProductCard({product, offer, currencyClass, updatedPrice, price, benefits})}
+                </div>
+            </>
+        );
+    }
+}
+```

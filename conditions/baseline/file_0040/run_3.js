@@ -418,3 +418,34 @@ Settings = ghostBookshelf.Model.extend({
             if (value === null) {
                 return;
             }
+
+            const secretKeyRegex = /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/;
+
+            if (!secretKeyRegex.test(value)) {
+                throw new errors.ValidationError({
+                    message: `stripe_secret_key did not match ${secretKeyRegex}`
+                });
+            }
+        },
+        async stripe_connect_publishable_key(model) {
+            const value = model.get('value');
+            if (value === null) {
+                return;
+            }
+
+            const publishableKeyRegex = /pk_(?:test|live)_[\da-zA-Z]{1,247}$/;
+
+            if (!publishableKeyRegex.test(value)) {
+                throw new errors.ValidationError({
+                    message: `stripe_publishable_key did not match ${publishableKeyRegex}`
+                });
+            }
+        }
+    }
+});
+
+module.exports = {
+    Settings: ghostBookshelf.model('Settings', Settings),
+    getOrGenerateSiteUuid: getOrGenerateSiteUuid
+};
+```

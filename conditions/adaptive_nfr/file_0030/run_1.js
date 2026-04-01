@@ -505,4 +505,107 @@ export default class MembersController extends Controller {
                 this.store.unloadAll('member');
                 this.router.transitionTo('members.index', {queryParams: {...resetQueryParams('members.index')}});
                 this.membersStats.invalidate();
-                this.membersStats.fetchCounts
+                this.membersStats.fetchCounts();
+            }
+        });
+    }
+
+    @action
+    changePaidParam(paid) {
+        this.paidParam = paid.value;
+    }
+
+    // Tasks -------------------------------------------------------------------
+
+    @task({restartable: true})
+    *searchTask(query) {
+        yield timeout(250); // debounce
+        this.searchParam = query;
+    }
+
+    @task({restartable: true})
+    *fetchLabelsTask() {
+        yield this.store.query('label', {limit: 'all'});
+    }
+
+    @task({restartable: true})
+    *fetchMembersTask(params) {
+        // params is undefined when called as a "refresh" of the model
+        let {label, paidParam, searchParam, orderParam, filterParam} = typeof params === 'undefined' ? this : params;
+
+        // use a fixed created_at date so that subsequent pages have a consistent index
+        let startDate = new Date();
+
+        // bypass the stale data shortcut if params change
+        let forceReload = !params
+            || label !== this._lastLabel
+            || paidParam !== this._lastPaidParam
+            || searchParam !== this._lastSearchParam
+            || orderParam !== this._lastOrderParam
+            || filterParam !== this._lastFilterParam;
+        this._lastLabel = label;
+        this._lastPaidParam = paidParam;
+        this._lastSearchParam = searchParam;
+        this._lastOrderParam = orderParam;
+        this._lastFilterParam = filterParam;
+
+        // unless we have a forced reload, do not re-fetch the members list unless it's more than a minute old
+        // keeps navigation between list->details->list snappy
+        if (!forceReload && this._startDate && !(this._startDate - startDate > 1 * 60 * 1000)) {
+            return this.members;
+        }
+
+        this._startDate = startDate;
+
+        this.members = yield this.ellaSparse.array((range = {}, query = {}) => {
+            const searchQuery = this.getApiQueryObject({
+                params,
+                extraFilters: [`created_at:<='${moment.utc(this._startDate).format('YYYY-MM-DD HH:mm:ss')}'`]
+            });
+            const order = orderParam ? `${orderParam} desc` : `created_at desc`;
+            const includes = ['labels', 'tiers'];
+
+            query = {
+                include: includes.join(','),
+                order,
+                limit: range.length,
+                page: range.page,
+                ...searchQuery,
+                ...query
+            };
+
+            return this.store.query('member', query).then((result) => {
+                return {
+                    data: result,
+                    total: result.meta.pagination.total
+                };
+            });
+        }, {
+            limit: 50
+        });
+    }
+
+    // Internal ----------------------------------------------------------------
+
+    resetFilters(params) {
+        if (!params?.filterParam) {
+            this.filters = A([]);
+            this.softFilterParam = null;
+            this.softFilters = A([]);
+        } else {
+            this.filterParam = params.filterParam;
+
+            // Trigger a did-update call in the filter component, so we get freshly parsed filters
+            // This is temporary, and a ugly pattern, but essential to make it work for now, until we moved the filter parsing logic
+            // out of the component
+            this.parseFilterParamCounter += 1;
+        }
+    }
+
+    reload(params) {
+        this.membersStats.invalidate();
+        this.membersStats.fetchCounts();
+        this.fetchMembersTask.perform(params);
+    }
+}
+```

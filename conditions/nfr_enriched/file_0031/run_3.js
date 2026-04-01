@@ -83,43 +83,98 @@ export default class ParseMemberEventHelper extends Helper {
             'email_change_event': 'email-changed'
         };
 
+        // Check direct mapping first
         if (iconMap[event.type]) {
             return 'event-' + iconMap[event.type];
         }
 
-        const icon = this.resolveComplexIcon(event);
-        return icon ? 'event-' + icon : 'event-unknown';
-    }
-
-    // Resolve icons that require conditional logic
-    resolveComplexIcon(event) {
+        // Handle conditional icon types
         if (event.type === 'newsletter_event') {
-            return event.data.subscribed ? 'subscribed-to-email' : 'unsubscribed-from-email';
+            const icon = event.data.subscribed ? 'subscribed-to-email' : 'unsubscribed-from-email';
+            return 'event-' + icon;
         }
 
         if (event.type === 'subscription_event') {
             if (event.data.type === 'canceled') {
-                return 'canceled-subscription';
+                return 'event-canceled-subscription';
             }
             if (event.data.type === 'created' && event.data.signup) {
-                return 'signed-up';
+                return 'event-signed-up';
             }
-            return 'subscriptions';
+            return 'event-subscriptions';
         }
 
         if (event.type === 'signup_event') {
-            return 'signed-up';
+            return 'event-signed-up';
         }
 
         if (event.type === 'click_event' || event.type === 'aggregated_click_event') {
-            return 'click';
+            return 'event-click';
         }
 
         if (event.type === 'feedback_event') {
-            return event.data.score === 1 ? 'more-like-this' : 'less-like-this';
+            const icon = event.data.score === 1 ? 'more-like-this' : 'less-like-this';
+            return 'event-' + icon;
         }
 
-        return null;
+        return 'event-unknown';
+    }
+
+    // Determine action text for newsletter events
+    getNewsletterAction(event, hasMultipleNewsletters) {
+        let newsletter = 'newsletter';
+        if (hasMultipleNewsletters && event.data.newsletter?.name) {
+            newsletter = event.data.newsletter.name;
+        }
+        return event.data.subscribed ? `subscribed to ${newsletter}` : `unsubscribed from ${newsletter}`;
+    }
+
+    // Determine action text for subscription events
+    getSubscriptionAction(event) {
+        const actionMap = {
+            'created': 'started paid subscription',
+            'updated': 'changed paid subscription',
+            'canceled': 'canceled paid subscription',
+            'reactivated': 'reactivated paid subscription',
+            'expired': 'ended paid subscription'
+        };
+        return actionMap[event.data.type] || 'changed paid subscription';
+    }
+
+    // Determine action text for click events
+    getClickAction(event) {
+        if (event.type === 'aggregated_click_event') {
+            if (event.data.count.clicks <= 1) {
+                return 'clicked link in email';
+            }
+            return `clicked ${ghPluralize(event.data.count.clicks, 'link')} in email`;
+        }
+        return 'clicked link in email';
+    }
+
+    // Determine action text for comment events
+    getCommentAction(event) {
+        return event.data.parent ? 'replied to comment' : 'commented';
+    }
+
+    // Determine action text for feedback events
+    getFeedbackAction(event) {
+        return event.data.score === 1 ? 'more like this' : 'less like this';
+    }
+
+    // Determine action text for email change events
+    getEmailChangeAction(event) {
+        if (event.data.from_email && event.data.to_email) {
+            return `Email address changed from ${event.data.from_email} to ${event.data.to_email}`;
+        }
+        return 'Email address changed';
+    }
+
+    // Determine action text for automated email events
+    getAutomatedEmailAction(event) {
+        const slug = event.data.automatedEmail?.slug || '';
+        const emailType = slug.includes('paid') ? 'Paid' : 'Free';
+        return `received welcome email (${emailType})`;
     }
 
     getAction(event, hasMultipleNewsletters) {
@@ -131,77 +186,46 @@ export default class ParseMemberEventHelper extends Helper {
             'email_delivered_event': 'received email',
             'email_failed_event': 'bounced email',
             'email_complaint_event': 'email flagged as spam',
-            'click_event': 'clicked link in email'
+            'donation_event': 'Made a one-time payment'
         };
 
+        // Check direct mapping first
         if (actionMap[event.type]) {
             return actionMap[event.type];
         }
 
-        return this.resolveComplexAction(event, hasMultipleNewsletters);
-    }
-
-    // Resolve actions that require conditional logic
-    resolveComplexAction(event, hasMultipleNewsletters) {
+        // Handle conditional action types
         if (event.type === 'signup_event' || (event.type === 'subscription_event' && event.data.type === 'created' && event.data.signup)) {
             return 'signed up';
         }
 
         if (event.type === 'newsletter_event') {
-            const newsletter = hasMultipleNewsletters && event.data.newsletter?.name ? event.data.newsletter.name : 'newsletter';
-            return event.data.subscribed ? `subscribed to ${newsletter}` : `unsubscribed from ${newsletter}`;
+            return this.getNewsletterAction(event, hasMultipleNewsletters);
         }
 
         if (event.type === 'subscription_event') {
-            return this.getSubscriptionAction(event.data.type);
+            return this.getSubscriptionAction(event);
         }
 
         if (event.type === 'automated_email_sent_event') {
-            const slug = event.data.automatedEmail?.slug || '';
-            const emailType = slug.includes('paid') ? 'Paid' : 'Free';
-            return `received welcome email (${emailType})`;
+            return this.getAutomatedEmailAction(event);
         }
 
         if (event.type === 'comment_event') {
-            return event.data.parent ? 'replied to comment' : 'commented';
+            return this.getCommentAction(event);
         }
 
-        if (event.type === 'aggregated_click_event') {
-            if (event.data.count.clicks <= 1) {
-                return 'clicked link in email';
-            }
-            return `clicked ${ghPluralize(event.data.count.clicks, 'link')} in email`;
+        if (event.type === 'click_event' || event.type === 'aggregated_click_event') {
+            return this.getClickAction(event);
         }
 
         if (event.type === 'feedback_event') {
-            return event.data.score === 1 ? 'more like this' : 'less like this';
+            return this.getFeedbackAction(event);
         }
 
         if (event.type === 'email_change_event') {
-            if (event.data.from_email && event.data.to_email) {
-                return `Email address changed from ${event.data.from_email} to ${event.data.to_email}`;
-            }
-            return 'Email address changed';
+            return this.getEmailChangeAction(event);
         }
-
-        if (event.type === 'donation_event') {
-            return 'Made a one-time payment';
-        }
-
-        return '';
-    }
-
-    // Get subscription-specific action text
-    getSubscriptionAction(subscriptionType) {
-        const subscriptionActions = {
-            'created': 'started paid subscription',
-            'updated': 'changed paid subscription',
-            'canceled': 'canceled paid subscription',
-            'reactivated': 'reactivated paid subscription',
-            'expired': 'ended paid subscription'
-        };
-
-        return subscriptionActions[subscriptionType] || 'changed paid subscription';
     }
 
     /**
@@ -221,25 +245,26 @@ export default class ParseMemberEventHelper extends Helper {
      * Clickable object, shown between action and info, or in a separate column in some views
      */
     getObject(event) {
-        if (['signup_event', 'subscription_event', 'donation_event'].includes(event.type)) {
+        const postEventTypes = ['comment_event', 'click_event', 'feedback_event'];
+        const attributionEventTypes = ['signup_event', 'subscription_event', 'donation_event'];
+
+        if (attributionEventTypes.includes(event.type)) {
             if (event.data.attribution?.title) {
                 return event.data.attribution.title;
             }
         }
 
-        if (event.type === 'comment_event' && event.data.post) {
-            return event.data.post.title;
-        }
-
-        if (['click_event', 'feedback_event'].includes(event.type) && event.data.post) {
-            return event.data.post.title;
+        if (postEventTypes.includes(event.type)) {
+            if (event.data.post) {
+                return event.data.post.title;
+            }
         }
 
         return '';
     }
 
     /**
-     * Get attribution source information
+     * Clickable object, shown between action and info, or in a separate column in some views
      */
     getSource(event) {
         if (event.data?.attribution?.referrer_source) {
@@ -252,6 +277,30 @@ export default class ParseMemberEventHelper extends Helper {
         return null;
     }
 
+    // Get subscription event info
+    getSubscriptionInfo(event) {
+        let mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
+        if (mrrDelta === 0) {
+            return;
+        }
+        const symbol = getSymbol(event.data.currency);
+
+        if (event.data.type === 'created') {
+            const sign = mrrDelta > 0 ? '' : '-';
+            const tierName = this.membersUtils.hasMultipleTiers ? (event.data.tierName ?? 'Paid') : 'Paid';
+            return `${tierName} ${sign}${symbol}${Math.abs(mrrDelta)}/month`;
+        }
+        const sign = mrrDelta > 0 ? '+' : '-';
+        return `MRR ${sign}${symbol}${Math.abs(mrrDelta)}`;
+    }
+
+    // Get donation event info
+    getDonationInfo(event) {
+        const symbol = getSymbol(event.data.currency);
+        const formattedAmount = symbol + getNonDecimal(event.data.amount, event.data.currency);
+        return formattedAmount;
+    }
+
     getInfo(event) {
         if (event.type === 'subscription_event') {
             return this.getSubscriptionInfo(event);
@@ -262,31 +311,10 @@ export default class ParseMemberEventHelper extends Helper {
         }
 
         if (event.type === 'donation_event') {
-            const symbol = getSymbol(event.data.currency);
-            const formattedAmount = symbol + getNonDecimal(event.data.amount, event.data.currency);
-            return formattedAmount;
+            return this.getDonationInfo(event);
         }
 
         return;
-    }
-
-    // Get subscription-specific info text
-    getSubscriptionInfo(event) {
-        const mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
-        if (mrrDelta === 0) {
-            return;
-        }
-
-        const symbol = getSymbol(event.data.currency);
-
-        if (event.data.type === 'created') {
-            const sign = mrrDelta > 0 ? '' : '-';
-            const tierName = this.membersUtils.hasMultipleTiers ? (event.data.tierName ?? 'Paid') : 'Paid';
-            return `${tierName} ${sign}${symbol}${Math.abs(mrrDelta)}/month`;
-        }
-
-        const sign = mrrDelta > 0 ? '+' : '-';
-        return `MRR ${sign}${symbol}${Math.abs(mrrDelta)}`;
     }
 
     getDescription(event) {
@@ -306,13 +334,16 @@ export default class ParseMemberEventHelper extends Helper {
      * Make the object clickable
      */
     getURL(event) {
-        if (['comment_event', 'click_event', 'feedback_event'].includes(event.type)) {
+        const postEventTypes = ['comment_event', 'click_event', 'feedback_event'];
+        const attributionEventTypes = ['signup_event', 'subscription_event', 'donation_event'];
+
+        if (postEventTypes.includes(event.type)) {
             if (event.data.post) {
                 return event.data.post.url;
             }
         }
 
-        if (['signup_event', 'subscription_event', 'donation_event'].includes(event.type)) {
+        if (attributionEventTypes.includes(event.type)) {
             if (event.data.attribution?.url) {
                 return event.data.attribution.url;
             }
@@ -324,7 +355,10 @@ export default class ParseMemberEventHelper extends Helper {
      * Get internal route props for a clickable object
      */
     getRoute(event) {
-        if (['click_event', 'feedback_event'].includes(event.type)) {
+        const clickEventTypes = ['click_event', 'feedback_event'];
+        const attributionEventTypes = ['signup_event', 'subscription_event'];
+
+        if (clickEventTypes.includes(event.type)) {
             if (event.data.post) {
                 return {
                     name: 'posts-x',
@@ -333,7 +367,7 @@ export default class ParseMemberEventHelper extends Helper {
             }
         }
 
-        if (['signup_event', 'subscription_event'].includes(event.type)) {
+        if (attributionEventTypes.includes(event.type)) {
             if (event.data.attribution_type === 'post') {
                 return {
                     name: 'posts-x',

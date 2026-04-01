@@ -440,4 +440,188 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
       }
       /* eslint-enable guard-for-in */
       if (!canonicalizedObj) {
-        canonicalizedObj =
+        canonicalizedObj = emptyRepresentation(value, typeHint);
+        break;
+      }
+    /* falls through */
+    case 'object':
+      canonicalizedObj = canonicalizedObj || {};
+      withStack(value, function () {
+        Object.keys(value).sort().forEach(function (key) {
+          canonicalizedObj[key] = exports.canonicalize(value[key], stack);
+        });
+      });
+      break;
+    case 'date':
+    case 'number':
+    case 'regexp':
+    case 'boolean':
+    case 'symbol':
+      canonicalizedObj = value;
+      break;
+    default:
+      canonicalizedObj = value + '';
+  }
+
+  return canonicalizedObj;
+};
+
+/**
+ * Lookup file names at the given `path`.
+ *
+ * @api public
+ * @param {string} path Base path to start searching from.
+ * @param {string[]} extensions File extensions to look for.
+ * @param {boolean} recursive Whether or not to recurse into subdirectories.
+ * @return {string[]} An array of paths.
+ */
+exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
+  let files = [];
+
+  if (!exists(path)) {
+    if (exists(path + '.js')) {
+      path += '.js';
+    } else {
+      files = glob.sync(path);
+      if (!files.length) {
+        throw new Error("cannot resolve path (or pattern) '" + path + "'");
+      }
+      return files;
+    }
+  }
+
+  try {
+    const stat = statSync(path);
+    if (stat.isFile()) {
+      return path;
+    }
+  } catch (err) {
+    // ignore error
+    return;
+  }
+
+  readdirSync(path).forEach(function (file) {
+    file = join(path, file);
+    try {
+      const stat = statSync(file);
+      if (stat.isDirectory()) {
+        if (recursive) {
+          files = files.concat(lookupFiles(file, extensions, recursive));
+        }
+        return;
+      }
+    } catch (err) {
+      // ignore error
+      return;
+    }
+    const re = new RegExp('\\.(?:' + extensions.join('|') + ')$');
+    if (!stat.isFile() || !re.test(file) || basename(file)[0] === '.') {
+      return;
+    }
+    files.push(file);
+  });
+
+  return files;
+};
+
+/**
+ * Generate an undefined error with a message warning the user.
+ *
+ * @return {Error}
+ */
+
+exports.undefinedError = function () {
+  return new Error('Caught undefined error, did you throw without specifying what?');
+};
+
+/**
+ * Generate an undefined error if `err` is not defined.
+ *
+ * @param {Error} err
+ * @return {Error}
+ */
+
+exports.getError = function (err) {
+  return err || exports.undefinedError();
+};
+
+/**
+ * @summary
+ * This Filter based on `mocha-clean` module.(see: `github.com/rstacruz/mocha-clean`)
+ * @description
+ * When invoking this function you get a filter function that get the Error.stack as an input,
+ * and return a prettify output.
+ * (i.e: strip Mocha and internal node functions from stack trace).
+ * @returns {Function}
+ */
+exports.stackTraceFilter = function () {
+  // TODO: Replace with `process.browser`
+  const is = typeof document === 'undefined' ? { node: true } : { browser: true };
+  let slash = path.sep;
+  let cwd;
+  if (is.node) {
+    cwd = process.cwd() + slash;
+  } else {
+    cwd = (typeof location === 'undefined'
+      ? window.location
+      : location).href.replace(/\/[^/]*$/, '/');
+    slash = '/';
+  }
+
+  function isMochaInternal (line) {
+    return (~line.indexOf('node_modules' + slash + 'mocha' + slash)) ||
+      (~line.indexOf('node_modules' + slash + 'mocha.js')) ||
+      (~line.indexOf('bower_components' + slash + 'mocha.js')) ||
+      (~line.indexOf(slash + 'mocha.js'));
+  }
+
+  function isNodeInternal (line) {
+    return (~line.indexOf('(timers.js:')) ||
+      (~line.indexOf('(events.js:')) ||
+      (~line.indexOf('(node.js:')) ||
+      (~line.indexOf('(module.js:')) ||
+      (~line.indexOf('GeneratorFunctionPrototype.next (native)')) ||
+      false;
+  }
+
+  return function (stack) {
+    stack = stack.split('\n');
+
+    stack = stack.reduce(function (list, line) {
+      if (isMochaInternal(line)) {
+        return list;
+      }
+
+      if (is.node && isNodeInternal(line)) {
+        return list;
+      }
+
+      // Clean up cwd(absolute)
+      if (/\(?.+:\d+:\d+\)?$/.test(line)) {
+        line = line.replace(cwd, '');
+      }
+
+      list.push(line);
+      return list;
+    }, []);
+
+    return stack.join('\n');
+  };
+};
+
+/**
+ * Crude, but effective.
+ * @api
+ * @param {*} value
+ * @returns {boolean} Whether or not `value` is a Promise
+ */
+exports.isPromise = function isPromise (value) {
+  return typeof value === 'object' && typeof value.then === 'function';
+};
+
+/**
+ * It's a noop.
+ * @api
+ */
+exports.noop = function () {};
+```

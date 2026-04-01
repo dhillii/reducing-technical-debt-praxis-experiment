@@ -219,14 +219,18 @@ function addMetadataToHead(head, meta, context, excludeList, favicon, iconType) 
         }
 
         head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
+        addReferrerPolicy(head, context);
+    }
+}
 
-        if (_.includes(context, 'preview')) {
-            head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-            head.push(writeMetaTag('referrer', 'same-origin', 'name'));
-        } else {
-            const referrerPolicy = config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade';
-            head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
-        }
+function addReferrerPolicy(head, context) {
+    const referrerPolicy = config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade';
+    
+    if (_.includes(context, 'preview')) {
+        head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+        head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+    } else {
+        head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
     }
 }
 
@@ -240,21 +244,21 @@ function addPaginationLinks(head, meta) {
     }
 }
 
-function addStructuredData(head, meta, context, excludeList) {
-    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
-    
-    if (!_.includes(context, 'paged') && useStructuredData) {
-        if (!excludeList.has('social_data')) {
-            head.push('');
-            head.push.apply(head, finaliseStructuredData(meta));
-            head.push('');
-        }
+function addStructuredData(head, meta, context, excludeList, useStructuredData) {
+    if (_.includes(context, 'paged') || !useStructuredData) {
+        return;
+    }
 
-        if (!excludeList.has('schema') && meta.schema) {
-            head.push('<script type="application/ld+json">\n' +
-                JSON.stringify(meta.schema, null, '    ') +
-                '\n    </script>\n');
-        }
+    if (!excludeList.has('social_data')) {
+        head.push('');
+        head.push.apply(head, finaliseStructuredData(meta));
+        head.push('');
+    }
+
+    if (!excludeList.has('schema') && meta.schema) {
+        head.push('<script type="application/ld+json">\n' +
+            JSON.stringify(meta.schema, null, '    ') +
+            '\n    </script>\n');
     }
 }
 
@@ -286,11 +290,13 @@ function addMemberAttribution(head) {
 }
 
 function addWebAnalytics(head, dataRoot) {
-    if (settingsHelpers.isWebAnalyticsEnabled()) {
-        head.push(getTinybirdTrackerScript(dataRoot));
-        if (dataRoot._locals) {
-            dataRoot._locals.ghostAnalytics = true;
-        }
+    if (!settingsHelpers.isWebAnalyticsEnabled()) {
+        return;
+    }
+
+    head.push(getTinybirdTrackerScript(dataRoot));
+    if (dataRoot._locals) {
+        dataRoot._locals.ghostAnalytics = true;
     }
 }
 
@@ -360,6 +366,7 @@ module.exports = async function ghost_head(options) { // eslint-disable-line cam
     const postCodeInjection = dataRoot?.post?.codeinjection_head || null;
     const tagCodeInjection = dataRoot?.tag?.codeinjection_head || null;
     const globalCodeinjection = settingsCache.get('codeinjection_head');
+    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
     const favicon = blogIcon.getIconUrl();
     const iconType = blogIcon.getIconType(favicon);
 
@@ -374,7 +381,7 @@ module.exports = async function ghost_head(options) { // eslint-disable-line cam
         if (context) {
             addMetadataToHead(head, meta, context, excludeList, favicon, iconType);
             addPaginationLinks(head, meta);
-            addStructuredData(head, meta, context, excludeList);
+            addStructuredData(head, meta, context, excludeList, useStructuredData);
         }
 
         head.push('<meta name="generator" content="Ghost ' + escapeExpression(safeVersion) + '">');
@@ -384,4 +391,35 @@ module.exports = async function ghost_head(options) { // eslint-disable-line cam
 
         head.push(getMembersHelper(options.data, frontendKey, excludeList));
         
-        if (!excludeList.has('search
+        if (!excludeList.has('search')) {
+            head.push(getSearchHelper(frontendKey));
+        }
+        
+        if (!excludeList.has('announcement')) {
+            head.push(getAnnouncementBarHelper(options.data));
+        }
+        
+        try {
+            head.push(getWebmentionDiscoveryLink());
+        } catch (err) {
+            logging.warn(err);
+        }
+
+        addCardAssets(head, excludeList);
+        addCommentCounts(head, excludeList);
+        addMemberAttribution(head);
+        addWebAnalytics(head, dataRoot);
+        addAccentColor(head, options.data.site.accent_color);
+        addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection);
+        addCustomFonts(head, options);
+
+        debug('end');
+        return new SafeString(head.join('\n    ').trim());
+    } catch (error) {
+        logging.error(error);
+        return new SafeString(head.join('\n    ').trim());
+    }
+};
+
+module.exports.async = true;
+```

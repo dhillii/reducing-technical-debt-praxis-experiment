@@ -37,7 +37,7 @@ interface FilterFieldDefinition {
     filterItem?: (item: Record<string, unknown>) => boolean;
 }
 
-/** Device type label transformation strategy */
+/** Device type label transformer */
 const transformDeviceLabel = (value: string): string => {
     const deviceLabelMap: Record<string, string> = {
         'mobile-ios': 'iOS',
@@ -49,25 +49,24 @@ const transformDeviceLabel = (value: string): string => {
     return deviceLabelMap[value] || value;
 };
 
-/** UTM parameter value transformation strategy */
+/** Transforms empty UTM values to "(not set)" */
 const transformUtmValue = (value: string): {value: string; label: string} => ({
     value: value || '(not set)',
     label: value || '(not set)'
 });
 
-/** Source value transformation strategy */
+/** Transforms source value with "Direct" fallback */
 const transformSourceValue = (value: string): {value: string; label: string} => ({
     value: value || '',
     label: value || 'Direct'
 });
 
-/** Location value transformation strategy */
-const transformLocationValue = (value: string): {value: string; label: string} => ({
-    value: value,
-    label: getCountryName(value)
-});
+/** Filters out invalid location items */
+const filterLocationItem = (item: Record<string, unknown>): boolean => {
+    const location = String(item.location || '');
+    return location !== '' && !UNKNOWN_LOCATION_VALUES.includes(location);
+};
 
-/** Filter definition lookup table for all supported filter fields */
 const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     utm_source: {
         endpoint: 'api_top_utm_sources',
@@ -102,31 +101,25 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     location: {
         endpoint: 'api_top_locations',
         valueKey: 'location',
-        filterItem(item) {
-            const location = String(item.location || '');
-            return location !== '' && !UNKNOWN_LOCATION_VALUES.includes(location);
-        },
-        transformValue: transformLocationValue
+        filterItem: filterLocationItem,
+        transformValue: v => ({value: v, label: getCountryName(v)})
     },
     device: {
         endpoint: 'api_top_devices',
         valueKey: 'device',
-        transformValue: (v) => ({
-            value: v,
-            label: transformDeviceLabel(v)
-        })
+        transformValue: v => ({value: v, label: transformDeviceLabel(v)})
     }
 };
 
-/** Determine if filter value is a post UUID or pathname */
+/** Determines if filter value is a post UUID or pathname */
 const isPostPathname = (value: string): boolean => value.startsWith('/');
 
-/** Check if filter field should be included in params */
+/** Determines if field should be included in filter params */
 const isFilterableField = (field: string): boolean => {
     return field === 'source' || field === 'device' || field === 'location' || field.startsWith('utm_');
 };
 
-/** Build filter params for Tinybird API, excluding the specified field */
+/** Builds filter parameters for Tinybird API, excluding specified field */
 const buildFilterParams = (
     currentFilters: Filter[],
     excludeField: string,
@@ -229,17 +222,17 @@ interface UsePostOptionsConfig {
     enabled?: boolean;
 }
 
-/** Check if post UUID is valid */
+/** Determines if post UUID is valid */
 const isValidPostUuid = (uuid: string | undefined): boolean => {
     return !!(uuid && uuid !== '' && uuid !== 'undefined');
 };
 
-/** Get unique key for deduplication */
+/** Gets unique key for deduplication - prefers post_uuid over pathname */
 const getPostUniqueKey = (item: {post_uuid?: string; pathname: string}): string => {
     return isValidPostUuid(item.post_uuid) ? `uuid:${item.post_uuid}` : `path:${item.pathname}`;
 };
 
-/** Get filter value for post item */
+/** Gets filter value for post - prefers post_uuid over pathname */
 const getPostFilterValue = (item: {post_uuid?: string; pathname: string}): string => {
     return isValidPostUuid(item.post_uuid) ? item.post_uuid! : item.pathname;
 };
@@ -303,7 +296,7 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
     return {options, loading: isLoading};
 };
 
-/** Create UTM field configuration */
+/** Creates UTM field configuration */
 const createUtmFieldConfig = (
     key: string,
     label: string,
@@ -328,7 +321,7 @@ const createUtmFieldConfig = (
     selectedOptionsClassName: 'hidden'
 });
 
-/** Create basic filter field configuration */
+/** Creates basic filter field configuration */
 const createBasicFieldConfig = (
     key: string,
     label: string,
@@ -408,4 +401,81 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
     const {options: utmCampaignOptions, loading: utmCampaignLoading} = useTinybirdFilterOptions('utm_campaign', filters, {enabled: shouldFetchOptions('utm_campaign')});
     const {options: utmContentOptions, loading: utmContentLoading} = useTinybirdFilterOptions('utm_content', filters, {enabled: shouldFetchOptions('utm_content')});
     const {options: utmTermOptions, loading: utmTermLoading} = useTinybirdFilterOptions('utm_term', filters, {enabled: shouldFetchOptions('utm_term')});
-    const {options
+    const {options: sourceOptions, loading: sourceLoading} = useTinybirdFilterOptions('source', filters, {enabled: shouldFetchOptions('source')});
+    const {options: deviceOptions, loading: deviceLoading} = useTinybirdFilterOptions('device', filters, {enabled: shouldFetchOptions('device')});
+    const {options: locationOptions, loading: locationLoading} = useTinybirdFilterOptions('location', filters, {enabled: shouldFetchOptions('location')});
+
+    const {options: postOptions, loading: postLoading} = usePostOptions(filters, {enabled: shouldFetchOptions('post')});
+
+    const supportedOperators = useMemo(() => [
+        {value: 'is', label: 'is'}
+    ], []);
+
+    const groupedFields: FilterFieldConfig[] = useMemo(() => {
+        const utmFields: FilterFieldConfig[] = [
+            createUtmFieldConfig('utm_source', 'UTM Source', <LucideIcon.MousePointerClick className="size-4" />, utmSourceOptions, utmSourceLoading, supportedOperators),
+            createUtmFieldConfig('utm_medium', 'UTM Medium', <LucideIcon.SatelliteDish className="size-4" />, utmMediumOptions, utmMediumLoading, supportedOperators),
+            createUtmFieldConfig('utm_campaign', 'UTM Campaign', <LucideIcon.Flag className="size-4" />, utmCampaignOptions, utmCampaignLoading, supportedOperators),
+            createUtmFieldConfig('utm_content', 'UTM Content', <LucideIcon.TextCursorInput className="size-4" />, utmContentOptions, utmContentLoading, supportedOperators),
+            createUtmFieldConfig('utm_term', 'UTM Term', <LucideIcon.Tag className="size-4" />, utmTermOptions, utmTermLoading, supportedOperators)
+        ];
+
+        return [
+            {
+                group: 'Basic',
+                fields: [
+                    createBasicFieldConfig('audience', 'Audience', 'multiselect', <LucideIcon.Users />, audienceOptions.map(({value, label, icon}) => ({value, label, icon})), supportedOperators),
+                    createBasicFieldConfig('post', 'Post or page', 'select', <LucideIcon.PenLine />, postOptions, supportedOperators, postLoading, true),
+                    createBasicFieldConfig('source', 'Source', 'select', <LucideIcon.Globe className="size-4" />, sourceOptions, supportedOperators, sourceLoading, true),
+                    createBasicFieldConfig('device', 'Device', 'select', <LucideIcon.Monitor className="size-4" />, deviceOptions, supportedOperators, deviceLoading),
+                    createBasicFieldConfig('location', 'Location', 'select', <LucideIcon.MapPin className="size-4" />, locationOptions, supportedOperators, locationLoading, true)
+                ]
+            },
+            {
+                group: 'UTM parameters',
+                fields: utmFields
+            }
+        ];
+    }, [utmSourceOptions, utmSourceLoading, utmMediumOptions, utmMediumLoading, utmCampaignOptions, utmCampaignLoading, utmContentOptions, utmContentLoading, utmTermOptions, utmTermLoading, supportedOperators, postOptions, postLoading, audienceOptions, sourceOptions, sourceLoading, deviceOptions, deviceLoading, locationOptions, locationLoading]);
+
+    const hasFilters = filters.length > 0;
+
+    const handleClearFilters = useCallback(() => {
+        if (onChange) {
+            onChange([]);
+        }
+    }, [onChange]);
+
+    return (
+        <div className="mt-3 flex w-full justify-between gap-2 lg:mt-0" data-testid="stats-filter-container">
+            <Filters
+                addButtonIcon={<LucideIcon.FunnelPlus />}
+                addButtonText={hasFilters ? 'Add filter' : 'Filter'}
+                allowMultiple={false}
+                className={`[&>button]:order-last ${hasFilters && '[&>button]:border-none'}`}
+                fields={groupedFields}
+                filters={filters}
+                keyboardShortcut="f"
+                popoverAlign={isMobile ? 'start' : (hasFilters ? 'start' : 'end')}
+                showSearchInput={false}
+                onActiveFieldChange={setActiveFilterField}
+                onChange={onChange || (() => {})}
+                {...props}
+            />
+            {hasFilters && (
+                <Button
+                    className='hidden font-normal text-muted-foreground lg:flex'
+                    data-testid="stats-filter-clear-button"
+                    variant="ghost"
+                    onClick={handleClearFilters}
+                >
+                    <LucideIcon.FunnelX />
+                    Clear
+                </Button>
+            )}
+        </div>
+    );
+}
+
+export default StatsFilter;
+```

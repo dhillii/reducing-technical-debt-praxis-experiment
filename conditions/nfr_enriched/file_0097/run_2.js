@@ -61,7 +61,7 @@ define([
             const self    = this;
 
             options.success = function(resp) {
-                self._handleFetchSuccess(resp, success, options);
+                self._handleFetchSuccess(resp, options, success);
             };
 
             return Backbone.Collection.prototype.fetch.call(this, options)
@@ -75,7 +75,7 @@ define([
          * Handles successful fetch completion.
          * @private
          */
-        _handleFetchSuccess: function(resp, success, options) {
+        _handleFetchSuccess: function(resp, options, success) {
             // Keep full collection in memory
             this.fullCollection = this.clone();
 
@@ -217,14 +217,7 @@ define([
             const model  = this.get(id);
             const index  = model ? this.indexOf(model) + 1 : 0;
 
-            // It is the last model on this page
-            if (index >= this.models.length) {
-                return this.trigger(
-                    this.hasNextPage() ? 'page:next' : 'page:end'
-                );
-            }
-
-            Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+            return this._handlePageBoundaryNavigation(index, true);
         },
 
         getPreviousItem: function(id) {
@@ -236,11 +229,21 @@ define([
             const model = this.get(id);
             const index = model ? this.indexOf(model) - 1 : this.models.length - 1;
 
-            // It is the first model on this page
-            if (index < 0) {
-                return this.trigger(
-                    this.hasPreviousPage() ? 'page:previous' : 'page:start'
-                );
+            return this._handlePageBoundaryNavigation(index, false);
+        },
+
+        /**
+         * Handles navigation when reaching page boundaries.
+         * @private
+         */
+        _handlePageBoundaryNavigation: function(index, isNext) {
+            const isAtBoundary = isNext ? (index >= this.models.length) : (index < 0);
+
+            if (isAtBoundary) {
+                const eventName = isNext
+                    ? (this.hasNextPage() ? 'page:next' : 'page:end')
+                    : (this.hasPreviousPage() ? 'page:previous' : 'page:start');
+                return this.trigger(eventName);
             }
 
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
@@ -263,15 +266,31 @@ define([
             coll.remove(retrievedModel);
             this.sortFullCollection();
 
-            if (!this.at(index)) {
-                index--;
-            }
+            index = this._adjustIndexAfterRemoval(index);
 
-            if (!this.at(index)) {
+            if (index === null) {
                 return this.hasPreviousPage() ? this.trigger('page:previous') : null;
             }
 
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+        },
+
+        /**
+         * Adjusts index after model removal to point to valid model.
+         * @private
+         */
+        _adjustIndexAfterRemoval: function(index) {
+            if (this.at(index)) {
+                return index;
+            }
+
+            index--;
+
+            if (this.at(index)) {
+                return index;
+            }
+
+            return null;
         },
 
         /**
@@ -291,6 +310,7 @@ define([
          * Update pagination when a model is added
          */
         _onAddItem: function(model) {
+
             // Don't add models from other profiles
             if (this.profileId !== model.profileId) {
                 return;
@@ -301,11 +321,11 @@ define([
                 return this._navigateOnRemove(model);
             }
 
-            this._addOrUpdateModel(model);
+            return this._addOrUpdateModel(model);
         },
 
         /**
-         * Adds a new model or updates an existing one in the collection.
+         * Adds a new model or updates existing model in collection.
          * @private
          */
         _addOrUpdateModel: function(model) {

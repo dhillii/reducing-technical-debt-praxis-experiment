@@ -37,23 +37,17 @@ Lawnchair.adapter('indexed-db', (function(){
   };
 
   /**
-   * Checks if value is a single key (not an array)
+   * Checks if key is an array
+   * @param {*} key
    * @returns {boolean}
    */
-  const isSingleKey = function(key) {
-      return !this.isArray(key);
+  const isKeyArray = function(key) {
+      return Array.isArray(key);
   };
 
   /**
-   * Checks if cursor has more results
-   * @returns {boolean}
-   */
-  const hasCursorResults = function(cursor) {
-      return !!cursor;
-  };
-
-  /**
-   * Checks if result exists (handles null and undefined)
+   * Checks if result exists in database
+   * @param {*} result
    * @returns {boolean}
    */
   const resultExists = function(result) {
@@ -62,6 +56,7 @@ Lawnchair.adapter('indexed-db', (function(){
 
   /**
    * Checks if error is NotFoundError
+   * @param {Error} error
    * @returns {boolean}
    */
   const isNotFoundError = function(error) {
@@ -69,27 +64,46 @@ Lawnchair.adapter('indexed-db', (function(){
   };
 
   /**
-   * Ensures key exists on object
+   * Executes callback if provided
+   * @param {Function} callback
+   * @param {*} context
+   * @param {*} args
    */
-  const ensureKeyExists = function(obj, self) {
+  const executeCallback = function(callback, context, args) {
+      if (callback) {
+          callback.call(context, args);
+      }
+  };
+
+  /**
+   * Ensures object has a key, generates one if missing
+   * @param {Object} obj
+   * @param {Function} uuidFn
+   * @returns {Object}
+   */
+  const ensureObjectKey = function(obj, uuidFn) {
       if (!obj.key) {
-          obj.key = self.uuid();
+          obj.key = uuidFn();
       }
       return obj;
   };
 
   /**
-   * Extracts key from object or uses value directly
+   * Converts single item or array to array format
+   * @param {*} item
+   * @returns {Array}
    */
-  const extractKey = function(item) {
-      return item.key ? item.key : item;
+  const toArray = function(item) {
+      return Array.isArray(item) ? item : [item];
   };
 
   /**
-   * Normalizes input to array
+   * Extracts key from object or returns the value itself
+   * @param {*} item
+   * @returns {*}
    */
-  const normalizeToArray = function(value) {
-      return Array.isArray(value) ? value : [value];
+  const extractKey = function(item) {
+      return item.key ? item.key : item;
   };
 
   return {
@@ -165,14 +179,12 @@ Lawnchair.adapter('indexed-db', (function(){
             return;
         }
 
-        const objs = normalizeToArray(obj).map(function(o) {
-            return ensureKeyExists(o, self);
+        const objs = toArray(obj).map(function(o) {
+            return ensureObjectKey(o, function() { return self.uuid(); });
         });
 
         const win = function() {
-            if (callback) {
-                self.lambda(callback).call(self, self.isArray(obj) ? objs : objs[0]);
-            }
+            executeCallback(callback, self, self.isArray(obj) ? objs : objs[0]);
         };
 
         const trans = this.db.transaction(this.record, READ_WRITE);
@@ -185,7 +197,7 @@ Lawnchair.adapter('indexed-db', (function(){
         
         store.transaction.oncomplete = win;
         store.transaction.onabort = fail;
-         
+        
         return this;
     },
     
@@ -204,15 +216,13 @@ Lawnchair.adapter('indexed-db', (function(){
         const self = this;
         const win = function(e) {
             const r = e.target.result;
-            if (callback) {
-                if (r) {
-                    r.key = key;
-                }
-                self.lambda(callback).call(self, r);
+            if (r) {
+                r.key = key;
             }
+            self.lambda(callback).call(self, r);
         };
         
-        if (isSingleKey.call(this, key)) {
+        if (!isKeyArray(key)) {
             this._getSingleKey(key, win);
         } else {
             this._getMultipleKeys(key, callback);
@@ -228,7 +238,6 @@ Lawnchair.adapter('indexed-db', (function(){
             req.onsuccess = req.onerror = null;
             win(event);
         };
-        
         req.onerror = function(event) {
             req.onsuccess = req.onerror = null;
             fail(event);
@@ -247,9 +256,7 @@ Lawnchair.adapter('indexed-db', (function(){
                 if (done > 0) {
                     return;
                 }
-                if (callback) {
-                    self.lambda(callback).call(self, results);
-                }
+                self.lambda(callback).call(self, results);
             });
         };
 
@@ -274,7 +281,6 @@ Lawnchair.adapter('indexed-db', (function(){
             const exists = resultExists(event.target.result);
             self.lambda(callback).call(self, exists);
         };
-        
         req.onerror = function(event) {
             req.onsuccess = req.onerror = null;
             fail(event);
@@ -298,13 +304,13 @@ Lawnchair.adapter('indexed-db', (function(){
         
         objectStore.openCursor().onsuccess = function(event) {
             const cursor = event.target.result;
-            if (hasCursorResults(cursor)) {
+            if (cursor) {
                 toReturn.push(cursor.value);
                 cursor['continue']();
-            } else {
-                if (cb) {
-                    cb.call(self, toReturn);
-                }
+                return;
+            }
+            if (cb) {
+                cb.call(self, toReturn);
             }
         };
         
@@ -328,13 +334,13 @@ Lawnchair.adapter('indexed-db', (function(){
         // supports it yet.
         objectStore.openCursor().onsuccess = function(event) {
             const cursor = event.target.result;
-            if (hasCursorResults(cursor)) {
+            if (cursor) {
                 toReturn.push(cursor.key);
                 cursor['continue']();
-            } else {
-                if (cb) {
-                    cb.call(self, toReturn);
-                }
+                return;
+            }
+            if (cb) {
+                cb.call(self, toReturn);
             }
         };
         
@@ -350,12 +356,10 @@ Lawnchair.adapter('indexed-db', (function(){
         }
 
         const self = this;
-        const toDelete = normalizeToArray(keyOrArray);
+        const toDelete = toArray(keyOrArray);
 
         const win = function() {
-            if (callback) {
-                self.lambda(callback).call(self);
-            }
+            executeCallback(callback, self);
         };
 
         const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
@@ -380,9 +384,7 @@ Lawnchair.adapter('indexed-db', (function(){
         }
         
         const self = this;
-        const win = callback ? function() {
-            self.lambda(callback).call(self);
-        } : function() {};
+        const win = callback ? function() { self.lambda(callback).call(self); } : function(){};
         
         try {
             const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);

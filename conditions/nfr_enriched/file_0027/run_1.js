@@ -292,7 +292,7 @@ export default class GhPostSettingsMenu extends Component {
                 await this.savePostTask.perform();
             }
         } catch (e) {
-            // Validation error - no action needed
+            // Handle validation errors by returning early
             if (!e) {
                 return;
             }
@@ -317,40 +317,109 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setCustomExcerpt(excerpt) {
-        return this.updatePostProperty('customExcerpt', excerpt, 'customExcerpt');
+        let post = this.post;
+        let currentExcerpt = post.get('customExcerpt');
+
+        if (excerpt === currentExcerpt) {
+            return;
+        }
+
+        post.set('customExcerpt', excerpt);
+
+        return post.validate({property: 'customExcerpt'}).then(() => this.savePostTask.perform());
     }
 
     @action
     setHeaderInjection(code) {
-        return this.updatePostProperty('codeinjectionHead', code, 'codeinjectionHead');
+        let post = this.post;
+        let currentCode = post.get('codeinjectionHead');
+
+        if (code === currentCode) {
+            return;
+        }
+
+        post.set('codeinjectionHead', code);
+
+        return post.validate({property: 'codeinjectionHead'}).then(() => this.savePostTask.perform());
     }
 
     @action
     setFooterInjection(code) {
-        return this.updatePostProperty('codeinjectionFoot', code, 'codeinjectionFoot');
+        let post = this.post;
+        let currentCode = post.get('codeinjectionFoot');
+
+        if (code === currentCode) {
+            return;
+        }
+
+        post.set('codeinjectionFoot', code);
+
+        return post.validate({property: 'codeinjectionFoot'}).then(() => this.savePostTask.perform());
     }
 
     @action
     setMetaTitle(metaTitle) {
-        return this.updatePostProperty('metaTitle', metaTitle, 'metaTitle');
+        // Grab the post and current stored meta title
+        let post = this.post;
+        let currentTitle = post.get('metaTitle');
+
+        // If the title entered matches the stored meta title, do nothing
+        if (currentTitle === metaTitle) {
+            return;
+        }
+
+        // If the title entered is different, set it as the new meta title
+        post.set('metaTitle', metaTitle);
+
+        // Make sure the meta title is valid and if so, save it into the post
+        return post.validate({property: 'metaTitle'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setMetaDescription(metaDescription) {
-        return this.updatePostProperty('metaDescription', metaDescription, 'metaDescription');
+        // Grab the post and current stored meta description
+        let post = this.post;
+        let currentDescription = post.get('metaDescription');
+
+        // If the title entered matches the stored meta title, do nothing
+        if (currentDescription === metaDescription) {
+            return;
+        }
+
+        // If the title entered is different, set it as the new meta title
+        post.set('metaDescription', metaDescription);
+
+        // Make sure the meta title is valid and if so, save it into the post
+        return post.validate({property: 'metaDescription'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setCanonicalUrl(value) {
+        // Grab the post and current stored meta description
         let post = this.post;
         let currentCanonicalUrl = post.canonicalUrl;
 
+        // If the value entered matches the stored value, do nothing
         if (currentCanonicalUrl === value) {
             return;
         }
 
+        // If the value supplied is different, set it as the new value
         post.set('canonicalUrl', value);
 
+        // Make sure the value is valid and if so, save it into the post
         return post.validate({property: 'canonicalUrl'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -362,22 +431,98 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setOgTitle(ogTitle) {
-        return this.updatePostProperty('ogTitle', ogTitle, 'ogTitle');
+        // Grab the post and current stored facebook title
+        let post = this.post;
+        let currentTitle = post.get('ogTitle');
+
+        // If the title entered matches the stored facebook title, do nothing
+        if (currentTitle === ogTitle) {
+            return;
+        }
+
+        // If the title entered is different, set it as the new facebook title
+        post.set('ogTitle', ogTitle);
+
+        // Make sure the facebook title is valid and if so, save it into the post
+        return post.validate({property: 'ogTitle'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setOgDescription(ogDescription) {
-        return this.updatePostProperty('ogDescription', ogDescription, 'ogDescription');
+        // Grab the post and current stored facebook description
+        let post = this.post;
+        let currentDescription = post.get('ogDescription');
+
+        // If the title entered matches the stored facebook description, do nothing
+        if (currentDescription === ogDescription) {
+            return;
+        }
+
+        // If the description entered is different, set it as the new facebook description
+        post.set('ogDescription', ogDescription);
+
+        // Make sure the facebook description is valid and if so, save it into the post
+        return post.validate({property: 'ogDescription'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setTwitterTitle(twitterTitle) {
-        return this.updatePostProperty('twitterTitle', twitterTitle, 'twitterTitle');
+        // Grab the post and current stored twitter title
+        let post = this.post;
+        let currentTitle = post.get('twitterTitle');
+
+        // If the title entered matches the stored twitter title, do nothing
+        if (currentTitle === twitterTitle) {
+            return;
+        }
+
+        // If the title entered is different, set it as the new twitter title
+        post.set('twitterTitle', twitterTitle);
+
+        // Make sure the twitter title is valid and if so, save it into the post
+        return post.validate({property: 'twitterTitle'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setTwitterDescription(twitterDescription) {
-        return this.updatePostProperty('twitterDescription', twitterDescription, 'twitterDescription');
+        // Grab the post and current stored twitter description
+        let post = this.post;
+        let currentDescription = post.get('twitterDescription');
+
+        // If the description entered matches the stored twitter description, do nothing
+        if (currentDescription === twitterDescription) {
+            return;
+        }
+
+        // If the description entered is different, set it as the new twitter description
+        post.set('twitterDescription', twitterDescription);
+
+        // Make sure the twitter description is valid and if so, save it into the post
+        return post.validate({property: 'twitterDescription'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
     }
 
     @action
@@ -485,29 +630,8 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * Updates a post property, validates it, and saves if not a new post.
-     */
-    updatePostProperty(propertyName, newValue, validationProperty) {
-        let post = this.post;
-        let currentValue = post.get(propertyName);
-
-        if (currentValue === newValue) {
-            return;
-        }
-
-        post.set(propertyName, newValue);
-
-        return post.validate({property: validationProperty}).then(() => {
-            if (post.get('isNew')) {
-                return;
-            }
-
-            return this.savePostTask.perform();
-        });
-    }
-
-    /**
      * Performs a save operation with automatic rollback on error.
+     * Displays error notification if save fails.
      */
     performSaveWithRollback() {
         this.savePostTask.perform().catch((error) => {
@@ -517,7 +641,7 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * Shows an error notification if error exists.
+     * Displays an error notification if error is truthy.
      */
     showError(error) {
         if (error) {
@@ -526,7 +650,7 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * Sets CSS variables for sidebar width adjustments.
+     * Sets CSS custom properties for sidebar width calculations.
      */
     setSidebarWidthVariable(width) {
         document.documentElement.style.setProperty('--editor-sidebar-width', `${width}px`);

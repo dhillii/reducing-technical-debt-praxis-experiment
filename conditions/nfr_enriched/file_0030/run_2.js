@@ -393,7 +393,7 @@ export default class MembersController extends Controller {
     }
 
     /**
-     * Handles the export data action by fetching members as CSV
+     * Initiates CSV export of members based on current filters
      */
     @action
     exportData() {
@@ -419,7 +419,7 @@ export default class MembersController extends Controller {
     }
 
     /**
-     * Creates and triggers a download for the given blob
+     * Creates and triggers download of a blob as a file
      */
     _downloadBlob(blob) {
         const blobUrl = window.URL.createObjectURL(blob);
@@ -502,7 +502,7 @@ export default class MembersController extends Controller {
     }
 
     /**
-     * Handles post-deletion cleanup: resets state, clears filters, and reloads list
+     * Handles post-deletion cleanup: resets filters and reloads data
      */
     _completeBulkDelete() {
         this.store.unloadAll('member');
@@ -516,4 +516,126 @@ export default class MembersController extends Controller {
         this.paidParam = paid.value;
     }
 
-    //
+    // Tasks -------------------------------------------------------------------
+
+    @task({restartable: true})
+    *searchTask(query) {
+        yield timeout(250); // debounce
+        this.searchParam = query;
+    }
+
+    @task({restartable: true})
+    *fetchLabelsTask() {
+        yield this.store.query('label', {limit: 'all'});
+    }
+
+    @task({restartable: true})
+    *fetchMembersTask(params) {
+        // params is undefined when called as a "refresh" of the model
+        let {label, paidParam, searchParam, orderParam, filterParam} = typeof params === 'undefined' ? this : params;
+
+        // use a fixed created_at date so that subsequent pages have a consistent index
+        let startDate = new Date();
+
+        // Check if parameters have changed since last fetch
+        let forceReload = this._shouldForceReload(params, label, paidParam, searchParam, orderParam, filterParam);
+        
+        this._updateLastFetchParams(label, paidParam, searchParam, orderParam, filterParam);
+
+        // unless we have a forced reload, do not re-fetch the members list unless it's more than a minute old
+        // keeps navigation between list->details->list snappy
+        if (!forceReload && this._startDate && !(this._startDate - startDate > 1 * 60 * 1000)) {
+            return this.members;
+        }
+
+        this._startDate = startDate;
+
+        this.members = yield this.ellaSparse.array((range = {}, query = {}) => {
+            return this._fetchMembersPage(params, range, query);
+        }, {
+            limit: 50
+        });
+    }
+
+    /**
+     * Determines if members list should be force-reloaded based on parameter changes
+     */
+    _shouldForceReload(params, label, paidParam, searchParam, orderParam, filterParam) {
+        return !params
+            || label !== this._lastLabel
+            || paidParam !== this._lastPaidParam
+            || searchParam !== this._lastSearchParam
+            || orderParam !== this._lastOrderParam
+            || filterParam !== this._lastFilterParam;
+    }
+
+    /**
+     * Updates cached fetch parameters for change detection
+     */
+    _updateLastFetchParams(label, paidParam, searchParam, orderParam, filterParam) {
+        this._lastLabel = label;
+        this._lastPaidParam = paidParam;
+        this._lastSearchParam = searchParam;
+        this._lastOrderParam = orderParam;
+        this._lastFilterParam = filterParam;
+    }
+
+    /**
+     * Fetches a single page of members with applied filters and sorting
+     */
+    _fetchMembersPage(params, range, query) {
+        const searchQuery = this.getApiQueryObject({
+            params,
+            extraFilters: [`created_at:<='${moment.utc(this._startDate).format('YYYY-MM-DD HH:mm:ss')}'`]
+        });
+        const order = this._buildMemberOrder(this.orderParam);
+        const includes = ['labels', 'tiers'];
+
+        const queryObject = {
+            include: includes.join(','),
+            order,
+            limit: range.length,
+            page: range.page,
+            ...searchQuery,
+            ...query
+        };
+
+        return this.store.query('member', queryObject).then((result) => {
+            return {
+                data: result,
+                total: result.meta.pagination.total
+            };
+        });
+    }
+
+    /**
+     * Builds the order clause for member queries
+     */
+    _buildMemberOrder(orderParam) {
+        return orderParam ? `${orderParam} desc` : `created_at desc`;
+    }
+
+    // Internal ----------------------------------------------------------------
+
+    resetFilters(params) {
+        if (!params?.filterParam) {
+            this.filters = A([]);
+            this.softFilterParam = null;
+            this.softFilters = A([]);
+        } else {
+            this.filterParam = params.filterParam;
+
+            // Trigger a did-update call in the filter component, so we get freshly parsed filters
+            // This is temporary, and a ugly pattern, but essential to make it work for now, until we moved the filter parsing logic
+            // out of the component
+            this.parseFilterParamCounter += 1;
+        }
+    }
+
+    reload(params) {
+        this.membersStats.invalidate();
+        this.membersStats.fetchCounts();
+        this.fetchMembersTask.perform(params);
+    }
+}
+```

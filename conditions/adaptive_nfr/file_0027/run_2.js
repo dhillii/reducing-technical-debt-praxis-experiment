@@ -129,43 +129,50 @@ export default class GhPostSettingsMenu extends Component {
         const urlParts = [];
 
         if (this.post.canonicalUrl) {
-            const canonicalUrlParts = this._extractUrlParts(this.post.canonicalUrl);
-            if (canonicalUrlParts) {
-                urlParts.push(...canonicalUrlParts);
+            const urlParts = this._extractCanonicalUrlParts();
+            if (urlParts) {
+                return urlParts.join(' › ');
             }
-        } else {
-            const blogUrl = new URL(this.config.blogUrl);
-            urlParts.push(blogUrl.host);
-            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
-            urlParts.push(this.post.slug);
         }
 
-        return urlParts.join(' › ');
+        const blogUrlParts = this._extractBlogUrlParts();
+        return blogUrlParts.join(' › ');
     }
 
     /**
-     * Extract host and pathname parts from a URL string
-     * @param {string} urlString - The URL to parse
-     * @returns {Array|null} Array of URL parts or null if URL is invalid
+     * Extract URL parts from canonical URL, returning null if invalid
+     * @returns {string[]|null}
      */
-    _extractUrlParts(urlString) {
+    _extractCanonicalUrlParts() {
         try {
-            const url = new URL(urlString);
-            const parts = [url.host];
-            parts.push(...url.pathname.split('/').reject(p => !p));
+            const canonicalUrl = new URL(this.post.canonicalUrl);
+            const parts = [canonicalUrl.host];
+            parts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
             return parts;
         } catch (e) {
             return null;
         }
     }
 
+    /**
+     * Extract URL parts from blog URL
+     * @returns {string[]}
+     */
+    _extractBlogUrlParts() {
+        const blogUrl = new URL(this.config.blogUrl);
+        const parts = [blogUrl.host];
+        parts.push(...blogUrl.pathname.split('/').reject(p => !p));
+        parts.push(this.post.slug);
+        return parts;
+    }
+
     get canViewPostHistory() {
-        return this._isValidPostForHistory();
+        return this._isValidPostForHistory() && this._isPostHistoryAccessible();
     }
 
     /**
-     * Determine if post is valid for history viewing
-     * @returns {boolean} True if post history can be viewed
+     * Check if post is valid for history viewing
+     * @returns {boolean}
      */
     _isValidPostForHistory() {
         if (this.post.isNew) {
@@ -176,6 +183,14 @@ export default class GhPostSettingsMenu extends Component {
             return false;
         }
 
+        return true;
+    }
+
+    /**
+     * Check if post history is accessible based on publish state
+     * @returns {boolean}
+     */
+    _isPostHistoryAccessible() {
         if (!this.post.isPublished && !this.post.isSent) {
             return true;
         }
@@ -294,9 +309,10 @@ export default class GhPostSettingsMenu extends Component {
                 await this.savePostTask.perform();
             }
         } catch (e) {
-            if (e) {
-                throw e;
+            if (!e) {
+                return;
             }
+            throw e;
         }
     }
 
@@ -379,80 +395,6 @@ export default class GhPostSettingsMenu extends Component {
         return this._updatePostProperty('twitterDescription', twitterDescription, 'twitterDescription');
     }
 
-    @action
-    setCoverImage(image) {
-        this.set('post.featureImage', image);
-        this._saveImageIfNotNew();
-    }
-
-    @action
-    clearCoverImage() {
-        this.set('post.featureImage', '');
-        this._saveImageIfNotNew();
-    }
-
-    @action
-    setOgImage(image) {
-        this.set('post.ogImage', image);
-        this._saveImageIfNotNew();
-    }
-
-    @action
-    clearOgImage() {
-        this.set('post.ogImage', '');
-        this._saveImageIfNotNew();
-    }
-
-    @action
-    setTwitterImage(image) {
-        this.set('post.twitterImage', image);
-        this._saveImageIfNotNew();
-    }
-
-    @action
-    clearTwitterImage() {
-        this.set('post.twitterImage', '');
-        this._saveImageIfNotNew();
-    }
-
-    @action
-    changeAuthors(newAuthors) {
-        let post = this.post;
-
-        // return if nothing changed
-        if (newAuthors.mapBy('id').join() === post.get('authors').mapBy('id').join()) {
-            return;
-        }
-
-        post.set('authors', newAuthors);
-        post.validate({property: 'authors'});
-
-        // if this is a new post (never been saved before), don't try to save it
-        if (post.get('isNew')) {
-            return;
-        }
-
-        this._performSaveWithErrorHandling();
-    }
-
-    @action
-    savePost() {
-        this._performSaveWithErrorHandling();
-    }
-
-    @action
-    deletePostInternal() {
-        if (this.deletePost) {
-            this.deletePost();
-        }
-    }
-
-    @action
-    setSidebarWidthFromElement(element) {
-        const width = element.getBoundingClientRect().width;
-        this.setSidebarWidthVariable(width);
-    }
-
     /**
      * Update a post property with validation and conditional save
      * @param {string} propertyName - The property to update
@@ -479,6 +421,56 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
+    @action
+    setCoverImage(image) {
+        this.set('post.featureImage', image);
+        this._conditionalSave();
+    }
+
+    @action
+    clearCoverImage() {
+        this.set('post.featureImage', '');
+        this._conditionalSave();
+    }
+
+    @action
+    setOgImage(image) {
+        this.set('post.ogImage', image);
+        this._conditionalSave();
+    }
+
+    @action
+    clearOgImage() {
+        this.set('post.ogImage', '');
+        this._conditionalSave();
+    }
+
+    @action
+    setTwitterImage(image) {
+        this.set('post.twitterImage', image);
+        this._conditionalSave();
+    }
+
+    @action
+    clearTwitterImage() {
+        this.set('post.twitterImage', '');
+        this._conditionalSave();
+    }
+
+    /**
+     * Conditionally save post if not new
+     */
+    _conditionalSave() {
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
+    }
+
     /**
      * Perform save with error handling and rollback
      */
@@ -489,24 +481,64 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
-    /**
-     * Save image changes if post is not new
-     */
-    _saveImageIfNotNew() {
-        if (this.get('post.isNew')) {
+    @action
+    changeAuthors(newAuthors) {
+        let post = this.post;
+
+        // return if nothing changed
+        if (newAuthors.mapBy('id').join() === post.get('authors').mapBy('id').join()) {
             return;
         }
 
-        this._performSaveWithErrorHandling();
+        post.set('authors', newAuthors);
+        post.validate({property: 'authors'});
+
+        // if this is a new post (never been saved before), don't try to save it
+        if (post.get('isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            post.rollbackAttributes();
+        });
     }
 
+    @action
+    savePost() {
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
+    }
+
+    @action
+    deletePostInternal() {
+        if (this.deletePost) {
+            this.deletePost();
+        }
+    }
+
+    @action
+    setSidebarWidthFromElement(element) {
+        const width = element.getBoundingClientRect().width;
+        this.setSidebarWidthVariable(width);
+    }
+
+    /**
+     * Display error notification if error exists
+     * @param {Error|null} error - The error to display
+     */
     showError(error) {
-        // TODO: remove null check once ValidationEngine has been removed
         if (error) {
             this.notifications.showAPIError(error);
         }
     }
 
+    /**
+     * Set CSS variables for sidebar width
+     * @param {number} width - The width in pixels
+     */
     setSidebarWidthVariable(width) {
         document.documentElement.style.setProperty('--editor-sidebar-width', `${width}px`);
         document.documentElement.style.setProperty('--kg-breakout-adjustment', `${width}px`);

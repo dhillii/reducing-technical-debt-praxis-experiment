@@ -242,7 +242,8 @@ export default class GhPostSettingsMenu extends Component {
         return this.updateSlugTask
             .perform(newSlug)
             .catch((error) => {
-                this.handleSaveError(error);
+                this.showError(error);
+                this.post.rollbackAttributes();
             });
     }
 
@@ -272,10 +273,12 @@ export default class GhPostSettingsMenu extends Component {
                 await this.savePostTask.perform();
             }
         } catch (e) {
-            // Re-throw non-validation errors; validation errors have falsy value
-            if (e) {
-                throw e;
+            // Handle validation errors by returning early
+            if (!e) {
+                return;
             }
+            // Re-throw unexpected errors
+            throw e;
         }
     }
 
@@ -337,25 +340,67 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setMetaTitle(metaTitle) {
-        return this.updatePostProperty('metaTitle', metaTitle, 'metaTitle');
+        // Grab the post and current stored meta title
+        let post = this.post;
+        let currentTitle = post.get('metaTitle');
+
+        // If the title entered matches the stored meta title, do nothing
+        if (currentTitle === metaTitle) {
+            return;
+        }
+
+        // If the title entered is different, set it as the new meta title
+        post.set('metaTitle', metaTitle);
+
+        // Make sure the meta title is valid and if so, save it into the post
+        return post.validate({property: 'metaTitle'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setMetaDescription(metaDescription) {
-        return this.updatePostProperty('metaDescription', metaDescription, 'metaDescription');
+        // Grab the post and current stored meta description
+        let post = this.post;
+        let currentDescription = post.get('metaDescription');
+
+        // If the title entered matches the stored meta title, do nothing
+        if (currentDescription === metaDescription) {
+            return;
+        }
+
+        // If the title entered is different, set it as the new meta title
+        post.set('metaDescription', metaDescription);
+
+        // Make sure the meta title is valid and if so, save it into the post
+        return post.validate({property: 'metaDescription'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setCanonicalUrl(value) {
+        // Grab the post and current stored meta description
         let post = this.post;
         let currentCanonicalUrl = post.canonicalUrl;
 
+        // If the value entered matches the stored value, do nothing
         if (currentCanonicalUrl === value) {
             return;
         }
 
+        // If the value supplied is different, set it as the new value
         post.set('canonicalUrl', value);
 
+        // Make sure the value is valid and if so, save it into the post
         return post.validate({property: 'canonicalUrl'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -367,58 +412,164 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setOgTitle(ogTitle) {
-        return this.updatePostProperty('ogTitle', ogTitle, 'ogTitle');
+        // Grab the post and current stored facebook title
+        let post = this.post;
+        let currentTitle = post.get('ogTitle');
+
+        // If the title entered matches the stored facebook title, do nothing
+        if (currentTitle === ogTitle) {
+            return;
+        }
+
+        // If the title entered is different, set it as the new facebook title
+        post.set('ogTitle', ogTitle);
+
+        // Make sure the facebook title is valid and if so, save it into the post
+        return post.validate({property: 'ogTitle'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setOgDescription(ogDescription) {
-        return this.updatePostProperty('ogDescription', ogDescription, 'ogDescription');
+        // Grab the post and current stored facebook description
+        let post = this.post;
+        let currentDescription = post.get('ogDescription');
+
+        // If the title entered matches the stored facebook description, do nothing
+        if (currentDescription === ogDescription) {
+            return;
+        }
+
+        // If the description entered is different, set it as the new facebook description
+        post.set('ogDescription', ogDescription);
+
+        // Make sure the facebook description is valid and if so, save it into the post
+        return post.validate({property: 'ogDescription'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setTwitterTitle(twitterTitle) {
-        return this.updatePostProperty('twitterTitle', twitterTitle, 'twitterTitle');
+        // Grab the post and current stored twitter title
+        let post = this.post;
+        let currentTitle = post.get('twitterTitle');
+
+        // If the title entered matches the stored twitter title, do nothing
+        if (currentTitle === twitterTitle) {
+            return;
+        }
+
+        // If the title entered is different, set it as the new twitter title
+        post.set('twitterTitle', twitterTitle);
+
+        // Make sure the twitter title is valid and if so, save it into the post
+        return post.validate({property: 'twitterTitle'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setTwitterDescription(twitterDescription) {
-        return this.updatePostProperty('twitterDescription', twitterDescription, 'twitterDescription');
+        // Grab the post and current stored twitter description
+        let post = this.post;
+        let currentDescription = post.get('twitterDescription');
+
+        // If the description entered matches the stored twitter description, do nothing
+        if (currentDescription === twitterDescription) {
+            return;
+        }
+
+        // If the description entered is different, set it as the new twitter description
+        post.set('twitterDescription', twitterDescription);
+
+        // Make sure the twitter description is valid and if so, save it into the post
+        return post.validate({property: 'twitterDescription'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setCoverImage(image) {
         this.set('post.featureImage', image);
-        this.performImageSave();
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.performSaveWithErrorHandling();
     }
 
     @action
     clearCoverImage() {
         this.set('post.featureImage', '');
-        this.performImageSave();
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.performSaveWithErrorHandling();
     }
 
     @action
     setOgImage(image) {
         this.set('post.ogImage', image);
-        this.performImageSave();
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.performSaveWithErrorHandling();
     }
 
     @action
     clearOgImage() {
         this.set('post.ogImage', '');
-        this.performImageSave();
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.performSaveWithErrorHandling();
     }
 
     @action
     setTwitterImage(image) {
         this.set('post.twitterImage', image);
-        this.performImageSave();
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.performSaveWithErrorHandling();
     }
 
     @action
     clearTwitterImage() {
         this.set('post.twitterImage', '');
-        this.performImageSave();
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.performSaveWithErrorHandling();
     }
 
     @action
@@ -459,10 +610,9 @@ export default class GhPostSettingsMenu extends Component {
         this.setSidebarWidthVariable(width);
     }
 
-    // Private helper methods
-
     /**
-     * Extract URL parts from canonical URL, returning empty array if URL is invalid
+     * Extracts URL parts from a canonical URL string.
+     * Returns empty array if URL is invalid.
      */
     extractCanonicalUrlParts() {
         const urlParts = [];
@@ -477,7 +627,7 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * Extract URL parts from blog URL
+     * Extracts URL parts from the blog URL and post slug.
      */
     extractBlogUrlParts() {
         const urlParts = [];
@@ -489,59 +639,31 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * Update a post property with validation and conditional save
-     */
-    updatePostProperty(propertyName, newValue, validationProperty) {
-        let post = this.post;
-        let currentValue = post.get(propertyName);
-
-        if (currentValue === newValue) {
-            return;
-        }
-
-        post.set(propertyName, newValue);
-
-        return post.validate({property: validationProperty}).then(() => {
-            if (post.get('isNew')) {
-                return;
-            }
-
-            return this.savePostTask.perform();
-        });
-    }
-
-    /**
-     * Perform save operation with error handling and rollback
+     * Performs post save with error handling and rollback on failure.
      */
     performSaveWithErrorHandling() {
         this.savePostTask.perform().catch((error) => {
-            this.handleSaveError(error);
+            this.showError(error);
+            this.post.rollbackAttributes();
         });
     }
 
     /**
-     * Handle save errors by showing notification and rolling back changes
-     */
-    handleSaveError(error) {
-        this.showError(error);
-        this.post.rollbackAttributes();
-    }
-
-    /**
-     * Perform image save with error handling
-     */
-    performImageSave() {
-        if (this.get('post.isNew')) {
-            return;
-        }
-
-        this.performSaveWithErrorHandling();
-    }
-
-    /**
-     * Show error notification if error exists
+     * Shows error notification if error exists.
      */
     showError(error) {
         // TODO: remove null check once ValidationEngine has been removed
         if (error) {
             this.notifications.showAPIError(error);
+        }
+    }
+
+    /**
+     * Sets CSS custom properties for sidebar width calculations.
+     */
+    setSidebarWidthVariable(width) {
+        document.documentElement.style.setProperty('--editor-sidebar-width', `${width}px`);
+        document.documentElement.style.setProperty('--kg-breakout-adjustment', `${width}px`);
+    }
+}
+```

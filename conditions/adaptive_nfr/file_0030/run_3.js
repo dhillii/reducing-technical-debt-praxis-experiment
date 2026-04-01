@@ -27,11 +27,7 @@ const PAID_PARAMS = [{
     value: 'true'
 }];
 
-/**
- * Stripe filter types that prevent bulk deletion
- * @type {string[]}
- */
-const RESTRICTED_BULK_DELETE_FILTERS = [
+const STRIPE_FILTER_TYPES = [
     'subscriptions.plan_interval',
     'subscriptions.status',
     'subscriptions.start_date',
@@ -41,24 +37,33 @@ const RESTRICTED_BULK_DELETE_FILTERS = [
 ];
 
 /**
- * Determines if a filter is restricted for bulk deletion
- * @param {Object} filter - The filter object to check
- * @returns {boolean} True if filter is restricted
+ * Strategies for building filter queries based on paid parameter
  */
-function isRestrictedBulkDeleteFilter(filter) {
-    return RESTRICTED_BULK_DELETE_FILTERS.includes(filter.type);
+const PAID_FILTER_STRATEGIES = {
+    'true': () => 'status:-free',
+    'false': () => 'status:free'
+};
+
+/**
+ * Determines if a filter is a Stripe subscription filter
+ * @param {Object} filter - The filter object to check
+ * @returns {boolean} True if filter is a Stripe subscription filter
+ */
+function isStripeFilter(filter) {
+    return STRIPE_FILTER_TYPES.includes(filter.type);
 }
 
 /**
- * Builds paid status filter based on paidParam value
+ * Builds filter string for paid parameter
  * @param {string|null} paidParam - The paid parameter value
  * @returns {string|null} The filter string or null
  */
-function buildPaidStatusFilter(paidParam) {
+function buildPaidFilter(paidParam) {
     if (paidParam === null) {
         return null;
     }
-    return paidParam === 'true' ? 'status:-free' : 'status:free';
+    const strategy = PAID_FILTER_STRATEGIES[paidParam];
+    return strategy ? strategy() : null;
 }
 
 /**
@@ -74,40 +79,6 @@ function normalizeFilterParam(filterParam) {
         return filterParam.slice(1, -1);
     }
     return filterParam;
-}
-
-/**
- * Extracts column data from filter properties
- * @param {Object} filter - The filter object
- * @returns {Array} Array of column objects
- */
-function extractFilterColumns(filter) {
-    if (filter.properties?.getColumns) {
-        return filter.properties.getColumns(filter).map((c) => ({
-            label: filter.properties.columnLabel,
-            ...c,
-            name: filter.type
-        }));
-    }
-    if (filter.properties?.columnLabel) {
-        return [{
-            name: filter.type,
-            label: filter.properties.columnLabel,
-            getValue: filter.properties.getColumnValue ? (member => filter.properties.getColumnValue(member, filter)) : null
-        }];
-    }
-    return [];
-}
-
-/**
- * Checks if a column is unique by label
- * @param {Object} column - The column to check
- * @param {number} index - Current index
- * @param {Array} columns - All columns
- * @returns {boolean} True if column is unique
- */
-function isUniqueColumn(column, index, columns) {
-    return columns.findIndex(c2 => c2.label === column.label) === index;
 }
 
 export default class MembersController extends Controller {
@@ -267,8 +238,31 @@ export default class MembersController extends Controller {
     }
 
     get filterColumns() {
-        const columns = this.availableFilters.flatMap(extractFilterColumns);
-        const uniqueColumns = columns.filter(isUniqueColumn);
+        const columns = this.availableFilters.flatMap((filter) => {
+            if (filter.properties?.getColumns) {
+                return filter.properties?.getColumns(filter).map((c) => {
+                    return {
+                        label: filter.properties.columnLabel,
+                        ...c,
+                        name: filter.type
+                    };
+                });
+            }
+            if (filter.properties?.columnLabel) {
+                return [
+                    {
+                        name: filter.type,
+                        label: filter.properties.columnLabel,
+                        getValue: filter.properties.getColumnValue ? (member => filter.properties.getColumnValue(member, filter)) : null
+                    }
+                ];
+            }
+            return [];
+        });
+        // Remove duplicates by label
+        const uniqueColumns = columns.filter((c, i) => {
+            return columns.findIndex(c2 => c2.label === c.label) === i;
+        });
         return uniqueColumns.splice(0, 2); // Maximum 2 columns
     }
 
@@ -290,7 +284,7 @@ export default class MembersController extends Controller {
             return false;
         }
 
-        const stripeFilters = this.filters.filter(isRestrictedBulkDeleteFilter);
+        const stripeFilters = this.filters.filter(isStripeFilter);
 
         return stripeFilters.length === 0;
     }
@@ -317,9 +311,9 @@ export default class MembersController extends Controller {
             filters.push(`label:'${label}'`);
         }
 
-        const paidStatusFilter = buildPaidStatusFilter(paidParam);
-        if (paidStatusFilter) {
-            filters.push(paidStatusFilter);
+        const paidFilter = buildPaidFilter(paidParam);
+        if (paidFilter) {
+            filters.push(paidFilter);
         }
 
         if (filterParam) {
@@ -507,4 +501,113 @@ export default class MembersController extends Controller {
     @action
     bulkDelete() {
         this.modals.open(BulkDeleteMembersModal, {
-            query
+            query: this.getApiQueryObject(),
+            onComplete: () => {
+                // reset, clear filters, and reload list and counts
+                this.store.unloadAll('member');
+                this.router.transitionTo('members.index', {queryParams: {...resetQueryParams('members.index')}});
+                this.membersStats.invalidate();
+                this.membersStats.fetchCounts();
+            }
+        });
+    }
+
+    @action
+    changePaidParam(paid) {
+        this.paidParam = paid.value;
+    }
+
+    // Tasks -------------------------------------------------------------------
+
+    @task({restartable: true})
+    *searchTask(query) {
+        yield timeout(250); // debounce
+        this.searchParam = query;
+    }
+
+    @task({restartable: true})
+    *fetchLabelsTask() {
+        yield this.store.query('label', {limit: 'all'});
+    }
+
+    @task({restartable: true})
+    *fetchMembersTask(params) {
+        // params is undefined when called as a "refresh" of the model
+        let {label, paidParam, searchParam, orderParam, filterParam} = typeof params === 'undefined' ? this : params;
+
+        // use a fixed created_at date so that subsequent pages have a consistent index
+        let startDate = new Date();
+
+        // bypass the stale data shortcut if params change
+        let forceReload = !params
+            || label !== this._lastLabel
+            || paidParam !== this._lastPaidParam
+            || searchParam !== this._lastSearchParam
+            || orderParam !== this._lastOrderParam
+            || filterParam !== this._lastFilterParam;
+        this._lastLabel = label;
+        this._lastPaidParam = paidParam;
+        this._lastSearchParam = searchParam;
+        this._lastOrderParam = orderParam;
+        this._lastFilterParam = filterParam;
+
+        // unless we have a forced reload, do not re-fetch the members list unless it's more than a minute old
+        // keeps navigation between list->details->list snappy
+        if (!forceReload && this._startDate && !(this._startDate - startDate > 1 * 60 * 1000)) {
+            return this.members;
+        }
+
+        this._startDate = startDate;
+
+        this.members = yield this.ellaSparse.array((range = {}, query = {}) => {
+            const searchQuery = this.getApiQueryObject({
+                params,
+                extraFilters: [`created_at:<='${moment.utc(this._startDate).format('YYYY-MM-DD HH:mm:ss')}'`]
+            });
+            const order = orderParam ? `${orderParam} desc` : `created_at desc`;
+            const includes = ['labels', 'tiers'];
+
+            query = {
+                include: includes.join(','),
+                order,
+                limit: range.length,
+                page: range.page,
+                ...searchQuery,
+                ...query
+            };
+
+            return this.store.query('member', query).then((result) => {
+                return {
+                    data: result,
+                    total: result.meta.pagination.total
+                };
+            });
+        }, {
+            limit: 50
+        });
+    }
+
+    // Internal ----------------------------------------------------------------
+
+    resetFilters(params) {
+        if (!params?.filterParam) {
+            this.filters = A([]);
+            this.softFilterParam = null;
+            this.softFilters = A([]);
+        } else {
+            this.filterParam = params.filterParam;
+
+            // Trigger a did-update call in the filter component, so we get freshly parsed filters
+            // This is temporary, and a ugly pattern, but essential to make it work for now, until we moved the filter parsing logic
+            // out of the component
+            this.parseFilterParamCounter += 1;
+        }
+    }
+
+    reload(params) {
+        this.membersStats.invalidate();
+        this.membersStats.fetchCounts();
+        this.fetchMembersTask.perform(params);
+    }
+}
+```

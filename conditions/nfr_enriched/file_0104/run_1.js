@@ -91,7 +91,7 @@
 
     /**
      * Retrieves or generates an ID for an element.
-     * @param {HTMLElement} element - The DOM element
+     * @param {HTMLElement} element - The element to get/generate ID for
      * @param {Array} idList - Existing IDs on the page
      * @return {String} - The element's ID
      */
@@ -99,6 +99,7 @@
       if (element.hasAttribute('id')) {
         return element.getAttribute('id');
       }
+
       var tidyText = this.urlify(element.textContent);
       var uniqueId = _generateUniqueId(tidyText, idList);
       element.setAttribute('id', uniqueId);
@@ -134,6 +135,7 @@
     var _applyIconStyles = function(anchor) {
       if (this.options.icon === '\ue9cb') {
         anchor.style.font = '1em/1 anchorjs-icons';
+
         if (this.options.placement === 'left') {
           anchor.style.lineHeight = 'inherit';
         }
@@ -315,44 +317,76 @@
     }
 
     /**
-     * Builds the CSS rule for anchor link styling.
-     * @return {String} - The CSS rule
+     * Builds the CSS rules for AnchorJS styling.
+     * @return {String} - Concatenated CSS rules
      */
-    function _buildLinkRule() {
-      return ' .anchorjs-link {' +
-             '   opacity: 0;' +
-             '   text-decoration: none;' +
-             '   -webkit-font-smoothing: antialiased;' +
-             '   -moz-osx-font-smoothing: grayscale;' +
-             ' }';
+    function _buildCssRules() {
+      var linkRule =
+        ' .anchorjs-link {' +
+        '   opacity: 0;' +
+        '   text-decoration: none;' +
+        '   -webkit-font-smoothing: antialiased;' +
+        '   -moz-osx-font-smoothing: grayscale;' +
+        ' }';
+
+      var hoverRule =
+        ' *:hover > .anchorjs-link,' +
+        ' .anchorjs-link:focus  {' +
+        '   opacity: 1;' +
+        ' }';
+
+      var pseudoElContent =
+        ' [data-anchorjs-icon]::after {' +
+        '   content: attr(data-anchorjs-icon);' +
+        ' }';
+
+      var anchorjsLinkFontFace =
+        ' @font-face {' +
+        '   font-family: "anchorjs-icons";' +
+        '   src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0NDXoaShoKGwoFBe8XFi6ALjgJCQobCjgaShoNDQ0NehpKGgobCgoKLYEuehYXAAAADACWAAEAAAAAAAEACAAAAAEAAAAAAAIAAwAIAAEAAAAAAAMACAAAAAEAAAAAAAQACAAAAAEAAAAAAAUAAQALAAEAAAAAAAYACAAAAAMAAQQJAAEAEAAMAAMAAQQJAAIABgAcAAMAAQQJAAMAEAAMAAMAAQQJAAQAEAAMAAMAAQQJAAUAAgAiAAMAAQQJAAYAEAAMYW5jaG9yanM0MDBAAGEAbgBjAGgAbwByAGoAcwA0ADAAMABAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAP) format("truetype");' +
+        ' }';
+
+      return [linkRule, hoverRule, pseudoElContent, anchorjsLinkFontFace];
     }
 
     /**
-     * Builds the CSS rule for anchor link hover state.
-     * @return {String} - The CSS rule
+     * Inserts CSS rules into a style element.
+     * @param {HTMLStyleElement} style - The style element
+     * @param {Array} rules - Array of CSS rule strings
      */
-    function _buildHoverRule() {
-      return ' *:hover > .anchorjs-link,' +
-             ' .anchorjs-link:focus  {' +
-             '   opacity: 1;' +
-             ' }';
+    function _insertCssRules(style, rules) {
+      for (var i = 0; i < rules.length; i++) {
+        style.sheet.insertRule(rules[i], style.sheet.cssRules.length);
+      }
     }
 
     /**
-     * Builds the CSS rule for pseudo-element content.
-     * @return {String} - The CSS rule
+     * _addBaselineStyles
+     * Adds baseline styles to the page, used by all AnchorJS links irregardless of configuration.
      */
-    function _buildPseudoElRule() {
-      return ' [data-anchorjs-icon]::after {' +
-             '   content: attr(data-anchorjs-icon);' +
-             ' }';
-    }
+    function _addBaselineStyles() {
+      if (document.head.querySelector('style.anchorjs') !== null) {
+        return;
+      }
 
-    /**
-     * Builds the font-face rule for anchorjs icons.
-     * @return {String} - The CSS rule
-     */
-    function _buildFontFaceRule() {
-      return ' @font-face {' +
-             '   font-family: "anchorjs-icons";' +
-             '   src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicm
+      var style = document.createElement('style');
+      var rules = _buildCssRules();
+      var firstStyleEl;
+
+      style.className = 'anchorjs';
+      style.appendChild(document.createTextNode(''));
+
+      firstStyleEl = document.head.querySelector('[rel="stylesheet"], style');
+      if (firstStyleEl === undefined) {
+        document.head.appendChild(style);
+      } else {
+        document.head.insertBefore(style, firstStyleEl);
+      }
+
+      _insertCssRules(style, rules);
+    }
+  }
+
+  return AnchorJS;
+}));
+```

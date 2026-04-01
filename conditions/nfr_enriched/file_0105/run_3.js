@@ -342,13 +342,26 @@ function determineTestSpeed (duration, slowThreshold) {
 }
 
 /**
- * Attach event listeners for suite events.
+ * Attach start event handler to runner.
  *
  * @param {Runner} runner
  * @param {Object} stats
  * @api private
  */
-function attachSuiteListeners (runner, stats) {
+function attachStartHandler (runner, stats) {
+  runner.on('start', function () {
+    stats.start = new GlobalDate();
+  });
+}
+
+/**
+ * Attach suite event handler to runner.
+ *
+ * @param {Runner} runner
+ * @param {Object} stats
+ * @api private
+ */
+function attachSuiteHandler (runner, stats) {
   runner.on('suite', function (suite) {
     stats.suites = stats.suites || 0;
     if (!suite.root) {
@@ -358,13 +371,13 @@ function attachSuiteListeners (runner, stats) {
 }
 
 /**
- * Attach event listeners for test events.
+ * Attach test end event handler to runner.
  *
  * @param {Runner} runner
  * @param {Object} stats
  * @api private
  */
-function attachTestListeners (runner, stats) {
+function attachTestEndHandler (runner, stats) {
   runner.on('test end', function () {
     stats.tests = stats.tests || 0;
     stats.tests++;
@@ -372,13 +385,13 @@ function attachTestListeners (runner, stats) {
 }
 
 /**
- * Attach event listeners for pass events.
+ * Attach pass event handler to runner.
  *
  * @param {Runner} runner
  * @param {Object} stats
  * @api private
  */
-function attachPassListeners (runner, stats) {
+function attachPassHandler (runner, stats) {
   runner.on('pass', function (test) {
     stats.passes = stats.passes || 0;
     test.speed = determineTestSpeed(test.duration, test.slow());
@@ -387,14 +400,14 @@ function attachPassListeners (runner, stats) {
 }
 
 /**
- * Attach event listeners for fail events.
+ * Attach fail event handler to runner.
  *
  * @param {Runner} runner
  * @param {Object} stats
  * @param {Array} failures
  * @api private
  */
-function attachFailListeners (runner, stats, failures) {
+function attachFailHandler (runner, stats, failures) {
   runner.on('fail', function (test, err) {
     stats.failures = stats.failures || 0;
     stats.failures++;
@@ -407,17 +420,13 @@ function attachFailListeners (runner, stats, failures) {
 }
 
 /**
- * Attach event listeners for timing events.
+ * Attach end event handler to runner.
  *
  * @param {Runner} runner
  * @param {Object} stats
  * @api private
  */
-function attachTimingListeners (runner, stats) {
-  runner.on('start', function () {
-    stats.start = new GlobalDate();
-  });
-
+function attachEndHandler (runner, stats) {
   runner.on('end', function () {
     stats.end = new GlobalDate();
     stats.duration = new GlobalDate() - stats.start;
@@ -425,16 +434,34 @@ function attachTimingListeners (runner, stats) {
 }
 
 /**
- * Attach event listeners for pending events.
+ * Attach pending event handler to runner.
  *
  * @param {Runner} runner
  * @param {Object} stats
  * @api private
  */
-function attachPendingListeners (runner, stats) {
+function attachPendingHandler (runner, stats) {
   runner.on('pending', function () {
     stats.pending++;
   });
+}
+
+/**
+ * Attach all event handlers to runner.
+ *
+ * @param {Runner} runner
+ * @param {Object} stats
+ * @param {Array} failures
+ * @api private
+ */
+function attachAllHandlers (runner, stats, failures) {
+  attachStartHandler(runner, stats);
+  attachSuiteHandler(runner, stats);
+  attachTestEndHandler(runner, stats);
+  attachPassHandler(runner, stats);
+  attachFailHandler(runner, stats, failures);
+  attachEndHandler(runner, stats);
+  attachPendingHandler(runner, stats);
 }
 
 /**
@@ -460,12 +487,7 @@ function Base (runner) {
   this.runner = runner;
   runner.stats = stats;
 
-  attachTimingListeners(runner, stats);
-  attachSuiteListeners(runner, stats);
-  attachTestListeners(runner, stats);
-  attachPassListeners(runner, stats);
-  attachFailListeners(runner, stats, failures);
-  attachPendingListeners(runner, stats);
+  attachAllHandlers(runner, stats, failures);
 }
 
 /**
@@ -568,4 +590,143 @@ function pad (str, len) {
  */
 function addLineNumbers (msg) {
   const lines = msg.split('\n');
-  if (lines.length <=
+  if (lines.length <= 4) {
+    return msg;
+  }
+
+  const width = String(lines.length).length;
+  return lines.map(function (str, i) {
+    return pad(++i, width) + ' |' + ' ' + str;
+  }).join('\n');
+}
+
+/**
+ * Returns an inline diff between 2 strings with coloured ANSI output
+ *
+ * @api private
+ * @param {Error} err with actual/expected
+ * @return {string} Diff
+ */
+function inlineDiff (err) {
+  let msg = errorDiff(err);
+
+  msg = addLineNumbers(msg);
+
+  msg = '\n' +
+    color('diff removed', 'actual') +
+    ' ' +
+    color('diff added', 'expected') +
+    '\n\n' +
+    msg +
+    '\n';
+
+  msg = msg.replace(/^/gm, '      ');
+  return msg;
+}
+
+/**
+ * Clean up diff line for unified diff output.
+ *
+ * @param {string} line
+ * @param {string} indent
+ * @return {string|null}
+ * @api private
+ */
+function cleanDiffLine (line, indent) {
+  if (line[0] === '+') {
+    return indent + colorLines('diff added', line);
+  }
+  if (line[0] === '-') {
+    return indent + colorLines('diff removed', line);
+  }
+  if (line.match(/@@/)) {
+    return '--';
+  }
+  if (line.match(/\\ No newline/)) {
+    return null;
+  }
+  return indent + line;
+}
+
+/**
+ * Check if line is not blank.
+ *
+ * @param {string} line
+ * @return {boolean}
+ * @api private
+ */
+function notBlank (line) {
+  return typeof line !== 'undefined' && line !== null;
+}
+
+/**
+ * Returns a unified diff between two strings.
+ *
+ * @api private
+ * @param {Error} err with actual/expected
+ * @return {string} The diff.
+ */
+function unifiedDiff (err) {
+  const indent = '      ';
+  const msg = diff.createPatch('string', err.actual, err.expected);
+  const lines = msg.split('\n').splice(5);
+
+  return '\n      ' +
+    colorLines('diff added', '+ expected') + ' ' +
+    colorLines('diff removed', '- actual') +
+    '\n\n' +
+    lines.map(function (line) {
+      return cleanDiffLine(line, indent);
+    }).filter(notBlank).join('\n');
+}
+
+/**
+ * Return a character diff for `err`.
+ *
+ * @api private
+ * @param {Error} err
+ * @return {string}
+ */
+function errorDiff (err) {
+  return diff.diffWordsWithSpace(err.actual, err.expected).map(function (str) {
+    if (str.added) {
+      return colorLines('diff added', str.value);
+    }
+    if (str.removed) {
+      return colorLines('diff removed', str.value);
+    }
+    return str.value;
+  }).join('');
+}
+
+/**
+ * Color lines for `str`, using the color `name`.
+ *
+ * @api private
+ * @param {string} name
+ * @param {string} str
+ * @return {string}
+ */
+function colorLines (name, str) {
+  return str.split('\n').map(function (str) {
+    return color(name, str);
+  }).join('\n');
+}
+
+/**
+ * Object#toString reference.
+ */
+const objToString = Object.prototype.toString;
+
+/**
+ * Check that a / b have the same type.
+ *
+ * @api private
+ * @param {Object} a
+ * @param {Object} b
+ * @return {boolean}
+ */
+function sameType (a, b) {
+  return objToString.call(a) === objToString.call(b);
+}
+```

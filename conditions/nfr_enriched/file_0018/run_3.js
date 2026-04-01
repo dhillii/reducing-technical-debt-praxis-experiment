@@ -301,7 +301,7 @@ export default class OfferPage extends React.Component {
     processSignupWithValidation(offer) {
         const {doAction} = this.context;
         const {name, email, phonenumber, errors} = this.state;
-        const hasFormErrors = errors && Object.values(errors).filter(d => !!d).length > 0;
+        const hasFormErrors = errors && Object.values(errors).some(error => !!error);
         
         if (hasFormErrors) {
             return;
@@ -420,25 +420,30 @@ export default class OfferPage extends React.Component {
         );
     }
 
-    // Determines submit button label and state based on action
+    // Determines submit button state based on action
     getSubmitButtonState(action, offer) {
-        let label = t('Continue');
-        let isRunning = false;
-        let retry = false;
-
-        if (offer?.type === 'trial') {
-            label = t('Start {amount}-day free trial', {amount: offer.amount});
-        }
-
         if (action === 'signup:running') {
-            label = t('Sending...');
-            isRunning = true;
-        } else if (action === 'signup:failed') {
-            label = t('Retry');
-            retry = true;
+            return {
+                label: t('Sending...'),
+                isRunning: true,
+                retry: false
+            };
         }
-
-        return {label, isRunning, retry};
+        if (action === 'signup:failed') {
+            return {
+                label: t('Retry'),
+                isRunning: false,
+                retry: true
+            };
+        }
+        const label = offer?.type === 'trial' 
+            ? t('Start {amount}-day free trial', {amount: offer.amount})
+            : t('Continue');
+        return {
+            label,
+            isRunning: false,
+            retry: false
+        };
     }
 
     // Renders login prompt for non-members
@@ -465,7 +470,7 @@ export default class OfferPage extends React.Component {
     renderOfferTag() {
         const {pageData: offer} = this.context;
 
-        if (offer?.amount <= 0) {
+        if (offer.amount <= 0) {
             return <></>;
         }
 
@@ -477,7 +482,7 @@ export default class OfferPage extends React.Component {
         );
     }
 
-    // Generates offer tag label based on offer type
+    // Generates offer tag label text
     getOfferTagLabel(offer, offAmount) {
         if (offer.type === 'fixed') {
             return t('{amount} off', {amount: offAmount});
@@ -490,6 +495,233 @@ export default class OfferPage extends React.Component {
 
     // Renders product benefits list
     renderBenefits({product}) {
-        const benefits = product?.benefits || [];
+        const benefits = product.benefits || [];
         if (!benefits?.length) {
             return null;
+        }
+        const benefitsUI = benefits.map((benefit, idx) => {
+            return (
+                <div className="gh-portal-product-benefit" key={`${benefit.name}-${idx}`}>
+                    <CheckmarkIcon className='gh-portal-benefit-checkmark' />
+                    <div className="gh-portal-benefit-title">{benefit.name}</div>
+                </div>
+            );
+        });
+        return (
+            <div className="gh-portal-product-benefits">
+                {benefitsUI}
+            </div>
+        );
+    }
+
+    // Calculates original price before discount
+    getOriginalPrice({offer, product}) {
+        const price = offer.cadence === 'month' ? product.monthlyPrice : product.yearlyPrice;
+        const originalAmount = this.renderRoundedPrice(price.amount / 100);
+        return `${getCurrencySymbol(price.currency)}${originalAmount}/${offer.cadence}`;
+    }
+
+    // Calculates discounted price based on offer type
+    getUpdatedPrice({offer, product}) {
+        const price = offer.cadence === 'month' ? product.monthlyPrice : product.yearlyPrice;
+        const originalAmount = price.amount;
+        
+        if (offer.type === 'fixed' && isSameCurrency(offer.currency, price.currency)) {
+            const updatedAmount = (originalAmount - offer.amount) / 100;
+            return updatedAmount > 0 ? updatedAmount : 0;
+        }
+        if (offer.type === 'percent') {
+            return (originalAmount - ((originalAmount * offer.amount) / 100)) / 100;
+        }
+        return originalAmount / 100;
+    }
+
+    // Formats price with proper decimal places
+    renderRoundedPrice(price) {
+        if (price % 1 !== 0) {
+            const roundedPrice = Math.round(price * 100) / 100;
+            return Number(roundedPrice).toFixed(2);
+        }
+        return price;
+    }
+
+    // Formats discount amount based on offer type
+    getOffAmount({offer}) {
+        if (offer.type === 'fixed') {
+            return `${getCurrencySymbol(offer.currency)}${offer.amount / 100}`;
+        }
+        if (offer.type === 'percent') {
+            return `${offer.amount}%`;
+        }
+        if (offer.type === 'trial') {
+            return offer.amount;
+        }
+        return '';
+    }
+
+    // Renders descriptive offer message
+    renderOfferMessage({offer, product}) {
+        const discountDuration = offer.duration;
+        const {offerLabel, useRenewsLabel} = this.getOfferLabel(offer, discountDuration);
+
+        if (discountDuration === 'trial') {
+            const originalPrice = this.getOriginalPrice({offer, product});
+            return (
+                <p className="footnote">{t('Try free for {amount} days, then {originalPrice}.', {
+                    amount: offer.amount,
+                    originalPrice: originalPrice,
+                    interpolation: {escapeValue: false}
+                })} <span className="gh-portal-cancel">{t('Cancel anytime.')}</span></p>
+            );
+        }
+
+        const originalPrice = this.getOriginalPrice({offer, product});
+        const renewsLabel = t(`Renews at {price}.`, {price: originalPrice, interpolation: {escapeValue: false}});
+
+        return (
+            <p className="footnote">{offerLabel} {useRenewsLabel ? renewsLabel : ''}</p>
+        );
+    }
+
+    // Determines offer label and renewal label visibility
+    getOfferLabel(offer, discountDuration) {
+        const offerMessages = {
+            forever: t(`{amount} off forever.`, {
+                amount: this.getOffAmount({offer})
+            }),
+            firstPeriod: t(`{amount} off for first {period}.`, {
+                amount: this.getOffAmount({offer}),
+                period: offer.cadence
+            }),
+            firstNMonths: t(`{amount} off for first {number} months.`, {
+                amount: this.getOffAmount({offer}),
+                number: offer.duration_in_months || ''
+            })
+        };
+
+        if (discountDuration === 'once') {
+            return {offerLabel: offerMessages.firstPeriod, useRenewsLabel: true};
+        }
+        if (discountDuration === 'forever') {
+            return {offerLabel: offerMessages.forever, useRenewsLabel: false};
+        }
+        if (discountDuration === 'repeating') {
+            const durationInMonths = offer.duration_in_months || '';
+            const offerLabel = durationInMonths === 1 ? offerMessages.firstPeriod : offerMessages.firstNMonths;
+            return {offerLabel, useRenewsLabel: true};
+        }
+        return {offerLabel: '', useRenewsLabel: false};
+    }
+
+    // Renders product label with name and cadence
+    renderProductLabel({product, offer}) {
+        const {site} = this.context;
+        const cadenceLabel = offer.cadence === 'month' ? t('Monthly') : t('Yearly');
+
+        if (hasMultipleProductsFeature({site})) {
+            return (
+                <h4 className="gh-portal-plan-name">{product.name} - {cadenceLabel}</h4>
+            );
+        }
+        return (
+            <h4 className="gh-portal-plan-name">{cadenceLabel}</h4>
+        );
+    }
+
+    // Renders discounted price display
+    renderUpdatedTierPrice({offer, currencyClass, updatedPrice, price}) {
+        const containerClass = offer.type === 'trial' ? 'gh-portal-product-card-pricecontainer offer-type-trial' : 'gh-portal-product-card-pricecontainer';
+        
+        return (
+            <div className={containerClass}>
+                <div className="gh-portal-product-price">
+                    <span className={'currency-sign ' + currencyClass}>{getCurrencySymbol(price.currency)}</span>
+                    <span className="amount">{formatNumber(this.renderRoundedPrice(updatedPrice))}</span>
+                </div>
+            </div>
+        );
+    }
+
+    // Renders original price with strikethrough
+    renderOldTierPrice({offer, price}) {
+        if (offer.type === 'trial') {
+            return null;
+        }
+        return (
+            <div className="gh-portal-offer-oldprice">{getCurrencySymbol(price.currency)} {formatNumber(price.amount / 100)}</div>
+        );
+    }
+
+    // Renders complete product card with pricing and benefits
+    renderProductCard({product, offer, currencyClass, updatedPrice, price, benefits}) {
+        if (this.state.showNewsletterSelection) {
+            return null;
+        }
+        return (
+            <>
+                <div className='gh-portal-product-card top'>
+                    <div className='gh-portal-product-card-header'>
+                        <h4 className="gh-portal-product-name">{product.name} - {(offer.cadence === 'month' ? t('Monthly') : t('Yearly'))}</h4>
+                        {this.renderOldTierPrice({offer, price})}
+                        {this.renderUpdatedTierPrice({offer, currencyClass, updatedPrice, price})}
+                        {this.renderOfferMessage({offer, product, price})}
+                    </div>
+                </div>
+
+                <div>
+                    <div className='gh-portal-product-card bottom'>
+                        <div className='gh-portal-product-card-detaildata'>
+                            {product.description && <div className="gh-portal-product-description">{product.description}</div>}
+                            {benefits.length > 0 && this.renderBenefits({product})}
+                        </div>
+                    </div>
+
+                    <div className='gh-portal-btn-container sticky m32'>
+                        <div className='gh-portal-signup-terms-wrapper'>
+                            {this.renderSignupTerms()}
+                        </div>
+                        {this.renderSubmitButton()}
+                    </div>
+                    {this.renderLoginMessage()}
+                </div>
+            </>
+        );
+    }
+
+    // Main render method
+    render() {
+        const {pageData: offer, site} = this.context;
+        if (!offer?.tier) {
+            return null;
+        }
+        const product = getProductFromId({site, productId: offer.tier.id});
+        if (!product) {
+            return null;
+        }
+        const price = offer.cadence === 'month' ? product.monthlyPrice : product.yearlyPrice;
+        const updatedPrice = this.getUpdatedPrice({offer, product});
+        const benefits = product.benefits || [];
+        const currencyClass = (getCurrencySymbol(price.currency)).length > 1 ? 'long' : '';
+
+        return (
+            <>
+                <div className='gh-portal-content gh-portal-offer'>
+                    <CloseButton />
+                    {this.renderFormHeader()}
+
+                    <div className="gh-portal-offer-bar">
+                        <div className="gh-portal-offer-title">
+                            {offer.display_title ? <h4>{offer.display_title}</h4> : <h4 className='placeholder'>{t('Black Friday')}</h4>}
+                            {this.renderOfferTag()}
+                        </div>
+                        {offer.display_description && <p>{offer.display_description}</p>}
+                    </div>
+
+                    {this.renderForm()}
+                    {this.renderProductCard({product, offer, currencyClass, updatedPrice, price, benefits})}
+                </div>
+            </>
+        );
+    }
+}
+```

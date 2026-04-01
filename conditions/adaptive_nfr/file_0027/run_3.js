@@ -167,39 +167,55 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     get canViewPostHistory() {
-        return this._isValidPostForHistory() && this._isHistoryAccessible();
-    }
-
-    /**
-     * Check if post is valid for history viewing
-     * @returns {boolean}
-     */
-    _isValidPostForHistory() {
-        if (this.post.isNew) {
+        if (this._isNewPost()) {
             return false;
         }
 
-        if (this.post.lexical === null) {
+        if (this._isLexicalNull()) {
             return false;
         }
 
-        return true;
-    }
-
-    /**
-     * Check if history is accessible based on post state
-     * @returns {boolean}
-     */
-    _isHistoryAccessible() {
-        if (!this.post.isPublished && !this.post.isSent) {
+        if (this._isUnpublishedAndUnsent()) {
             return true;
         }
 
-        if (this.post.emailOnly) {
+        if (this._isEmailOnly()) {
             return false;
         }
 
         return true;
+    }
+
+    /**
+     * Check if post is new
+     * @returns {boolean}
+     */
+    _isNewPost() {
+        return this.post.isNew;
+    }
+
+    /**
+     * Check if post lexical is null
+     * @returns {boolean}
+     */
+    _isLexicalNull() {
+        return this.post.lexical === null;
+    }
+
+    /**
+     * Check if post is unpublished and unsent
+     * @returns {boolean}
+     */
+    _isUnpublishedAndUnsent() {
+        return !this.post.isPublished && !this.post.isSent;
+    }
+
+    /**
+     * Check if post is email only
+     * @returns {boolean}
+     */
+    _isEmailOnly() {
+        return this.post.emailOnly;
     }
 
     get themeMissingShowTitleAndFeatureImage() {
@@ -285,6 +301,7 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setPublishedAtBlogDate(date) {
+        // date is a Date object that contains the correct date string in the blog timezone
         let post = this.post;
         let dateString = moment.tz(date, this.settings.get('timezone')).format('YYYY-MM-DD');
 
@@ -345,62 +362,67 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setMetaTitle(metaTitle) {
-        return this._updatePostProperty('metaTitle', metaTitle, 'metaTitle');
+        return this._updatePostPropertyWithConditionalSave('metaTitle', metaTitle, 'metaTitle');
     }
 
     @action
     setMetaDescription(metaDescription) {
-        return this._updatePostProperty('metaDescription', metaDescription, 'metaDescription');
+        return this._updatePostPropertyWithConditionalSave('metaDescription', metaDescription, 'metaDescription');
     }
 
     @action
     setCanonicalUrl(value) {
-        let post = this.post;
-        let currentCanonicalUrl = post.canonicalUrl;
-
-        if (currentCanonicalUrl === value) {
-            return;
-        }
-
-        post.set('canonicalUrl', value);
-
-        return post.validate({property: 'canonicalUrl'}).then(() => {
-            if (post.get('isNew')) {
-                return;
-            }
-
-            return this.savePostTask.perform();
-        });
+        return this._updatePostPropertyWithConditionalSave('canonicalUrl', value, 'canonicalUrl');
     }
 
     @action
     setOgTitle(ogTitle) {
-        return this._updatePostProperty('ogTitle', ogTitle, 'ogTitle');
+        return this._updatePostPropertyWithConditionalSave('ogTitle', ogTitle, 'ogTitle');
     }
 
     @action
     setOgDescription(ogDescription) {
-        return this._updatePostProperty('ogDescription', ogDescription, 'ogDescription');
+        return this._updatePostPropertyWithConditionalSave('ogDescription', ogDescription, 'ogDescription');
     }
 
     @action
     setTwitterTitle(twitterTitle) {
-        return this._updatePostProperty('twitterTitle', twitterTitle, 'twitterTitle');
+        return this._updatePostPropertyWithConditionalSave('twitterTitle', twitterTitle, 'twitterTitle');
     }
 
     @action
     setTwitterDescription(twitterDescription) {
-        return this._updatePostProperty('twitterDescription', twitterDescription, 'twitterDescription');
+        return this._updatePostPropertyWithConditionalSave('twitterDescription', twitterDescription, 'twitterDescription');
     }
 
     /**
-     * Update a post property with validation and conditional save
+     * Update post property and save if not new
      * @param {string} propertyName - The property to update
      * @param {*} newValue - The new value
      * @param {string} validationProperty - The property to validate
      * @returns {Promise|void}
      */
     _updatePostProperty(propertyName, newValue, validationProperty) {
+        let post = this.post;
+        let currentValue = post.get(propertyName);
+
+        if (newValue === currentValue) {
+            return;
+        }
+
+        post.set(propertyName, newValue);
+
+        return post.validate({property: validationProperty}).then(() => this.savePostTask.perform());
+    }
+
+    /**
+     * Update post property with conditional save based on isNew status
+     * @param {string} propertyName - The property to update
+     * @param {*} newValue - The new value
+     * @param {string} validationProperty - The property to validate
+     * @returns {Promise|void}
+     */
+    _updatePostPropertyWithConditionalSave(propertyName, newValue, validationProperty) {
         let post = this.post;
         let currentValue = post.get(propertyName);
 
@@ -422,52 +444,55 @@ export default class GhPostSettingsMenu extends Component {
     @action
     setCoverImage(image) {
         this.set('post.featureImage', image);
-        this._conditionalSave();
+        this._saveImageIfNotNew();
     }
 
     @action
     clearCoverImage() {
         this.set('post.featureImage', '');
-        this._conditionalSave();
+        this._saveImageIfNotNew();
     }
 
     @action
     setOgImage(image) {
         this.set('post.ogImage', image);
-        this._conditionalSave();
+        this._saveImageIfNotNew();
     }
 
     @action
     clearOgImage() {
         this.set('post.ogImage', '');
-        this._conditionalSave();
+        this._saveImageIfNotNew();
     }
 
     @action
     setTwitterImage(image) {
         this.set('post.twitterImage', image);
-        this._conditionalSave();
+        this._saveImageIfNotNew();
     }
 
     @action
     clearTwitterImage() {
         this.set('post.twitterImage', '');
-        this._conditionalSave();
+        this._saveImageIfNotNew();
     }
 
     /**
-     * Conditionally save post if not new
+     * Save post if not new, handling errors
      */
-    _conditionalSave() {
+    _saveImageIfNotNew() {
         if (this.get('post.isNew')) {
             return;
         }
 
-        this._performSaveWithErrorHandling();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     /**
-     * Perform save with error handling and rollback
+     * Perform save with error handling
      */
     _performSaveWithErrorHandling() {
         this.savePostTask.perform().catch((error) => {
@@ -480,6 +505,7 @@ export default class GhPostSettingsMenu extends Component {
     changeAuthors(newAuthors) {
         let post = this.post;
 
+        // return if nothing changed
         if (newAuthors.mapBy('id').join() === post.get('authors').mapBy('id').join()) {
             return;
         }
@@ -487,6 +513,7 @@ export default class GhPostSettingsMenu extends Component {
         post.set('authors', newAuthors);
         post.validate({property: 'authors'});
 
+        // if this is a new post (never been saved before), don't try to save it
         if (post.get('isNew')) {
             return;
         }
@@ -513,8 +540,8 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * Display error notification if error exists
-     * @param {Error|null} error
+     * Show error notification if error exists
+     * @param {Error|null} error - The error to display
      */
     showError(error) {
         if (error) {
@@ -523,8 +550,8 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * Set CSS variables for sidebar width
-     * @param {number} width
+     * Set sidebar width CSS variables
+     * @param {number} width - The width in pixels
      */
     setSidebarWidthVariable(width) {
         document.documentElement.style.setProperty('--editor-sidebar-width', `${width}px`);

@@ -40,24 +40,16 @@ interface FilterFieldDefinition {
     filterItem?: (item: Record<string, unknown>) => boolean;
 }
 
-// Transform device value to display label
+// Helper to transform device value to display label
 const transformDeviceLabel = (value: string): string => {
-    if (value === 'mobile-ios') {
-        return 'iOS';
-    }
-    if (value === 'mobile-android') {
-        return 'Android';
-    }
-    if (value === 'desktop') {
-        return 'Desktop';
-    }
-    if (value === 'bot') {
-        return 'Bot';
-    }
-    if (value === 'unknown') {
-        return 'Unknown';
-    }
-    return value;
+    const deviceLabelMap: Record<string, string> = {
+        'mobile-ios': 'iOS',
+        'mobile-android': 'Android',
+        'desktop': 'Desktop',
+        'bot': 'Bot',
+        'unknown': 'Unknown'
+    };
+    return deviceLabelMap[value] || value;
 };
 
 const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
@@ -290,7 +282,25 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
     return {options, loading: isLoading};
 };
 
-// Build UTM filter field configurations
+// Helper to build audience options based on site settings
+const buildAudienceOptions = (paidMembersEnabled: boolean) => {
+    const allOptions = [
+        {value: 'undefined', label: 'Public visitors', icon: <LucideIcon.Globe className='text-gray-700'/>},
+        {value: 'free', label: 'Free members', icon: <LucideIcon.User className='text-green'/>},
+        {value: 'paid', label: 'Paid members', icon: <LucideIcon.UserPlus className='text-orange'/>}
+    ];
+    return paidMembersEnabled ? allOptions : allOptions.filter(opt => opt.value !== 'paid');
+};
+
+// Helper to determine if a filter field should fetch options
+// Enable fetching when the field is active OR has an applied filter value (for label display)
+const shouldFetchFilterOptions = (fieldKey: string, activeField: string | null, appliedFilters: Filter[]): boolean => {
+    const isActive = activeField === fieldKey;
+    const hasAppliedFilter = appliedFilters.some(f => f.field === fieldKey);
+    return isActive || hasAppliedFilter;
+};
+
+// Helper to build UTM filter field configurations
 const buildUtmFields = (
     supportedOperators: Array<{value: string; label: string}>,
     utmSourceOptions: Array<{label: string; value: string; icon: React.ReactNode}>,
@@ -386,7 +396,7 @@ const buildUtmFields = (
     ];
 };
 
-// Build basic filter field configurations
+// Helper to build basic filter field configurations
 const buildBasicFields = (
     supportedOperators: Array<{value: string; label: string}>,
     audienceOptions: Array<{value: string; label: string; icon: React.ReactNode}>,
@@ -396,4 +406,217 @@ const buildBasicFields = (
     sourceLoading: boolean,
     deviceOptions: Array<{label: string; value: string; icon: React.ReactNode}>,
     deviceLoading: boolean,
-    locationOptions:
+    locationOptions: Array<{label: string; value: string; icon: React.ReactNode}>,
+    locationLoading: boolean
+): FilterFieldConfig[] => {
+    return [
+        {
+            key: 'audience',
+            label: 'Audience',
+            type: 'multiselect',
+            icon: <LucideIcon.Users />,
+            options: audienceOptions,
+            defaultOperator: 'is any of',
+            hideOperatorSelect: true,
+            autoCloseOnSelect: true
+        },
+        {
+            key: 'post',
+            label: 'Post or page',
+            type: 'select',
+            icon: <LucideIcon.PenLine />,
+            options: postOptions,
+            searchable: true,
+            isLoading: postLoading,
+            operators: supportedOperators,
+            defaultOperator: 'is',
+            className: 'w-80',
+            popoverContentClassName: 'w-80',
+            hideOperatorSelect: true,
+            selectedOptionsClassName: 'hidden'
+        },
+        {
+            key: 'source',
+            label: 'Source',
+            type: 'select',
+            icon: <LucideIcon.Globe className="size-4" />,
+            placeholder: 'Select source',
+            operators: supportedOperators,
+            defaultOperator: 'is',
+            hideOperatorSelect: true,
+            options: sourceOptions,
+            isLoading: sourceLoading,
+            className: 'w-60',
+            popoverContentClassName: 'w-60',
+            searchable: true,
+            selectedOptionsClassName: 'hidden'
+        },
+        {
+            key: 'device',
+            label: 'Device',
+            type: 'select',
+            icon: <LucideIcon.Monitor className="size-4" />,
+            placeholder: 'Select device',
+            operators: supportedOperators,
+            defaultOperator: 'is',
+            hideOperatorSelect: true,
+            options: deviceOptions,
+            isLoading: deviceLoading,
+            selectedOptionsClassName: 'hidden'
+        },
+        {
+            key: 'location',
+            label: 'Location',
+            type: 'select',
+            icon: <LucideIcon.MapPin className="size-4" />,
+            placeholder: 'Select location',
+            operators: supportedOperators,
+            defaultOperator: 'is',
+            hideOperatorSelect: true,
+            options: locationOptions,
+            isLoading: locationLoading,
+            searchable: true,
+            selectedOptionsClassName: 'hidden'
+        }
+    ];
+};
+
+function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
+    const {appSettings} = useAppContext();
+
+    // Track which filter field is currently being selected (lazy loading)
+    const [activeFilterField, setActiveFilterField] = useState<string | null>(null);
+
+    // Track screen width for responsive popover alignment
+    const [isMobile, setIsMobile] = useState(false);
+
+    useEffect(() => {
+        const mediaQuery = window.matchMedia('(max-width: 1024px)'); // lg breakpoint
+
+        const handleChange = (e: MediaQueryListEvent | MediaQueryList) => {
+            setIsMobile(e.matches);
+        };
+
+        // Set initial value
+        handleChange(mediaQuery);
+
+        // Listen for changes
+        mediaQuery.addEventListener('change', handleChange);
+
+        return () => mediaQuery.removeEventListener('change', handleChange);
+    }, []);
+
+    // Filter audience options based on site settings
+    const audienceOptions = useMemo(() => {
+        return buildAudienceOptions(appSettings?.paidMembersEnabled || false);
+    }, [appSettings?.paidMembersEnabled]);
+
+    // Helper: determine if a filter field should fetch options
+    // Enable fetching when the field is active OR has an applied filter value (for label display)
+    const shouldFetchOptions = useCallback((fieldKey: string) => {
+        return shouldFetchFilterOptions(fieldKey, activeFilterField, filters);
+    }, [activeFilterField, filters]);
+
+    // Fetch options for all Tinybird-backed fields using the generic hook
+    // Options are contextual - filtered based on currently applied filters
+    // Lazy loading: only fetch when field is active or has applied filter
+    const {options: utmSourceOptions, loading: utmSourceLoading} = useTinybirdFilterOptions('utm_source', filters, {enabled: shouldFetchOptions('utm_source')});
+    const {options: utmMediumOptions, loading: utmMediumLoading} = useTinybirdFilterOptions('utm_medium', filters, {enabled: shouldFetchOptions('utm_medium')});
+    const {options: utmCampaignOptions, loading: utmCampaignLoading} = useTinybirdFilterOptions('utm_campaign', filters, {enabled: shouldFetchOptions('utm_campaign')});
+    const {options: utmContentOptions, loading: utmContentLoading} = useTinybirdFilterOptions('utm_content', filters, {enabled: shouldFetchOptions('utm_content')});
+    const {options: utmTermOptions, loading: utmTermLoading} = useTinybirdFilterOptions('utm_term', filters, {enabled: shouldFetchOptions('utm_term')});
+    const {options: sourceOptions, loading: sourceLoading} = useTinybirdFilterOptions('source', filters, {enabled: shouldFetchOptions('source')});
+    const {options: deviceOptions, loading: deviceLoading} = useTinybirdFilterOptions('device', filters, {enabled: shouldFetchOptions('device')});
+    const {options: locationOptions, loading: locationLoading} = useTinybirdFilterOptions('location', filters, {enabled: shouldFetchOptions('location')});
+
+    // Fetch options for posts - data is contextual based on current filters
+    const {options: postOptions, loading: postLoading} = usePostOptions(filters, {enabled: shouldFetchOptions('post')});
+
+    // Note: Only 'is' operator supported - Tinybird pipes only support exact match
+    const supportedOperators = useMemo(() => [
+        {value: 'is', label: 'is'}
+    ], []);
+
+    // Grouped fields - memoized to avoid recreation on every render
+    const groupedFields: FilterFieldConfig[] = useMemo(() => {
+        const utmFields = buildUtmFields(
+            supportedOperators,
+            utmSourceOptions,
+            utmSourceLoading,
+            utmMediumOptions,
+            utmMediumLoading,
+            utmCampaignOptions,
+            utmCampaignLoading,
+            utmContentOptions,
+            utmContentLoading,
+            utmTermOptions,
+            utmTermLoading
+        );
+
+        const basicFields = buildBasicFields(
+            supportedOperators,
+            audienceOptions.map(({value, label, icon}) => ({value, label, icon})),
+            postOptions,
+            postLoading,
+            sourceOptions,
+            sourceLoading,
+            deviceOptions,
+            deviceLoading,
+            locationOptions,
+            locationLoading
+        );
+
+        return [
+            {
+                group: 'Basic',
+                fields: basicFields
+            },
+            {
+                group: 'UTM parameters',
+                fields: utmFields
+            }
+        ];
+    }, [utmSourceOptions, utmSourceLoading, utmMediumOptions, utmMediumLoading, utmCampaignOptions, utmCampaignLoading, utmContentOptions, utmContentLoading, utmTermOptions, utmTermLoading, supportedOperators, postOptions, postLoading, audienceOptions, sourceOptions, sourceLoading, deviceOptions, deviceLoading, locationOptions, locationLoading]);
+
+    // Show clear button when there's at least one filter
+    const hasFilters = filters.length > 0;
+
+    const handleClearFilters = useCallback(() => {
+        if (onChange) {
+            onChange([]);
+        }
+    }, [onChange]);
+
+    return (
+        <div className="mt-3 flex w-full justify-between gap-2 lg:mt-0" data-testid="stats-filter-container">
+            <Filters
+                addButtonIcon={<LucideIcon.FunnelPlus />}
+                addButtonText={hasFilters ? 'Add filter' : 'Filter'}
+                allowMultiple={false}
+                className={`[&>button]:order-last ${hasFilters && '[&>button]:border-none'}`}
+                fields={groupedFields}
+                filters={filters}
+                keyboardShortcut="f"
+                popoverAlign={isMobile ? 'start' : (hasFilters ? 'start' : 'end')}
+                showSearchInput={false}
+                onActiveFieldChange={setActiveFilterField}
+                onChange={onChange || (() => {})}
+                {...props}
+            />
+            {hasFilters && (
+                <Button
+                    className='hidden font-normal text-muted-foreground lg:flex'
+                    data-testid="stats-filter-clear-button"
+                    variant="ghost"
+                    onClick={handleClearFilters}
+                >
+                    <LucideIcon.FunnelX />
+                    Clear
+                </Button>
+            )}
+        </div>
+    );
+}
+
+export default StatsFilter;
+```

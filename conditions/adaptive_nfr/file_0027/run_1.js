@@ -396,7 +396,7 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * Update post property and save if not new
+     * Update post property and save if changed
      * @param {string} propertyName - The property to update
      * @param {*} newValue - The new value
      * @param {string} validationProperty - The property to validate
@@ -415,7 +415,7 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * Update post property with conditional save based on isNew status
+     * Update post property with conditional save for new posts
      * @param {string} propertyName - The property to update
      * @param {*} newValue - The new value
      * @param {string} validationProperty - The property to validate
@@ -538,5 +538,24 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * Display error notification if error exists
-     * @param {Error|null} error - The error
+     * Show error notification if error exists
+     * @param {Error|null} error - The error to display
+     * @returns {void}
+     */
+    showError(error) {
+        if (error) {
+            this.notifications.showAPIError(error);
+        }
+    }
+
+    /**
+     * Set CSS variables for sidebar width
+     * @param {number} width - The width in pixels
+     * @returns {void}
+     */
+    setSidebarWidthVariable(width) {
+        document.documentElement.style.setProperty('--editor-sidebar-width', `${width}px`);
+        document.documentElement.style.setProperty('--kg-breakout-adjustment', `${width}px`);
+    }
+}
+```

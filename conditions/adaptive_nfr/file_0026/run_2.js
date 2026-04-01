@@ -18,7 +18,7 @@ interface StatsFilterProps extends Omit<React.ComponentProps<typeof Filters>, 'f
     onChange?: (filters: Filter[]) => void;
 }
 
-/** Get country name from ISO code, with fallback to code itself */
+/** Get country name from ISO code, with fallback to mappings and code itself */
 const getCountryName = (code: string): string => {
     return STATS_LABEL_MAPPINGS[code as keyof typeof STATS_LABEL_MAPPINGS] || countries.getName(code, 'en') || code;
 };
@@ -67,6 +67,12 @@ const transformLocationValue = (value: string): {value: string; label: string} =
     label: getCountryName(value)
 });
 
+/** Filter definition for location field - excludes unknown locations */
+const filterLocationItem = (item: Record<string, unknown>): boolean => {
+    const location = String(item.location || '');
+    return location !== '' && !UNKNOWN_LOCATION_VALUES.includes(location);
+};
+
 const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     utm_source: {
         endpoint: 'api_top_utm_sources',
@@ -101,10 +107,7 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     location: {
         endpoint: 'api_top_locations',
         valueKey: 'location',
-        filterItem(item) {
-            const location = String(item.location || '');
-            return location !== '' && !UNKNOWN_LOCATION_VALUES.includes(location);
-        },
+        filterItem: filterLocationItem,
         transformValue: transformLocationValue
     },
     device: {
@@ -117,7 +120,18 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     }
 };
 
-/** Build filter parameters for Tinybird API, excluding specified field */
+/** Check if filter field is a post-related field */
+const isPostField = (field: string): boolean => field === 'post';
+
+/** Check if filter field is an audience field */
+const isAudienceField = (field: string): boolean => field === 'audience';
+
+/** Check if filter field is a filterable stats field */
+const isFilterableStatsField = (field: string): boolean => {
+    return field === 'source' || field === 'device' || field === 'location' || field.startsWith('utm_');
+};
+
+/** Build filter params for Tinybird API, excluding the specified field */
 const buildFilterParams = (
     currentFilters: Filter[],
     excludeField: string,
@@ -132,15 +146,16 @@ const buildFilterParams = (
 
         const value = filter.values[0] as string;
 
-        if (filter.field === 'post') {
-            if (value.startsWith('/')) {
+        if (isPostField(filter.field)) {
+            const isPathname = value.startsWith('/');
+            if (isPathname) {
                 params.pathname = value;
             } else {
                 params.post_uuid = value;
             }
-        } else if (filter.field === 'audience') {
+        } else if (isAudienceField(filter.field)) {
             return;
-        } else if (isFilterableField(filter.field)) {
+        } else if (isFilterableStatsField(filter.field)) {
             params[filter.field] = value;
         }
     });
@@ -148,16 +163,11 @@ const buildFilterParams = (
     return params;
 };
 
-/** Check if field is a filterable dimension field */
-const isFilterableField = (field: string): boolean => {
-    return field === 'source' || field === 'device' || field === 'location' || field.startsWith('utm_');
-};
-
 interface UseTinybirdFilterOptionsConfig {
     enabled?: boolean;
 }
 
-/** Generic hook to fetch filter options from Tinybird */
+/** Fetch filter options from Tinybird API with transformation and deduplication */
 const useTinybirdFilterOptions = (
     fieldKey: string,
     currentFilters: Filter[] = [],
@@ -225,7 +235,22 @@ interface UsePostOptionsConfig {
     enabled?: boolean;
 }
 
-/** Hook to fetch posts/pages options from Ghost API */
+/** Check if post UUID is valid (non-empty and not 'undefined' string) */
+const isValidPostUuid = (uuid: string | undefined): boolean => {
+    return !!uuid && uuid !== '' && uuid !== 'undefined';
+};
+
+/** Get unique key for deduplication - prefers post_uuid over pathname */
+const getPostUniqueKey = (item: {post_uuid?: string; pathname: string}): string => {
+    return isValidPostUuid(item.post_uuid) ? `uuid:${item.post_uuid}` : `path:${item.pathname}`;
+};
+
+/** Get filter value for post - prefers post_uuid over pathname */
+const getPostFilterValue = (item: {post_uuid?: string; pathname: string}): string => {
+    return isValidPostUuid(item.post_uuid) ? item.post_uuid! : item.pathname;
+};
+
+/** Fetch posts/pages options from Ghost API with deduplication */
 const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsConfig = {}) => {
     const {enabled = true} = config;
     const {range} = useGlobalData();
@@ -261,8 +286,7 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
         const seen = new Set<string>();
         return (stats || [])
             .filter((item) => {
-                const hasValidPostUuid = isValidPostUuid(item.post_uuid);
-                const uniqueKey = hasValidPostUuid ? `uuid:${item.post_uuid}` : `path:${item.pathname}`;
+                const uniqueKey = getPostUniqueKey(item);
 
                 if (seen.has(uniqueKey)) {
                     return false;
@@ -272,8 +296,7 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
             })
             .map((item) => {
                 const visits = item.visits || 0;
-                const hasValidPostUuid = isValidPostUuid(item.post_uuid);
-                const filterValue = hasValidPostUuid ? item.post_uuid! : item.pathname;
+                const filterValue = getPostFilterValue(item);
 
                 return {
                     label: item.title || item.pathname || '(Untitled)',
@@ -284,11 +307,6 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
     }, [topContentData]);
 
     return {options, loading: isLoading};
-};
-
-/** Check if post UUID is valid and usable */
-const isValidPostUuid = (uuid: unknown): boolean => {
-    return typeof uuid === 'string' && uuid !== '' && uuid !== 'undefined';
 };
 
 /** Create UTM field configuration */
@@ -316,11 +334,10 @@ const createUtmFieldConfig = (
     selectedOptionsClassName: 'hidden'
 });
 
-/** Create basic filter field configuration */
+/** Create basic stats field configuration */
 const createBasicFieldConfig = (
     key: string,
     label: string,
-    type: 'select' | 'multiselect',
     icon: React.ReactNode,
     options: Array<{label: string; value: string; icon?: React.ReactNode}>,
     isLoading: boolean,
@@ -329,7 +346,7 @@ const createBasicFieldConfig = (
 ): FilterFieldConfig => ({
     key,
     label,
-    type,
+    type: 'select',
     icon,
     placeholder: `Select ${label.toLowerCase()}`,
     operators: supportedOperators,
@@ -337,7 +354,7 @@ const createBasicFieldConfig = (
     hideOperatorSelect: true,
     options,
     isLoading,
-    searchable: type === 'select',
+    searchable: true,
     selectedOptionsClassName: 'hidden',
     ...additionalProps
 });
@@ -393,4 +410,108 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
 
     const groupedFields: FilterFieldConfig[] = useMemo(() => {
         const utmFields: FilterFieldConfig[] = [
-            createUtmFieldConfig('utm_source', 'UTM Source', <LucideIcon.MousePointerClick className="size-4" />, utm
+            createUtmFieldConfig('utm_source', 'UTM Source', <LucideIcon.MousePointerClick className="size-4" />, utmSourceOptions, utmSourceLoading, supportedOperators),
+            createUtmFieldConfig('utm_medium', 'UTM Medium', <LucideIcon.SatelliteDish className="size-4" />, utmMediumOptions, utmMediumLoading, supportedOperators),
+            createUtmFieldConfig('utm_campaign', 'UTM Campaign', <LucideIcon.Flag className="size-4" />, utmCampaignOptions, utmCampaignLoading, supportedOperators),
+            createUtmFieldConfig('utm_content', 'UTM Content', <LucideIcon.TextCursorInput className="size-4" />, utmContentOptions, utmContentLoading, supportedOperators),
+            createUtmFieldConfig('utm_term', 'UTM Term', <LucideIcon.Tag className="size-4" />, utmTermOptions, utmTermLoading, supportedOperators)
+        ];
+
+        return [
+            {
+                group: 'Basic',
+                fields: [
+                    {
+                        key: 'audience',
+                        label: 'Audience',
+                        type: 'multiselect',
+                        icon: <LucideIcon.Users />,
+                        options: audienceOptions.map(({value, label, icon}) => ({value, label, icon})),
+                        defaultOperator: 'is any of',
+                        hideOperatorSelect: true,
+                        autoCloseOnSelect: true
+                    },
+                    createBasicFieldConfig(
+                        'post',
+                        'Post or page',
+                        <LucideIcon.PenLine />,
+                        postOptions,
+                        postLoading,
+                        supportedOperators,
+                        {className: 'w-80', popoverContentClassName: 'w-80'}
+                    ),
+                    createBasicFieldConfig(
+                        'source',
+                        'Source',
+                        <LucideIcon.Globe className="size-4" />,
+                        sourceOptions,
+                        sourceLoading,
+                        supportedOperators,
+                        {className: 'w-60', popoverContentClassName: 'w-60'}
+                    ),
+                    createBasicFieldConfig(
+                        'device',
+                        'Device',
+                        <LucideIcon.Monitor className="size-4" />,
+                        deviceOptions,
+                        deviceLoading,
+                        supportedOperators
+                    ),
+                    createBasicFieldConfig(
+                        'location',
+                        'Location',
+                        <LucideIcon.MapPin className="size-4" />,
+                        locationOptions,
+                        locationLoading,
+                        supportedOperators
+                    )
+                ]
+            },
+            {
+                group: 'UTM parameters',
+                fields: utmFields
+            }
+        ];
+    }, [utmSourceOptions, utmSourceLoading, utmMediumOptions, utmMediumLoading, utmCampaignOptions, utmCampaignLoading, utmContentOptions, utmContentLoading, utmTermOptions, utmTermLoading, supportedOperators, postOptions, postLoading, audienceOptions, sourceOptions, sourceLoading, deviceOptions, deviceLoading, locationOptions, locationLoading]);
+
+    const hasFilters = filters.length > 0;
+
+    const handleClearFilters = useCallback(() => {
+        if (onChange) {
+            onChange([]);
+        }
+    }, [onChange]);
+
+    return (
+        <div className="mt-3 flex w-full justify-between gap-2 lg:mt-0" data-testid="stats-filter-container">
+            <Filters
+                addButtonIcon={<LucideIcon.FunnelPlus />}
+                addButtonText={hasFilters ? 'Add filter' : 'Filter'}
+                allowMultiple={false}
+                className={`[&>button]:order-last ${hasFilters && '[&>button]:border-none'}`}
+                fields={groupedFields}
+                filters={filters}
+                keyboardShortcut="f"
+                popoverAlign={isMobile ? 'start' : (hasFilters ? 'start' : 'end')}
+                showSearchInput={false}
+                onActiveFieldChange={setActiveFilterField}
+                onChange={onChange || (() => {})}
+                {...props}
+            />
+            {hasFilters && (
+                <Button
+                    className='hidden font-normal text-muted-foreground lg:flex'
+                    data-testid="stats-filter-clear-button"
+                    variant="ghost"
+                    onClick={handleClearFilters}
+                >
+                    <LucideIcon.FunnelX />
+                    Clear
+                </Button>
+            )}
+        </div>
+    );
+}
+
+export default StatsFilter;
+```

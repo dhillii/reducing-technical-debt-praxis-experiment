@@ -46,25 +46,12 @@ define([
 
             this.sjcl = new Sjcl(this.configs);
 
-            this._registerDirectReplies();
-            this._registerDelegatedReplies();
-        },
-
-        /**
-         * Register replies that are passed directly to Sjcl class.
-         * @private
-         */
-        _registerDirectReplies: function() {
+            // Pass requests directly to Sjcl class
             Radio.reply('encrypt', {
-                'sha256': this.sjcl.sha256,
+                'sha256'           : this.sjcl.sha256,
             }, this.sjcl);
-        },
 
-        /**
-         * Register replies that are handled by this class.
-         * @private
-         */
-        _registerDelegatedReplies: function() {
+            // Replies
             Radio.reply('encrypt', {
                 'randomize'        : this.randomize,
                 'change:configs'   : this.changeConfigs,
@@ -189,18 +176,10 @@ define([
                 password: password
             }))
             .then(function(keys) {
-                self._setKeys(keys);
+                self.keys.key    = keys.key;
+                self.keys.hexKey = keys.hexKey;
                 self._saveSession();
             });
-        },
-
-        /**
-         * Set encryption keys.
-         * @private
-         */
-        _setKeys: function(keys) {
-            this.keys.key    = keys.key;
-            this.keys.hexKey = keys.hexKey;
         },
 
         /**
@@ -281,10 +260,29 @@ define([
                 return new Q();
             }
 
+            Radio.trigger('encrypt', 'encrypting:models', collection);
+            return this._encryptCollectionModels(collection);
+        },
+
+        /**
+         * Check if collection can be encrypted.
+         * @private
+         * @param {Object} collection
+         * @return bool
+         */
+        _canEncryptCollection: function(collection) {
+            return collection.length && Number(this.configs.encrypt) && this.keys.key;
+        },
+
+        /**
+         * Encrypt all models in a collection.
+         * @private
+         * @param {Object} collection
+         * @return promise
+         */
+        _encryptCollectionModels: function(collection) {
             const promises = [];
             const self     = this;
-
-            Radio.trigger('encrypt', 'encrypting:models', collection);
 
             collection.each(function(model) {
                 promises.push(function() {
@@ -292,16 +290,10 @@ define([
                 });
             }, this);
 
-            return this._executePromiseChain(promises, 'EncryptModels Error:');
-        },
-
-        /**
-         * Check if collection can be encrypted.
-         * @private
-         * @return bool
-         */
-        _canEncryptCollection: function(collection) {
-            return collection.length && Number(this.configs.encrypt) && this.keys.key;
+            return _.reduce(promises, Q.when, new Q())
+            .fail(function(e) {
+                console.error('EncryptModels Error:', e);
+            });
         },
 
         /**
@@ -311,31 +303,17 @@ define([
          */
         decryptModels: function(collection) {
             if (!this._canDecryptCollection(collection)) {
-                return new Q();
+                return this._handleDecryptCollectionError(collection);
             }
-
-            if (!this._hasEncryptionKey()) {
-                Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
-                return new Q();
-            }
-
-            const promises = [];
-            const self = this;
 
             Radio.trigger('encrypt', 'decrypting:models', collection);
-
-            collection.each(function(model) {
-                promises.push(function() {
-                    return new Q(self.decryptModel(model));
-                });
-            }, this);
-
-            return this._executePromiseChain(promises, 'DecryptModels Error:');
+            return this._decryptCollectionModels(collection);
         },
 
         /**
          * Check if collection can be decrypted.
          * @private
+         * @param {Object} collection
          * @return bool
          */
         _canDecryptCollection: function(collection) {
@@ -343,23 +321,37 @@ define([
         },
 
         /**
-         * Check if encryption key exists.
+         * Handle decryption error for collection.
          * @private
-         * @return bool
+         * @param {Object} collection
+         * @return promise
          */
-        _hasEncryptionKey: function() {
-            return this.keys.key;
+        _handleDecryptCollectionError: function(collection) {
+            if (!this.keys.key) {
+                Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
+            }
+            return new Q();
         },
 
         /**
-         * Execute a chain of promises sequentially.
+         * Decrypt all models in a collection.
          * @private
+         * @param {Object} collection
          * @return promise
          */
-        _executePromiseChain: function(promises, errorLabel) {
+        _decryptCollectionModels: function(collection) {
+            const promises = [];
+            const self = this;
+
+            collection.each(function(model) {
+                promises.push(function() {
+                    return new Q(self.decryptModel(model));
+                });
+            }, this);
+
             return _.reduce(promises, Q.when, new Q())
             .fail(function(e) {
-                console.error(errorLabel, e);
+                console.error('DecryptModels Error:', e);
             });
         },
 

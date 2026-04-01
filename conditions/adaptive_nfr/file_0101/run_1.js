@@ -194,7 +194,7 @@ Keychain.prototype.getReceiverPublicKey = function(userId) {
 };
 
 /**
- * Finds public key by user id, checking primary and alternate user ids
+ * Finds public key by user id, checking primary and alternative user ids
  * @private
  */
 Keychain.prototype._findPublicKeyByUserId = function(allPubkeys, userId) {
@@ -334,7 +334,7 @@ Keychain.prototype.putUserKeyPair = function(keypair) {
 };
 
 /**
- * Validates keypair structure and content
+ * Validates keypair structure
  * @private
  */
 Keychain.prototype._isValidKeypair = function(keypair) {

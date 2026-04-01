@@ -238,6 +238,15 @@ define([
         },
 
         /**
+         * Normalize model identifier to model ID.
+         * @param {object|string} model - Backbone model or ID string
+         * @return {string} model ID
+         */
+        _normalizeModelId: function(model) {
+            return typeof model === 'string' ? model : model.id;
+        },
+
+        /**
          * Remove a model.
          * @type object Backbone model or ID
          * @type object options
@@ -246,22 +255,32 @@ define([
             const self = this;
 
             // Change model's attributes to default values (empty values)
-            const modelId = typeof model === 'string' ? model : model.id;
-            const removedModel = new (this.changeDatabase(options)).prototype.model({id: modelId});
+            const modelId = this._normalizeModelId(model);
+            const modelInstance = new (this.changeDatabase(options)).prototype.model({id: modelId});
 
-            removedModel.set({'trash': 2, updated: Date.now()});
+            modelInstance.set({'trash': 2, updated: Date.now()});
 
-            return this.save(removedModel, removedModel.attributes)
+            return this.save(modelInstance, modelInstance.attributes)
             .then(function() {
-                self.vent.trigger('destroy:model', removedModel);
+                self.vent.trigger('destroy:model', modelInstance);
             });
         },
 
         /**
+         * Check if model should be fetched from database.
+         * @param {object} options - fetch options
+         * @param {string} idAttr - ID attribute name
+         * @return {boolean} true if fetch is needed
+         */
+        _shouldFetchModel: function(options, idAttr) {
+            return options[idAttr] && options[idAttr] !== '0';
+        },
+
+        /**
          * Check if model exists in current collection.
-         * @param {object} model - Backbone model
-         * @param {string} modelId - Model ID
-         * @return {boolean}
+         * @param {object} model - model instance
+         * @param {string} modelId - model ID
+         * @return {boolean} true if model exists in collection
          */
         _modelExistsInCollection: function(model, modelId) {
             return this.collection &&
@@ -270,11 +289,11 @@ define([
         },
 
         /**
-         * Handle model not found error.
-         * @param {*} error - Error object or message
-         * @return {null|Error}
+         * Handle model fetch error.
+         * @param {*} error - error object or message
+         * @return {null|Promise} null if not found, otherwise throws error
          */
-        _handleModelNotFoundError: function(error) {
+        _handleModelFetchError: function(error) {
             if (typeof error === 'string' && error.search('not found') > -1) {
                 return null;
             }
@@ -293,7 +312,7 @@ define([
             const model = new Model(data);
 
             // If id was not provided, return a model with default values
-            if (!options[idAttr] || options[idAttr] === '0') {
+            if (!this._shouldFetchModel(options, idAttr)) {
                 model.set(idAttr, undefined);
                 return new Q(model);
             }
@@ -310,12 +329,12 @@ define([
                 return self.decryptModel(model)
                 .thenResolve(model);
             })
-            .fail((error) => this._handleModelNotFoundError(error));
+            .fail((error) => this._handleModelFetchError(error));
         },
 
         /**
          * Apply filter conditions to options.
-         * @param {object} options - Fetch options
+         * @param {object} options - fetch options
          */
         _applyFilterConditions: function(options) {
             if (!options.filter) {
@@ -323,24 +342,18 @@ define([
             }
 
             const cond = this.Collection.prototype.conditions[options.filter];
-            options.conditions = typeof cond === 'function' ? cond(options) : cond;
+            options.conditions = (typeof cond === 'function' ? cond(options) : cond);
         },
 
         /**
          * Register collection events and listeners.
          * @param {object} collection - Backbone collection
-         * @param {object} options - Options with filter info
          */
-        _registerCollectionListeners: function(collection, options) {
-            collection.conditionFilter = options.filter;
-            collection.conditionCurrent = options.conditions;
-
-            // Register events
+        _registerCollectionListeners: function(collection) {
             if (collection.registerEvents) {
                 collection.registerEvents();
             }
 
-            // Events
             this.listenTo(collection, 'reset:all', this.onReset);
         },
 
@@ -358,23 +371,38 @@ define([
             return this.fetch(options || {})
             .then(function(collection) {
                 self.collection = collection;
-                self._registerCollectionListeners(collection, options);
+                self.collection.conditionFilter  = options.filter;
+                self.collection.conditionCurrent = options.conditions;
+
+                // Register events
+                self._registerCollectionListeners(self.collection);
+
                 return self.collection;
             });
         },
 
         /**
-         * Decrypt collection if encryption is not enabled.
-         * @param {object} collection - Backbone collection
-         * @param {object} options - Fetch options
-         * @return {object} Promise
+         * Check if decryption is needed for collection.
+         * @param {object} options - fetch options
+         * @return {boolean} true if decryption should be skipped
          */
-        _handleCollectionDecryption: function(collection, options) {
-            if (options.encrypt) {
+        _shouldSkipDecryption: function(options) {
+            return options.encrypt;
+        },
+
+        /**
+         * Decrypt and finalize collection fetch.
+         * @param {object} collection - Backbone collection
+         * @param {object} options - fetch options
+         * @return {Promise}
+         */
+        _decryptAndFinalizeFetch: function(collection, options) {
+            const self = this;
+
+            if (this._shouldSkipDecryption(options)) {
                 return new Q(collection);
             }
 
-            const self = this;
             return self.decryptModels(collection.fullCollection || collection)
             .then(function() {
                 collection.trigger('decrypted');
@@ -393,21 +421,22 @@ define([
 
             return new Q(collection.fetch(options))
             .then(function() {
-                return self._handleCollectionDecryption(collection, options);
+                return self._decryptAndFinalizeFetch(collection, options);
             });
         },
 
         /**
-         * Check if encryption is disabled for this store.
-         * @return {boolean}
+         * Check if encryption is disabled for this collection.
+         * @param {object} model - model prototype
+         * @return {boolean} true if encryption is disabled
          */
-        _isConfigStore: function() {
+        _isEncryptionDisabledForStore: function() {
             return this.Collection.prototype.storeName === 'configs';
         },
 
         /**
          * Get encryption configuration.
-         * @return {object} Configuration object
+         * @return {object} encryption config
          */
         _getEncryptionConfig: function() {
             const configs = Radio.request('configs', 'get:object');
@@ -419,10 +448,10 @@ define([
 
         /**
          * Check if model has encryption keys defined.
-         * @param {object} model - Backbone model
-         * @return {boolean}
+         * @param {object} model - model prototype
+         * @return {boolean} true if encryption keys exist
          */
-        _modelHasEncryptionKeys: function(model) {
+        _hasEncryptionKeys: function(model) {
             return !_.isUndefined(model.encryptKeys);
         },
 
@@ -431,7 +460,7 @@ define([
          */
         _isEncryptEnabled: function(model) {
             // Don't use encryption on configs
-            if (this._isConfigStore()) {
+            if (this._isEncryptionDisabledForStore()) {
                 return false;
             }
 
@@ -439,7 +468,7 @@ define([
             model = model || this.Collection.prototype.model.prototype;
 
             return (
-                this._modelHasEncryptionKeys(model) &&
+                this._hasEncryptionKeys(model) &&
                 (Number(config.encrypt) || Number(config.backupEncrypt)) === 1
             );
         },

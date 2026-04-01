@@ -159,6 +159,10 @@ function extractAnnouncementPreviewAttrs(preview) {
     };
 }
 
+// ============================================================================
+// Discovery and Tracking Helpers
+// ============================================================================
+
 function getWebmentionDiscoveryLink() {
     try {
         const siteUrl = urlUtils.getSiteUrl();
@@ -169,10 +173,6 @@ function getWebmentionDiscoveryLink() {
         return '';
     }
 }
-
-// ============================================================================
-// Analytics and Tracking
-// ============================================================================
 
 function getTinybirdTrackerScript(dataRoot) {
     const preview = dataRoot?.context?.includes('preview');
@@ -223,151 +223,48 @@ function getTinybirdPostType(context) {
 }
 
 // ============================================================================
-// Card and Comment Assets
+// Asset Helpers
 // ============================================================================
 
-function getCardAssetsHelper(excludeList) {
-    const assets = [];
-
-    if (!excludeList.has('card_assets')) {
-        if (cardAssets.hasFile('js')) {
-            assets.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
-        }
-        if (cardAssets.hasFile('css')) {
-            assets.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
-        }
+function addCardAssets(head, excludeList) {
+    if (excludeList.has('card_assets')) {
+        return;
     }
 
-    return assets;
+    if (cardAssets.hasFile('js')) {
+        head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+    }
+    if (cardAssets.hasFile('css')) {
+        head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+    }
 }
 
-function getCommentCountsHelper(excludeList) {
+function addCommentCounts(head, excludeList) {
     if (excludeList.has('comment_counts') || settingsCache.get('comments_enabled') === 'off') {
-        return '';
-    }
-
-    return `<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`;
-}
-
-function getMemberAttributionHelper() {
-    if (!settingsCache.get('members_enabled') || !settingsCache.get('members_track_sources')) {
-        return '';
-    }
-
-    return `<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`;
-}
-
-// ============================================================================
-// Custom Fonts
-// ============================================================================
-
-function getCustomFontCss(data) {
-    const isSitePreview = data?.site?._preview ?? false;
-    const headingFont = isSitePreview ? data?.site?.heading_font : settingsCache.get('heading_font');
-    const bodyFont = isSitePreview ? data?.site?.body_font : settingsCache.get('body_font');
-
-    if (!isValidFontSelection(headingFont, bodyFont)) {
-        return '';
-    }
-
-    const fontSelection = buildFontSelection(headingFont, bodyFont);
-    const customCSS = generateCustomFontCss(fontSelection);
-    return new SafeString(customCSS);
-}
-
-function isValidFontSelection(headingFont, bodyFont) {
-    return (typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
-           (typeof bodyFont === 'string' && isValidCustomFont(bodyFont));
-}
-
-function buildFontSelection(headingFont, bodyFont) {
-    const fontSelection = {};
-    if (headingFont) {
-        fontSelection.heading = headingFont;
-    }
-    if (bodyFont) {
-        fontSelection.body = bodyFont;
-    }
-    return fontSelection;
-}
-
-// ============================================================================
-// Metadata and Context Helpers
-// ============================================================================
-
-function addMetadataToHead(head, meta, context, excludeList, referrerPolicy) {
-    if (!context) {
         return;
     }
 
-    if (!excludeList.has('metadata')) {
-        addBasicMetadata(head, meta, referrerPolicy, context);
-    }
-
-    addPaginationLinks(head, meta);
-    addStructuredData(head, meta, context, excludeList);
+    head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
 }
 
-function addBasicMetadata(head, meta, referrerPolicy, context) {
-    if (meta.metaDescription && meta.metaDescription.length > 0) {
-        head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
-    }
-
-    if (settingsCache.get('icon')) {
-        const favicon = blogIcon.getIconUrl();
-        const iconType = blogIcon.getIconType(favicon);
-        head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
-    }
-
-    head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
-
-    if (_.includes(context, 'preview')) {
-        head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-        head.push(writeMetaTag('referrer', 'same-origin', 'name'));
-    } else {
-        head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
+function addMemberAttribution(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
     }
 }
 
-function addPaginationLinks(head, meta) {
-    if (meta.previousUrl) {
-        head.push('<link rel="prev" href="' + escapeExpression(meta.previousUrl) + '">');
+function addWebAnalytics(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        // Set a flag in response locals to indicate tracking script is being served
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
     }
-
-    if (meta.nextUrl) {
-        head.push('<link rel="next" href="' + escapeExpression(meta.nextUrl) + '">');
-    }
-}
-
-function addStructuredData(head, meta, context, excludeList) {
-    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
-
-    if (_.includes(context, 'paged') || !useStructuredData) {
-        return;
-    }
-
-    if (!excludeList.has('social_data')) {
-        head.push('');
-        head.push.apply(head, finaliseStructuredData(meta));
-        head.push('');
-    }
-
-    if (!excludeList.has('schema') && meta.schema) {
-        head.push('<script type="application/ld+json">\n' +
-            JSON.stringify(meta.schema, null, '    ') +
-            '\n    </script>\n');
-    }
-}
-
-function addGeneratorAndRssLinks(head, safeVersion, meta) {
-    head.push('<meta name="generator" content="Ghost ' + escapeExpression(safeVersion) + '">');
-    head.push('<link rel="alternate" type="application/rss+xml" title="' +
-        escapeExpression(meta.site.title) + '" href="' +
-        escapeExpression(meta.rssUrl) + '">');
 }
 
 // ============================================================================
-// Accent Color and Code Injection
+// Style and Injection Helpers
 // ============================================================================
 
 function addAccentColorStyle(head, accentColor) {
@@ -390,14 +287,113 @@ function addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCode
     if (!_.isEmpty(globalCodeinjection)) {
         head.push(globalCodeinjection);
     }
-
     if (!_.isEmpty(postCodeInjection)) {
         head.push(postCodeInjection);
     }
-
     if (!_.isEmpty(tagCodeInjection)) {
         head.push(tagCodeInjection);
     }
+}
+
+function addCustomFonts(head, options) {
+    const isSitePreview = options.data?.site?._preview ?? false;
+    const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
+
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        /** @type FontSelection */
+        const fontSelection = {};
+
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        const customCSS = generateCustomFontCss(fontSelection);
+        head.push(new SafeString(customCSS));
+    }
+}
+
+// ============================================================================
+// Metadata Helpers
+// ============================================================================
+
+function addMetadataForContext(head, context, meta, excludeList) {
+    if (!context) {
+        return;
+    }
+
+    if (!excludeList.has('metadata')) {
+        addBasicMetadata(head, meta);
+    }
+
+    addPaginationLinks(head, meta);
+    addStructuredDataForContext(head, context, meta, excludeList);
+}
+
+function addBasicMetadata(head, meta) {
+    if (meta.metaDescription && meta.metaDescription.length > 0) {
+        head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
+    }
+
+    if (settingsCache.get('icon')) {
+        const favicon = blogIcon.getIconUrl();
+        const iconType = blogIcon.getIconType(favicon);
+        head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
+    }
+
+    head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
+    addReferrerPolicy(head);
+}
+
+function addReferrerPolicy(head) {
+    const referrerPolicy = config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade';
+
+    if (_.includes(head, 'preview')) {
+        head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+        head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+    } else {
+        head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
+    }
+}
+
+function addPaginationLinks(head, meta) {
+    if (meta.previousUrl) {
+        head.push('<link rel="prev" href="' + escapeExpression(meta.previousUrl) + '">');
+    }
+
+    if (meta.nextUrl) {
+        head.push('<link rel="next" href="' + escapeExpression(meta.nextUrl) + '">');
+    }
+}
+
+function addStructuredDataForContext(head, context, meta, excludeList) {
+    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
+
+    if (_.includes(context, 'paged') || !useStructuredData) {
+        return;
+    }
+
+    if (!excludeList.has('social_data')) {
+        head.push('');
+        head.push.apply(head, finaliseStructuredData(meta));
+        head.push('');
+    }
+
+    if (!excludeList.has('schema') && meta.schema) {
+        head.push('<script type="application/ld+json">\n' +
+            JSON.stringify(meta.schema, null, '    ') +
+            '\n    </script>\n');
+    }
+}
+
+function addGeneratorAndRss(head, safeVersion, meta) {
+    head.push('<meta name="generator" content="Ghost ' + escapeExpression(safeVersion) + '">');
+    head.push('<link rel="alternate" type="application/rss+xml" title="' +
+        escapeExpression(meta.site.title) + '" href="' +
+        escapeExpression(meta.rssUrl) + '">');
 }
 
 // ============================================================================
@@ -408,4 +404,103 @@ function addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCode
  * **NOTE**
  * Express adds `_locals`, see https://github.com/expressjs/express/blob/4.15.4/lib/response.js#L962.
  * But `options.data.root.context` is available next to `root._locals.context`, because
- * Express creates a `
+ * Express creates a `renderOptions` object, see https://github.com/expressjs/express/blob/4.15.4/lib/application.js#L554
+ * and merges all locals to the root of the object. Very confusing, because the data is available in different layers.
+ *
+ * Express forwards the data like this to the hbs engine:
+ * {
+ *   post: {},             - res.render('view', databaseResponse)
+ *   context: ['post'],    - from res.locals
+ *   safeVersion: '1.x',   - from res.locals
+ *   _locals: {
+ *     context: ['post'],
+ *     safeVersion: '1.x'
+ *   }
+ * }
+ *
+ * hbs forwards the data to any hbs helper like this
+ * {
+ *   data: {
+ *     site: {},
+ *     labs: {},
+ *     config: {},
+ *     root: {
+ *       post: {},
+ *       context: ['post'],
+ *       locals: {...}
+ *     }
+ *  }
+ *
+ * `site`, `labs` and `config` are the templateOptions, search for `hbs.updateTemplateOptions` in the code base.
+ *  Also see how the root object gets created, https://github.com/wycats/handlebars.js/blob/v4.0.6/lib/handlebars/runtime.js#L259
+ */
+// We use the name ghost_head to match the helper for consistency:
+module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
+    debug('begin');
+    // if server error page do nothing
+    if (options.data.root.statusCode >= 500) {
+        return;
+    }
+
+    const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
+    const head = [];
+    const dataRoot = options.data.root;
+    const context = dataRoot._locals.context ? dataRoot._locals.context : null;
+    const safeVersion = dataRoot._locals.safeVersion;
+    const postCodeInjection = dataRoot && dataRoot.post ? dataRoot.post.codeinjection_head : null;
+    const tagCodeInjection = dataRoot && dataRoot.tag ? dataRoot.tag.codeinjection_head : null;
+    const globalCodeinjection = settingsCache.get('codeinjection_head');
+
+    debug('preparation complete, begin fetch');
+
+    try {
+        const meta = await getMetaData(dataRoot, dataRoot);
+        const frontendKey = await getFrontendKey();
+
+        debug('end fetch');
+
+        // Add metadata and structured data
+        addMetadataForContext(head, context, meta, excludeList);
+
+        // Add generator and RSS
+        addGeneratorAndRss(head, safeVersion, meta);
+
+        // Add frontend apps
+        head.push(getMembersHelper(options.data, frontendKey, excludeList));
+        if (!excludeList.has('search')) {
+            head.push(getSearchHelper(frontendKey));
+        }
+        if (!excludeList.has('announcement')) {
+            head.push(getAnnouncementBarHelper(options.data));
+        }
+
+        // Add discovery links
+        try {
+            head.push(getWebmentionDiscoveryLink());
+        } catch (err) {
+            logging.warn(err);
+        }
+
+        // Add assets
+        addCardAssets(head, excludeList);
+        addCommentCounts(head, excludeList);
+        addMemberAttribution(head);
+        addWebAnalytics(head, dataRoot);
+
+        // Add styles and injections
+        addAccentColorStyle(head, options.data.site.accent_color);
+        addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection);
+        addCustomFonts(head, options);
+
+        debug('end');
+        return new SafeString(head.join('\n    ').trim());
+    } catch (error) {
+        logging.error(error);
+
+        // Return what we have so far (currently nothing)
+        return new SafeString(head.join('\n    ').trim());
+    }
+};
+
+module.exports.async = true;
+```
