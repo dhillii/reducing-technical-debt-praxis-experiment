@@ -1,0 +1,301 @@
+```typescript
+import OffersRetention from './offers-retention';
+import {Button, type Tab, TabView} from '@tryghost/admin-x-design-system';
+import {ButtonGroup, type ButtonProps, showToast} from '@tryghost/admin-x-design-system';
+import {Icon} from '@tryghost/admin-x-design-system';
+import {LucideIcon} from '@tryghost/shade';
+import {Modal} from '@tryghost/admin-x-design-system';
+import {Popover} from '@tryghost/admin-x-design-system';
+import {type Tier, getPaidActiveTiers, useBrowseTiers} from '@tryghost/admin-x-framework/api/tiers';
+import {Tooltip} from '@tryghost/admin-x-design-system';
+import {currencyToDecimal, getSymbol} from '../../../../utils/currency';
+import {getHomepageUrl} from '@tryghost/admin-x-framework/api/site';
+import {numberWithCommas} from '../../../../utils/helpers';
+import {useBrowseOffers} from '@tryghost/admin-x-framework/api/offers';
+import {useGlobalData} from '../../../providers/global-data-provider';
+import {useModal} from '@ebay/nice-modal-react';
+import {useRouting} from '@tryghost/admin-x-framework/routing';
+import {useSortingState} from '../../../providers/settings-app-provider';
+import {useState} from 'react';
+
+export type OfferType = 'percent' | 'fixed' | 'trial';
+
+export const createRedemptionFilterUrl = (id: string): string => {
+    const baseHref = '/ghost/#/members';
+    const filterValue = `offer_redemptions:[${id}]`;
+    return `${baseHref}?filter=${encodeURIComponent(filterValue)}`;
+};
+
+export const getOfferCadence = (cadence: string): string => {
+    return cadence === 'month' ? 'monthly' : 'yearly';
+};
+
+export const getOfferDuration = (duration: string): string => {
+    return (duration === 'once' ? 'First payment' : duration === 'repeating' ? 'Repeating' : 'Forever');
+};
+
+/** @internal Formats number to two decimal places */
+const formatToTwoDecimals = (num: number): number => parseFloat(num.toFixed(2));
+
+/** @internal Calculates percent discount amount */
+const calculatePercentDiscount = (originalPrice: number, amount: number): number => {
+    return originalPrice - ((originalPrice * amount) / 100);
+};
+
+/** @internal Calculates fixed discount amount */
+const calculateFixedDiscount = (originalPrice: number, amount: number): number => {
+    return originalPrice - amount;
+};
+
+/** @internal Ensures price is not negative */
+const ensureNonNegativePrice = (price: number): number => {
+    return price < 0 ? 0 : price;
+};
+
+/** @internal Gets discount color based on offer type */
+const getDiscountColor = (type: string): string => {
+    switch (type) {
+    case 'percent':
+        return 'text-green';
+    case 'fixed':
+        return 'text-blue';
+    case 'trial':
+        return 'text-pink';
+    default:
+        return '';
+    }
+};
+
+/** @internal Gets discount offer text based on type and amount */
+const getDiscountOfferText = (type: string, amount: number, currency: string): string => {
+    switch (type) {
+    case 'percent':
+        return amount + '% off';
+    case 'fixed':
+        return numberWithCommas(formatToTwoDecimals(currencyToDecimal(amount))) + ' ' + currency + ' off';
+    case 'trial':
+        return amount + ' days free';
+    default:
+        return '';
+    }
+};
+
+/** @internal Calculates updated price based on offer type */
+const calculateUpdatedPrice = (type: string, originalPrice: number, amount: number): number => {
+    switch (type) {
+    case 'percent':
+        return calculatePercentDiscount(originalPrice, amount);
+    case 'fixed':
+        return calculateFixedDiscount(originalPrice, amount);
+    case 'trial':
+        return originalPrice;
+    default:
+        return originalPrice;
+    }
+};
+
+/** @internal Determines if original price should be shown */
+const shouldShowOriginalPrice = (type: string): boolean => {
+    return type !== 'trial';
+};
+
+export const getOfferDiscount = (type: string, amount: number, cadence: string, currency: string, tier: Tier | undefined): {discountColor: string, discountOffer: string, originalPriceWithCurrency: string, updatedPriceWithCurrency: string} => {
+    const originalPrice = cadence === 'month' ? tier?.monthly_price ?? 0 : tier?.yearly_price ?? 0;
+    const discountColor = getDiscountColor(type);
+    const discountOffer = getDiscountOfferText(type, amount, currency);
+    
+    let originalPriceWithCurrency = getSymbol(currency) + numberWithCommas(formatToTwoDecimals(currencyToDecimal(originalPrice)));
+    if (!shouldShowOriginalPrice(type)) {
+        originalPriceWithCurrency = '';
+    }
+
+    let updatedPrice = calculateUpdatedPrice(type, originalPrice, amount);
+    updatedPrice = ensureNonNegativePrice(updatedPrice);
+
+    const updatedPriceWithCurrency = getSymbol(currency) + numberWithCommas(formatToTwoDecimals(currencyToDecimal(updatedPrice)));
+
+    return {
+        discountColor,
+        discountOffer,
+        originalPriceWithCurrency,
+        updatedPriceWithCurrency
+    };
+};
+
+export const CopyLinkButton: React.FC<{offerCode: string}> = ({offerCode}) => {
+    const [isCopied, setIsCopied] = useState(false);
+    const {siteData} = useGlobalData();
+
+    const handleCopyClick = (e?: React.MouseEvent<HTMLElement, MouseEvent>) => {
+        e?.stopPropagation();
+        const offerLink = `${getHomepageUrl(siteData!)}${offerCode}`;
+        navigator.clipboard.writeText(offerLink);
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 2000);
+    };
+
+    return <Tooltip containerClassName='group-hover:opacity-100 opacity-0 inline-flex items-center -mr-1 justify-center leading-none w-5 h-5' content={isCopied ? 'Copied' : 'Copy link'} size='sm'><Button color='clear' hideLabel={true} icon={isCopied ? 'check-circle' : 'hyperlink-circle'} iconColorClass={isCopied ? 'text-green w-[14px] h-[14px]' : 'w-[14px] h-[14px]'} label={isCopied ? 'Copied' : 'Copy'} unstyled={true} onClick={handleCopyClick} /></Tooltip>;
+};
+
+export const EmptyState: React.FC<{title?: string, description: string, buttonAction: () => void, buttonLabel: string}> = ({title = 'No offers found', description, buttonAction, buttonLabel}) => (
+    <div className='flex h-full grow flex-col items-center justify-center text-center'>
+        <Icon className='-mt-14' colorClass='text-grey-700 -mt-6' name='tags-block' size='lg' />
+        <h1 className='mt-4 text-xl'>{title}</h1>
+        <p className='mt-1.5 max-w-[420px]'>{description}</p>
+        <Button className="mt-6" color="grey" label={buttonLabel} onClick={buttonAction}></Button>
+    </div>
+);
+
+const OffersFilterPopover: React.FC<{
+    statusFilter: 'active' | 'archived';
+    setStatusFilter: (status: 'active' | 'archived') => void;
+    sortOption: string;
+    sortDirection: string;
+    onSortChange: (option: string) => void;
+    onDirectionChange: () => void;
+}> = ({statusFilter, setStatusFilter, sortOption, sortDirection, onSortChange, onDirectionChange}) => {
+    return (
+        <Popover
+            position='end'
+            trigger={
+                <button className='flex cursor-pointer items-center justify-center rounded p-1 hover:bg-grey-100 dark:hover:bg-grey-800' type='button'>
+                    <LucideIcon.ListFilter className='text-grey-700' size={16} strokeWidth={1.5} />
+                </button>
+            }
+        >
+            <div className='flex min-w-[220px] flex-col'>
+                <div className='cursor-default select-none border-b border-b-grey-200 p-2 pl-3 text-xs font-semibold uppercase tracking-wide text-grey-700 dark:border-b-grey-800'>Status</div>
+                <div className='flex flex-col py-1'>
+                    {(['active', 'archived'] as const).map(status => (
+                        <button
+                            key={status}
+                            className='group relative mx-1 flex cursor-pointer items-center rounded-[2.5px] px-8 py-1.5 text-left text-sm hover:bg-grey-100 dark:hover:bg-grey-800'
+                            type='button'
+                            onClick={() => setStatusFilter(status)}
+                        >
+                            {statusFilter === status && <Icon className='absolute left-2' name='check' size='xs' />}
+                            {status.charAt(0).toUpperCase() + status.slice(1)}
+                        </button>
+                    ))}
+                </div>
+                <div className='cursor-default select-none border-y border-y-grey-200 p-2 pl-3 text-xs font-semibold uppercase tracking-wide text-grey-700 dark:border-grey-800'>Sort by</div>
+                <div className='flex flex-col py-1'>
+                    {[
+                        {id: 'date-added', label: 'Date added'},
+                        {id: 'name', label: 'Name'},
+                        {id: 'redemptions', label: 'Redemptions'}
+                    ].map(item => (
+                        <div
+                            key={item.id}
+                            className='group relative mx-1 flex items-center rounded-[2.5px] hover:bg-grey-100 dark:hover:bg-grey-800'
+                        >
+                            <button
+                                className='flex w-full cursor-pointer items-center px-8 py-1.5 pr-12 text-left text-sm'
+                                type='button'
+                                onClick={() => onSortChange(item.id)}
+                            >
+                                {sortOption === item.id && <Icon className='absolute left-2' name='check' size='xs' />}
+                                {item.label}
+                            </button>
+                            {sortOption === item.id && (
+                                <button
+                                    className='absolute right-1 flex size-6 cursor-pointer items-center justify-center rounded-full hover:bg-grey-300 dark:hover:bg-grey-700'
+                                    title={sortDirection === 'asc' ? 'Ascending' : 'Descending'}
+                                    type='button'
+                                    onClick={() => onDirectionChange()}
+                                >
+                                    <Icon name={sortDirection === 'asc' ? 'arrow-up' : 'arrow-down'} size='xs' />
+                                </button>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </Popover>
+    );
+};
+
+/** @internal Checks if offer tier is active */
+const isOfferTierActive = (offer: any, allTiers: Tier[] | undefined): boolean => {
+    const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
+    return offerTier?.active === true;
+};
+
+/** @internal Checks if offer is active and tier is active */
+const isOfferActiveAndTierActive = (offer: any, allTiers: Tier[] | undefined): boolean => {
+    return offer.status === 'active' && isOfferTierActive(offer, allTiers);
+};
+
+/** @internal Checks if offer is archived or tier is archived */
+const isOfferArchivedOrTierArchived = (offer: any, allTiers: Tier[] | undefined): boolean => {
+    const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
+    return offer.status === 'archived' || (offerTier && offerTier.active === false);
+};
+
+/** @internal Filters offers based on status filter */
+const filterOffersByStatus = (offer: any, statusFilter: 'active' | 'archived', allTiers: Tier[] | undefined): boolean => {
+    if (statusFilter === 'active') {
+        return isOfferActiveAndTierActive(offer, allTiers);
+    }
+    return isOfferArchivedOrTierArchived(offer, allTiers);
+};
+
+/** @internal Gets sort multiplier based on direction */
+const getSortMultiplier = (sortDirection: string): number => {
+    return sortDirection === 'desc' ? -1 : 1;
+};
+
+/** @internal Compares offers by name */
+const compareOffersByName = (offer1: any, offer2: any, multiplier: number): number => {
+    return multiplier * offer1.name.localeCompare(offer2.name);
+};
+
+/** @internal Compares offers by redemption count */
+const compareOffersByRedemptions = (offer1: any, offer2: any, multiplier: number): number => {
+    return multiplier * (offer1.redemption_count - offer2.redemption_count);
+};
+
+/** @internal Gets timestamp from offer creation date */
+const getOfferTimestamp = (offer: any): number => {
+    return offer.created_at ? new Date(offer.created_at).getTime() : 0;
+};
+
+/** @internal Compares offers by creation date */
+const compareOffersByDate = (offer1: any, offer2: any, multiplier: number): number => {
+    return multiplier * (getOfferTimestamp(offer1) - getOfferTimestamp(offer2));
+};
+
+/** @internal Sorts offers based on selected option */
+const sortOffersByOption = (offer1: any, offer2: any, sortOption: string, multiplier: number): number => {
+    switch (sortOption) {
+    case 'name':
+        return compareOffersByName(offer1, offer2, multiplier);
+    case 'redemptions':
+        return compareOffersByRedemptions(offer1, offer2, multiplier);
+    default:
+        return compareOffersByDate(offer1, offer2, multiplier);
+    }
+};
+
+/** @internal Checks if should show active empty state */
+const shouldShowActiveEmptyState = (selectedTab: string, statusFilter: string, activeOffers: any[], isFetchingOffers: boolean): boolean => {
+    return selectedTab === 'signup' && statusFilter === 'active' && activeOffers.length === 0 && !isFetchingOffers;
+};
+
+/** @internal Checks if should show archived empty state */
+const shouldShowArchivedEmptyState = (selectedTab: string, statusFilter: string, archivedOffers: any[], isFetchingOffers: boolean): boolean => {
+    return selectedTab === 'signup' && statusFilter === 'archived' && archivedOffers.length === 0 && !isFetchingOffers;
+};
+
+/** @internal Checks if should show filter header */
+const shouldShowFilterHeader = (selectedTab: string, filteredOffers: any[]): boolean => {
+    return selectedTab === 'signup' && filteredOffers.length > 0;
+};
+
+/** @internal Checks if should show retention tab */
+const shouldShowRetentionTab = (selectedTab: string): boolean => {
+    return selectedTab === 'retention';
+};
+
+/** @internal Checks if should show signup list */
+const shouldShowSign
