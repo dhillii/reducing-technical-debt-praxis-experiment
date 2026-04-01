@@ -382,7 +382,7 @@ function* generateUniqueFieldConfigurations(baseFields: Field[]) {
   }
 }
 
-// Generates all list configurations for access control testing
+// Generates list configurations for all access control combinations
 function* generateListConfigurations(
   fields: Field[],
   fieldsUnique: Field[]

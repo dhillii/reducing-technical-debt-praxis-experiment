@@ -73,7 +73,6 @@ internals.marshal = function (request, next) {
             internals.handleJsonp(response, request);
             internals.handlePayloadSize(response);
             internals.handleUnsupportedPayload(response);
-
             internals.content(response, true);
             return Auth.response(request, next);
         });
@@ -143,8 +142,8 @@ internals.transmit = function (response, callback) {
     internals.handleEmptyResponse(response, length);
 
     const encoding = request.connection._compression.encoding(response);
-    const ranger = internals.setupRanging(request, response, length, encoding);
-    const compressor = internals.setupCompression(request, response, encoding, length);
+    const ranger = internals.handleRange(request, response, length, encoding);
+    const compressor = internals.handleCompression(request, response, encoding, length);
 
     internals.handleEtagEncoding(response, encoding);
     internals.handleConnectionClose(request, response);
@@ -168,10 +167,9 @@ internals.handleEmptyResponse = function (response, length) {
 };
 
 
-internals.setupRanging = function (request, response, length, encoding) {
+internals.handleRange = function (request, response, length, encoding) {
 
     if (!request.route.settings.response.ranges || request.method !== 'get' || response.statusCode !== 200 || length === 0 || encoding) {
-        response._header('accept-ranges', 'bytes');
         return null;
     }
 
@@ -189,26 +187,25 @@ internals.setupRanging = function (request, response, length, encoding) {
     if (!ranges) {
         const error = Boom.rangeNotSatisfiable();
         error.output.headers['content-range'] = 'bytes */' + length;
-        return null;
+        throw error;
     }
 
-    if (ranges.length !== 1) {
-        response._header('accept-ranges', 'bytes');
-        return null;
-    }
-
-    const range = ranges[0];
-    const ranger = new Ammo.Stream(range);
-    response.code(206);
-    response.bytes(range.to - range.from + 1);
-    response._header('content-range', 'bytes ' + range.from + '-' + range.to + '/' + length);
     response._header('accept-ranges', 'bytes');
 
-    return ranger;
+    if (ranges.length === 1) {
+        const range = ranges[0];
+        const ranger = new Ammo.Stream(range);
+        response.code(206);
+        response.bytes(range.to - range.from + 1);
+        response._header('content-range', 'bytes ' + range.from + '-' + range.to + '/' + length);
+        return ranger;
+    }
+
+    return null;
 };
 
 
-internals.setupCompression = function (request, response, encoding, length) {
+internals.handleCompression = function (request, response, encoding, length) {
 
     if (!encoding || length === 0 || response.statusCode === 206 || !response._isPayloadSupported()) {
         return null;
@@ -216,7 +213,6 @@ internals.setupCompression = function (request, response, encoding, length) {
 
     delete response.headers['content-length'];
     response._header('content-encoding', encoding);
-
     return request.connection._compression.encoder(request, encoding);
 };
 
@@ -256,7 +252,7 @@ internals.pipePayload = function (request, response, source, ranger, compressor,
     const end = Hoek.once((err, event) => {
         internals.cleanupListeners(request, source, end, onAborted, onClose);
         internals.handlePayloadError(request, response, source, err);
-        internals.finishResponse(request, response, err, event);
+        internals.finishResponse(request, response, event, err);
         internals.logResponse(request, err, event);
         return callback();
     });
@@ -308,7 +304,7 @@ internals.handlePayloadError = function (request, response, source, err) {
 };
 
 
-internals.finishResponse = function (request, response, err, event) {
+internals.finishResponse = function (request, response, event, err) {
 
     if (!request.raw.res.finished && event !== 'aborted') {
         request.raw.res.end();
@@ -509,3 +505,17 @@ internals.unmodified = function (response) {
     }
 
     if (response.statusCode === 304) {
+        return;
+    }
+
+    const entity = {
+        etag: response.headers.etag,
+        vary: response.settings.varyEtag,
+        modified: response.headers['last-modified']
+    };
+
+    if (Response.unmodified(request, entity)) {
+        response.code(304);
+    }
+};
+```

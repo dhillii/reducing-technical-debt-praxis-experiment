@@ -22,11 +22,7 @@ import type {
   FieldProps,
 } from '../../../../types'
 
-function validateInitialValue(
-  value: Value,
-  isRequired: boolean,
-  fieldLabel: string
-): string | undefined {
+function validateInitialState(value: Value, isRequired: boolean, fieldLabel: string): string | undefined {
   if (value.kind === 'initial' && (value.isSet === null || value.isSet === true)) {
     return undefined
   }
@@ -43,40 +39,29 @@ function validatePasswordMatch(value: Value): string | undefined {
   return undefined
 }
 
-function validatePasswordLength(
-  val: string,
-  minLength: number,
-  maxLength: number | null,
-  fieldLabel: string
-): string | undefined {
-  if (val.length < minLength) {
-    if (minLength === 1) {
+function validatePasswordLength(value: Value, validation: Validation, fieldLabel: string): string | undefined {
+  if (value.kind !== 'editing') return undefined
+  
+  const val = value.value
+  if (val.length < validation.length.min) {
+    if (validation.length.min === 1) {
       return `${fieldLabel} must not be empty`
     }
-    return `${fieldLabel} must be at least ${minLength} characters long`
+    return `${fieldLabel} must be at least ${validation.length.min} characters long`
   }
-  if (maxLength !== null && val.length > maxLength) {
-    return `${fieldLabel} must be no longer than ${maxLength} characters`
-  }
-  return undefined
-}
-
-function validatePasswordPattern(
-  val: string,
-  match: { regex: RegExp; explanation: string } | null
-): string | undefined {
-  if (match && !match.regex.test(val)) {
-    return match.explanation
+  if (validation.length.max !== null && val.length > validation.length.max) {
+    return `${fieldLabel} must be no longer than ${validation.length.max} characters`
   }
   return undefined
 }
 
-function validatePasswordCommonality(
-  val: string,
-  rejectCommon: boolean,
-  fieldLabel: string
-): string | undefined {
-  if (rejectCommon && dumbPasswords.check(val)) {
+function validatePasswordPattern(value: Value, validation: Validation, fieldLabel: string): string | undefined {
+  if (value.kind !== 'editing') return undefined
+  
+  if (validation.match && !validation.match.regex.test(value.value)) {
+    return validation.match.explanation
+  }
+  if (validation.rejectCommon && dumbPasswords.check(value.value)) {
     return `${fieldLabel} is too common and is not allowed`
   }
   return undefined
@@ -88,30 +73,12 @@ function validate(
   isRequired: boolean,
   fieldLabel: string
 ): string | undefined {
-  const initialError = validateInitialValue(value, isRequired, fieldLabel)
-  if (initialError) return initialError
-
-  const matchError = validatePasswordMatch(value)
-  if (matchError) return matchError
-
-  if (value.kind === 'editing') {
-    const val = value.value
-    const lengthError = validatePasswordLength(
-      val,
-      validation.length.min,
-      validation.length.max,
-      fieldLabel
-    )
-    if (lengthError) return lengthError
-
-    const patternError = validatePasswordPattern(val, validation.match)
-    if (patternError) return patternError
-
-    const commonalityError = validatePasswordCommonality(val, validation.rejectCommon, fieldLabel)
-    if (commonalityError) return commonalityError
-  }
-
-  return undefined
+  return (
+    validateInitialState(value, isRequired, fieldLabel) ||
+    validatePasswordMatch(value) ||
+    validatePasswordLength(value, validation, fieldLabel) ||
+    validatePasswordPattern(value, validation, fieldLabel)
+  )
 }
 
 function readonlyCheckboxProps(isSet: null | undefined | boolean) {
@@ -129,29 +96,31 @@ function readonlyCheckboxProps(isSet: null | undefined | boolean) {
 function PasswordInputFields({
   value,
   onChange,
-  onEscape,
-  secureTextEntry,
+  field,
   descriptionId,
   messageId,
+  secureTextEntry,
+  touched,
+  setTouched,
   validationMessage,
-  fieldLabel,
+  onEscape,
 }: {
-  value: Extract<Value, { kind: 'editing' }>
+  value: Value & { kind: 'editing' }
   onChange: (val: Value) => void
-  onEscape: (e: React.KeyboardEvent) => void
-  secureTextEntry: boolean
+  field: { label: string }
   descriptionId: string
   messageId: string
+  secureTextEntry: boolean
+  touched: { value: boolean; confirm: boolean }
+  setTouched: (val: { value: boolean; confirm: boolean }) => void
   validationMessage: string | undefined
-  fieldLabel: string
+  onEscape: (e: React.KeyboardEvent) => void
 }) {
-  const [touched, setTouched] = useState({ value: false, confirm: false })
-
   return (
     <>
       <TextField
         autoFocus
-        aria-label={`new ${fieldLabel}`}
+        aria-label={`new ${field.label}`}
         aria-describedby={[descriptionId, messageId].filter(Boolean).join(' ')}
         isInvalid={!!validationMessage}
         onBlur={() => setTouched({ ...touched, value: true })}
@@ -163,7 +132,7 @@ function PasswordInputFields({
         flex
       />
       <TextField
-        aria-label={`confirm ${fieldLabel}`}
+        aria-label={`confirm ${field.label}`}
         aria-describedby={messageId}
         isInvalid={!!validationMessage}
         onBlur={() => setTouched({ ...touched, confirm: true })}
@@ -178,68 +147,34 @@ function PasswordInputFields({
   )
 }
 
-function PasswordEditingView({
-  value,
-  onChange,
-  onEscape,
+function PasswordActionButtons({
   secureTextEntry,
   setSecureTextEntry,
   cancelEditing,
-  descriptionId,
-  messageId,
-  validationMessage,
-  fieldLabel,
 }: {
-  value: Extract<Value, { kind: 'editing' }>
-  onChange: (val: Value) => void
-  onEscape: (e: React.KeyboardEvent) => void
   secureTextEntry: boolean
   setSecureTextEntry: (val: boolean) => void
   cancelEditing: () => void
-  descriptionId: string
-  messageId: string
-  validationMessage: string | undefined
-  fieldLabel: string
 }) {
   return (
-    <Flex
-      gap="regular"
-      UNSAFE_className={css({
-        [containerQueries.below.tablet]: {
-          flexDirection: 'column',
-        },
-      })}
-    >
-      <PasswordInputFields
-        value={value}
-        onChange={onChange}
-        onEscape={onEscape}
-        secureTextEntry={secureTextEntry}
-        descriptionId={descriptionId}
-        messageId={messageId}
-        validationMessage={validationMessage}
-        fieldLabel={fieldLabel}
-      />
-
-      <Flex gap="regular">
-        <ToggleButton
-          aria-label="show"
-          isSelected={!secureTextEntry}
-          onPress={() => setSecureTextEntry(bool => !bool)}
+    <Flex gap="regular">
+      <ToggleButton
+        aria-label="show"
+        isSelected={!secureTextEntry}
+        onPress={() => setSecureTextEntry(bool => !bool)}
+      >
+        <Icon src={eyeIcon} />
+        <Text
+          UNSAFE_className={css({
+            [containerQueries.above.mobile]: {
+              display: 'none',
+            },
+          })}
         >
-          <Icon src={eyeIcon} />
-          <Text
-            UNSAFE_className={css({
-              [containerQueries.above.mobile]: {
-                display: 'none',
-              },
-            })}
-          >
-            Show
-          </Text>
-        </ToggleButton>
-        <ActionButton onPress={cancelEditing}>Cancel</ActionButton>
-      </Flex>
+          Show
+        </Text>
+      </ToggleButton>
+      <ActionButton onPress={cancelEditing}>Cancel</ActionButton>
     </Flex>
   )
 }
@@ -318,18 +253,32 @@ export function Field(props: FieldProps<typeof controller>) {
           {field.label.toLocaleLowerCase()}
         </ActionButton>
       ) : (
-        <PasswordEditingView
-          value={value}
-          onChange={onChange}
-          onEscape={onEscape}
-          secureTextEntry={secureTextEntry}
-          setSecureTextEntry={setSecureTextEntry}
-          cancelEditing={cancelEditing}
-          descriptionId={descriptionId}
-          messageId={messageId}
-          validationMessage={validationMessage}
-          fieldLabel={field.label}
-        />
+        <Flex
+          gap="regular"
+          UNSAFE_className={css({
+            [containerQueries.below.tablet]: {
+              flexDirection: 'column',
+            },
+          })}
+        >
+          <PasswordInputFields
+            value={value}
+            onChange={onChange}
+            field={field}
+            descriptionId={descriptionId}
+            messageId={messageId}
+            secureTextEntry={secureTextEntry}
+            touched={touched}
+            setTouched={setTouched}
+            validationMessage={validationMessage}
+            onEscape={onEscape}
+          />
+          <PasswordActionButtons
+            secureTextEntry={secureTextEntry}
+            setSecureTextEntry={setSecureTextEntry}
+            cancelEditing={cancelEditing}
+          />
+        </Flex>
       )}
       {!!validationMessage && <FieldMessage id={messageId}>{validationMessage}</FieldMessage>}
     </VStack>

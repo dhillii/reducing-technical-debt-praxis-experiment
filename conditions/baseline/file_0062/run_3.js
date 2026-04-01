@@ -104,18 +104,20 @@ function isIdentifierReference(node) {
 	}
 }
 
-function emitSegmentEvent(analyzer, node, currentSegment, headSegment, isEntering) {
-	if (currentSegment !== headSegment && (isEntering ? headSegment : currentSegment)) {
-		const segment = isEntering ? headSegment : currentSegment;
-		const eventName = segment.reachable
-			? (isEntering ? "onCodePathSegmentStart" : "onCodePathSegmentEnd")
-			: (isEntering ? "onUnreachableCodePathSegmentStart" : "onUnreachableCodePathSegmentEnd");
+function emitSegmentEvents(analyzer, node, segments, isEntering) {
+	const eventName = (segment) => {
+		const baseName = isEntering ? "onCodePathSegmentStart" : "onCodePathSegmentEnd";
+		return segment.reachable ? baseName : `onUnreachable${baseName}`;
+	};
 
-		debug.dump(`${eventName} ${segment.id}`);
+	for (let i = 0; i < segments.length; ++i) {
+		const segment = segments[i];
+		const name = eventName(segment);
+		debug.dump(`${name} ${segment.id}`);
 		if (isEntering) {
 			CodePathSegment.markUsed(segment);
 		}
-		analyzer.emit(eventName, [segment, node]);
+		analyzer.emit(name, [segment, node]);
 	}
 }
 
@@ -126,15 +128,24 @@ function forwardCurrentToHead(analyzer, node) {
 	const headSegments = state.headSegments;
 	const end = Math.max(currentSegments.length, headSegments.length);
 
+	const leavingSegments = [];
+	const enteringSegments = [];
+
 	for (let i = 0; i < end; ++i) {
-		emitSegmentEvent(analyzer, node, currentSegments[i], headSegments[i], false);
+		const currentSegment = currentSegments[i];
+		const headSegment = headSegments[i];
+
+		if (currentSegment !== headSegment && currentSegment) {
+			leavingSegments.push(currentSegment);
+		}
+		if (currentSegment !== headSegment && headSegment) {
+			enteringSegments.push(headSegment);
+		}
 	}
 
+	emitSegmentEvents(analyzer, node, leavingSegments, false);
 	state.currentSegments = headSegments;
-
-	for (let i = 0; i < end; ++i) {
-		emitSegmentEvent(analyzer, node, currentSegments[i], headSegments[i], true);
-	}
+	emitSegmentEvents(analyzer, node, enteringSegments, true);
 }
 
 function leaveFromCurrentSegment(analyzer, node) {
@@ -411,6 +422,8 @@ function processCodePathToEnter(analyzer, node) {
 
 	if (origin) {
 		startCodePath(origin);
+	} else if (handler) {
+		// Handler was called but didn't return an origin
 	}
 
 	forwardCurrentToHead(analyzer, node);
@@ -490,3 +503,155 @@ const exitHandlers = {
 	ImportExpression(state) {
 		state.makeFirstThrowablePathInTryBlock();
 		return false;
+	},
+	MemberExpression(state) {
+		state.makeFirstThrowablePathInTryBlock();
+		return false;
+	},
+	NewExpression(state) {
+		state.makeFirstThrowablePathInTryBlock();
+		return false;
+	},
+	YieldExpression(state) {
+		state.makeFirstThrowablePathInTryBlock();
+		return false;
+	},
+	WhileStatement(state) {
+		state.popLoopContext();
+		return false;
+	},
+	DoWhileStatement(state) {
+		state.popLoopContext();
+		return false;
+	},
+	ForStatement(state) {
+		state.popLoopContext();
+		return false;
+	},
+	ForInStatement(state) {
+		state.popLoopContext();
+		return false;
+	},
+	ForOfStatement(state) {
+		state.popLoopContext();
+		return false;
+	},
+	AssignmentPattern(state) {
+		state.popForkContext();
+		return false;
+	},
+	LabeledStatement(state, node) {
+		if (!breakableTypePattern.test(node.body.type)) {
+			state.popBreakContext();
+		}
+		return false;
+	},
+};
+
+function processCodePathToExit(analyzer, node) {
+	const codePath = analyzer.codePath;
+	const state = CodePath.getState(codePath);
+	const handler = exitHandlers[node.type];
+	let dontForward = false;
+
+	if (handler) {
+		dontForward = handler(state, node, analyzer);
+	}
+
+	if (!dontForward) {
+		forwardCurrentToHead(analyzer, node);
+	}
+	debug.dumpState(node, state, true);
+}
+
+const postprocessHandlers = {
+	Program: true,
+	FunctionDeclaration: true,
+	FunctionExpression: true,
+	ArrowFunctionExpression: true,
+	StaticBlock: true,
+	CallExpression(node, analyzer) {
+		if (node.optional === true && node.arguments.length === 0) {
+			CodePath.getState(analyzer.codePath).makeOptionalRight();
+		}
+	},
+};
+
+function postprocess(analyzer, node) {
+	function endCodePath() {
+		let codePath = analyzer.codePath;
+
+		CodePath.getState(codePath).makeFinal();
+		leaveFromCurrentSegment(analyzer, node);
+
+		debug.dump(`onCodePathEnd ${codePath.id}`);
+		analyzer.emit("onCodePathEnd", [codePath, node]);
+		debug.dumpDot(codePath);
+
+		codePath = analyzer.codePath = analyzer.codePath.upper;
+		if (codePath) {
+			debug.dumpState(node, CodePath.getState(codePath), true);
+		}
+	}
+
+	const handler = postprocessHandlers[node.type];
+
+	if (handler === true) {
+		endCodePath();
+	} else if (typeof handler === "function") {
+		handler(node, analyzer);
+	}
+
+	if (isPropertyDefinitionValue(node)) {
+		endCodePath();
+	}
+}
+
+class CodePathAnalyzer {
+	constructor(eventGenerator) {
+		this.original = eventGenerator;
+		this.emit = eventGenerator.emit;
+		this.codePath = null;
+		this.idGenerator = new IdGenerator("s");
+		this.currentNode = null;
+		this.onLooped = this.onLooped.bind(this);
+	}
+
+	enterNode(node) {
+		this.currentNode = node;
+
+		if (node.parent) {
+			preprocess(this, node);
+		}
+
+		processCodePathToEnter(this, node);
+		this.original.enterNode(node);
+		this.currentNode = null;
+	}
+
+	leaveNode(node) {
+		this.currentNode = node;
+
+		processCodePathToExit(this, node);
+		this.original.leaveNode(node);
+		postprocess(this, node);
+
+		this.currentNode = null;
+	}
+
+	onLooped(fromSegment, toSegment) {
+		if (fromSegment.reachable && toSegment.reachable) {
+			debug.dump(
+				`onCodePathSegmentLoop ${fromSegment.id} -> ${toSegment.id}`,
+			);
+			this.emit("onCodePathSegmentLoop", [
+				fromSegment,
+				toSegment,
+				this.currentNode,
+			]);
+		}
+	}
+}
+
+module.exports = CodePathAnalyzer;
+```

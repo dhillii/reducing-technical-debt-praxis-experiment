@@ -66,7 +66,7 @@ internals.marshal = function (request, next) {
         internals.cache(response);
 
         if (!response._isPayloadSupported() && request.method !== 'head') {
-            return internals.handleEmptyPayload(response, request, next);
+            return internals.handleUnsupportedPayload(response, request, next);
         }
 
         response._marshal((err) => {
@@ -83,7 +83,7 @@ internals.marshal = function (request, next) {
 };
 
 
-internals.handleEmptyPayload = function (response, request, next) {
+internals.handleUnsupportedPayload = function (response, request, next) {
 
     response._close();
     response._payload = new internals.Empty();
@@ -130,23 +130,17 @@ internals.fail = function (request, boom, callback) {
     internals.marshal(request, (err) => {
 
         if (err) {
-            internals.setMinimalErrorPayload(response, error, boom);
+            const minimal = {
+                statusCode: error.statusCode,
+                error: Http.STATUS_CODES[error.statusCode],
+                message: boom.message
+            };
+
+            response._payload = new Response.Payload(JSON.stringify(minimal), {});
         }
 
         return internals.transmit(response, callback);
     });
-};
-
-
-internals.setMinimalErrorPayload = function (response, error, boom) {
-
-    const minimal = {
-        statusCode: error.statusCode,
-        error: Http.STATUS_CODES[error.statusCode],
-        message: boom.message
-    };
-
-    response._payload = new Response.Payload(JSON.stringify(minimal), {});
 };
 
 
@@ -156,13 +150,13 @@ internals.transmit = function (response, callback) {
     const source = response._payload;
     const length = parseInt(response.headers['content-length'], 10);
 
-    internals.handleEmptyResponse(response, length);
+    internals.adjustEmptyResponse(response, length);
 
     const encoding = request.connection._compression.encoding(response);
-    const ranger = internals.setupRanging(request, response, length, encoding);
+    const ranger = internals.setupRangeHandling(request, response, length, encoding);
     const compressor = internals.setupCompression(request, response, encoding, length);
 
-    internals.updateEtagForEncoding(response, encoding);
+    internals.adjustEtagForEncoding(response, encoding);
     internals.setupConnectionClose(request, response);
 
     const error = internals.writeHead(response);
@@ -170,12 +164,15 @@ internals.transmit = function (response, callback) {
         return Hoek.nextTick(callback)(error);
     }
 
-    internals.setupInjection(request, response);
-    internals.pipePayload(request, response, source, ranger, compressor, callback);
+    if (Shot.isInjection(request.raw.req)) {
+        internals.setupInjection(request, response);
+    }
+
+    internals.pipePayload(source, request, response, ranger, compressor, callback);
 };
 
 
-internals.handleEmptyResponse = function (response, length) {
+internals.adjustEmptyResponse = function (response, length) {
 
     if (length === 0 && response.statusCode === 200 &&
         response.request.route.settings.response.emptyStatusCode === 204) {
@@ -186,7 +183,7 @@ internals.handleEmptyResponse = function (response, length) {
 };
 
 
-internals.setupRanging = function (request, response, length, encoding) {
+internals.setupRangeHandling = function (request, response, length, encoding) {
 
     if (!request.route.settings.response.ranges || request.method !== 'get' ||
         response.statusCode !== 200 || length === 0 || encoding) {
@@ -199,11 +196,11 @@ internals.setupRanging = function (request, response, length, encoding) {
         return null;
     }
 
-    return internals.processRangeHeader(request, response, length);
+    return internals.processRangeRequest(request, response, length);
 };
 
 
-internals.processRangeHeader = function (request, response, length) {
+internals.processRangeRequest = function (request, response, length) {
 
     if (request.headers['if-range'] && request.headers['if-range'] !== response.headers.etag) {
         response._header('accept-ranges', 'bytes');
@@ -217,19 +214,18 @@ internals.processRangeHeader = function (request, response, length) {
         return internals.fail(request, error, () => {});
     }
 
-    if (ranges.length !== 1) {
-        response._header('accept-ranges', 'bytes');
-        return null;
-    }
-
-    const range = ranges[0];
-    const ranger = new Ammo.Stream(range);
-    response.code(206);
-    response.bytes(range.to - range.from + 1);
-    response._header('content-range', 'bytes ' + range.from + '-' + range.to + '/' + length);
     response._header('accept-ranges', 'bytes');
 
-    return ranger;
+    if (ranges.length === 1) {
+        const range = ranges[0];
+        const ranger = new Ammo.Stream(range);
+        response.code(206);
+        response.bytes(range.to - range.from + 1);
+        response._header('content-range', 'bytes ' + range.from + '-' + range.to + '/' + length);
+        return ranger;
+    }
+
+    return null;
 };
 
 
@@ -241,15 +237,14 @@ internals.setupCompression = function (request, response, encoding, length) {
 
     delete response.headers['content-length'];
     response._header('content-encoding', encoding);
-
     return request.connection._compression.encoder(request, encoding);
 };
 
 
-internals.updateEtagForEncoding = function (response, encoding) {
+internals.adjustEtagForEncoding = function (response, encoding) {
 
-    if ((response.headers['content-encoding'] || encoding) && response.headers.etag && response.settings.varyEtag) {
-        const contentEncoding = response.headers['content-encoding'] || encoding;
+    const contentEncoding = response.headers['content-encoding'] || encoding;
+    if (contentEncoding && response.headers.etag && response.settings.varyEtag) {
         response.headers.etag = response.headers.etag.slice(0, -1) + '-' + contentEncoding + '"';
     }
 };
@@ -268,20 +263,19 @@ internals.setupConnectionClose = function (request, response) {
 
 internals.setupInjection = function (request, response) {
 
-    const isInjection = Shot.isInjection(request.raw.req);
-    if (isInjection) {
-        request.raw.res._hapi = { request };
+    request.raw.res._hapi = { request };
 
-        if (response.variety === 'plain') {
-            request.raw.res._hapi.result = response._isPayloadSupported() ? response.source : null;
-        }
+    if (response.variety === 'plain') {
+        request.raw.res._hapi.result = response._isPayloadSupported() ? response.source : null;
     }
 };
 
 
-internals.pipePayload = function (request, response, source, ranger, compressor, callback) {
+internals.pipePayload = function (source, request, response, ranger, compressor, callback) {
 
-    const end = internals.createPayloadEndHandler(request, response, source, callback);
+    const end = Hoek.once((err, event) => {
+        internals.handlePayloadEnd(source, request, response, err, event, callback);
+    });
 
     source.once('error', end);
 
@@ -303,43 +297,40 @@ internals.pipePayload = function (request, response, source, ranger, compressor,
 };
 
 
-internals.createPayloadEndHandler = function (request, response, source, callback) {
+internals.handlePayloadEnd = function (source, request, response, err, event, callback) {
 
-    return Hoek.once((err, event) => {
+    source.removeListener('error', internals.handlePayloadEnd);
 
-        source.removeListener('error', arguments.callee);
+    request.raw.req.removeListener('aborted', internals.handlePayloadEnd);
+    request.raw.req.removeListener('close', internals.handlePayloadEnd);
 
-        request.raw.req.removeListener('aborted', arguments.callee);
-        request.raw.req.removeListener('close', arguments.callee);
+    request.raw.res.removeListener('close', internals.handlePayloadEnd);
+    request.raw.res.removeListener('error', internals.handlePayloadEnd);
+    request.raw.res.removeListener('finish', internals.handlePayloadEnd);
 
-        request.raw.res.removeListener('close', arguments.callee);
-        request.raw.res.removeListener('error', arguments.callee);
-        request.raw.res.removeListener('finish', arguments.callee);
+    if (err) {
+        request.raw.res.destroy();
 
-        if (err) {
-            request.raw.res.destroy();
-
-            if (request.raw.res._hapi) {
-                request.raw.res.statusCode = 500;
-                request.raw.res._hapi.result = Boom.boomify(err).output.payload;
-            }
-
-            source.unpipe();
-            Response.drain(source);
+        if (request.raw.res._hapi) {
+            request.raw.res.statusCode = 500;
+            request.raw.res._hapi.result = Boom.boomify(err).output.payload;
         }
 
-        if (!request.raw.res.finished && event !== 'aborted') {
-            request.raw.res.end();
-        }
+        source.unpipe();
+        Response.drain(source);
+    }
 
-        if (event || err) {
-            request.emit('disconnect');
-        }
+    if (!request.raw.res.finished && event !== 'aborted') {
+        request.raw.res.end();
+    }
 
-        const tags = (err ? ['response', 'error'] : (event ? ['response', 'error', event] : ['response']));
-        request._log(tags, err);
-        return callback();
-    });
+    if (event || err) {
+        request.emit('disconnect');
+    }
+
+    const tags = (err ? ['response', 'error'] : (event ? ['response', 'error', event] : ['response']));
+    request._log(tags, err);
+    return callback();
 };
 
 
@@ -518,3 +509,24 @@ internals.unmodified = function (response) {
 
     if (request._entity.etag && !response.headers.etag) {
         response.etag(request._entity.etag, { vary: request._entity.vary });
+    }
+
+    if (request._entity.modified && !response.headers['last-modified']) {
+        response.header('last-modified', request._entity.modified);
+    }
+
+    if (response.statusCode === 304) {
+        return;
+    }
+
+    const entity = {
+        etag: response.headers.etag,
+        vary: response.settings.varyEtag,
+        modified: response.headers['last-modified']
+    };
+
+    if (Response.unmodified(request, entity)) {
+        response.code(304);
+    }
+};
+```

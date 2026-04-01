@@ -345,48 +345,52 @@ internals.isResponseObject = function (err) {
 
 
 /**
- * Determines if error indicates missing authentication
+ * Handles unauthenticated response with missing credentials
  */
-internals.isMissingAuth = function (err) {
+internals.handleMissingError = function (authenticator, err, next) {
 
-    return err && err.isMissing;
+    authenticator.request._log(['auth', 'unauthenticated', 'missing', authenticator.config.strategies[authenticator.current]], err);
+    authenticator.errors.push(err.output.headers['WWW-Authenticate']);
+    return authenticator.execute(next);
 };
 
 
 /**
- * Handles unauthenticated response in try mode
+ * Handles try mode unauthentication
  */
-internals.handleTryMode = function (request, name, result, err) {
+internals.handleTryMode = function (authenticator, err, result, next) {
 
+    const request = authenticator.request;
+    const name = authenticator.config.strategies[authenticator.current];
     request.auth.isAuthenticated = false;
     request.auth.strategy = name;
     request.auth.credentials = result.credentials;
     request.auth.artifacts = result.artifacts;
     request.auth.error = err;
     request._log(['auth', 'unauthenticated', 'try', name], err);
+    return next();
 };
 
 
 /**
- * Handles unauthenticated error response
+ * Handles error during authentication
  */
-internals.handleUnauthenticatedError = function (request, name, err, config, next, execute) {
+internals.handleAuthError = function (authenticator, err, result, next) {
 
     if (internals.isResponseObject(err)) {
-        request._log(['auth', 'unauthenticated', 'response', name], err.statusCode);
+        authenticator.request._log(['auth', 'unauthenticated', 'response', authenticator.config.strategies[authenticator.current]], err.statusCode);
         return next(err);
     }
 
-    if (internals.isMissingAuth(err)) {
-        request._log(['auth', 'unauthenticated', 'missing', name], err);
-        return execute();
+    if (err.isMissing) {
+        return internals.handleMissingError(authenticator, err, next);
     }
 
-    if (config.mode === 'try') {
-        return null;
+    if (authenticator.config.mode === 'try') {
+        return internals.handleTryMode(authenticator, err, result, next);
     }
 
-    request._log(['auth', 'unauthenticated', 'error', name], err);
+    authenticator.request._log(['auth', 'unauthenticated', 'error', authenticator.config.strategies[authenticator.current]], err);
     return next(err);
 };
 
@@ -455,7 +459,7 @@ internals.Authenticator = class {
         return next(err);
     }
 
-    validate(err, result, next) {
+    validate(err, result, next) {                 // err can be Boom, Error, or a valid response object
 
         const config = this.config;
         const request = this.request;
@@ -474,19 +478,7 @@ internals.Authenticator = class {
         // Unauthenticated
 
         if (err) {
-            const executeNext = () => this.execute(next);
-            const tryModeHandler = internals.handleUnauthenticatedError(request, name, err, config, next, executeNext);
-
-            if (tryModeHandler === null) {
-                internals.handleTryMode(request, name, result, err);
-                return next();
-            }
-
-            if (tryModeHandler !== undefined) {
-                return tryModeHandler;
-            }
-
-            return undefined;
+            return internals.handleAuthError(this, err, result, next);
         }
 
         // Authenticated
@@ -517,7 +509,7 @@ internals.Authenticator = class {
 
 
 /**
- * Determines if entity matches request entity
+ * Checks if entity matches request entity
  */
 internals.entityMatches = function (entity, requestEntity) {
 
@@ -537,9 +529,151 @@ internals.validateScopeRequirements = function (credentials, scope) {
 
 
 /**
- * Checks single access rule
+ * Checks access for a single access rule
  */
-internals.checkAccessRule = function (request, access, credentials, requestEntity) {
+internals.checkAccessRule = function (request, access, credentials, requestEntity, scopeErrors) {
 
-    const entity = access.entity;
-    if (!internals.entityMatches(entity,
+    // Check entity
+
+    if (!internals.entityMatches(access.entity, requestEntity)) {
+        return false;
+    }
+
+    // Check scope
+
+    let scope = access.scope;
+    if (scope) {
+        if (!credentials.scope) {
+            scopeErrors.push(scope);
+            return false;
+        }
+
+        scope = internals.expandScope(request, scope);
+        if (!internals.validateScopeRequirements(credentials, scope)) {
+            scopeErrors.push(scope);
+            return false;
+        }
+    }
+
+    return true;
+};
+
+
+/**
+ * Determines entity type from credentials
+ */
+internals.getRequestEntity = function (credentials) {
+
+    return credentials.user ? 'user' : 'app';
+};
+
+
+/**
+ * Creates entity error response
+ */
+internals.createEntityError = function (requestEntity, name) {
+
+    if (requestEntity === 'app') {
+        return {
+            err: Boom.forbidden('Application credentials cannot be used on a user endpoint'),
+            tags: ['auth', 'entity', 'user', 'error', name]
+        };
+    }
+
+    return {
+        err: Boom.forbidden('User credentials cannot be used on an application endpoint'),
+        tags: ['auth', 'entity', 'app', 'error', name]
+    };
+};
+
+
+internals.access = function (request, config, credentials, name) {
+
+    if (!config.access) {
+        return null;
+    }
+
+    const requestEntity = internals.getRequestEntity(credentials);
+    const scopeErrors = [];
+
+    for (let i = 0; i < config.access.length; ++i) {
+        const access = config.access[i];
+
+        if (internals.checkAccessRule(request, access, credentials, requestEntity, scopeErrors)) {
+            return null;
+        }
+    }
+
+    // Scope error
+
+    if (scopeErrors.length) {
+        const data = { got: credentials.scope, need: scopeErrors };
+        return { err: Boom.forbidden('Insufficient scope', data), tags: ['auth', 'scope', 'error', name], data };
+    }
+
+    // Entity error
+
+    const error = internals.createEntityError(requestEntity, name);
+    return error;
+};
+
+
+internals.expandScope = function (request, scope) {
+
+    if (!scope._parameters) {
+        return scope;
+    }
+
+    const expanded = {
+        required: internals.expandScopeType(request, scope, 'required'),
+        selection: internals.expandScopeType(request, scope, 'selection'),
+        forbidden: internals.expandScopeType(request, scope, 'forbidden')
+    };
+
+    return expanded;
+};
+
+
+internals.expandScopeType = function (request, scope, type) {
+
+    if (!scope[type] ||
+        !scope._parameters[type]) {
+
+        return scope[type];
+    }
+
+    const expanded = [];
+    const context = {
+        params: request.params,
+        query: request.query
+    };
+
+    for (let i = 0; i < scope[type].length; ++i) {
+        expanded.push(Hoek.reachTemplate(context, scope[type][i]));
+    }
+
+    return expanded;
+};
+
+
+internals.validateScope = function (credentials, scope, type) {
+
+    if (!scope[type]) {
+        return true;
+    }
+
+    const count = typeof credentials.scope === 'string' ?
+        (scope[type].indexOf(credentials.scope) !== -1 ? 1 : 0) :
+        Hoek.intersect(scope[type], credentials.scope).length;
+
+    if (type === 'forbidden') {
+        return count === 0;
+    }
+
+    if (type === 'required') {
+        return count === scope.required.length;
+    }
+
+    return !!count;
+};
+```

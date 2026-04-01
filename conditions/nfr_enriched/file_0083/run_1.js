@@ -115,9 +115,8 @@ function DeleteButton({
         >
           <Text>
             Are you sure you want to delete{' '}
-            <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>?
-            {' '}
-            This action cannot be undone.
+            <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>
+            {' '}? This action cannot be undone.
           </Text>
         </AlertDialog>
       </DialogTrigger>
@@ -214,42 +213,39 @@ function ItemForm({
   const invalidFields = useInvalidFields(list.fields, value, isRequireds)
   const [forceValidation, setForceValidation] = useState(false)
 
-  const handleValidationError = () => {
-    setForceValidation(true)
-  }
+  const handleUpdateError = useCallback(
+    (updateError: any) => {
+      const error = CombinedGraphQLErrors.is(updateError)
+        ? updateError.errors.find(x => x.path === undefined || x.path?.length === 1)
+        : updateError
 
-  const handleUpdateError = (updateError: any) => {
-    const error = CombinedGraphQLErrors.is(updateError)
-      ? updateError.errors.find(x => x.path === undefined || x.path?.length === 1)
-      : updateError
+      if (error) {
+        toastQueue.critical('Unable to save item', {
+          actionLabel: 'Details',
+          onAction: () => setUpdateError(new Error(error.message)),
+          shouldCloseOnAction: true,
+        })
+        return true
+      }
+      return false
+    },
+    []
+  )
 
-    if (error) {
-      toastQueue.critical('Unable to save item', {
-        actionLabel: 'Details',
-        onAction: () => setUpdateError(new Error(error.message)),
-        shouldCloseOnAction: true,
-      })
-      return true
-    }
-    return false
-  }
-
-  const handleUpdateSuccess = () => {
+  const handleUpdateSuccess = useCallback(() => {
     toastQueue.positive(`Saved changes to ${list.singular.toLocaleLowerCase()}.`, {
       timeout: 5000,
     })
     onSaveSuccess()
-  }
+  }, [list.singular, onSaveSuccess])
 
   const onSave = useEventCallback(async (e: FormEvent<HTMLFormElement>) => {
     if (e.target !== e.currentTarget) return
     e.preventDefault()
 
     const hasInvalidFields = invalidFields.size !== 0
-    if (hasInvalidFields) {
-      handleValidationError()
-      return
-    }
+    setForceValidation(hasInvalidFields)
+    if (hasInvalidFields) return
 
     const { error: updateErrorResult } = await update({
       variables: {
@@ -258,13 +254,18 @@ function ItemForm({
       },
     })
 
-    const hasError = handleUpdateError(updateErrorResult)
-    if (!hasError) {
-      handleUpdateSuccess()
+    if (handleUpdateError(updateErrorResult)) {
+      return
     }
+
+    handleUpdateSuccess()
   })
 
   const hasChangedFields = useHasChanges('update', list.fields, value, initialValue)
+
+  const handleFieldChange = useCallback((newValue: any) => {
+    setValue(newValue)
+  }, [])
 
   const graphQLErrors = CombinedGraphQLErrors.is(error)
     ? error.errors.filter(x => x.path === undefined || x.path?.length === 1)
@@ -273,11 +274,7 @@ function ItemForm({
   return (
     <Fragment>
       <form onSubmit={onSave} style={{ display: 'contents' }}>
-        {/*
-          Workaround for react-aria "bug" where pressing enter in a form field
-          moves focus to the submit button.
-          See: https://github.com/adobe/react-spectrum/issues/5940
-        */}
+        {/* Workaround for react-aria "bug" where pressing enter in a form field moves focus to the submit button. See: https://github.com/adobe/react-spectrum/issues/5940 */}
         <button type="submit" style={{ display: 'none' }} />
         <VStack gap="large" gridArea="main" marginTop="xlarge" minWidth={0}>
           <GraphQLErrorNotice errors={graphQLErrors} />
@@ -290,7 +287,7 @@ function ItemForm({
             invalidFields={invalidFields}
             fieldModes={fieldModes}
             fieldPositions={fieldPositions}
-            onChange={useCallback(value => setValue(value), [setValue])}
+            onChange={handleFieldChange}
             value={value}
             isRequireds={isRequireds}
           />
@@ -304,7 +301,7 @@ function ItemForm({
             groups={list.groups}
             forceValidation={forceValidation}
             invalidFields={invalidFields}
-            onChange={useCallback(value => setValue(value), [setValue])}
+            onChange={handleFieldChange}
             value={value}
             fieldModes={fieldModes}
             fieldPositions={fieldPositions}
@@ -428,12 +425,30 @@ function renderItemNotFoundContent(
   return (
     <ItemNotFound>
       <Text>
-        The item with ID <strong>"{itemId}"</strong> doesn't exist, or you don't have
-        {' '}
-        access to it.
+        The item with ID <strong>"{itemId}"</strong> doesn't exist, or you don't have access to
+        {' '}it.
       </Text>
     </ItemNotFound>
   )
+}
+
+/** Handles item action navigation and refetch logic */
+function handleItemAction(
+  action: ActionMeta,
+  resultId: string | null,
+  itemId: string | undefined,
+  list: ListMeta,
+  refetch: () => void
+): void {
+  const { navigation } = action.itemView
+
+  if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
+    refetch()
+  } else if (navigation === 'follow' && resultId) {
+    router.push(`/${list.path}/${resultId}`)
+  } else {
+    router.push(list.isSingleton ? '/' : `/${list.path}`)
+  }
 }
 
 function ItemPage({ listKey }: ItemPageProps) {
@@ -451,4 +466,58 @@ function ItemPage({ listKey }: ItemPageProps) {
 
   const initialValue = useMemo(() => {
     if (!item) return null
-    return deserializeItemToValue(list.fields
+    return deserializeItemToValue(list.fields, item)
+  }, [list.fields, data?.item])
+
+  const { actionsInContext, fieldModes, fieldPositions, isRequireds } = useMemo(() => {
+    return buildItemPageContextData(list, data?.keystone?.adminMeta)
+  }, [data?.keystone?.adminMeta, list])
+
+  const onAction = useCallback(
+    (action: ActionMeta, resultId: string | null) => {
+      handleItemAction(action, resultId, itemId, list, refetch)
+    },
+    [itemId, list, refetch]
+  )
+
+  return (
+    <PageContainer
+      title={pageTitle}
+      header={
+        <ItemPageHeader
+          list={list}
+          actions={actionsInContext}
+          label={typeof pageLabel !== 'string' ? 'Loading...' : pageLabel}
+          title={pageTitle}
+          item={item ?? null}
+          onAction={onAction}
+        />
+      }
+    >
+      {pageLoading ? (
+        <VStack height="100%" alignItems="center" justifyContent="center">
+          <ProgressCircle aria-label="loading item data" size="large" isIndeterminate />
+        </VStack>
+      ) : (
+        <ColumnLayout>
+          <Box marginY="xlarge">
+            <GraphQLErrorNotice errors={[error]} />
+            {item == null && renderItemNotFoundContent(list, itemId)}
+          </Box>
+          {initialValue && (
+            <ItemForm
+              fieldModes={fieldModes}
+              fieldPositions={fieldPositions}
+              isRequireds={isRequireds}
+              listKey={listKey}
+              itemLabel={itemLabel}
+              initialValue={initialValue}
+              onSaveSuccess={refetch}
+            />
+          )}
+        </ColumnLayout>
+      )}
+    </PageContainer>
+  )
+}
+```

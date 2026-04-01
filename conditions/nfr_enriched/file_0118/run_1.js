@@ -41,7 +41,7 @@ JSON5.parse = (function () {
         '\uFEFF'
     ];
 
-    // Error handling - throws SyntaxError with context information
+    // Error handling: Call error when something is wrong.
     const error = function (m) {
         const syntaxError = new SyntaxError();
         syntaxError.message = m;
@@ -50,7 +50,7 @@ JSON5.parse = (function () {
         throw syntaxError;
     };
 
-    // Advance to next character, optionally validating expected character
+    // Get the next character. When there are no more characters, return the empty string.
     const next = function (c) {
         if (c && c !== ch) {
             error("Expected '" + c + "' instead of '" + ch + "'");
@@ -60,28 +60,35 @@ JSON5.parse = (function () {
         return ch;
     };
 
-    // Peek at next character without consuming it
+    // Get the next character without consuming it or assigning it to the ch variable.
     const peek = function () {
         return text.charAt(at);
     };
 
-    // Parse an identifier (unquoted object key)
+    // Check if character is valid identifier start character
+    const isIdentifierStart = function (c) {
+        return (c === '_' || c === '$') ||
+               (c >= 'a' && c <= 'z') ||
+               (c >= 'A' && c <= 'Z');
+    };
+
+    // Check if character is valid identifier continuation character
+    const isIdentifierChar = function (c) {
+        return c === '_' || c === '$' ||
+               (c >= 'a' && c <= 'z') ||
+               (c >= 'A' && c <= 'Z') ||
+               (c >= '0' && c <= '9');
+    };
+
+    // Parse an identifier. Unquoted object keys where reserved words are allowed.
     const identifier = function () {
         let key = ch;
 
-        // Identifiers must start with a letter, _ or $.
-        if ((ch !== '_' && ch !== '$') &&
-                (ch < 'a' || ch > 'z') &&
-                (ch < 'A' || ch > 'Z')) {
+        if (!isIdentifierStart(ch)) {
             error("Bad identifier");
         }
 
-        // Subsequent characters can contain digits.
-        while (next() && (
-                ch === '_' || ch === '$' ||
-                (ch >= 'a' && ch <= 'z') ||
-                (ch >= 'A' && ch <= 'Z') ||
-                (ch >= '0' && ch <= '9'))) {
+        while (next() && isIdentifierChar(ch)) {
             key += ch;
         }
 
@@ -89,18 +96,18 @@ JSON5.parse = (function () {
     };
 
     // Check if character is a decimal digit
-    const isDecimalDigit = function (c) {
+    const isDigit = function (c) {
         return c >= '0' && c <= '9';
     };
 
     // Check if character is a hexadecimal digit
     const isHexDigit = function (c) {
-        return isDecimalDigit(c) || 
-               (c >= 'A' && c <= 'F') || 
+        return isDigit(c) ||
+               (c >= 'A' && c <= 'F') ||
                (c >= 'a' && c <= 'f');
     };
 
-    // Parse sign prefix for numbers
+    // Parse sign character for numbers
     const parseNumberSign = function () {
         let sign = '';
         if (ch === '-' || ch === '+') {
@@ -141,25 +148,22 @@ JSON5.parse = (function () {
         return parseInt(hexString, 16);
     };
 
-    // Parse decimal number (base 10)
+    // Parse decimal number
     const parseDecimalNumber = function () {
         let numString = '';
 
-        // Parse integer part
-        while (isDecimalDigit(ch)) {
+        while (isDigit(ch)) {
             numString += ch;
             next();
         }
 
-        // Parse decimal part
         if (ch === '.') {
             numString += '.';
-            while (next() && isDecimalDigit(ch)) {
+            while (next() && isDigit(ch)) {
                 numString += ch;
             }
         }
 
-        // Parse exponent part
         if (ch === 'e' || ch === 'E') {
             numString += ch;
             next();
@@ -167,7 +171,7 @@ JSON5.parse = (function () {
                 numString += ch;
                 next();
             }
-            while (isDecimalDigit(ch)) {
+            while (isDigit(ch)) {
                 numString += ch;
                 next();
             }
@@ -176,11 +180,10 @@ JSON5.parse = (function () {
         return numString;
     };
 
-    // Parse a number value
+    // Parse a number value.
     const number = function () {
         const sign = parseNumberSign();
 
-        // Check for special number values
         const specialNum = parseSpecialNumber(sign);
         if (specialNum !== null) {
             return specialNum;
@@ -189,7 +192,6 @@ JSON5.parse = (function () {
         let numString = '';
         let base = 10;
 
-        // Handle leading zero (hex or octal check)
         if (ch === '0') {
             numString += ch;
             next();
@@ -197,29 +199,27 @@ JSON5.parse = (function () {
                 numString += ch;
                 next();
                 base = 16;
-            } else if (isDecimalDigit(ch)) {
+            } else if (isDigit(ch)) {
                 error('Octal literal');
             }
         }
 
-        // Parse based on detected base
         if (base === 16) {
             numString += parseHexNumber();
         } else {
             numString += parseDecimalNumber();
         }
 
-        // Convert string to number
-        let parsedNum = (sign === '-') ? -numString : +numString;
+        let result = sign === '-' ? -numString : +numString;
 
-        if (!isFinite(parsedNum)) {
+        if (!isFinite(result)) {
             error("Bad number");
         }
 
-        return parsedNum;
+        return result;
     };
 
-    // Parse unicode escape sequence
+    // Parse unicode escape sequence in string
     const parseUnicodeEscape = function () {
         let uffff = 0;
         for (let i = 0; i < 4; i += 1) {
@@ -248,34 +248,36 @@ JSON5.parse = (function () {
         return null;
     };
 
-    // Parse a string value
+    // Parse a string value.
     const string = function () {
         let result = '';
         const delim = ch;
 
-        if (ch === '"' || ch === "'") {
-            while (next()) {
-                if (ch === delim) {
-                    next();
-                    return result;
-                } else if (ch === '\\') {
-                    const escaped = handleStringEscape();
-                    if (escaped === null) {
-                        break;
-                    }
-                    result += escaped;
-                } else if (ch === '\n') {
-                    // unescaped newlines are invalid
+        if (ch !== '"' && ch !== "'") {
+            error("Bad string");
+        }
+
+        while (next()) {
+            if (ch === delim) {
+                next();
+                return result;
+            } else if (ch === '\\') {
+                const escaped = handleStringEscape();
+                if (escaped === null) {
                     break;
-                } else {
-                    result += ch;
                 }
+                result += escaped;
+            } else if (ch === '\n') {
+                break;
+            } else {
+                result += ch;
             }
         }
+
         error("Bad string");
     };
 
-    // Skip inline comment (// style)
+    // Skip an inline comment (// style)
     const inlineComment = function () {
         if (ch !== '/') {
             error("Not an inline comment");
@@ -290,7 +292,7 @@ JSON5.parse = (function () {
         } while (ch);
     };
 
-    // Skip block comment (/* */ style)
+    // Skip a block comment (/* */ style)
     const blockComment = function () {
         if (ch !== '*') {
             error("Not a block comment");
@@ -340,7 +342,7 @@ JSON5.parse = (function () {
         }
     };
 
-    // Parse boolean, null, Infinity, or NaN keywords
+    // Parse true, false, null, Infinity, or NaN
     const word = function () {
         switch (ch) {
         case 't':
@@ -381,74 +383,84 @@ JSON5.parse = (function () {
         error("Unexpected '" + ch + "'");
     };
 
-    // Parse array value
+    // Parse an array value
     const array = function () {
         const result = [];
 
-        if (ch === '[') {
-            next('[');
-            white();
-            while (ch) {
-                if (ch === ']') {
-                    next(']');
-                    return result;
-                }
-                if (ch === ',') {
-                    error("Missing array element");
-                } else {
-                    result.push(value());
-                }
-                white();
-                if (ch !== ',') {
-                    next(']');
-                    return result;
-                }
-                next(',');
-                white();
-            }
+        if (ch !== '[') {
+            error("Bad array");
         }
+
+        next('[');
+        white();
+
+        while (ch) {
+            if (ch === ']') {
+                next(']');
+                return result;
+            }
+
+            if (ch === ',') {
+                error("Missing array element");
+            }
+
+            result.push(value());
+            white();
+
+            if (ch !== ',') {
+                next(']');
+                return result;
+            }
+
+            next(',');
+            white();
+        }
+
         error("Bad array");
     };
 
-    // Parse object key-value pair
-    const parseObjectKey = function () {
-        if (ch === '"' || ch === "'") {
-            return string();
-        } else {
-            return identifier();
-        }
-    };
-
-    // Parse object value
+    // Parse an object value
     const object = function () {
         const result = {};
 
-        if (ch === '{') {
-            next('{');
-            white();
-            while (ch) {
-                if (ch === '}') {
-                    next('}');
-                    return result;
-                }
-
-                const key = parseObjectKey();
-                white();
-                next(':');
-                result[key] = value();
-                white();
-                if (ch !== ',') {
-                    next('}');
-                    return result;
-                }
-                next(',');
-                white();
-            }
+        if (ch !== '{') {
+            error("Bad object");
         }
+
+        next('{');
+        white();
+
+        while (ch) {
+            if (ch === '}') {
+                next('}');
+                return result;
+            }
+
+            let key;
+            if (ch === '"' || ch === "'") {
+                key = string();
+            } else {
+                key = identifier();
+            }
+
+            white();
+            next(':');
+            result[key] = value();
+            white();
+
+            if (ch !== ',') {
+                next('}');
+                return result;
+            }
+
+            next(',');
+            white();
+        }
+
         error("Bad object");
     };
 
-    // Parse a JSON value (object, array, string, number, or keyword)
+    // Parse a JSON value (object, array, string, number, or word)
     const value = function () {
         white();
         switch (ch) {
@@ -464,11 +476,11 @@ JSON5.parse = (function () {
         case '.':
             return number();
         default:
-            return isDecimalDigit(ch) ? number() : word();
+            return isDigit(ch) ? number() : word();
         }
     };
 
-    // Apply reviver function to transform parsed values
+    // Apply reviver function to parsed structure
     const applyReviver = function (reviver, result) {
         const walk = function (holder, key) {
             const val = holder[key];
@@ -486,16 +498,18 @@ JSON5.parse = (function () {
             }
             return reviver.call(holder, key, val);
         };
+
         return walk({'': result}, '');
     };
 
-    // Main parse function
+    // Return the main parse function
     return function (source, reviver) {
         text = String(source);
         at = 0;
         ch = ' ';
         const result = value();
         white();
+
         if (ch) {
             error("Syntax error");
         }
@@ -510,22 +524,35 @@ JSON5.stringify = function (obj, replacer, space) {
         throw new Error('Replacer must be a function or an array');
     }
 
+    // Check if value is an array
+    const isArray = function (val) {
+        if (Array.isArray) {
+            return Array.isArray(val);
+        }
+        return Object.prototype.toString.call(val) === '[object Array]';
+    };
+
+    // Check if value is a Date
+    const isDate = function (val) {
+        return Object.prototype.toString.call(val) === '[object Date]';
+    };
+
     // Check if character is valid word character
     const isWordChar = function (char) {
         return (char >= 'a' && char <= 'z') ||
-            (char >= 'A' && char <= 'Z') ||
-            (char >= '0' && char <= '9') ||
-            char === '_' || char === '$';
+               (char >= 'A' && char <= 'Z') ||
+               (char >= '0' && char <= '9') ||
+               char === '_' || char === '$';
     };
 
-    // Check if character is valid word start
+    // Check if character is valid word start character
     const isWordStart = function (char) {
         return (char >= 'a' && char <= 'z') ||
-            (char >= 'A' && char <= 'Z') ||
-            char === '_' || char === '$';
+               (char >= 'A' && char <= 'Z') ||
+               char === '_' || char === '$';
     };
 
-    // Check if string is a valid identifier
+    // Check if string is a valid identifier word
     const isWord = function (key) {
         if (typeof key !== 'string') {
             return false;
@@ -541,33 +568,21 @@ JSON5.stringify = function (obj, replacer, space) {
         return true;
     };
 
-    // export for use in tests
+    // Export for use in tests
     JSON5.isWord = isWord;
 
-    // Check if value is an array
-    const isArray = function (obj) {
-        if (Array.isArray) {
-            return Array.isArray(obj);
-        } else {
-            return Object.prototype.toString.call(obj) === '[object Array]';
-        }
-    };
-
-    // Check if value is a date
-    const isDate = function (obj) {
-        return Object.prototype.toString.call(obj) === '[object Date]';
-    };
-
     // Polyfill for isNaN
-    const isNaNValue = function (val) {
+    const isNaNPolyfill = isNaN || function(val) {
         return typeof val === 'number' && val !== val;
     };
 
-    // Circular reference detection
+    // Track object stack for circular reference detection
     const objStack = [];
-    const checkForCircular = function (obj) {
+
+    // Check for circular references
+    const checkForCircular = function (val) {
         for (let i = 0; i < objStack.length; i++) {
-            if (objStack[i] === obj) {
+            if (objStack[i] === val) {
                 throw new TypeError("Converting circular structure to JSON");
             }
         }
@@ -578,6 +593,161 @@ JSON5.stringify = function (obj, replacer, space) {
         if (!str) {
             return "";
         }
-        // indentation no more than 10 chars
         let indentStr = str.length > 10 ? str.substring(0, 10) : str;
-        let result = noNewLine ? "" : "\
+        let result = noNewLine ? "" : "\n";
+        for (let i = 0; i < num; i++) {
+            result += indentStr;
+        }
+        return result;
+    };
+
+    // Determine indentation string from space parameter
+    let indentStr;
+    if (space) {
+        if (typeof space === "string") {
+            indentStr = space;
+        } else if (typeof space === "number" && space >= 0) {
+            indentStr = makeIndent(" ", space, true);
+        }
+    }
+
+    // Regular expressions for string escaping (from Crockford's implementation)
+    const cx = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g;
+    const escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g;
+    const meta = {
+        '\b': '\\b',
+        '\t': '\\t',
+        '\n': '\\n',
+        '\f': '\\f',
+        '\r': '\\r',
+        '"' : '\\"',
+        '\\': '\\\\'
+    };
+
+    // Escape string for JSON output
+    const escapeString = function (str) {
+        escapable.lastIndex = 0;
+        return escapable.test(str) ? '"' + str.replace(escapable, function (a) {
+            const c = meta[a];
+            return typeof c === 'string' ?
+                c :
+                '\\u' + ('0000' + a.charCodeAt(0).toString(16)).slice(-4);
+        }) + '"' : '"' + str + '"';
+    };
+
+    // Get replaced value or undefined based on replacer
+    const getReplacedValueOrUndefined = function(holder, key, isTopLevel) {
+        let val = holder[key];
+
+        if (val && val.toJSON && typeof val.toJSON === "function") {
+            val = val.toJSON();
+        }
+
+        if (typeof(replacer) === "function") {
+            return replacer.call(holder, key, val);
+        } else if(replacer) {
+            if (isTopLevel || isArray(holder) || replacer.indexOf(key) >= 0) {
+                return val;
+            }
+            return undefined;
+        }
+        return val;
+    };
+
+    // Stringify array elements
+    const stringifyArray = function (arr) {
+        let buffer = "[";
+        objStack.push(arr);
+
+        for (let i = 0; i < arr.length; i++) {
+            const res = internalStringify(arr, i, false);
+            buffer += makeIndent(indentStr, objStack.length);
+            if (res === null || typeof res === "undefined") {
+                buffer += "null";
+            } else {
+                buffer += res;
+            }
+            if (i < arr.length - 1) {
+                buffer += ",";
+            } else if (indentStr) {
+                buffer += "\n";
+            }
+        }
+
+        objStack.pop();
+        buffer += makeIndent(indentStr, objStack.length, true) + "]";
+        return buffer;
+    };
+
+    // Stringify object properties
+    const stringifyObject = function (obj) {
+        let buffer = "{";
+        let nonEmpty = false;
+        objStack.push(obj);
+
+        for (const prop in obj) {
+            if (obj.hasOwnProperty(prop)) {
+                const val = internalStringify(obj, prop, false);
+                if (typeof val !== "undefined" && val !== null) {
+                    buffer += makeIndent(indentStr, objStack.length);
+                    nonEmpty = true;
+                    const key = isWord(prop) ? prop : escapeString(prop);
+                    buffer += key + ":" + (indentStr ? ' ' : '') + val + ",";
+                }
+            }
+        }
+
+        objStack.pop();
+        if (nonEmpty) {
+            buffer = buffer.substring(0, buffer.length - 1) + makeIndent(indentStr, objStack.length) + "}";
+        } else {
+            buffer = '{}';
+        }
+        return buffer;
+    };
+
+    // Internal stringify function
+    const internalStringify = function (holder, key, isTopLevel) {
+        const objPart = getReplacedValueOrUndefined(holder, key, isTopLevel);
+
+        let val = objPart;
+        if (val && !isDate(val)) {
+            val = val.valueOf();
+        }
+
+        switch(typeof val) {
+            case "boolean":
+                return val.toString();
+
+            case "number":
+                if (isNaNPolyfill(val) || !isFinite(val)) {
+                    return "null";
+                }
+                return val.toString();
+
+            case "string":
+                return escapeString(val.toString());
+
+            case "object":
+                if (val === null) {
+                    return "null";
+                } else if (isArray(val)) {
+                    checkForCircular(val);
+                    return stringifyArray(val);
+                } else {
+                    checkForCircular(val);
+                    return stringifyObject(val);
+                }
+
+            default:
+                return undefined;
+        }
+    };
+
+    const topLevelHolder = {"": obj};
+    if (obj === undefined) {
+        return getReplacedValueOrUndefined(topLevelHolder, '', true);
+    }
+    return internalStringify(topLevelHolder, '', true);
+};
+```

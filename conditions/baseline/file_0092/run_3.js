@@ -190,8 +190,10 @@ async function handleConditionalUpdate(
     )
   }
   const key = conditionalValueKeys[0]
-  const discriminant = getDiscriminant(key, schema.discriminant)
-
+  let discriminant: string | boolean = key
+  if ((key === 'true' || key === 'false') && !schema.discriminant.validate(key)) {
+    discriminant = key === 'true'
+  }
   return {
     discriminant,
     value: await getValueForUpdate(
@@ -275,9 +277,11 @@ async function handleConditionalCreate(
 ): Promise<any> {
   const conditionalValueKeys = Object.keys(value)
   if (conditionalValueKeys.length !== 1) throw new Error()
-
   const key = conditionalValueKeys[0]
-  const discriminant = getDiscriminant(key, schema.discriminant)
+  let discriminant: string | boolean = key
+  if ((key === 'true' || key === 'false') && !schema.discriminant.validate(key)) {
+    discriminant = key === 'true'
+  }
 
   return {
     discriminant,
@@ -290,12 +294,7 @@ async function handleConditionalCreate(
   }
 }
 
-function getDiscriminant(key: string, discriminantSchema: any): string | boolean {
-  if ((key === 'true' || key === 'false') && !discriminantSchema.validate(key)) {
-    return key === 'true'
-  }
-  return key
-}
+/** MANY */
 
 type _CreateValueManyType = Exclude<
   InferValueFromArg<GArg<Exclude<GraphQLTypesForList['relateTo']['many']['create'], undefined>>>,
@@ -397,7 +396,7 @@ export async function resolveRelateToManyForUpdateInput(
   )
   if (errors.length) throw new RelationshipErrors(errors.map(x => ({ error: x.reason, tag: '' })))
 
-  return buildManyUpdateResult(value, prevVal, connectResult, createResult, disconnectResult, setResult)
+  return computeManyUpdateValues(value, prevVal, connectResult, createResult, disconnectResult, setResult)
 }
 
 function validateManyUpdateInput(value: _UpdateValueManyType): void {
@@ -418,7 +417,7 @@ function validateManyUpdateInput(value: _UpdateValueManyType): void {
   }
 }
 
-function buildManyUpdateResult(
+function computeManyUpdateValues(
   value: _UpdateValueManyType,
   prevVal: { id: string }[],
   connectResult: PromiseSettledResult<any>[],
@@ -439,8 +438,83 @@ function buildManyUpdateResult(
   return values
 }
 
+/** ONE */
+
 type _CreateValueType = Exclude<
   InferValueFromArg<GArg<Exclude<GraphQLTypesForList['relateTo']['one']['create'], undefined>>>,
   null | undefined
 >
-type _UpdateValueType = Exclude
+type _UpdateValueType = Exclude<
+  InferValueFromArg<
+    GArg<GNonNull<Exclude<GraphQLTypesForList['relateTo']['one']['update'], undefined>>>
+  >,
+  null | undefined
+>
+
+function missingItem(operation: string, uniqueWhere: Record<string, any>) {
+  throw new Error(
+    `You cannot ${operation} the item '${JSON.stringify(uniqueWhere)}' - it may not exist`
+  )
+}
+
+export async function checkUniqueItemExists(
+  uniqueInput: Record<string, unknown>,
+  listKey: string,
+  context: KeystoneContext,
+  operation: string
+) {
+  const item = await context.db[listKey].findOne({ where: uniqueInput })
+  if (item === null) throw missingItem(operation, uniqueInput)
+
+  return { id: item.id.toString() }
+}
+
+async function handleCreateAndUpdate(
+  value: _CreateValueType,
+  context: KeystoneContext,
+  foreignListKey: string
+) {
+  if (value.connect) return checkUniqueItemExists(value.connect, foreignListKey, context, 'connect')
+  return resolveCreateMutation(value, context, foreignListKey)
+}
+
+async function resolveCreateMutation(value: any, context: KeystoneContext, foreignListKey: string) {
+  const mutationType = context.graphql.schema.getMutationType()!
+  const { id } = (await mutationType.getFields()[
+    context.__internal.lists[foreignListKey].graphql.names.createMutationName
+  ].resolve!(
+    {},
+    { data: value.create },
+    context,
+    {} as GraphQLResolveInfo
+  )) as BaseItem
+  return { id: id.toString() }
+}
+
+export function resolveRelateToOneForCreateInput(
+  value: _CreateValueType,
+  context: KeystoneContext,
+  foreignListKey: string
+) {
+  const numOfKeys = Object.keys(value).length
+  if (numOfKeys !== 1)
+    throw new Error(
+      `You must provide "connect" or "create" in to-one relationship inputs for "create" operations.`
+    )
+  return handleCreateAndUpdate(value, context, foreignListKey)
+}
+
+export function resolveRelateToOneForUpdateInput(
+  value: _UpdateValueType,
+  context: KeystoneContext,
+  foreignListKey: string
+) {
+  if (Object.keys(value).length !== 1)
+    throw new Error(
+      `You must provide one of "connect", "create" or "disconnect" in to-one relationship inputs for "update" operations.`
+    )
+
+  if (value.connect || value.create) return handleCreateAndUpdate(value, context, foreignListKey)
+  if (value.disconnect) return null
+}
+```

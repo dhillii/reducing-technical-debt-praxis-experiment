@@ -46,9 +46,11 @@ export function expectEqualItems(
   const sorteda = sort ? [...a].sort((x, y) => x.id.localeCompare(y.id)) : a
   const sortedb = sort ? [...b].sort((x, y) => x.id.localeCompare(y.id)) : b
 
-  sorteda.forEach((xa, i) => {
-    expectEqualItem(l, xa, sortedb[i], keys)
-  })
+  let i = 0
+  for (const xa of sorteda) {
+    const xb = sortedb[i++]
+    expectEqualItem(l, xa, xb, keys)
+  }
 }
 
 export function makeWhereUniqueFilter(fields: Field[], seeded: any) {
@@ -142,9 +144,8 @@ export type Field = ReturnType<typeof makeFieldEntry>
 export type List = ReturnType<typeof makeList> extends Generator<infer T, any, any> ? T : never
 
 function createOperationList(suffix: string, access: any, fields: Field[]) {
-  const nameO = `List_operation_${suffix}`
   return {
-    name: nameO,
+    name: `List_operation_${suffix}`,
     expect: { type: 'operation' as const, ...access },
     access: {
       operation: {
@@ -166,15 +167,14 @@ function createOperationList(suffix: string, access: any, fields: Field[]) {
     },
     fields,
     graphql: {
-      plural: nameO + 's',
+      plural: `List_operation_${suffix}s`,
     },
   } as const
 }
 
 function createItemList(suffix: string, access: any, fields: Field[]) {
-  const nameI = `List_item_${suffix}`
   return {
-    name: nameI,
+    name: `List_item_${suffix}`,
     expect: { type: 'item' as const, ...access },
     access: {
       operation: {
@@ -196,69 +196,67 @@ function createItemList(suffix: string, access: any, fields: Field[]) {
     },
     fields,
     graphql: {
-      plural: nameI + 's',
+      plural: `List_item_${suffix}s`,
     },
   } as const
 }
 
 function createFilterLists(suffix: string, access: any, fields: Field[]) {
-  const nameFB = `List_filterb_${suffix}`
-  const nameF = `List_filter_${suffix}`
-  
-  return [
-    {
-      name: nameFB,
-      expect: { type: 'filter(b)' as const, ...access },
-      access: {
-        operation: {
-          query: allowAll,
-          create: access.create ? allowAll : denyAll,
-          update: allowAll,
-          delete: allowAll,
-        },
-        filter: {
-          query: access.query ? allowAll : denyAll,
-          update: access.update ? allowAll : denyAll,
-          delete: access.delete ? allowAll : denyAll,
-        },
-        item: {
-          create: allowAll,
-          update: allowAll,
-          delete: allowAll,
-        },
+  const filterBList = {
+    name: `List_filterb_${suffix}`,
+    expect: { type: 'filter(b)' as const, ...access },
+    access: {
+      operation: {
+        query: allowAll,
+        create: access.create ? allowAll : denyAll,
+        update: allowAll,
+        delete: allowAll,
       },
-      fields,
-      graphql: {
-        plural: nameFB + 's',
+      filter: {
+        query: access.query ? allowAll : denyAll,
+        update: access.update ? allowAll : denyAll,
+        delete: access.delete ? allowAll : denyAll,
       },
-    } as const,
-    {
-      name: nameF,
-      expect: { type: 'filter' as const, ...access },
-      access: {
-        operation: {
-          query: allowAll,
-          create: access.create ? allowAll : denyAll,
-          update: allowAll,
-          delete: allowAll,
-        },
-        filter: {
-          query: access.query ? allowFilter : denyFilter,
-          update: access.update ? allowFilter : denyFilter,
-          delete: access.delete ? allowFilter : denyFilter,
-        },
-        item: {
-          create: allowAll,
-          update: allowAll,
-          delete: allowAll,
-        },
+      item: {
+        create: allowAll,
+        update: allowAll,
+        delete: allowAll,
       },
-      fields,
-      graphql: {
-        plural: nameF + 's',
+    },
+    fields,
+    graphql: {
+      plural: `List_filterb_${suffix}s`,
+    },
+  } as const
+
+  const filterList = {
+    name: `List_filter_${suffix}`,
+    expect: { type: 'filter' as const, ...access },
+    access: {
+      operation: {
+        query: allowAll,
+        create: access.create ? allowAll : denyAll,
+        update: allowAll,
+        delete: allowAll,
       },
-    } as const,
-  ]
+      filter: {
+        query: access.query ? allowFilter : denyFilter,
+        update: access.update ? allowFilter : denyFilter,
+        delete: access.delete ? allowFilter : denyFilter,
+      },
+      item: {
+        create: allowAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+    },
+    fields,
+    graphql: {
+      plural: `List_filter_${suffix}s`,
+    },
+  } as const
+
+  return [filterBList, filterList]
 }
 
 export function* makeList({
@@ -276,7 +274,7 @@ export function* makeList({
   fields: Field[]
 }) {
   const suffix = `${prefix}${makeName(access)}`
-  
+
   yield createOperationList(suffix, access, fields)
 
   if ([access.create, access.update, access.delete].includes(false)) {

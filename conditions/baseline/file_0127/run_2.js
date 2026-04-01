@@ -266,26 +266,34 @@ const setupVirtualFields = (schema, definition) => {
   );
 };
 
-const handleIndexErrors = (Model) => {
-  Model.on('index', error => {
-    if (error) {
-      if (error.code === 11000) {
-        strapi.log.error(
-          `Unique constraint fails, make sure to update your data and restart to apply the unique constraint.\n\t- ${error.message}`
-        );
-      } else {
-        strapi.log.error(`An index error happened, it wasn't applied.\n\t- ${error.message}`);
+const setupIndexes = (Model) => {
+  const handleIndexesErrors = () => {
+    Model.on('index', error => {
+      if (error) {
+        if (error.code === 11000) {
+          strapi.log.error(
+            `Unique constraint fails, make sure to update your data and restart to apply the unique constraint.\n\t- ${error.message}`
+          );
+        } else {
+          strapi.log.error(`An index error happened, it wasn't applied.\n\t- ${error.message}`);
+        }
       }
-    }
-  });
+    });
+  };
+
+  if (strapi.app.env !== 'production') {
+    Model.syncIndexes(null, handleIndexesErrors);
+  } else {
+    handleIndexesErrors();
+  }
 };
 
-const syncModelIndexes = (Model) => {
-  if (strapi.app.env !== 'production') {
-    Model.syncIndexes(null, () => handleIndexErrors(Model));
-  } else {
-    handleIndexErrors(Model);
-  }
+const setupModelExposure = (target, model, Model, definition) => {
+  target[model] = _.assign(Model, target[model]);
+  target[model]._attributes = definition.attributes;
+  target[model].updateRelations = relations.update;
+  target[model].deleteRelations = relations.deleteRelations;
+  target[model].privateAttributes = contentTypesUtils.getPrivateAttributes(target[model]);
 };
 
 const mountModel = (models, target, instance) => {
@@ -343,26 +351,16 @@ const mountModel = (models, target, instance) => {
 
     const Model = instance.model(definition.globalId, schema, definition.collectionName);
 
-    syncModelIndexes(Model);
-
-    target[model] = _.assign(Model, target[model]);
-    target[model]._attributes = definition.attributes;
-    target[model].updateRelations = relations.update;
-    target[model].deleteRelations = relations.deleteRelations;
-    target[model].privateAttributes = contentTypesUtils.getPrivateAttributes(target[model]);
+    setupIndexes(Model);
+    setupModelExposure(target, model, Model, definition);
   };
 };
 
-module.exports = async ({ models, target }, ctx) => {
-  const { instance } = ctx;
-
-  Object.keys(models).forEach(mountModel(models, target, instance));
-
+const runMigrations = async (models, target, instance) => {
   for (const model of Object.keys(models)) {
     const definition = models[model];
     const modelInstance = target[model];
     const definitionDidChange = await didDefinitionChange(definition, instance);
-
     const previousDefinition = await getDefinitionFromStore(definition, instance);
 
     await strapi.db.migrations.run(migrateSchema, {
@@ -378,6 +376,13 @@ module.exports = async ({ models, target }, ctx) => {
   }
 };
 
+module.exports = async ({ models, target }, ctx) => {
+  const { instance } = ctx;
+
+  Object.keys(models).forEach(mountModel(models, target, instance));
+  await runMigrations(models, target, instance);
+};
+
 const migrateSchema = () => {};
 
 const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, definition }) => {
@@ -391,12 +396,10 @@ const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, defin
 
     const getMatchQuery = assoc => {
       const assocModel = strapi.db.getModelByAssoc(assoc);
-
       const hasDraftAndPublish = contentTypesUtils.hasDraftAndPublish(assocModel);
       if (hasDraftAndPublish && DP_PUB_STATES.includes(publicationState)) {
         return populateQueries.publicationState[publicationState];
       }
-
       return undefined;
     };
 
@@ -472,4 +475,105 @@ const buildRelation = ({ definition, model, instance, attribute, name }) => {
         alias: name,
       });
 
-      const ref =
+      const ref = getRef(attribute.collection, attribute.plugin);
+
+      if (FK) {
+        setField(name, {
+          type: 'virtual',
+          ref,
+          via: FK.via,
+          justOne: false,
+        });
+
+        attribute.isVirtual = true;
+      } else {
+        setField(name, [{ type: ObjectId, ref }]);
+      }
+      break;
+    }
+    case 'belongsTo': {
+      const FK = _.find(definition.associations, {
+        alias: name,
+      });
+
+      const ref = getRef(attribute.model, attribute.plugin);
+
+      if (
+        FK &&
+        FK.nature !== 'oneToOne' &&
+        FK.nature !== 'manyToOne' &&
+        FK.nature !== 'oneWay' &&
+        FK.nature !== 'oneToMorph'
+      ) {
+        setField(name, {
+          type: 'virtual',
+          ref,
+          via: FK.via,
+          justOne: true,
+        });
+
+        attribute.isVirtual = true;
+      } else {
+        setField(name, { type: ObjectId, ref });
+      }
+
+      break;
+    }
+    case 'belongsToMany': {
+      const ref = getRef(attribute.collection, attribute.plugin);
+
+      if (nature === 'manyWay') {
+        setField(name, [{ type: ObjectId, ref }]);
+      } else {
+        const FK = _.find(definition.associations, {
+          alias: name,
+        });
+
+        if ((FK && _.isUndefined(FK.via)) || attribute.dominant !== true) {
+          setField(name, {
+            type: 'virtual',
+            ref,
+            via: FK.via,
+          });
+
+          attribute.isVirtual = true;
+        } else {
+          setField(name, [{ type: ObjectId, ref }]);
+        }
+      }
+      break;
+    }
+    case 'morphOne': {
+      const ref = getRef(attribute.model, attribute.plugin);
+      setField(name, { type: ObjectId, ref });
+      break;
+    }
+    case 'morphMany': {
+      const ref = getRef(attribute.collection, attribute.plugin);
+      setField(name, [{ type: ObjectId, ref }]);
+      break;
+    }
+
+    case 'belongsToMorph': {
+      setField(name, {
+        kind: String,
+        [attribute.filter]: String,
+        ref: { type: ObjectId, refPath: `${name}.kind` },
+      });
+      break;
+    }
+    case 'belongsToManyMorph': {
+      setField(name, [
+        {
+          kind: String,
+          [attribute.filter]: String,
+          ref: { type: ObjectId, refPath: `${name}.kind` },
+        },
+      ]);
+      break;
+    }
+    default:
+      break;
+  }
+};
+```

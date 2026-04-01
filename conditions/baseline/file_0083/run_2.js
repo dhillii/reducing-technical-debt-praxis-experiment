@@ -424,6 +424,26 @@ function ItemPage({ listKey }: ItemPageProps) {
               ) : (
                 <ItemNotFound>
                   <Text>
-                    The item with ID <strong>"{itemId}"</strong> doesn't exist, or you don't have{' '}
-                    access to it.
+                    The item with ID{' '}
+                    <strong>"{itemId}"</strong> doesn't exist, or you don't have access to it.
                   </Text>
+                </ItemNotFound>
+              ))}
+          </Box>
+          {initialValue && (
+            <ItemForm
+              fieldModes={fieldModes}
+              fieldPositions={fieldPositions}
+              isRequireds={isRequireds}
+              listKey={listKey}
+              itemLabel={itemLabel}
+              initialValue={initialValue}
+              onSaveSuccess={refetch}
+            />
+          )}
+        </ColumnLayout>
+      )}
+    </PageContainer>
+  )
+}
+```

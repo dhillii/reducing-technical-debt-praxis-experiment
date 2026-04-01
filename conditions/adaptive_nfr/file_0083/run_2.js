@@ -308,56 +308,73 @@ function ItemForm({
 export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
 
 /**
- * Determines the navigation path after an action is executed.
- * @param action - The action metadata
- * @param resultId - The ID of the result item
- * @param itemId - The current item ID
- * @param list - The list metadata
- * @returns The navigation path or null for refetch
+ * Determines the redirect path based on navigation mode and result ID.
+ * @param navigation - Navigation mode from action config
+ * @param resultId - ID of the result item
+ * @param itemId - Current item ID
+ * @param listPath - Path of the list
+ * @param isSingleton - Whether the list is a singleton
+ * @returns The redirect path or null if no redirect needed
  */
-function getActionNavigationPath(
-  action: ActionMeta,
+function getRedirectPath(
+  navigation: string,
   resultId: string | null,
-  itemId: string | undefined,
-  list: ListMeta
+  itemId: string,
+  listPath: string,
+  isSingleton: boolean
 ): string | null {
-  const { navigation } = action.itemView
-
   if (navigation === 'follow' && resultId === itemId) {
     return null
   }
   if (navigation === 'follow' && resultId) {
-    return `/${list.path}/${resultId}`
+    return `/${listPath}/${resultId}`
   }
   if (navigation === 'refetch') {
     return null
   }
-  return list.isSingleton ? '/' : `/${list.path}`
+  return isSingleton ? '/' : `/${listPath}`
 }
 
 /**
- * Determines if the item is not found based on singleton status and item ID.
- * @param isSingleton - Whether the list is a singleton
- * @param itemId - The current item ID
- * @returns True if the item should be considered not found
+ * Determines the action to take based on navigation mode.
+ * @param navigation - Navigation mode from action config
+ * @param resultId - ID of the result item
+ * @param itemId - Current item ID
+ * @returns Action type: 'refetch', 'navigate', or 'none'
  */
-function isSingletonNotFound(isSingleton: boolean, itemId: string | undefined): boolean {
-  return isSingleton && itemId === '1'
+function getActionType(
+  navigation: string,
+  resultId: string | null,
+  itemId: string
+): 'refetch' | 'navigate' | 'none' {
+  if (navigation === 'refetch') {
+    return 'refetch'
+  }
+  if (navigation === 'follow' && resultId === itemId) {
+    return 'refetch'
+  }
+  if (navigation === 'follow' && resultId) {
+    return 'navigate'
+  }
+  return 'none'
 }
 
 /**
- * Renders the appropriate not found message based on list type.
- * @param list - The list metadata
- * @param itemId - The current item ID
- * @returns JSX element for the not found state
+ * Renders the appropriate not found message based on list type and item ID.
  */
-function renderNotFoundContent(list: ListMeta, itemId: string | undefined): JSX.Element {
-  if (list.isSingleton) {
-    if (isSingletonNotFound(list.isSingleton, itemId)) {
+function renderNotFoundContent(
+  isSingleton: boolean,
+  itemId: string,
+  listLabel: string,
+  hideCreate: boolean,
+  list: ListMeta
+): React.ReactNode {
+  if (isSingleton) {
+    if (itemId === '1') {
       return (
         <ItemNotFound>
-          <Text>"{list.label}" doesn't exist, or you don't have access to it.</Text>
-          {!list.hideCreate && <CreateButtonLink list={list} />}
+          <Text>"{listLabel}" doesn't exist, or you don't have access to it.</Text>
+          {!hideCreate && <CreateButtonLink list={list} />}
         </ItemNotFound>
       )
     }
@@ -429,3 +446,84 @@ function ItemPage({ listKey }: ItemPageProps) {
 
     // actions within context of an item
     const actionsInContext = list.actions
+      .map(action => ({
+        ...action,
+        itemView: {
+          ...action.itemView,
+          actionMode: actionModes[action.key],
+        },
+      }))
+      .filter(action => action.itemView.actionMode !== 'hidden')
+
+    return {
+      actionsInContext,
+      fieldModes,
+      fieldPositions,
+      isRequireds,
+    }
+  }, [data?.keystone?.adminMeta, list.fields])
+
+  function onAction(action: ActionMeta, resultId: string | null) {
+    const { navigation } = action.itemView
+    const actionType = getActionType(navigation, resultId, itemId ?? '')
+
+    if (actionType === 'refetch') {
+      refetch()
+    } else if (actionType === 'navigate') {
+      const path = getRedirectPath(navigation, resultId, itemId ?? '', list.path, list.isSingleton)
+      if (path) {
+        router.push(path)
+      }
+    } else {
+      router.push(list.isSingleton ? '/' : `/${list.path}`)
+    }
+  }
+
+  return (
+    <PageContainer
+      title={pageTitle}
+      header={
+        <ItemPageHeader
+          list={list}
+          actions={actionsInContext}
+          label={typeof pageLabel !== 'string' ? 'Loading...' : pageLabel}
+          title={pageTitle}
+          item={item ?? null}
+          onAction={onAction}
+        />
+      }
+    >
+      {pageLoading ? (
+        <VStack height="100%" alignItems="center" justifyContent="center">
+          <ProgressCircle aria-label="loading item data" size="large" isIndeterminate />
+        </VStack>
+      ) : (
+        <ColumnLayout>
+          <Box marginY="xlarge">
+            <GraphQLErrorNotice errors={[error]} />
+            {item == null &&
+              renderNotFoundContent(
+                list.isSingleton,
+                itemId ?? '',
+                list.label,
+                list.hideCreate,
+                list
+              )}
+          </Box>
+          {initialValue && (
+            <ItemForm
+              fieldModes={fieldModes}
+              fieldPositions={fieldPositions}
+              isRequireds={isRequireds}
+              listKey={listKey}
+              itemLabel={itemLabel}
+              initialValue={initialValue}
+              onSaveSuccess={refetch}
+            />
+          )}
+        </ColumnLayout>
+      )}
+    </PageContainer>
+  )
+}
+```

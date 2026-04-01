@@ -174,7 +174,7 @@ internals.transmit = function (response, callback) {
     }
 
     const compressor = internals.setupCompression(request, response, encoding, length);
-    internals.adjustEtagForEncoding(response, encoding);
+    internals.setupEtagVariance(response, encoding);
     internals.setupConnectionClose(request, response);
 
     const error = internals.writeHead(response);
@@ -190,10 +190,7 @@ internals.transmit = function (response, callback) {
 // Adjust status code for empty responses
 internals.adjustEmptyResponse = function (response, length) {
 
-    if (length === 0 &&
-        response.statusCode === 200 &&
-        response.request.route.settings.response.emptyStatusCode === 204) {
-
+    if (length === 0 && response.statusCode === 200 && response.request.route.settings.response.emptyStatusCode === 204) {
         response.code(204);
         delete response.headers['content-length'];
     }
@@ -203,12 +200,7 @@ internals.adjustEmptyResponse = function (response, length) {
 // Setup range request handling
 internals.setupRangeRequest = function (request, response, length, encoding, callback) {
 
-    if (!request.route.settings.response.ranges ||
-        request.method !== 'get' ||
-        response.statusCode !== 200 ||
-        length === 0 ||
-        encoding) {
-
+    if (!request.route.settings.response.ranges || request.method !== 'get' || response.statusCode !== 200 || length === 0 || encoding) {
         response._header('accept-ranges', 'bytes');
         return null;
     }
@@ -222,12 +214,10 @@ internals.setupRangeRequest = function (request, response, length, encoding, cal
 };
 
 
-// Process range header and setup ranger
+// Process Range header and return ranger stream or false on error
 internals.processRangeHeader = function (request, response, length, callback) {
 
-    if (request.headers['if-range'] &&
-        request.headers['if-range'] !== response.headers.etag) {
-
+    if (request.headers['if-range'] && request.headers['if-range'] !== response.headers.etag) {
         response._header('accept-ranges', 'bytes');
         return null;
     }
@@ -236,7 +226,8 @@ internals.processRangeHeader = function (request, response, length, callback) {
     if (!ranges) {
         const error = Boom.rangeNotSatisfiable();
         error.output.headers['content-range'] = 'bytes */' + length;
-        return internals.fail(request, error, callback);
+        internals.fail(request, error, callback);
+        return false;
     }
 
     if (ranges.length === 1) {
@@ -257,11 +248,7 @@ internals.processRangeHeader = function (request, response, length, callback) {
 // Setup compression if applicable
 internals.setupCompression = function (request, response, encoding, length) {
 
-    if (!encoding ||
-        length === 0 ||
-        response.statusCode === 206 ||
-        !response._isPayloadSupported()) {
-
+    if (!encoding || length === 0 || response.statusCode === 206 || !response._isPayloadSupported()) {
         return null;
     }
 
@@ -271,14 +258,12 @@ internals.setupCompression = function (request, response, encoding, length) {
 };
 
 
-// Adjust etag for content encoding
-internals.adjustEtagForEncoding = function (response, encoding) {
+// Setup ETag variance for compressed responses
+internals.setupEtagVariance = function (response, encoding) {
 
-    if ((response.headers['content-encoding'] || encoding) &&
-        response.headers.etag &&
-        response.settings.varyEtag) {
-
-        response.headers.etag = response.headers.etag.slice(0, -1) + '-' + (response.headers['content-encoding'] || encoding) + '"';
+    if ((response.headers['content-encoding'] || encoding) && response.headers.etag && response.settings.varyEtag) {
+        const contentEncoding = response.headers['content-encoding'] || encoding;
+        response.headers.etag = response.headers.etag.slice(0, -1) + '-' + contentEncoding + '"';
     }
 };
 
@@ -287,9 +272,7 @@ internals.adjustEtagForEncoding = function (response, encoding) {
 internals.setupConnectionClose = function (request, response) {
 
     const isInjection = Shot.isInjection(request.raw.req);
-    if (!(isInjection || request.connection._started) ||
-        (request._isPayloadPending && !request.raw.req._readableState.ended)) {
-
+    if (!(isInjection || request.connection._started) || (request._isPayloadPending && !request.raw.req._readableState.ended)) {
         response._header('connection', 'close');
     }
 };
@@ -309,7 +292,7 @@ internals.setupInjection = function (request, response) {
 };
 
 
-// Pipe payload through transformations and to response
+// Pipe payload through transformation streams
 internals.pipePayload = function (request, response, source, ranger, compressor, callback) {
 
     const end = internals.createPayloadEndHandler(request, response, source, callback);
@@ -464,12 +447,13 @@ internals.cache = function (response) {
 };
 
 
-// Set cache-control header with appropriate values
+// Set cache-control header with appropriate directives
 internals.setCacheControl = function (response, request) {
 
     const ttl = (response.settings.ttl !== null ? response.settings.ttl : request._route._cache.ttl());
     const privacy = (request.auth.isAuthenticated || response.headers['set-cookie'] ? 'private' : request.route.settings.cache.privacy || 'default');
-    response._header('cache-control', 'max-age=' + Math.floor(ttl / 1000) + ', must-revalidate' + (privacy !== 'default' ? ', ' + privacy : ''));
+    const privacyDirective = (privacy !== 'default' ? ', ' + privacy : '');
+    response._header('cache-control', 'max-age=' + Math.floor(ttl / 1000) + ', must-revalidate' + privacyDirective);
 };
 
 
@@ -520,4 +504,82 @@ internals.state = function (response, next) {
 
     const each = (name, nextKey) => {
 
-        const autoValue = request.
+        const autoValue = request.connection.states.cookies[name].autoValue;
+        if (!autoValue || names[name]) {
+            return nextKey();
+        }
+
+        names[name] = true;
+
+        if (typeof autoValue !== 'function') {
+            states.push({ name, value: autoValue });
+            return nextKey();
+        }
+
+        autoValue(request, (err, value) => {
+
+            if (err) {
+                return nextKey(err);
+            }
+
+            states.push({ name, value });
+            return nextKey();
+        });
+    };
+
+    const keys = Object.keys(request.connection.states.cookies);
+    Items.parallel(keys, each, (err) => {
+
+        if (err) {
+            return next(Boom.boomify(err));
+        }
+
+        if (!states.length) {
+            return next();
+        }
+
+        request.connection.states.format(states, (err, header) => {
+
+            if (err) {
+                return next(Boom.boomify(err));
+            }
+
+            const existing = response.headers['set-cookie'];
+            if (existing) {
+                header = (Array.isArray(existing) ? existing : [existing]).concat(header);
+            }
+
+            response._header('set-cookie', header);
+            return next();
+        });
+    });
+};
+
+
+internals.unmodified = function (response) {
+
+    const request = response.request;
+
+    if (request._entity.etag && !response.headers.etag) {
+        response.etag(request._entity.etag, { vary: request._entity.vary });
+    }
+
+    if (request._entity.modified && !response.headers['last-modified']) {
+        response.header('last-modified', request._entity.modified);
+    }
+
+    if (response.statusCode === 304) {
+        return;
+    }
+
+    const entity = {
+        etag: response.headers.etag,
+        vary: response.settings.varyEtag,
+        modified: response.headers['last-modified']
+    };
+
+    if (Response.unmodified(request, entity)) {
+        response.code(304);
+    }
+};
+```

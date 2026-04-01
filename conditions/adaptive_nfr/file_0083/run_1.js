@@ -313,50 +313,51 @@ export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} 
  * @param resultId - The ID of the result item
  * @param itemId - The current item ID
  * @param list - The list metadata
- * @returns The navigation path
+ * @returns The navigation path or null for refetch
  */
 function getActionNavigationPath(
   action: ActionMeta,
   resultId: string | null,
   itemId: string | undefined,
   list: ListMeta
-): string {
+): string | null {
   const { navigation } = action.itemView
 
   if (navigation === 'follow' && resultId === itemId) {
-    return 'refetch'
+    return null
   }
   if (navigation === 'follow' && resultId) {
     return `/${list.path}/${resultId}`
+  }
+  if (navigation === 'refetch') {
+    return null
   }
   return list.isSingleton ? '/' : `/${list.path}`
 }
 
 /**
- * Determines if the page should refetch data after an action.
- * @param action - The action metadata
- * @param resultId - The ID of the result item
+ * Determines if the item is not found based on singleton status and item ID.
+ * @param isSingleton - Whether the list is a singleton
  * @param itemId - The current item ID
- * @returns True if the page should refetch
+ * @returns True if the item should be considered not found
  */
-function shouldRefetchAfterAction(
-  action: ActionMeta,
-  resultId: string | null,
-  itemId: string | undefined
-): boolean {
-  const { navigation } = action.itemView
-  return (navigation === 'follow' && resultId === itemId) || navigation === 'refetch'
+function isSingletonNotFound(isSingleton: boolean, itemId: string | undefined): boolean {
+  return isSingleton && itemId === '1'
 }
 
 /**
- * Renders the appropriate ItemNotFound variant based on list and item state.
+ * Renders the appropriate not found message based on list and item context.
+ * @param isSingleton - Whether the list is a singleton
+ * @param itemId - The current item ID
+ * @param list - The list metadata
+ * @returns JSX element for the not found state
  */
 function renderItemNotFoundContent(
-  list: ListMeta,
+  isSingleton: boolean,
   itemId: string | undefined,
-  isSingleton: boolean
-): React.ReactNode {
-  if (isSingleton && itemId === '1') {
+  list: ListMeta
+) {
+  if (isSingletonNotFound(isSingleton, itemId)) {
     return (
       <ItemNotFound>
         <Text>"{list.label}" doesn't exist, or you don't have access to it.</Text>
@@ -436,3 +437,70 @@ function ItemPage({ listKey }: ItemPageProps) {
     // actions within context of an item
     const actionsInContext = list.actions
       .map(action => ({
+        ...action,
+        itemView: {
+          ...action.itemView,
+          actionMode: actionModes[action.key],
+        },
+      }))
+      .filter(action => action.itemView.actionMode !== 'hidden')
+
+    return {
+      actionsInContext,
+      fieldModes,
+      fieldPositions,
+      isRequireds,
+    }
+  }, [data?.keystone?.adminMeta, list.fields])
+
+  function onAction(action: ActionMeta, resultId: string | null) {
+    const navigationPath = getActionNavigationPath(action, resultId, itemId, list)
+
+    if (navigationPath === null) {
+      refetch()
+    } else {
+      router.push(navigationPath)
+    }
+  }
+
+  return (
+    <PageContainer
+      title={pageTitle}
+      header={
+        <ItemPageHeader
+          list={list}
+          actions={actionsInContext}
+          label={typeof pageLabel !== 'string' ? 'Loading...' : pageLabel}
+          title={pageTitle}
+          item={item ?? null}
+          onAction={onAction}
+        />
+      }
+    >
+      {pageLoading ? (
+        <VStack height="100%" alignItems="center" justifyContent="center">
+          <ProgressCircle aria-label="loading item data" size="large" isIndeterminate />
+        </VStack>
+      ) : (
+        <ColumnLayout>
+          <Box marginY="xlarge">
+            <GraphQLErrorNotice errors={[error]} />
+            {item == null && renderItemNotFoundContent(list.isSingleton, itemId, list)}
+          </Box>
+          {initialValue && (
+            <ItemForm
+              fieldModes={fieldModes}
+              fieldPositions={fieldPositions}
+              isRequireds={isRequireds}
+              listKey={listKey}
+              itemLabel={itemLabel}
+              initialValue={initialValue}
+              onSaveSuccess={refetch}
+            />
+          )}
+        </ColumnLayout>
+      )}
+    </PageContainer>
+  )
+}
+```

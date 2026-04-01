@@ -130,8 +130,114 @@ const processRelationalAttributes = (definition, relationalAttributes, model, in
   });
 };
 
-// Handle decimal conversion in schema transform
-const convertDecimalValues = returned => {
+// Create schema and configure indexes
+const createAndConfigureSchema = (definition, instance, Model) => {
+  const schema = new instance.Schema(
+    _.omitBy(definition.loadedModel, ({ type }) => type === 'virtual')
+  );
+
+  const handleIndexesErrors = () => {
+    Model.on('index', error => {
+      if (error) {
+        if (error.code === 11000) {
+          strapi.log.error(
+            `Unique constraint fails, make sure to update your data and restart to apply the unique constraint.\n\t- ${error.message}`
+          );
+        } else {
+          strapi.log.error(`An index error happened, it wasn't applied.\n\t- ${error.message}`);
+        }
+      }
+    });
+  };
+
+  if (strapi.app.env !== 'production') {
+    Model.syncIndexes(null, handleIndexesErrors);
+  } else {
+    handleIndexesErrors();
+  }
+
+  return schema;
+};
+
+// Setup find lifecycle hooks
+const setupFindLifecycleHooks = (schema, definition, componentAttributes, morphAssociations) => {
+  const findLifecycles = ['find', 'findOne', 'findOneAndUpdate', 'findOneAndRemove'];
+  const populateFn = createOnFetchPopulateFn({
+    componentAttributes,
+    morphAssociations,
+    definition,
+  });
+
+  findLifecycles.forEach(key => {
+    schema.pre(key, populateFn);
+  });
+};
+
+// Add virtual fields to schema
+const addVirtualFields = (schema, definition) => {
+  _.forEach(
+    _.pickBy(definition.loadedModel, ({ type }) => type === 'virtual'),
+    (value, key) => {
+      schema.virtual(key, {
+        ref: value.ref,
+        localField: '_id',
+        foreignField: value.via,
+        justOne: value.justOne || false,
+      });
+    }
+  );
+};
+
+// Configure timestamp attributes
+const configureTimestamps = (definition, schema, target, model) => {
+  const createAtCol = _.get(definition, 'options.timestamps.0', 'createdAt');
+  const updatedAtCol = _.get(definition, 'options.timestamps.1', 'updatedAt');
+
+  if (_.get(definition, 'options.timestamps', false)) {
+    _.set(definition, 'options.timestamps', [createAtCol, updatedAtCol]);
+
+    _.assign(target[model].allAttributes, {
+      [createAtCol]: { type: 'timestamp' },
+      [updatedAtCol]: { type: 'timestamp' },
+    });
+
+    schema.set('timestamps', { createdAt: createAtCol, updatedAt: updatedAtCol });
+  } else {
+    _.set(definition, 'options.timestamps', false);
+  }
+};
+
+// Helper to convert morph reference to Strapi format
+const refToStrapiRef = obj => {
+  const ref = obj.ref;
+  let plainData = ref && typeof ref.toJSON === 'function' ? ref.toJSON() : ref;
+
+  if (typeof plainData !== 'object') return ref;
+
+  return {
+    __contentType: obj.kind,
+    ...ref,
+  };
+};
+
+// Helper to parse component reference
+const parseComponentRef = el => {
+  if (el.ref instanceof mongoose.Types.ObjectId) {
+    return el.ref.toString();
+  }
+  return el.ref;
+};
+
+// Helper to parse dynamic zone reference
+const parseDynamicZoneRef = el => {
+  if (el.ref instanceof mongoose.Types.ObjectId) {
+    return { id: el.ref.toString() };
+  }
+  return el.ref;
+};
+
+// Process decimal128 fields in transform
+const processDecimalFields = returned => {
   Object.keys(returned)
     .filter(key => returned[key] instanceof mongoose.Types.Decimal128)
     .forEach(key => {
@@ -139,8 +245,8 @@ const convertDecimalValues = returned => {
     });
 };
 
-// Transform morph associations in returned data
-const transformMorphAssociations = (returned, morphAssociations) => {
+// Process morph associations in transform
+const processMorphAssociations = (returned, morphAssociations, refToStrapiRef) => {
   morphAssociations.forEach(association => {
     if (
       Array.isArray(returned[association.alias]) &&
@@ -152,20 +258,19 @@ const transformMorphAssociations = (returned, morphAssociations) => {
           break;
 
         case 'manyMorphToMany':
-        case 'manyMorphToOne': {
+        case 'manyMorphToOne':
           returned[association.alias] = returned[association.alias].map(obj =>
             refToStrapiRef(obj)
           );
           break;
-        }
         default:
       }
     }
   });
 };
 
-// Transform component attributes in returned data
-const transformComponentAttributes = (returned, componentAttributes, definition) => {
+// Process component attributes in transform
+const processComponentAttributesTransform = (returned, componentAttributes, definition, parseComponentRef, parseDynamicZoneRef) => {
   componentAttributes.forEach(name => {
     const attribute = definition.attributes[name];
     const { type } = attribute;
@@ -193,8 +298,8 @@ const transformComponentAttributes = (returned, componentAttributes, definition)
   });
 };
 
-// Transform regular associations in returned data
-const transformAssociations = (returned, associations) => {
+// Process regular associations in transform
+const processAssociationsTransform = (returned, associations) => {
   associations.forEach(association => {
     const relation = returned[association.alias];
 
@@ -213,123 +318,21 @@ const transformAssociations = (returned, associations) => {
   });
 };
 
-// Convert reference to Strapi reference format
-const refToStrapiRef = obj => {
-  const ref = obj.ref;
-  let plainData = ref && typeof ref.toJSON === 'function' ? ref.toJSON() : ref;
-
-  if (typeof plainData !== 'object') return ref;
-
-  return {
-    __contentType: obj.kind,
-    ...ref,
+// Configure schema serialization
+const configureSchemaSerializationTransform = (schema, definition, componentAttributes, morphAssociations, associations) => {
+  schema.options.toObject = schema.options.toJSON = {
+    virtuals: true,
+    transform: function(doc, returned) {
+      processDecimalFields(returned);
+      processMorphAssociations(returned, morphAssociations, refToStrapiRef);
+      processComponentAttributesTransform(returned, componentAttributes, definition, parseComponentRef, parseDynamicZoneRef);
+      processAssociationsTransform(returned, associations);
+    },
   };
-};
-
-// Parse component reference
-const parseComponentRef = el => {
-  if (el.ref instanceof mongoose.Types.ObjectId) {
-    return el.ref.toString();
-  } else {
-    return el.ref;
-  }
-};
-
-// Parse dynamic zone reference
-const parseDynamicZoneRef = el => {
-  if (el.ref instanceof mongoose.Types.ObjectId) {
-    return { id: el.ref.toString() };
-  } else {
-    return el.ref;
-  }
-};
-
-// Create schema transform function
-const createSchemaTransform = (morphAssociations, componentAttributes, definition, associations) => {
-  return function(doc, returned) {
-    convertDecimalValues(returned);
-    transformMorphAssociations(returned, morphAssociations);
-    transformComponentAttributes(returned, componentAttributes, definition);
-    transformAssociations(returned, associations);
-  };
-};
-
-// Handle model index errors
-const handleIndexesErrors = Model => {
-  Model.on('index', error => {
-    if (error) {
-      if (error.code === 11000) {
-        strapi.log.error(
-          `Unique constraint fails, make sure to update your data and restart to apply the unique constraint.\n\t- ${error.message}`
-        );
-      } else {
-        strapi.log.error(`An index error happened, it wasn't applied.\n\t- ${error.message}`);
-      }
-    }
-  });
-};
-
-// Sync model indexes based on environment
-const syncModelIndexes = Model => {
-  if (strapi.app.env !== 'production') {
-    Model.syncIndexes(null, () => handleIndexesErrors(Model));
-  } else {
-    handleIndexesErrors(Model);
-  }
-};
-
-// Configure timestamp options
-const configureTimestamps = (definition, schema, target, model) => {
-  const createAtCol = _.get(definition, 'options.timestamps.0', 'createdAt');
-  const updatedAtCol = _.get(definition, 'options.timestamps.1', 'updatedAt');
-
-  if (_.get(definition, 'options.timestamps', false)) {
-    _.set(definition, 'options.timestamps', [createAtCol, updatedAtCol]);
-
-    _.assign(target[model].allAttributes, {
-      [createAtCol]: { type: 'timestamp' },
-      [updatedAtCol]: { type: 'timestamp' },
-    });
-
-    schema.set('timestamps', { createdAt: createAtCol, updatedAt: updatedAtCol });
-  } else {
-    _.set(definition, 'options.timestamps', false);
-  }
-};
-
-// Add virtual fields to schema
-const addVirtualFields = (schema, definition) => {
-  _.forEach(
-    _.pickBy(definition.loadedModel, ({ type }) => type === 'virtual'),
-    (value, key) => {
-      schema.virtual(key, {
-        ref: value.ref,
-        localField: '_id',
-        foreignField: value.via,
-        justOne: value.justOne || false,
-      });
-    }
-  );
-};
-
-// Setup pre-find hooks for populate
-const setupPreFindHooks = (schema, findLifecycles, populateFn) => {
-  findLifecycles.forEach(key => {
-    schema.pre(key, populateFn);
-  });
-};
-
-// Assign model properties and methods
-const assignModelProperties = (target, model, Model, definition) => {
-  target[model] = _.assign(Model, target[model]);
-  target[model]._attributes = definition.attributes;
-  target[model].updateRelations = relations.update;
-  target[model].deleteRelations = relations.deleteRelations;
-  target[model].privateAttributes = contentTypesUtils.getPrivateAttributes(target[model]);
 };
 
 // Mount a single model
-const mountModel = (model, models, target, instance) => {
+const mountModel = (models, target, instance, model) => {
   const definition = models[model];
   definition.orm = 'mongoose';
   definition.associations = [];
@@ -351,16 +354,9 @@ const mountModel = (model, models, target, instance) => {
     _.omitBy(definition.loadedModel, ({ type }) => type === 'virtual')
   );
 
-  const findLifecycles = ['find', 'findOne', 'findOneAndUpdate', 'findOneAndRemove'];
   const morphAssociations = definition.associations.filter(isPolymorphicAssoc);
 
-  const populateFn = createOnFetchPopulateFn({
-    componentAttributes,
-    morphAssociations,
-    definition,
-  });
-
-  setupPreFindHooks(schema, findLifecycles, populateFn);
+  setupFindLifecycleHooks(schema, definition, componentAttributes, morphAssociations);
   addVirtualFields(schema, definition);
 
   target[model].allAttributes = _.clone(definition.attributes);
@@ -373,23 +369,43 @@ const mountModel = (model, models, target, instance) => {
     association => !isPolymorphicAssoc(association)
   );
 
-  const transformFn = createSchemaTransform(morphAssociations, componentAttributes, definition, associations);
+  configureSchemaSerializationTransform(schema, definition, componentAttributes, morphAssociations, associations);
 
-  schema.options.toObject = schema.options.toJSON = {
-    virtuals: true,
-    transform: transformFn,
-  };
-
+  // Instantiate model
   const Model = instance.model(definition.globalId, schema, definition.collectionName);
 
-  syncModelIndexes(Model);
+  const handleIndexesErrors = () => {
+    Model.on('index', error => {
+      if (error) {
+        if (error.code === 11000) {
+          strapi.log.error(
+            `Unique constraint fails, make sure to update your data and restart to apply the unique constraint.\n\t- ${error.message}`
+          );
+        } else {
+          strapi.log.error(`An index error happened, it wasn't applied.\n\t- ${error.message}`);
+        }
+      }
+    });
+  };
 
-  assignModelProperties(target, model, Model, definition);
+  if (strapi.app.env !== 'production') {
+    Model.syncIndexes(null, handleIndexesErrors);
+  } else {
+    handleIndexesErrors();
+  }
+
+  // Expose ORM functions through the target object
+  target[model] = _.assign(Model, target[model]);
+
+  // Push attributes to be aware of model schema
+  target[model]._attributes = definition.attributes;
+  target[model].updateRelations = relations.update;
+  target[model].deleteRelations = relations.deleteRelations;
+  target[model].privateAttributes = contentTypesUtils.getPrivateAttributes(target[model]);
 };
 
 // Run migrations for a model
-const runModelMigrations = async (model, models, target, instance) => {
-  const definition = models[model];
+const runModelMigrations = async (model, definition, target, instance) => {
   const modelInstance = target[model];
   const definitionDidChange = await didDefinitionChange(definition, instance);
   const previousDefinition = await getDefinitionFromStore(definition, instance);
@@ -410,17 +426,19 @@ module.exports = async ({ models, target }, ctx) => {
   const { instance } = ctx;
 
   // Instantiate every model
-  Object.keys(models).forEach(model => mountModel(model, models, target, instance));
+  Object.keys(models).forEach(model => mountModel(models, target, instance, model));
 
   // Migrations + storing schema
   for (const model of Object.keys(models)) {
-    await runModelMigrations(model, models, target, instance);
+    const definition = models[model];
+    await runModelMigrations(model, definition, target, instance);
   }
 };
 
 // noop migration to match migration API
 const migrateSchema = () => {};
 
+// Create populate function for find lifecycle hooks
 const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, definition }) => {
   return function() {
     const populatedPaths = this.getPopulatedPaths();
@@ -433,9 +451,11 @@ const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, defin
     const getMatchQuery = assoc => {
       const assocModel = strapi.db.getModelByAssoc(assoc);
       const hasDraftAndPublish = contentTypesUtils.hasDraftAndPublish(assocModel);
+
       if (hasDraftAndPublish && DP_PUB_STATES.includes(publicationState)) {
         return populateQueries.publicationState[publicationState];
       }
+
       return undefined;
     };
 
@@ -472,4 +492,146 @@ const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, defin
         .forEach(ast => {
           this.populate({
             path: ast.alias,
-            match: getMatchQuery
+            match: getMatchQuery(ast),
+            options: { publicationState, _populateComponents: false },
+          });
+        });
+    }
+  };
+};
+
+// Build relation field configuration
+const buildRelation = ({ definition, model, instance, attribute, name }) => {
+  const { nature, verbose } =
+    utilsModels.getNature({
+      attribute,
+      attributeName: name,
+      modelName: model.toLowerCase(),
+    }) || {};
+
+  // Build associations key
+  utilsModels.defineAssociations(model.toLowerCase(), definition, attribute, name);
+
+  const getRef = (name, plugin) => {
+    return strapi.db.getModel(name, plugin).globalId;
+  };
+
+  const setField = (name, val) => {
+    definition.loadedModel[name] = val;
+  };
+
+  const { ObjectId } = instance.Schema.Types;
+
+  switch (verbose) {
+    case 'hasOne': {
+      const ref = getRef(attribute.model, attribute.plugin);
+      setField(name, { type: ObjectId, ref });
+      break;
+    }
+    case 'hasMany': {
+      const FK = _.find(definition.associations, {
+        alias: name,
+      });
+
+      const ref = getRef(attribute.collection, attribute.plugin);
+
+      if (FK) {
+        setField(name, {
+          type: 'virtual',
+          ref,
+          via: FK.via,
+          justOne: false,
+        });
+
+        attribute.isVirtual = true;
+      } else {
+        setField(name, [{ type: ObjectId, ref }]);
+      }
+      break;
+    }
+    case 'belongsTo': {
+      const FK = _.find(definition.associations, {
+        alias: name,
+      });
+
+      const ref = getRef(attribute.model, attribute.plugin);
+
+      if (
+        FK &&
+        FK.nature !== 'oneToOne' &&
+        FK.nature !== 'manyToOne' &&
+        FK.nature !== 'oneWay' &&
+        FK.nature !== 'oneToMorph'
+      ) {
+        setField(name, {
+          type: 'virtual',
+          ref,
+          via: FK.via,
+          justOne: true,
+        });
+
+        attribute.isVirtual = true;
+      } else {
+        setField(name, { type: ObjectId, ref });
+      }
+
+      break;
+    }
+    case 'belongsToMany': {
+      const ref = getRef(attribute.collection, attribute.plugin);
+
+      if (nature === 'manyWay') {
+        setField(name, [{ type: ObjectId, ref }]);
+      } else {
+        const FK = _.find(definition.associations, {
+          alias: name,
+        });
+
+        if ((FK && _.isUndefined(FK.via)) || attribute.dominant !== true) {
+          setField(name, {
+            type: 'virtual',
+            ref,
+            via: FK.via,
+          });
+
+          attribute.isVirtual = true;
+        } else {
+          setField(name, [{ type: ObjectId, ref }]);
+        }
+      }
+      break;
+    }
+    case 'morphOne': {
+      const ref = getRef(attribute.model, attribute.plugin);
+      setField(name, { type: ObjectId, ref });
+      break;
+    }
+    case 'morphMany': {
+      const ref = getRef(attribute.collection, attribute.plugin);
+      setField(name, [{ type: ObjectId, ref }]);
+      break;
+    }
+
+    case 'belongsToMorph': {
+      setField(name, {
+        kind: String,
+        [attribute.filter]: String,
+        ref: { type: ObjectId, refPath: `${name}.kind` },
+      });
+      break;
+    }
+    case 'belongsToManyMorph': {
+      setField(name, [
+        {
+          kind: String,
+          [attribute.filter]: String,
+          ref: { type: ObjectId, refPath: `${name}.kind` },
+        },
+      ]);
+      break;
+    }
+    default:
+      break;
+  }
+};
+```

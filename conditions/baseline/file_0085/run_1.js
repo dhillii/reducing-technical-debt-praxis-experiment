@@ -61,15 +61,22 @@ function validatePasswordLength(
   return undefined
 }
 
-function validatePasswordRules(
+function validatePasswordPattern(
   val: string,
-  validation: Validation,
+  match: { regex: RegExp; explanation: string } | null
+): string | undefined {
+  if (match && !match.regex.test(val)) {
+    return match.explanation
+  }
+  return undefined
+}
+
+function validatePasswordCommonality(
+  val: string,
+  rejectCommon: boolean,
   fieldLabel: string
 ): string | undefined {
-  if (validation.match && !validation.match.regex.test(val)) {
-    return validation.match.explanation
-  }
-  if (validation.rejectCommon && dumbPasswords.check(val)) {
+  if (rejectCommon && dumbPasswords.check(val)) {
     return `${fieldLabel} is too common and is not allowed`
   }
   return undefined
@@ -97,8 +104,11 @@ function validate(
     )
     if (lengthError) return lengthError
 
-    const rulesError = validatePasswordRules(val, validation, fieldLabel)
-    if (rulesError) return rulesError
+    const patternError = validatePasswordPattern(val, validation.match)
+    if (patternError) return patternError
+
+    const commonalityError = validatePasswordCommonality(val, validation.rejectCommon, fieldLabel)
+    if (commonalityError) return commonalityError
   }
 
   return undefined
@@ -116,34 +126,50 @@ function readonlyCheckboxProps(isSet: null | undefined | boolean) {
   }
 }
 
-function PasswordInputFields({
+function EditingPasswordFields({
   value,
   onChange,
-  secureTextEntry,
   onEscape,
-  field,
-  descriptionId,
-  messageId,
-  validationMessage,
+  secureTextEntry,
+  setSecureTextEntry,
   touched,
   setTouched,
+  validationMessage,
+  descriptionId,
+  messageId,
+  fieldLabel,
 }: {
   value: Extract<Value, { kind: 'editing' }>
   onChange: (val: Value) => void
-  secureTextEntry: boolean
   onEscape: (e: React.KeyboardEvent) => void
-  field: { label: string }
+  secureTextEntry: boolean
+  setSecureTextEntry: (val: boolean) => void
+  touched: { value: boolean; confirm: boolean }
+  setTouched: (val: { value: boolean; confirm: boolean }) => void
+  validationMessage: string | undefined
   descriptionId: string
   messageId: string
-  validationMessage: string | undefined
-  touched: { value: boolean; confirm: boolean }
-  setTouched: (touched: { value: boolean; confirm: boolean }) => void
+  fieldLabel: string
 }) {
+  const cancelEditing = () => {
+    onChange({ kind: 'initial', isSet: value.isSet })
+    setTimeout(() => {
+      document.querySelector('[data-password-trigger]')?.focus()
+    }, 0)
+  }
+
   return (
-    <>
+    <Flex
+      gap="regular"
+      UNSAFE_className={css({
+        [containerQueries.below.tablet]: {
+          flexDirection: 'column',
+        },
+      })}
+    >
       <TextField
         autoFocus
-        aria-label={`new ${field.label}`}
+        aria-label={`new ${fieldLabel}`}
         aria-describedby={[descriptionId, messageId].filter(Boolean).join(' ')}
         isInvalid={!!validationMessage}
         onBlur={() => setTouched({ ...touched, value: true })}
@@ -155,7 +181,7 @@ function PasswordInputFields({
         flex
       />
       <TextField
-        aria-label={`confirm ${field.label}`}
+        aria-label={`confirm ${fieldLabel}`}
         aria-describedby={messageId}
         isInvalid={!!validationMessage}
         onBlur={() => setTouched({ ...touched, confirm: true })}
@@ -166,38 +192,26 @@ function PasswordInputFields({
         value={value.confirm}
         flex
       />
-    </>
-  )
-}
 
-function PasswordActions({
-  secureTextEntry,
-  setSecureTextEntry,
-  cancelEditing,
-}: {
-  secureTextEntry: boolean
-  setSecureTextEntry: (val: boolean) => void
-  cancelEditing: () => void
-}) {
-  return (
-    <Flex gap="regular">
-      <ToggleButton
-        aria-label="show"
-        isSelected={!secureTextEntry}
-        onPress={() => setSecureTextEntry(!secureTextEntry)}
-      >
-        <Icon src={eyeIcon} />
-        <Text
-          UNSAFE_className={css({
-            [containerQueries.above.mobile]: {
-              display: 'none',
-            },
-          })}
+      <Flex gap="regular">
+        <ToggleButton
+          aria-label="show"
+          isSelected={!secureTextEntry}
+          onPress={() => setSecureTextEntry(!secureTextEntry)}
         >
-          Show
-        </Text>
-      </ToggleButton>
-      <ActionButton onPress={cancelEditing}>Cancel</ActionButton>
+          <Icon src={eyeIcon} />
+          <Text
+            UNSAFE_className={css({
+              [containerQueries.above.mobile]: {
+                display: 'none',
+              },
+            })}
+          >
+            Show
+          </Text>
+        </ToggleButton>
+        <ActionButton onPress={cancelEditing}>Cancel</ActionButton>
+      </Flex>
     </Flex>
   )
 }
@@ -219,17 +233,13 @@ export function Field(props: FieldProps<typeof controller>) {
   const descriptionId = useSlotId([!!field.description, !!validationMessage])
   const messageId = useSlotId([!!field.description, !!validationMessage])
 
-  const cancelEditing = () => {
-    onChange?.({ kind: 'initial', isSet: value.isSet })
-    setTimeout(() => {
-      triggerRef.current?.focus()
-    }, 0)
-  }
-
   const onEscape = (e: React.KeyboardEvent) => {
     if (e.key !== 'Escape' || value.kind !== 'editing') return
     if (value.value === '' && value.confirm === '') {
-      cancelEditing()
+      onChange?.({ kind: 'initial', isSet: value.isSet })
+      setTimeout(() => {
+        triggerRef.current?.focus()
+      }, 0)
     }
   }
 
@@ -261,6 +271,7 @@ export function Field(props: FieldProps<typeof controller>) {
       ) : value.kind === 'initial' ? (
         <ActionButton
           ref={triggerRef}
+          data-password-trigger
           alignSelf="start"
           autoFocus={autoFocus}
           onPress={() => {
@@ -276,32 +287,19 @@ export function Field(props: FieldProps<typeof controller>) {
           {field.label.toLocaleLowerCase()}
         </ActionButton>
       ) : (
-        <Flex
-          gap="regular"
-          UNSAFE_className={css({
-            [containerQueries.below.tablet]: {
-              flexDirection: 'column',
-            },
-          })}
-        >
-          <PasswordInputFields
-            value={value}
-            onChange={onChange}
-            secureTextEntry={secureTextEntry}
-            onEscape={onEscape}
-            field={field}
-            descriptionId={descriptionId}
-            messageId={messageId}
-            validationMessage={validationMessage}
-            touched={touched}
-            setTouched={setTouched}
-          />
-          <PasswordActions
-            secureTextEntry={secureTextEntry}
-            setSecureTextEntry={setSecureTextEntry}
-            cancelEditing={cancelEditing}
-          />
-        </Flex>
+        <EditingPasswordFields
+          value={value}
+          onChange={onChange}
+          onEscape={onEscape}
+          secureTextEntry={secureTextEntry}
+          setSecureTextEntry={setSecureTextEntry}
+          touched={touched}
+          setTouched={setTouched}
+          validationMessage={validationMessage}
+          descriptionId={descriptionId}
+          messageId={messageId}
+          fieldLabel={field.label}
+        />
       )}
       {!!validationMessage && <FieldMessage id={messageId}>{validationMessage}</FieldMessage>}
     </VStack>

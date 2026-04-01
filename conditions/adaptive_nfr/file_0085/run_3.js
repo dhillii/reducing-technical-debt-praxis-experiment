@@ -374,29 +374,65 @@ type Value =
       confirm: string
     }
 
-/** Creates filter label based on filter type and value */
-function createFilterLabel(type: string, value: boolean): string {
-  if ((type === 'is' && value) || (type === 'not' && !value)) {
-    return `is set`
+/** Creates validation regex from metadata */
+function createValidationRegex(match: PasswordFieldMeta['validation']['match']): Validation['match'] {
+  if (match === null) {
+    return null
   }
-  return `is not set`
+  return {
+    regex: new RegExp(match.regex.source, match.regex.flags),
+    explanation: match.explanation,
+  }
 }
 
-/** Builds GraphQL filter object for password field */
-function buildPasswordGraphQLFilter(config: { fieldKey: string }, type: string, value: boolean): Record<string, { isSet: boolean }> {
+/** Builds filter configuration for password field */
+function buildFilterConfig(fieldKey: string, isNullable: boolean) {
+  if (isNullable === false) {
+    return undefined
+  }
+
   return {
-    [config.fieldKey]: {
-      isSet: type === 'not' ? !value : value,
+    Filter(props: any) {
+      const { autoFocus, onChange, value, ...otherProps } = props
+      return (
+        <Checkbox
+          autoFocus={autoFocus}
+          onChange={onChange}
+          isSelected={value ?? false}
+          {...otherProps}
+        >
+          {props.typeLabel} set
+        </Checkbox>
+      )
+    },
+    graphql({ type, value }: { type: string; value: boolean }) {
+      return {
+        [fieldKey]: {
+          isSet: type === 'not' ? !value : value,
+        },
+      }
+    },
+    parseGraphQL(value: any) {
+      if (value?.isSet !== undefined) {
+        return [{ type: 'is', value: value.isSet }]
+      }
+      return []
+    },
+    Label({ type, value }: { type: string; value: boolean }) {
+      if ((type === 'is' && value) || (type === 'not' && !value)) return `is set`
+      return `is not set`
+    },
+    types: {
+      is: {
+        label: 'Is',
+        initialValue: true,
+      },
+      not: {
+        label: 'Is not',
+        initialValue: true,
+      },
     },
   }
-}
-
-/** Parses GraphQL filter value into filter array */
-function parsePasswordGraphQLFilter(value: any): Array<{ type: string; value: boolean }> {
-  if (value?.isSet !== undefined) {
-    return [{ type: 'is', value: value.isSet }]
-  }
-  return []
 }
 
 export function controller(config: FieldControllerConfig<PasswordFieldMeta>): FieldController<
@@ -408,17 +444,9 @@ export function controller(config: FieldControllerConfig<PasswordFieldMeta>): Fi
 } {
   const validation: Validation = {
     ...config.fieldMeta.validation,
-    match:
-      config.fieldMeta.validation.match === null
-        ? null
-        : {
-            regex: new RegExp(
-              config.fieldMeta.validation.match.regex.source,
-              config.fieldMeta.validation.match.regex.flags
-            ),
-            explanation: config.fieldMeta.validation.match.explanation,
-          },
+    match: createValidationRegex(config.fieldMeta.validation.match),
   }
+
   return {
     fieldKey: config.fieldKey,
     label: config.label,
@@ -436,41 +464,7 @@ export function controller(config: FieldControllerConfig<PasswordFieldMeta>): Fi
       if (value.kind === 'initial') return {}
       return { [config.fieldKey]: value.value }
     },
-    filter:
-      config.fieldMeta.isNullable === false
-        ? undefined
-        : {
-            Filter(props) {
-              const { autoFocus, context, typeLabel, onChange, value, type, ...otherProps } = props
-              return (
-                <Checkbox
-                  autoFocus={autoFocus}
-                  onChange={onChange}
-                  isSelected={value ?? false}
-                  {...otherProps}
-                >
-                  {typeLabel} set
-                </Checkbox>
-              )
-            },
-            graphql({ type, value }) {
-              return buildPasswordGraphQLFilter(config, type, value)
-            },
-            parseGraphQL: value => parsePasswordGraphQLFilter(value),
-            Label({ type, value }) {
-              return createFilterLabel(type, value)
-            },
-            types: {
-              is: {
-                label: 'Is',
-                initialValue: true,
-              },
-              not: {
-                label: 'Is not',
-                initialValue: true,
-              },
-            },
-          },
+    filter: buildFilterConfig(config.fieldKey, config.fieldMeta.isNullable),
   }
 }
 ```

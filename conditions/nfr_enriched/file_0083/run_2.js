@@ -115,9 +115,8 @@ function DeleteButton({
         >
           <Text>
             Are you sure you want to delete{' '}
-            <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>?
-            {' '}
-            This action cannot be undone.
+            <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>
+            {' '}? This action cannot be undone.
           </Text>
         </AlertDialog>
       </DialogTrigger>
@@ -204,7 +203,7 @@ function ItemForm({
   const [value, setValue] = useState(() => initialValue)
 
   const resetValueState = useCallback(() => {
-    setValue(initialValue)
+    setValue(() => initialValue)
   }, [initialValue])
 
   useEffect(() => {
@@ -213,6 +212,10 @@ function ItemForm({
 
   const invalidFields = useInvalidFields(list.fields, value, isRequireds)
   const [forceValidation, setForceValidation] = useState(false)
+
+  const handleValidationError = () => {
+    setForceValidation(true)
+  }
 
   const handleUpdateError = (updateError: any) => {
     const error = CombinedGraphQLErrors.is(updateError)
@@ -241,9 +244,11 @@ function ItemForm({
     if (e.target !== e.currentTarget) return
     e.preventDefault()
 
-    const newForceValidation = invalidFields.size !== 0
-    setForceValidation(newForceValidation)
-    if (newForceValidation) return
+    const hasInvalidFields = invalidFields.size !== 0
+    if (hasInvalidFields) {
+      handleValidationError()
+      return
+    }
 
     const { error: updateErrorResult } = await update({
       variables: {
@@ -252,11 +257,10 @@ function ItemForm({
       },
     })
 
-    if (handleUpdateError(updateErrorResult)) {
-      return
+    const hasError = handleUpdateError(updateErrorResult)
+    if (!hasError) {
+      handleUpdateSuccess()
     }
-
-    handleUpdateSuccess()
   })
 
   const hasChangedFields = useHasChanges('update', list.fields, value, initialValue)
@@ -333,18 +337,18 @@ function ItemForm({
 
 export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
 
-type ItemPageContextConfig = {
-  actionModes: Record<string, string>
+type ItemPageContextData = {
+  actionsInContext: ActionMeta[]
   fieldModes: Record<string, ConditionalFilter<'edit' | 'read' | 'hidden', BaseListTypeInfo>>
   fieldPositions: Record<string, 'form' | 'sidebar'>
   isRequireds: Record<string, ConditionalFilterCase<BaseListTypeInfo>>
 }
 
-/** Builds context configuration for item view from list metadata and admin meta overrides */
-function buildItemPageContextConfig(
+/** Builds context data for item page including actions and field configurations */
+function buildItemPageContextData(
   list: ListMeta,
   adminMeta: any
-): ItemPageContextConfig {
+): ItemPageContextData {
   const actionModes = Object.fromEntries(
     Object.entries(list.actions).map(([k, v]) => [k, v.itemView.actionMode])
   )
@@ -358,7 +362,7 @@ function buildItemPageContextConfig(
     Object.entries(list.fields).map(([k, v]) => [k, v.itemView.isRequired])
   )
 
-  // Apply admin meta field overrides
+  // Override with admin metadata if available
   for (const field of adminMeta?.list?.fields ?? []) {
     if (
       !field?.itemView ||
@@ -373,21 +377,13 @@ function buildItemPageContextConfig(
     isRequireds[field.key] = field.itemView.isRequired
   }
 
-  // Apply admin meta action overrides
   for (const action of adminMeta?.list?.actions ?? []) {
     if (!action?.itemView?.actionMode || !action.key) continue
     actionModes[action.key] = action.itemView.actionMode
   }
 
-  return { actionModes, fieldModes, fieldPositions, isRequireds }
-}
-
-/** Filters actions to only include those visible in item context */
-function getActionsInContext(
-  list: ListMeta,
-  actionModes: Record<string, string>
-): ActionMeta[] {
-  return list.actions
+  // Filter actions to those visible in item context
+  const actionsInContext = list.actions
     .map(action => ({
       ...action,
       itemView: {
@@ -396,17 +392,21 @@ function getActionsInContext(
       },
     }))
     .filter(action => action.itemView.actionMode !== 'hidden')
+
+  return {
+    actionsInContext,
+    fieldModes,
+    fieldPositions,
+    isRequireds,
+  }
 }
 
-type ItemNotFoundContentProps = {
-  list: ListMeta
-  itemId: string | null
-  isSingleton: boolean
-}
-
-/** Renders appropriate not-found message based on list type and item ID */
-function ItemNotFoundContent({ list, itemId, isSingleton }: ItemNotFoundContentProps) {
-  if (isSingleton) {
+/** Renders appropriate not found message based on list type and item ID */
+function renderItemNotFoundContent(
+  list: ListMeta,
+  itemId: string | undefined
+): React.ReactNode {
+  if (list.isSingleton) {
     if (itemId === '1') {
       return (
         <ItemNotFound>
@@ -428,7 +428,6 @@ function ItemNotFoundContent({ list, itemId, isSingleton }: ItemNotFoundContentP
     <ItemNotFound>
       <Text>
         The item with ID <strong>"{itemId}"</strong> doesn't exist, or you don't have access to
-        {' '}
         it.
       </Text>
     </ItemNotFound>
@@ -446,4 +445,70 @@ function ItemPage({ listKey }: ItemPageProps) {
 
   const pageLoading = loading || itemId === undefined
   const pageLabel = itemLabel || itemId
-  const pageTitle = list.isSingleton || typeof pageLabel !== 'string' ? list.label
+  const pageTitle = list.isSingleton || typeof pageLabel !== 'string' ? list.label : pageLabel
+
+  const initialValue = useMemo(() => {
+    if (!item) return null
+    return deserializeItemToValue(list.fields, item)
+  }, [list.fields, data?.item])
+
+  const { actionsInContext, fieldModes, fieldPositions, isRequireds } = useMemo(() => {
+    return buildItemPageContextData(list, data?.keystone?.adminMeta)
+  }, [data?.keystone?.adminMeta, list])
+
+  const handleAction = useCallback(
+    (action: ActionMeta, resultId: string | null) => {
+      const { navigation } = action.itemView
+
+      if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
+        refetch()
+      } else if (navigation === 'follow' && resultId) {
+        router.push(`/${list.path}/${resultId}`)
+      } else {
+        router.push(list.isSingleton ? '/' : `/${list.path}`)
+      }
+    },
+    [itemId, list.path, list.isSingleton, refetch]
+  )
+
+  return (
+    <PageContainer
+      title={pageTitle}
+      header={
+        <ItemPageHeader
+          list={list}
+          actions={actionsInContext}
+          label={typeof pageLabel !== 'string' ? 'Loading...' : pageLabel}
+          title={pageTitle}
+          item={item ?? null}
+          onAction={handleAction}
+        />
+      }
+    >
+      {pageLoading ? (
+        <VStack height="100%" alignItems="center" justifyContent="center">
+          <ProgressCircle aria-label="loading item data" size="large" isIndeterminate />
+        </VStack>
+      ) : (
+        <ColumnLayout>
+          <Box marginY="xlarge">
+            <GraphQLErrorNotice errors={[error]} />
+            {item == null && renderItemNotFoundContent(list, itemId)}
+          </Box>
+          {initialValue && (
+            <ItemForm
+              fieldModes={fieldModes}
+              fieldPositions={fieldPositions}
+              isRequireds={isRequireds}
+              listKey={listKey}
+              itemLabel={itemLabel}
+              initialValue={initialValue}
+              onSaveSuccess={refetch}
+            />
+          )}
+        </ColumnLayout>
+      )}
+    </PageContainer>
+  )
+}
+```

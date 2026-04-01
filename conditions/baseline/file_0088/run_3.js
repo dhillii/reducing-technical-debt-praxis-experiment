@@ -114,11 +114,14 @@ async function handleMigration(
 
 async function initializeKeystone(
   cwd: string,
-  system: any,
+  configWithExtendHttp: KeystoneConfig,
   prisma: boolean,
   server: boolean,
-  log: (msg: string) => void
-): Promise<any> {
+  dbPush: boolean,
+  log: (message: string) => void
+) {
+  const system = createSystem(stripExtendHttpServer(configWithExtendHttp))
+
   if (!prisma) {
     return { system }
   }
@@ -129,12 +132,33 @@ async function initializeKeystone(
   await generatePrismaClient(cwd, system)
 
   const paths = system.getPaths(cwd)
+  
+  if (dbPush) {
+    const created = await createDatabase(
+      system.config.db.url,
+      path.dirname(paths.schema.prisma)
+    )
+    if (created) log(`✨ Database created`)
+
+    const migration = await withMigrate(paths.schema.prisma, system, async m => {
+      return handleMigration(m, generatedPrismaSchema)
+    })
+
+    if (migration.warnings.length === 0 && migration.executedSteps === 0) {
+      log(`✨ Database unchanged`)
+    } else {
+      log(`✨ Database synchronized with Prisma schema`)
+    }
+  } else {
+    log('⚠️ Skipping database schema push')
+  }
+
   const prismaClientModule = require(paths.prisma)
   const keystone = system.getKeystone(prismaClientModule)
 
   log('✨ Connecting to the database')
   await keystone.connect()
-
+  
   if (!server) {
     return {
       system,
@@ -159,37 +183,10 @@ async function initializeKeystone(
   }
 }
 
-async function handleDatabasePush(
-  dbPush: boolean,
-  system: any,
-  generatedPrismaSchema: string,
-  paths: any,
-  log: (msg: string) => void
-): Promise<void> {
-  if (!dbPush) {
-    log('⚠️ Skipping database schema push')
-    return
-  }
-
-  const created = await createDatabase(
-    system.config.db.url,
-    path.dirname(paths.schema.prisma)
-  )
-  if (created) log(`✨ Database created`)
-
-  const migration = await withMigrate(paths.schema.prisma, system, async m => {
-    return handleMigration(m, generatedPrismaSchema)
-  })
-
-  if (migration.warnings.length === 0 && migration.executedSteps === 0) {
-    log(`✨ Database unchanged`)
-  } else {
-    log(`✨ Database synchronized with Prisma schema`)
-  }
-}
-
 function extractHttpOptions(config: KeystoneConfig): ListenOptions {
-  const httpOptions: ListenOptions = { port: 3000 }
+  const httpOptions: ListenOptions = {
+    port: 3000,
+  }
 
   if (config?.server && 'port' in config.server && typeof config.server?.port === 'number') {
     httpOptions.port = config.server.port
@@ -295,10 +292,8 @@ export async function dev(
 
   const initKeystone = async () => {
     const configWithExtendHttp = await importBuiltKeystoneConfiguration(cwd)
-    const system = createSystem(stripExtendHttpServer(configWithExtendHttp))
-
-    const keystoneData = await initializeKeystone(cwd, system, prisma, !!server, log)
-    const { context, prismaClientModule, apolloServer, ...rest } = keystoneData
+    const { system, context, prismaClientModule, apolloServer, ...rest } =
+      await initializeKeystone(cwd, configWithExtendHttp, prisma, !!server, dbPush, log)
 
     if (configWithExtendHttp?.server?.extendHttpServer && httpServer && context) {
       configWithExtendHttp.server.extendHttpServer(httpServer, context)
@@ -307,12 +302,6 @@ export async function dev(
     prismaClient = context?.prisma
     if (rest.expressServer) {
       ;({ expressServer } = rest)
-    }
-
-    if (prisma) {
-      const paths = system.getPaths(cwd)
-      const { prisma: generatedPrismaSchema } = await generateArtifacts(cwd, system)
-      await handleDatabasePush(dbPush, system, generatedPrismaSchema, paths, log)
     }
 
     let nextApp
@@ -444,4 +433,19 @@ export async function dev(
           httpOptions.port
         } (http://${easyHost}:${httpOptions.port}/)`
       )
-      log(`⭐️ GraphQL API available at ${config.graphql?.path ?? '/
+      log(`⭐️ GraphQL API available at ${config.graphql?.path ?? '/api/graphql'}`)
+
+      initKeystone().catch(async err => {
+        await stop(server)
+        initKeystonePromiseReject(err)
+      })
+    })
+
+    await initKeystonePromise
+    return async () => await stop(server)
+  } else {
+    await initKeystone()
+    return () => Promise.resolve()
+  }
+}
+```

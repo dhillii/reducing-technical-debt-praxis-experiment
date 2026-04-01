@@ -183,8 +183,9 @@ const createYupSchema = (
           : createNonRepeatableComponentSchema(componentFieldSchema, attribute, options);
       } else if (attribute.type === 'dynamiczone') {
         acc[current] = createDynamicZoneSchema(attribute, components, options);
-      } else if (attribute.type !== 'relation' && attribute.type !== 'component' && attribute.type !== 'dynamiczone') {
-        acc[current] = createYupSchemaAttribute(attribute.type, attribute, options);
+      } else {
+        const formatted = createYupSchemaAttribute(attribute.type, attribute, options);
+        acc[current] = formatted;
       }
 
       return acc;

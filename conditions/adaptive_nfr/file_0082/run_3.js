@@ -184,14 +184,15 @@ internals.transmit = function (response, callback) {
     internals.applyEmptyStatusCode(response, length);
 
     const encoding = request.connection._compression.encoding(response);
-    const ranger = internals.setupRanging(request, response, length, encoding, callback);
+    const ranger = internals.setupRangeRequest(request, response, length, encoding, callback);
 
     if (ranger === false) {
         return;
     }
 
     const compressor = internals.setupCompression(request, response, encoding, length);
-    internals.setupConnectionClose(request, response);
+    internals.applyEtagVariance(response, encoding);
+    internals.applyConnectionClose(request, response);
 
     const error = internals.writeHead(response);
     if (error) {
@@ -204,15 +205,15 @@ internals.transmit = function (response, callback) {
 
 
 /**
- * Applies 204 status code for empty responses when configured
+ * Applies 204 status code for empty responses
  */
 internals.applyEmptyStatusCode = function (response, length) {
 
-    if (length !== 0 || response.statusCode !== 200) {
-        return;
-    }
+    const shouldApply = length === 0 &&
+        response.statusCode === 200 &&
+        response.request.route.settings.response.emptyStatusCode === 204;
 
-    if (response.request.route.settings.response.emptyStatusCode !== 204) {
+    if (!shouldApply) {
         return;
     }
 
@@ -222,57 +223,44 @@ internals.applyEmptyStatusCode = function (response, length) {
 
 
 /**
- * Determines if range request conditions are met
+ * Sets up range request handling
  */
-internals.isRangeRequestAllowed = function (request, response, length, encoding) {
+internals.setupRangeRequest = function (request, response, length, encoding, callback) {
 
-    if (!request.route.settings.response.ranges) {
-        return false;
-    }
-
-    if (request.method !== 'get') {
-        return false;
-    }
-
-    if (response.statusCode !== 200) {
-        return false;
-    }
-
-    if (length <= 0) {
-        return false;
-    }
-
-    if (encoding) {
-        return false;
-    }
-
-    return true;
-};
-
-
-/**
- * Checks if If-Range condition is satisfied
- */
-internals.isIfRangeSatisfied = function (request, response) {
-
-    if (!request.headers['if-range']) {
-        return true;
-    }
-
-    return request.headers['if-range'] === response.headers.etag;
-};
-
-
-/**
- * Processes range header and returns ranger or error
- */
-internals.processRangeHeader = function (request, response, length, callback) {
-
-    if (!request.headers.range) {
+    if (!internals.isRangeRequestEligible(request, response, length, encoding)) {
+        response._header('accept-ranges', 'bytes');
         return null;
     }
 
-    if (!internals.isIfRangeSatisfied(request, response)) {
+    if (!request.headers.range) {
+        response._header('accept-ranges', 'bytes');
+        return null;
+    }
+
+    return internals.processRangeHeader(request, response, length, callback);
+};
+
+
+/**
+ * Determines if request is eligible for range processing
+ */
+internals.isRangeRequestEligible = function (request, response, length, encoding) {
+
+    return request.route.settings.response.ranges &&
+        request.method === 'get' &&
+        response.statusCode === 200 &&
+        length > 0 &&
+        !encoding;
+};
+
+
+/**
+ * Processes range header and returns ranger or false on error
+ */
+internals.processRangeHeader = function (request, response, length, callback) {
+
+    if (!internals.isIfRangeValid(request, response)) {
+        response._header('accept-ranges', 'bytes');
         return null;
     }
 
@@ -285,130 +273,99 @@ internals.processRangeHeader = function (request, response, length, callback) {
     }
 
     if (ranges.length !== 1) {
-        return null;
-    }
-
-    const range = ranges[0];
-    const ranger = new Ammo.Stream(range);
-    response.code(206);
-    response.bytes(range.to - range.from + 1);
-    response._header('content-range', 'bytes ' + range.from + '-' + range.to + '/' + length);
-
-    return ranger;
-};
-
-
-/**
- * Sets up range request handling
- */
-internals.setupRanging = function (request, response, length, encoding, callback) {
-
-    if (!internals.isRangeRequestAllowed(request, response, length, encoding)) {
         response._header('accept-ranges', 'bytes');
         return null;
     }
 
-    const ranger = internals.processRangeHeader(request, response, length, callback);
-    response._header('accept-ranges', 'bytes');
+    return internals.createRanger(response, ranges[0], length);
+};
 
+
+/**
+ * Validates If-Range header
+ */
+internals.isIfRangeValid = function (request, response) {
+
+    if (!request.headers['if-range']) {
+        return true;
+    }
+
+    return request.headers['if-range'] === response.headers.etag;
+};
+
+
+/**
+ * Creates ranger stream for single range request
+ */
+internals.createRanger = function (response, range, length) {
+
+    const ranger = new Ammo.Stream(range);
+    response.code(206);
+    response.bytes(range.to - range.from + 1);
+    response._header('content-range', 'bytes ' + range.from + '-' + range.to + '/' + length);
     return ranger;
 };
 
 
 /**
- * Determines if compression should be applied
- */
-internals.shouldCompress = function (encoding, length, statusCode, isPayloadSupported) {
-
-    if (!encoding) {
-        return false;
-    }
-
-    if (length === 0) {
-        return false;
-    }
-
-    if (statusCode === 206) {
-        return false;
-    }
-
-    if (!isPayloadSupported) {
-        return false;
-    }
-
-    return true;
-};
-
-
-/**
- * Sets up compression for response
+ * Sets up compression if applicable
  */
 internals.setupCompression = function (request, response, encoding, length) {
 
-    if (!internals.shouldCompress(encoding, length, response.statusCode, response._isPayloadSupported())) {
+    if (!internals.isCompressionEligible(response, encoding, length)) {
         return null;
     }
 
     delete response.headers['content-length'];
     response._header('content-encoding', encoding);
-
     return request.connection._compression.encoder(request, encoding);
 };
 
 
 /**
- * Updates ETag if content-encoding is applied
+ * Determines if response is eligible for compression
  */
-internals.updateEtagForEncoding = function (response, encoding) {
+internals.isCompressionEligible = function (response, encoding, length) {
 
-    if (!response.headers['content-encoding'] && !encoding) {
-        return;
-    }
-
-    if (!response.headers.etag) {
-        return;
-    }
-
-    if (!response.settings.varyEtag) {
-        return;
-    }
-
-    const appliedEncoding = response.headers['content-encoding'] || encoding;
-    response.headers.etag = response.headers.etag.slice(0, -1) + '-' + appliedEncoding + '"';
+    return encoding &&
+        length !== 0 &&
+        response.statusCode !== 206 &&
+        response._isPayloadSupported();
 };
 
 
 /**
- * Determines if connection should be closed
+ * Applies etag variance for encoded responses
  */
-internals.shouldCloseConnection = function (request) {
+internals.applyEtagVariance = function (response, encoding) {
+
+    const hasEncoding = response.headers['content-encoding'] || encoding;
+    if (!hasEncoding || !response.headers.etag || !response.settings.varyEtag) {
+        return;
+    }
+
+    const encodingValue = response.headers['content-encoding'] || encoding;
+    response.headers.etag = response.headers.etag.slice(0, -1) + '-' + encodingValue + '"';
+};
+
+
+/**
+ * Applies connection close header if needed
+ */
+internals.applyConnectionClose = function (request, response) {
 
     const isInjection = Shot.isInjection(request.raw.req);
+    const shouldClose = !(isInjection || request.connection._started) ||
+        (request._isPayloadPending && !request.raw.req._readableState.ended);
 
-    if (isInjection || request.connection._started) {
-        if (request._isPayloadPending && !request.raw.req._readableState.ended) {
-            return true;
-        }
-        return false;
-    }
-
-    return true;
-};
-
-
-/**
- * Sets up connection close header if needed
- */
-internals.setupConnectionClose = function (request, response) {
-
-    if (internals.shouldCloseConnection(request)) {
+    if (shouldClose) {
         response._header('connection', 'close');
     }
 };
 
 
 /**
- * Sets up injection-specific response properties
+ * Sets up injection metadata
  */
 internals.setupInjection = function (request, response) {
 
@@ -425,30 +382,11 @@ internals.setupInjection = function (request, response) {
 
 
 /**
- * Handles payload piping and stream events
+ * Pipes payload through transformation streams
  */
 internals.pipePayload = function (request, response, source, compressor, ranger, callback) {
 
-    const end = Hoek.once((err, event) => {
-
-        internals.cleanupStreamListeners(request, source, end);
-
-        if (err) {
-            internals.handlePayloadError(request, source, err);
-        }
-
-        if (!request.raw.res.finished && event !== 'aborted') {
-            request.raw.res.end();
-        }
-
-        if (event || err) {
-            request.emit('disconnect');
-        }
-
-        const tags = internals.getLogTags(err, event);
-        request._log(tags, err);
-        return callback();
-    });
+    const end = internals.createEndHandler(request, response, source, callback);
 
     source.once('error', end);
 
@@ -462,28 +400,48 @@ internals.pipePayload = function (request, response, source, compressor, ranger,
     request.raw.res.once('error', end);
     request.raw.res.once('finish', end);
 
-    internals.buildAndPipeStream(request, response, source, compressor, ranger);
+    const tap = response._tap();
+    const preview = (tap ? source.pipe(tap) : source);
+    const compressed = (compressor ? preview.pipe(compressor) : preview);
+    const ranged = (ranger ? compressed.pipe(ranger) : compressed);
+    ranged.pipe(request.raw.res);
 };
 
 
 /**
- * Removes all stream event listeners
+ * Creates end handler for payload transmission
  */
-internals.cleanupStreamListeners = function (request, source, end) {
+internals.createEndHandler = function (request, response, source, callback) {
 
-    source.removeListener('error', end);
-    request.raw.req.removeListener('aborted', end);
-    request.raw.req.removeListener('close', end);
-    request.raw.res.removeListener('close', end);
-    request.raw.res.removeListener('error', end);
-    request.raw.res.removeListener('finish', end);
+    return Hoek.once((err, event) => {
+
+        source.removeListener('error', arguments.callee);
+
+        request.raw.req.removeListener('aborted', arguments.callee);
+        request.raw.req.removeListener('close', arguments.callee);
+
+        request.raw.res.removeListener('close', arguments.callee);
+        request.raw.res.removeListener('error', arguments.callee);
+        request.raw.res.removeListener('finish', arguments.callee);
+
+        internals.handlePayloadError(request, response, source, err);
+        internals.finalizeResponse(request, response, err, event);
+
+        const tags = internals.getLogTags(err, event);
+        request._log(tags, err);
+        return callback();
+    });
 };
 
 
 /**
  * Handles errors during payload transmission
  */
-internals.handlePayloadError = function (request, source, err) {
+internals.handlePayloadError = function (request, response, source, err) {
+
+    if (!err) {
+        return;
+    }
 
     request.raw.res.destroy();
 
@@ -498,7 +456,22 @@ internals.handlePayloadError = function (request, source, err) {
 
 
 /**
- * Determines log tags based on error and event
+ * Finalizes response after payload transmission
+ */
+internals.finalizeResponse = function (request, response, err, event) {
+
+    if (!request.raw.res.finished && event !== 'aborted') {
+        request.raw.res.end();
+    }
+
+    if (err || event) {
+        request.emit('disconnect');
+    }
+};
+
+
+/**
+ * Determines log tags based on transmission result
  */
 internals.getLogTags = function (err, event) {
 
@@ -514,55 +487,75 @@ internals.getLogTags = function (err, event) {
 };
 
 
-/**
- * Builds and pipes the response stream through transformations
- */
-internals.buildAndPipeStream = function (request, response, source, compressor, ranger) {
-
-    const tap = response._tap();
-    const preview = tap ? source.pipe(tap) : source;
-    const compressed = compressor ? preview.pipe(compressor) : preview;
-    const ranged = ranger ? compressed.pipe(ranger) : compressed;
-    ranged.pipe(request.raw.res);
-};
-
-
 internals.writeHead = function (response) {
 
     const res = response.request.raw.res;
     const headers = Object.keys(response.headers);
     let i = 0;
 
-    try {
-        for (; i < headers.length; ++i) {
-            const header = headers[i];
-            const value = response.headers[header];
-            if (value !== undefined) {
-                res.setHeader(header, value);
-            }
-        }
-    }
-    catch (err) {
-
-        for (--i; i >= 0; --i) {
-            res.setHeader(headers[i], null);
-        }
-
-        return Boom.boomify(err);
+    const headerError = internals.setHeaders(res, headers, response.headers);
+    if (headerError) {
+        internals.undoHeaders(res, headers, i);
+        return Boom.boomify(headerError);
     }
 
     if (response.settings.message) {
         res.statusMessage = response.settings.message;
     }
 
-    try {
-        res.writeHead(response.statusCode);
-    }
-    catch (err) {
-        return Boom.boomify(err);
+    const writeError = internals.writeStatusCode(res, response.statusCode);
+    if (writeError) {
+        return Boom.boomify(writeError);
     }
 
     return null;
+};
+
+
+/**
+ * Sets response headers
+ */
+internals.setHeaders = function (res, headers, headerValues) {
+
+    try {
+        for (let i = 0; i < headers.length; ++i) {
+            const header = headers[i];
+            const value = headerValues[header];
+            if (value !== undefined) {
+                res.setHeader(header, value);
+            }
+        }
+        return null;
+    }
+    catch (err) {
+        return err;
+    }
+};
+
+
+/**
+ * Undoes previously set headers
+ */
+internals.undoHeaders = function (res, headers, count) {
+
+    for (let i = count - 1; i >= 0; --i) {
+        res.setHeader(headers[i], null);
+    }
+};
+
+
+/**
+ * Writes status code to response
+ */
+internals.writeStatusCode = function (res, statusCode) {
+
+    try {
+        res.writeHead(statusCode);
+        return null;
+    }
+    catch (err) {
+        return err;
+    }
 };
 
 
@@ -600,7 +593,7 @@ internals.cache = function (response) {
 
 
 /**
- * Determines if cache policy applies to response
+ * Determines cache policy for response
  */
 internals.getCachePolicy = function (request, response) {
 
@@ -609,6 +602,229 @@ internals.getCachePolicy = function (request, response) {
     }
 
     const statusPolicy = request.route.settings.cache._statuses[response.statusCode];
-    if (statusPolicy) {
-        return true;
+    const notModifiedPolicy = response.statusCode === 304 && request.route.settings.cache._statuses['200'];
+
+    return statusPolicy || notModifiedPolicy;
+};
+
+
+/**
+ * Sets cache-control header
+ */
+internals.setCacheControl = function (request, response) {
+
+    const ttl = response.settings.ttl !== null ? response.settings.ttl : request._route._cache.ttl();
+    const isPrivate = request.auth.isAuthenticated || response.headers['set-cookie'];
+    const privacy = isPrivate ? 'private' : (request.route.settings.cache.privacy || 'default');
+    const privacySuffix = privacy !== 'default' ? ', ' + privacy : '';
+
+    response._header('cache-control', 'max-age=' + Math.floor(ttl / 1000) + ', must-revalidate' + privacySuffix);
+};
+
+
+internals.content = function (response, postMarshal) {
+
+    let type = response.headers['content-type'];
+
+    if (!type) {
+        internals.setDefaultContentType(response);
+        return;
     }
+
+    internals.applyCharsetToContentType(response, type, postMarshal);
+};
+
+
+/**
+ * Sets default content type if not present
+ */
+internals.setDefaultContentType = function (response) {
+
+    if (!response._contentType) {
+        return;
+    }
+
+    const charset = response.settings.charset && response._contentType !== 'application/octet-stream'
+        ? '; charset=' + response.settings.charset
+        : '';
+
+    response.type(response._contentType + charset);
+};
+
+
+/**
+ * Applies charset to content type if applicable
+ */
+internals.applyCharsetToContentType = function (response, type, postMarshal) {
+
+    type = type.trim();
+
+    if (!internals.shouldApplyCharset(response, type, postMarshal)) {
+        return;
+    }
+
+    if (type.match(/; *charset=/)) {
+        return;
+    }
+
+    const semi = type[type.length - 1] === ';';
+    response.type(type + (semi ? ' ' : '; ') + 'charset=' + response.settings.charset);
+};
+
+
+/**
+ * Determines if charset should be applied to content type
+ */
+internals.shouldApplyCharset = function (response, type, postMarshal) {
+
+    if (!response.settings.charset) {
+        return false;
+    }
+
+    if (response._contentType && postMarshal) {
+        return false;
+    }
+
+    return type.match(/^(?:text\/)|(?:application\/(?:json)|(?:javascript))/);
+};
+
+
+internals.state = function (response, next) {
+
+    const request = response.request;
+    const names = {};
+    const states = [];
+
+    internals.collectRequestStates(request, names, states);
+
+    const each = (name, nextKey) => {
+        internals.processStateAutoValue(request, name, names, states, nextKey);
+    };
+
+    const keys = Object.keys(request.connection.states.cookies);
+    Items.parallel(keys, each, (err) => {
+
+        if (err) {
+            return next(Boom.boomify(err));
+        }
+
+        if (!states.length) {
+            return next();
+        }
+
+        internals.formatAndSetStates(request, response, states, next);
+    });
+};
+
+
+/**
+ * Collects states from request
+ */
+internals.collectRequestStates = function (request, names, states) {
+
+    const requestStates = Object.keys(request._states);
+    for (let i = 0; i < requestStates.length; ++i) {
+        const stateName = requestStates[i];
+        names[stateName] = true;
+        states.push(request._states[stateName]);
+    }
+};
+
+
+/**
+ * Processes auto value for a state
+ */
+internals.processStateAutoValue = function (request, name, names, states, nextKey) {
+
+    const autoValue = request.connection.states.cookies[name].autoValue;
+
+    if (!autoValue || names[name]) {
+        return nextKey();
+    }
+
+    names[name] = true;
+
+    if (typeof autoValue !== 'function') {
+        states.push({ name, value: autoValue });
+        return nextKey();
+    }
+
+    autoValue(request, (err, value) => {
+
+        if (err) {
+            return nextKey(err);
+        }
+
+        states.push({ name, value });
+        return nextKey();
+    });
+};
+
+
+/**
+ * Formats states and sets set-cookie header
+ */
+internals.formatAndSetStates = function (request, response, states, next) {
+
+    request.connection.states.format(states, (err, header) => {
+
+        if (err) {
+            return next(Boom.boomify(err));
+        }
+
+        const existing = response.headers['set-cookie'];
+        if (existing) {
+            header = (Array.isArray(existing) ? existing : [existing]).concat(header);
+        }
+
+        response._header('set-cookie', header);
+        return next();
+    });
+};
+
+
+internals.unmodified = function (response) {
+
+    const request = response.request;
+
+    internals.applyEntityHeaders(request, response);
+
+    if (response.statusCode === 304) {
+        return;
+    }
+
+    internals.checkUnmodified(request, response);
+};
+
+
+/**
+ * Applies entity headers from request to response
+ */
+internals.applyEntityHeaders = function (request, response) {
+
+    if (request._entity.etag && !response.headers.etag) {
+        response.etag(request._entity.etag, { vary: request._entity.vary });
+    }
+
+    if (request._entity.modified && !response.headers['last-modified']) {
+        response.header('last-modified', request._entity.modified);
+    }
+};
+
+
+/**
+ * Checks if response is unmodified and sets 304 status
+ */
+internals.checkUnmodified = function (request, response) {
+
+    const entity = {
+        etag: response.headers.etag,
+        vary: response.settings.varyEtag,
+        modified: response.headers['last-modified']
+    };
+
+    if (Response.unmodified(request, entity)) {
+        response.code(304);
+    }
+};
+```

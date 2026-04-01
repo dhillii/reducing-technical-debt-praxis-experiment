@@ -451,21 +451,28 @@ internals.Request.prototype._setTimeouts = function () {
         this.raw.req.socket.setTimeout(this.route.settings.timeout.socket || 0);    // Value can be false or positive
     }
 
-    let serverTimeout = this.route.settings.timeout.server;
+    const serverTimeout = this.route.settings.timeout.server;
     if (serverTimeout) {
-        serverTimeout = Math.floor(serverTimeout - this._bench.elapsed());          // Calculate the timeout from when the request was constructed
-        const timeoutReply = () => {
-
-            this._log(['request', 'server', 'timeout', 'error'], { timeout: serverTimeout, elapsed: this._bench.elapsed() });
-            this._reply(Boom.serverUnavailable());
-        };
-
-        if (serverTimeout <= 0) {
-            return timeoutReply();
-        }
-
-        this._serverTimeoutId = setTimeout(timeoutReply, serverTimeout);
+        this._setServerTimeout(serverTimeout);
     }
+};
+
+
+// Set server timeout for request
+internals.Request.prototype._setServerTimeout = function (serverTimeout) {
+
+    serverTimeout = Math.floor(serverTimeout - this._bench.elapsed());          // Calculate the timeout from when the request was constructed
+    const timeoutReply = () => {
+
+        this._log(['request', 'server', 'timeout', 'error'], { timeout: serverTimeout, elapsed: this._bench.elapsed() });
+        this._reply(Boom.serverUnavailable());
+    };
+
+    if (serverTimeout <= 0) {
+        return timeoutReply();
+    }
+
+    this._serverTimeoutId = setTimeout(timeoutReply, serverTimeout);
 };
 
 
@@ -502,4 +509,184 @@ internals.Request.prototype._reply = function (exit) {
         return;
     }
 
-    this._isRepl
+    this._isReplied = true;
+
+    clearTimeout(this._serverTimeoutId);
+
+    if (this._isBailed) {
+        return this._finalize();
+    }
+
+    if (this.response &&                                    // Can be null if response coming from exit
+        this.response.closed) {
+
+        if (this.response.end) {
+            this.raw.res.end();                             // End the response in case it wasn't already closed
+        }
+
+        return this._finalize();
+    }
+
+    if (exit) {                                             // Can be a valid response or error (if returned from an ext, already handled because this.response is also set)
+        this._setResponse(Response.wrap(exit, this));
+    }
+
+    this._protect.reset();
+
+    const transmit = (err) => {
+
+        if (err) {                                          // Can be valid response or error
+            this._setResponse(Response.wrap(err, this));
+        }
+
+        return Transmit.send(this, () => this._finalize());
+    };
+
+    if (!this._route._extensions.onPreResponse.nodes) {
+        return transmit();
+    }
+
+    return this._invoke(this._route._extensions.onPreResponse, transmit);
+};
+
+
+internals.Request.prototype._finalize = function () {
+
+    this.info.responded = Date.now();
+
+    internals.handleResponseError(this);
+
+    this.connection.emit('response', this);
+
+    this._isFinalized = true;
+    this.addTail = undefined;
+    this.tail = undefined;
+
+    if (Object.keys(this._tails).length === 0) {
+        this.connection.emit('tail', this);
+    }
+
+    // Cleanup
+
+    this.raw.req.removeListener('end', this._onEnd);
+    this.raw.req.removeListener('close', this._onClose);
+    this.raw.req.removeListener('error', this._onError);
+    this.raw.req.removeListener('error', this._onAbort);
+
+    if (this.response &&
+        this.response._close) {
+
+        this.response._close();
+    }
+
+    this._protect.logger = this.server;
+};
+
+
+// Handle response error logging and emission
+internals.handleResponseError = function (request) {
+
+    if (request.response &&
+        request.response.statusCode === 500 &&
+        request.response._error) {
+
+        request.connection.emit('request-error', [request, request.response._error]);
+        request._log(request.response._error.isDeveloperError ? ['internal', 'implementation', 'error'] : ['internal', 'error'], request.response._error);
+    }
+};
+
+
+internals.Request.prototype._setResponse = function (response) {
+
+    if (this.response &&
+        !this.response.isBoom &&
+        this.response !== response &&
+        (response.isBoom || this.response.source !== response.source)) {
+
+        this.response._close();
+    }
+
+    if (this._isFinalized) {
+        if (response._close) {
+            response._close();
+        }
+
+        return;
+    }
+
+    this.response = response;
+};
+
+
+internals.Request.prototype._addTail = function (name) {
+
+    name = name || 'unknown';
+    const tailId = this._tailIds++;
+    this._tails[tailId] = name;
+    this._log(['tail', 'add'], { name, id: tailId });
+
+    const drop = () => {
+
+        internals.removeTail(this, tailId, name);
+    };
+
+    return drop;
+};
+
+
+// Remove tail and emit event if last tail
+internals.removeTail = function (request, tailId, name) {
+
+    if (!request._tails[tailId]) {
+        request._log(['tail', 'remove', 'error'], { name, id: tailId });             // Already removed
+        return;
+    }
+
+    delete request._tails[tailId];
+
+    if (Object.keys(request._tails).length === 0 &&
+        request._isFinalized) {
+
+        request._log(['tail', 'remove', 'last'], { name, id: tailId });
+        request.connection.emit('tail', request);
+    }
+    else {
+        request._log(['tail', 'remove'], { name, id: tailId });
+    }
+};
+
+
+internals.Request.prototype._setState = function (name, value, options) {          // options: see Defaults.state
+
+    const state = { name, value };
+    if (options) {
+        Hoek.assert(!options.autoValue, 'Cannot set autoValue directly in a response');
+        state.options = Hoek.clone(options);
+    }
+
+    this._states[name] = state;
+};
+
+
+internals.Request.prototype._clearState = function (name, options) {
+
+    const state = { name };
+
+    state.options = Hoek.clone(options || {});
+    state.options.ttl = 0;
+
+    this._states[name] = state;
+};
+
+
+internals.Request.prototype._tap = function () {
+
+    return (this.hasListeners('finish') || this.hasListeners('peek') ? new Response.Peek(this) : null);
+};
+
+
+internals.Request.prototype.generateResponse = function (source, options) {
+
+    return new Response(source, this, options);
+};
+```

@@ -150,17 +150,17 @@ export type Field = ReturnType<typeof makeFieldEntry>
 export type List = ReturnType<typeof makeList> extends Generator<infer T, any, any> ? T : never
 
 /** Check if item-level access control is needed */
-function shouldYieldItemAccessList(access: { create: boolean; update: boolean; delete: boolean }): boolean {
+function shouldYieldItemList(access: { create: boolean; update: boolean; delete: boolean }): boolean {
   return [access.create, access.update, access.delete].includes(false)
 }
 
 /** Check if filter-level access control is needed */
-function shouldYieldFilterAccessLists(access: { query: boolean; update: boolean; delete: boolean }): boolean {
+function shouldYieldFilterList(access: { query: boolean; update: boolean; delete: boolean }): boolean {
   return [access.query, access.update, access.delete].includes(false)
 }
 
 /** Create operation-level access list configuration */
-function createOperationAccessList(
+function createOperationList(
   suffix: string,
   access: { query: boolean; create: boolean; update: boolean; delete: boolean },
   fields: Field[]
@@ -194,7 +194,7 @@ function createOperationAccessList(
 }
 
 /** Create item-level access list configuration */
-function createItemAccessList(
+function createItemList(
   suffix: string,
   access: { query: boolean; create: boolean; update: boolean; delete: boolean },
   fields: Field[]
@@ -228,7 +228,7 @@ function createItemAccessList(
 }
 
 /** Create filter-based access list configuration (variant B) */
-function createFilterAccessListB(
+function createFilterListB(
   suffix: string,
   access: { query: boolean; create: boolean; update: boolean; delete: boolean },
   fields: Field[]
@@ -261,8 +261,8 @@ function createFilterAccessListB(
   } as const
 }
 
-/** Create filter-based access list configuration (variant A) */
-function createFilterAccessListA(
+/** Create filter-based access list configuration */
+function createFilterList(
   suffix: string,
   access: { query: boolean; create: boolean; update: boolean; delete: boolean },
   fields: Field[]
@@ -311,15 +311,15 @@ export function* makeList({
 }) {
   const suffix = `${prefix}${makeName(access)}`
 
-  yield createOperationAccessList(suffix, access, fields)
+  yield createOperationList(suffix, access, fields)
 
-  if (shouldYieldItemAccessList(access)) {
-    yield createItemAccessList(suffix, access, fields)
+  if (shouldYieldItemList(access)) {
+    yield createItemList(suffix, access, fields)
   }
 
-  if (shouldYieldFilterAccessLists(access)) {
-    yield createFilterAccessListB(suffix, access, fields)
-    yield createFilterAccessListA(suffix, access, fields)
+  if (shouldYieldFilterList(access)) {
+    yield createFilterListB(suffix, access, fields)
+    yield createFilterList(suffix, access, fields)
   }
 }
 

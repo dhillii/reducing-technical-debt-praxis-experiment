@@ -241,7 +241,7 @@ function updateAncestorForConditionalSchema(
 ): { prop: ComponentSchema; value: any } {
   return {
     prop: currentProp.values[(currentValue as any).discriminant],
-    value: (currentValue as any).value,
+    value: currentValue.value,
   }
 }
 
@@ -252,7 +252,7 @@ function updateAncestorForObjectSchema(
 ): { prop: ComponentSchema; value: any } {
   return {
     prop: currentProp.fields[key as string],
-    value: (currentValue as any)[key],
+    value: currentValue[key],
   }
 }
 
@@ -307,45 +307,36 @@ export function getValueAtPropPath(value: unknown, inputPath: ReadonlyPropPath) 
   return value
 }
 
-function visitLeafSchema(
-  schema: ComponentSchema,
-  value: unknown,
-  visitor: (schema: ComponentSchema, value: unknown, path: ReadonlyPropPath) => void,
-  path: ReadonlyPropPath
-): void {
-  visitor(schema, value, path)
-}
-
-function visitObjectSchema(
+function traverseObjectSchema(
   schema: ComponentSchema & { kind: 'object' },
   value: unknown,
   visitor: (schema: ComponentSchema, value: unknown, path: ReadonlyPropPath) => void,
   path: ReadonlyPropPath
-): void {
+) {
   for (const [key, childProp] of Object.entries(schema.fields)) {
     traverseProps(childProp, (value as any)[key], visitor, [...path, key])
   }
   visitor(schema, value, path)
 }
 
-function visitArraySchema(
+function traverseArraySchema(
   schema: ComponentSchema & { kind: 'array' },
   value: unknown,
   visitor: (schema: ComponentSchema, value: unknown, path: ReadonlyPropPath) => void,
   path: ReadonlyPropPath
-): void {
+) {
   for (const [idx, val] of (value as unknown[]).entries()) {
     traverseProps(schema.element, val, visitor, path.concat(idx))
   }
   visitor(schema, value, path)
 }
 
-function visitConditionalSchema(
+function traverseConditionalSchema(
   schema: ComponentSchema & { kind: 'conditional' },
   value: unknown,
   visitor: (schema: ComponentSchema, value: unknown, path: ReadonlyPropPath) => void,
   path: ReadonlyPropPath
-): void {
+) {
   const discriminant: string | boolean = (value as any).discriminant
   visitor(schema, discriminant, path.concat('discriminant'))
   traverseProps(
@@ -364,21 +355,25 @@ export function traverseProps(
   path: ReadonlyPropPath = []
 ) {
   if (schema.kind === 'form' || schema.kind === 'relationship' || schema.kind === 'child') {
-    visitLeafSchema(schema, value, visitor, path)
+    visitor(schema, value, path)
     return
   }
+
   if (schema.kind === 'object') {
-    visitObjectSchema(schema, value, visitor, path)
+    traverseObjectSchema(schema, value, visitor, path)
     return
   }
+
   if (schema.kind === 'array') {
-    visitArraySchema(schema, value, visitor, path)
+    traverseArraySchema(schema, value, visitor, path)
     return
   }
+
   if (schema.kind === 'conditional') {
-    visitConditionalSchema(schema, value, visitor, path)
+    traverseConditionalSchema(schema, value, visitor, path)
     return
   }
+
   assertNever(schema)
 }
 

@@ -250,7 +250,7 @@ const createColumns = (tbl, columns, table, tableExists, definition, ORM, alter 
   });
 };
 
-const rebuildSqliteTable = async (ORM, table, attributes, definition, attributesNames, createTableFn) => {
+const rebuildSqliteTable = async (ORM, table, attributes, definition, attributesNames) => {
   const tmpTable = `tmp_${table}`;
 
   const rebuildTable = async trx => {
@@ -260,7 +260,11 @@ const rebuildSqliteTable = async (ORM, table, attributes, definition, attributes
         trx.raw('DROP INDEX IF EXISTS ??', uniqueColName(table, key))
       )
     );
-    await createTableFn(table, { trx });
+
+    await trx.schema.createTable(table, tbl => {
+      createIdType(tbl, definition);
+      createColumns(tbl, attributes, table, false, definition, ORM);
+    });
 
     const attrs = attributesNames.filter(attributeName =>
       isColumn({
@@ -290,7 +294,7 @@ const rebuildSqliteTable = async (ORM, table, attributes, definition, attributes
   }
 };
 
-const alterTableColumns = async (ORM, table, attributes, columnsToAlter, definition, tableExists) => {
+const alterTableColumns = async (ORM, table, columnsToAlter, attributes, definition, tableExists) => {
   const alterTable = async trx => {
     await Promise.all(
       columnsToAlter.map(col =>
@@ -328,15 +332,11 @@ const alterTableColumns = async (ORM, table, attributes, columnsToAlter, definit
 const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }, context) => {
   const tableExists = await ORM.knex.schema.hasTable(table);
 
-  const createTableFn = (tableName, { trx = ORM.knex, ...opts } = {}) => {
-    return trx.schema.createTable(tableName, tbl => {
-      createIdType(tbl, definition);
-      createColumns(tbl, attributes, tableName, false, definition, ORM);
-    });
-  };
-
   if (!tableExists) {
-    await createTableFn(table);
+    await ORM.knex.schema.createTable(table, tbl => {
+      createIdType(tbl, definition);
+      createColumns(tbl, attributes, table, false, definition, ORM);
+    });
     return;
   }
 
@@ -369,9 +369,9 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
   if (!shouldRebuild) return;
 
   if (definition.client === 'sqlite3') {
-    await rebuildSqliteTable(ORM, table, attributes, definition, attributesNames, createTableFn);
+    await rebuildSqliteTable(ORM, table, attributes, definition, attributesNames);
   } else {
-    await alterTableColumns(ORM, table, attributes, columnsToAlter, definition, tableExists);
+    await alterTableColumns(ORM, table, columnsToAlter, attributes, definition, tableExists);
   }
 };
 

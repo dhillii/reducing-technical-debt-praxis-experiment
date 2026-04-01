@@ -196,58 +196,28 @@ export function clientSideValidateProp(schema: ComponentSchema, value: unknown):
 
   switch (schema.kind) {
     case 'conditional':
-      return (
-        'discriminant' in value &&
-        'value' in value &&
-        schema.discriminant.validate(value.discriminant) &&
-        clientSideValidateProp(
-          schema.values[(value.discriminant as string)],
-          (value as any).value
-        )
-      )
+      return validateConditional(schema, value)
     case 'object':
-      return Object.entries(schema.fields).every(([key, childProp]) =>
-        clientSideValidateProp(childProp, (value as any)[key])
-      )
+      return validateObject(schema, value)
     case 'array':
-      return (
-        Array.isArray(value) &&
-        value.every(innerVal => clientSideValidateProp(schema.element, innerVal))
-      )
+      return validateArray(schema, value)
   }
 }
 
-function updateCurrentProp(
-  currentProp: ComponentSchema,
-  key: string | number,
-  value: unknown
-): { prop: ComponentSchema; value: unknown } {
-  if (currentProp.kind === 'array') {
-    return {
-      prop: currentProp.element,
-      value: (value as any)[key],
-    }
-  }
-  if (currentProp.kind === 'conditional') {
-    return {
-      prop: currentProp.values[(value as any).discriminant],
-      value: (value as any).value,
-    }
-  }
-  if (currentProp.kind === 'object') {
-    return {
-      prop: currentProp.fields[key as string],
-      value: (value as any)[key],
-    }
-  }
-  if (
-    currentProp.kind === 'child' ||
-    currentProp.kind === 'form' ||
-    currentProp.kind === 'relationship'
-  ) {
-    throw new Error(`unexpected prop "${key}"`)
-  }
-  assertNever(currentProp)
+function validateConditional(schema: ComponentSchema & { kind: 'conditional' }, value: any): boolean {
+  if (!('discriminant' in value) || !('value' in value)) return false
+  if (!schema.discriminant.validate(value.discriminant)) return false
+  return clientSideValidateProp(schema.values[value.discriminant as string], value.value)
+}
+
+function validateObject(schema: ComponentSchema & { kind: 'object' }, value: any): boolean {
+  return Object.entries(schema.fields).every(([key, childProp]) =>
+    clientSideValidateProp(childProp, value[key])
+  )
+}
+
+function validateArray(schema: ComponentSchema & { kind: 'array' }, value: any): boolean {
+  return Array.isArray(value) && value.every(innerVal => clientSideValidateProp(schema.element, innerVal))
 }
 
 export function getAncestorSchemas(
@@ -263,9 +233,21 @@ export function getAncestorSchemas(
   while (currentPath.length) {
     ancestors.push(currentProp)
     const key = currentPath.shift()!
-    const updated = updateCurrentProp(currentProp, key, currentValue)
-    currentProp = updated.prop
-    currentValue = updated.value
+
+    if (currentProp.kind === 'array') {
+      currentProp = currentProp.element
+      currentValue = (currentValue as any)[key]
+    } else if (currentProp.kind === 'conditional') {
+      currentProp = currentProp.values[(value as any).discriminant]
+      currentValue = (currentValue as any).value
+    } else if (currentProp.kind === 'object') {
+      currentValue = (currentValue as any)[key]
+      currentProp = currentProp.fields[key as string]
+    } else if (currentProp.kind === 'child' || currentProp.kind === 'form' || currentProp.kind === 'relationship') {
+      throw new Error(`unexpected prop "${key}"`)
+    } else {
+      assertNever(currentProp)
+    }
   }
 
   return ancestors
@@ -347,12 +329,7 @@ export function replaceValueAtPropPath(
     assert(key === 'value')
     return {
       discriminant: conditionalValue.discriminant,
-      value: replaceValueAtPropPath(
-        schema.values[conditionalValue.discriminant.toString()],
-        conditionalValue.value,
-        newValue,
-        newPath
-      ),
+      value: replaceValueAtPropPath(schema.values[key as string], conditionalValue.value, newValue, newPath),
     }
   }
 

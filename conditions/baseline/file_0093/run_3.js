@@ -337,14 +337,12 @@ function* generateFields() {
 function* generateUniqueFields(baseFields: Field[]) {
   yield* baseFields
   for (const read of [false, true]) {
-    for (const create of [true]) {
-      for (const update of [false, true]) {
-        for (const filterable of [false, true]) {
-          yield makeFieldEntry({
-            access: { read, create, update, filterable },
-            unique: true,
-          })
-        }
+    for (const update of [false, true]) {
+      for (const filterable of [false, true]) {
+        yield makeFieldEntry({
+          access: { read, create: true, update, filterable },
+          unique: true,
+        })
       }
     }
   }

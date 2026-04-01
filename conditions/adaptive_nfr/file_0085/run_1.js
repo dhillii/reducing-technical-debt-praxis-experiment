@@ -33,24 +33,29 @@ function isRequiredButNotSet(value: Value, isRequired: boolean): boolean {
 }
 
 /** Validates password length constraints */
-function validateLength(val: string, minLength: number, maxLength: number | null, fieldLabel: string): string | undefined {
-  if (val.length < minLength) {
-    if (minLength === 1) {
+function validateLength(val: string, validation: Validation, fieldLabel: string): string | undefined {
+  if (val.length < validation.length.min) {
+    if (validation.length.min === 1) {
       return `${fieldLabel} must not be empty`
     }
-    return `${fieldLabel} must be at least ${minLength} characters long`
+    return `${fieldLabel} must be at least ${validation.length.min} characters long`
   }
-  if (maxLength !== null && val.length > maxLength) {
-    return `${fieldLabel} must be no longer than ${maxLength} characters`
+  if (validation.length.max !== null && val.length > validation.length.max) {
+    return `${fieldLabel} must be no longer than ${validation.length.max} characters`
   }
   return undefined
 }
 
-/** Validates password pattern and common password checks */
-function validatePattern(val: string, validation: Validation, fieldLabel: string): string | undefined {
+/** Validates password pattern match */
+function validatePattern(val: string, validation: Validation): string | undefined {
   if (validation.match && !validation.match.regex.test(val)) {
     return validation.match.explanation
   }
+  return undefined
+}
+
+/** Validates password is not common */
+function validateCommon(val: string, validation: Validation, fieldLabel: string): string | undefined {
   if (validation.rejectCommon && dumbPasswords.check(val)) {
     return `${fieldLabel} is too common and is not allowed`
   }
@@ -59,21 +64,23 @@ function validatePattern(val: string, validation: Validation, fieldLabel: string
 
 /** Validates editing state password constraints */
 function validateEditingState(value: Value, validation: Validation, fieldLabel: string): string | undefined {
-  if (value.kind !== 'editing') {
-    return undefined
-  }
+  if (value.kind !== 'editing') return undefined
 
   if (value.confirm !== value.value) {
     return `The passwords do not match`
   }
 
   const val = value.value
-  const lengthError = validateLength(val, validation.length.min, validation.length.max, fieldLabel)
-  if (lengthError) {
-    return lengthError
-  }
+  const lengthError = validateLength(val, validation, fieldLabel)
+  if (lengthError) return lengthError
 
-  return validatePattern(val, validation, fieldLabel)
+  const patternError = validatePattern(val, validation)
+  if (patternError) return patternError
+
+  const commonError = validateCommon(val, validation, fieldLabel)
+  if (commonError) return commonError
+
+  return undefined
 }
 
 function validate(
@@ -104,70 +111,51 @@ function readonlyCheckboxProps(isSet: null | undefined | boolean) {
 }
 
 /** Renders the readonly view for password field */
-function ReadOnlyView({ value }: { value: Value }) {
-  return <Checkbox {...readonlyCheckboxProps(value.isSet)} />
+function ReadOnlyView(props: { value: Value }) {
+  return <Checkbox {...readonlyCheckboxProps(props.value.isSet)} />
 }
 
 /** Renders the initial state view with button to start editing */
-function InitialView({
-  value,
-  field,
-  autoFocus,
-  onChange,
-  triggerRef,
-}: {
+function InitialView(props: {
   value: Value & { kind: 'initial' }
   field: { label: string }
-  autoFocus?: boolean
-  onChange: (value: Value) => void
+  autoFocus: boolean
   triggerRef: React.RefObject<HTMLButtonElement>
+  onChange: (value: Value) => void
 }) {
   return (
     <ActionButton
-      ref={triggerRef}
+      ref={props.triggerRef}
       alignSelf="start"
-      autoFocus={autoFocus}
+      autoFocus={props.autoFocus}
       onPress={() => {
-        onChange({
+        props.onChange({
           kind: 'editing',
           confirm: '',
           value: '',
-          isSet: value.isSet,
+          isSet: props.value.isSet,
         })
       }}
     >
-      {value.isSet ? `Change ` : `Set `}
-      {field.label.toLocaleLowerCase()}
+      {props.value.isSet ? `Change ` : `Set `}
+      {props.field.label.toLocaleLowerCase()}
     </ActionButton>
   )
 }
 
 /** Renders the editing state with password input fields */
-function EditingView({
-  value,
-  field,
-  secureTextEntry,
-  setSecureTextEntry,
-  touched,
-  setTouched,
-  onChange,
-  onEscape,
-  validationMessage,
-  descriptionId,
-  messageId,
-  cancelEditing,
-}: {
+function EditingView(props: {
   value: Value & { kind: 'editing' }
   field: { label: string }
   secureTextEntry: boolean
   setSecureTextEntry: (value: boolean) => void
   touched: { value: boolean; confirm: boolean }
   setTouched: (touched: { value: boolean; confirm: boolean }) => void
-  onChange: (value: Value) => void
-  onEscape: (e: React.KeyboardEvent) => void
-  validationMessage?: string
+  validationMessage: string | undefined
   descriptionId: string
   messageId: string
+  onChange: (value: Value) => void
+  onEscape: (e: React.KeyboardEvent) => void
   cancelEditing: () => void
 }) {
   return (
@@ -181,37 +169,37 @@ function EditingView({
     >
       <TextField
         autoFocus
-        aria-label={`new ${field.label}`}
-        aria-describedby={[descriptionId, messageId].filter(Boolean).join(' ')}
+        aria-label={`new ${props.field.label}`}
+        aria-describedby={[props.descriptionId, props.messageId].filter(Boolean).join(' ')}
         // @ts-expect-error — needs to be fixed in "@keystar/ui"
-        isInvalid={!!validationMessage}
-        onBlur={() => setTouched({ ...touched, value: true })}
-        onChange={text => onChange({ ...value, value: text })}
-        onKeyDown={onEscape}
+        isInvalid={!!props.validationMessage}
+        onBlur={() => props.setTouched({ ...props.touched, value: true })}
+        onChange={text => props.onChange({ ...props.value, value: text })}
+        onKeyDown={props.onEscape}
         placeholder="New"
-        type={secureTextEntry ? 'password' : 'text'}
-        value={value.value}
+        type={props.secureTextEntry ? 'password' : 'text'}
+        value={props.value.value}
         flex
       />
       <TextField
-        aria-label={`confirm ${field.label}`}
-        aria-describedby={messageId}
+        aria-label={`confirm ${props.field.label}`}
+        aria-describedby={props.messageId}
         // @ts-expect-error — needs to be fixed in "@keystar/ui"
-        isInvalid={!!validationMessage}
-        onBlur={() => setTouched({ ...touched, confirm: true })}
-        onChange={text => onChange({ ...value, confirm: text })}
-        onKeyDown={onEscape}
+        isInvalid={!!props.validationMessage}
+        onBlur={() => props.setTouched({ ...props.touched, confirm: true })}
+        onChange={text => props.onChange({ ...props.value, confirm: text })}
+        onKeyDown={props.onEscape}
         placeholder="Confirm"
-        type={secureTextEntry ? 'password' : 'text'}
-        value={value.confirm}
+        type={props.secureTextEntry ? 'password' : 'text'}
+        value={props.value.confirm}
         flex
       />
 
       <Flex gap="regular">
         <ToggleButton
           aria-label="show"
-          isSelected={!secureTextEntry}
-          onPress={() => setSecureTextEntry(!secureTextEntry)}
+          isSelected={!props.secureTextEntry}
+          onPress={() => props.setSecureTextEntry(bool => !bool)}
         >
           <Icon src={eyeIcon} />
           <Text
@@ -224,7 +212,7 @@ function EditingView({
             Show
           </Text>
         </ToggleButton>
-        <ActionButton onPress={cancelEditing}>Cancel</ActionButton>
+        <ActionButton onPress={props.cancelEditing}>Cancel</ActionButton>
       </Flex>
     </Flex>
   )
@@ -278,8 +266,8 @@ export function Field(props: FieldProps<typeof controller>) {
           value={value}
           field={field}
           autoFocus={autoFocus}
-          onChange={onChange!}
           triggerRef={triggerRef}
+          onChange={onChange!}
         />
       )
     }
@@ -291,11 +279,11 @@ export function Field(props: FieldProps<typeof controller>) {
         setSecureTextEntry={setSecureTextEntry}
         touched={touched}
         setTouched={setTouched}
-        onChange={onChange!}
-        onEscape={onEscape}
         validationMessage={validationMessage}
         descriptionId={descriptionId}
         messageId={messageId}
+        onChange={onChange!}
+        onEscape={onEscape}
         cancelEditing={cancelEditing}
       />
     )
@@ -374,34 +362,6 @@ type Value =
       confirm: string
     }
 
-/** Creates validation regex from metadata */
-function createValidationRegex(match: PasswordFieldMeta['validation']['match']): Validation['match'] {
-  if (match === null) {
-    return null
-  }
-  return {
-    regex: new RegExp(match.regex.source, match.regex.flags),
-    explanation: match.explanation,
-  }
-}
-
-/** Filter label strategy based on type and value */
-function getFilterLabel(type: string, value: boolean): string {
-  if ((type === 'is' && value) || (type === 'not' && !value)) {
-    return `is set`
-  }
-  return `is not set`
-}
-
-/** Filter graphql strategy based on type and value */
-function getFilterGraphql(type: string, value: boolean, fieldKey: string): Record<string, { isSet: boolean }> {
-  return {
-    [fieldKey]: {
-      isSet: type === 'not' ? !value : value,
-    },
-  }
-}
-
 export function controller(config: FieldControllerConfig<PasswordFieldMeta>): FieldController<
   Value,
   boolean | null,
@@ -411,9 +371,17 @@ export function controller(config: FieldControllerConfig<PasswordFieldMeta>): Fi
 } {
   const validation: Validation = {
     ...config.fieldMeta.validation,
-    match: createValidationRegex(config.fieldMeta.validation.match),
+    match:
+      config.fieldMeta.validation.match === null
+        ? null
+        : {
+            regex: new RegExp(
+              config.fieldMeta.validation.match.regex.source,
+              config.fieldMeta.validation.match.regex.flags
+            ),
+            explanation: config.fieldMeta.validation.match.explanation,
+          },
   }
-
   return {
     fieldKey: config.fieldKey,
     label: config.label,
@@ -449,7 +417,11 @@ export function controller(config: FieldControllerConfig<PasswordFieldMeta>): Fi
               )
             },
             graphql({ type, value }) {
-              return getFilterGraphql(type, value, config.fieldKey)
+              return {
+                [config.fieldKey]: {
+                  isSet: type === 'not' ? !value : value,
+                },
+              }
             },
             parseGraphQL: value => {
               if (value?.isSet !== undefined) {
@@ -458,7 +430,8 @@ export function controller(config: FieldControllerConfig<PasswordFieldMeta>): Fi
               return []
             },
             Label({ type, value }) {
-              return getFilterLabel(type, value)
+              if ((type === 'is' && value) || (type === 'not' && !value)) return `is set`
+              return `is not set`
             },
             types: {
               is: {

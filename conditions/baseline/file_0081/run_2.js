@@ -1,3 +1,4 @@
+```javascript
 'use strict';
 
 const Catbox = require('catbox');
@@ -108,14 +109,20 @@ internals.Server.prototype._createCache = function (options, _callback) {
 
     const added = [];
     for (let i = 0; i < options.length; ++i) {
-        const client = this._createCacheClient(options[i]);
-        const name = options[i].name || '_default';
+        let config = options[i];
+        if (typeof config === 'function') {
+            config = { engine: config };
+        }
+
+        const name = config.name || '_default';
         Hoek.assert(!this._caches[name], 'Cannot configure the same cache more than once: ', name === '_default' ? 'default cache' : name);
+
+        const client = this._createCacheClient(config);
 
         this._caches[name] = {
             client,
             segments: {},
-            shared: options[i].shared || false
+            shared: config.shared || false
         };
 
         added.push(client);
@@ -135,10 +142,6 @@ internals.Server.prototype._createCache = function (options, _callback) {
 
 
 internals.Server.prototype._createCacheClient = function (config) {
-
-    if (typeof config === 'function') {
-        config = { engine: config };
-    }
 
     if (typeof config.engine === 'object') {
         return new Catbox.Client(config.engine);
@@ -172,7 +175,7 @@ internals.Server.prototype.connection = function (options) {
         root.registerPodium(connection);
         root._single();
 
-        this._copyRegistrations(connection, root);
+        this._registerConnectionPlugins(root, connection);
         connections.push(connection);
     });
 
@@ -180,7 +183,7 @@ internals.Server.prototype.connection = function (options) {
 };
 
 
-internals.Server.prototype._copyRegistrations = function (connection, root) {
+internals.Server.prototype._registerConnectionPlugins = function (root, connection) {
 
     const registrations = Object.keys(root._registrations);
     for (let i = 0; i < registrations.length; ++i) {
@@ -203,9 +206,9 @@ internals.Server.prototype.start = function (callback) {
         return nextTickCallback(new Error('No connections to start'));
     }
 
-    const error = this._validateDeps();
-    if (error) {
-        return nextTickCallback(error);
+    const stateError = this._validateStartState();
+    if (stateError) {
+        return nextTickCallback(stateError);
     }
 
     if (this._state === 'initialized') {
@@ -217,18 +220,26 @@ internals.Server.prototype.start = function (callback) {
         return Items.parallel(this.connections, each, nextTickCallback);
     }
 
-    if (this._state !== 'stopped') {
-        return nextTickCallback(new Error('Cannot start server while it is in ' + this._state + ' state'));
-    }
-
     this.initialize((err) => {
-
         if (err) {
             return callback(err);
         }
-
         this._start(callback);
     });
+};
+
+
+internals.Server.prototype._validateStartState = function () {
+
+    if (this._state === 'initialized' || this._state === 'started') {
+        return this._validateDeps();
+    }
+
+    if (this._state !== 'stopped') {
+        return new Error('Cannot start server while it is in ' + this._state + ' state');
+    }
+
+    return null;
 };
 
 
@@ -305,7 +316,7 @@ internals.Server.prototype._validateDepsByConnection = function (dependency) {
 
     for (let j = 0; j < dependency.connections.length; ++j) {
         const connection = dependency.connections[j];
-        const error = this._checkDependencies(dependency, connection.registrations, connection.info.uri);
+        const error = this._validateDepVersion(dependency, connection.registrations, connection.info.uri);
         if (error) {
             return error;
         }
@@ -317,11 +328,11 @@ internals.Server.prototype._validateDepsByConnection = function (dependency) {
 
 internals.Server.prototype._validateDepsGlobal = function (dependency) {
 
-    return this._checkDependencies(dependency, this._registrations);
+    return this._validateDepVersion(dependency, this._registrations);
 };
 
 
-internals.Server.prototype._checkDependencies = function (dependency, registrations, connectionUri) {
+internals.Server.prototype._validateDepVersion = function (dependency, registrations, connectionUri) {
 
     const deps = Object.keys(dependency.deps);
     for (let k = 0; k < deps.length; ++k) {
@@ -449,3 +460,4 @@ internals.Server.prototype._invoke = function (type, next) {
         ext.func.call(bind, ext.plugin._select(), nextExt);
     }, next);
 };
+```

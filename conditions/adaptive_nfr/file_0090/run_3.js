@@ -79,26 +79,32 @@ export type DocumentFeaturesForChildField =
       documentFeatures: DocumentFeaturesForNormalization
     }
 
-/** Compute inline marks from options and editor features */
-function computeInlineMarks(
-  editorDocumentFeatures: DocumentFeatures,
-  inlineMarksFromOptions: any
+/** Determines if inline marks should be inherited */
+function shouldInheritInlineMarks(
+  inlineMarksFromOptions: Record<Mark, boolean> | undefined
+): inlineMarksFromOptions is undefined {
+  return inlineMarksFromOptions === undefined
+}
+
+/** Builds inline marks configuration from options and editor features */
+function buildInlineMarks(
+  inlineMarksFromOptions: 'inherit' | Record<Mark, boolean> | undefined,
+  editorInlineMarks: Record<Mark, boolean>
 ): 'inherit' | Record<Mark, boolean> {
-  if (inlineMarksFromOptions === 'inherit') {
-    return 'inherit'
-  }
+  if (inlineMarksFromOptions === 'inherit') return 'inherit'
   return Object.fromEntries(
-    Object.keys(editorDocumentFeatures.formatting.inlineMarks).map(mark => {
-      return [mark as Mark, !!(inlineMarksFromOptions || {})[mark as Mark]]
-    })
+    Object.keys(editorInlineMarks).map(mark => [
+      mark as Mark,
+      !!(inlineMarksFromOptions || {})[mark as Mark],
+    ])
   ) as Record<Mark, boolean>
 }
 
-/** Build inline child field features */
-function buildInlineFeatures(
+/** Creates inline child field document features */
+function createInlineDocumentFeatures(
   inlineMarks: 'inherit' | Record<Mark, boolean>,
   options: ChildField['options'] & { kind: 'inline' }
-): DocumentFeaturesForChildField & { kind: 'inline' } {
+): DocumentFeaturesForChildField {
   return {
     kind: 'inline',
     inlineMarks,
@@ -110,12 +116,12 @@ function buildInlineFeatures(
   }
 }
 
-/** Build block child field features */
-function buildBlockFeatures(
-  editorDocumentFeatures: DocumentFeatures,
+/** Creates block child field document features */
+function createBlockDocumentFeatures(
   inlineMarks: 'inherit' | Record<Mark, boolean>,
-  options: ChildField['options'] & { kind: 'block' }
-): DocumentFeaturesForChildField & { kind: 'block' } {
+  options: ChildField['options'] & { kind: 'block' },
+  editorDocumentFeatures: DocumentFeatures
+): DocumentFeaturesForChildField {
   return {
     kind: 'block',
     inlineMarks,
@@ -162,28 +168,29 @@ export function getDocumentFeaturesForChildField(
   options: ChildField['options']
 ): DocumentFeaturesForChildField {
   const inlineMarksFromOptions = options.formatting?.inlineMarks
-  const inlineMarks = computeInlineMarks(editorDocumentFeatures, inlineMarksFromOptions)
+  const inlineMarks = buildInlineMarks(
+    inlineMarksFromOptions,
+    editorDocumentFeatures.formatting.inlineMarks
+  )
 
   if (options.kind === 'inline') {
-    return buildInlineFeatures(inlineMarks, options)
+    return createInlineDocumentFeatures(inlineMarks, options)
   }
-  return buildBlockFeatures(editorDocumentFeatures, inlineMarks, options)
-}
-
-/** Check if schema is a leaf node (terminal field) */
-function isLeafSchema(schema: ComponentSchema): boolean {
-  return schema.kind === 'child' || schema.kind === 'form' || schema.kind === 'relationship'
+  return createBlockDocumentFeatures(inlineMarks, options, editorDocumentFeatures)
 }
 
 /** Strategy map for schema traversal by kind */
 const schemaTraversalStrategies: Record<
-  Exclude<ComponentSchema['kind'], 'child' | 'form' | 'relationship'>,
+  ComponentSchema['kind'],
   (
     path: (string | number)[],
     value: unknown,
     schema: any
   ) => undefined | ComponentSchema
 > = {
+  child: () => undefined,
+  form: () => undefined,
+  relationship: () => undefined,
   conditional: (path, value, schema) => {
     const key = path.shift()
     if (key === 'discriminant')
@@ -192,7 +199,7 @@ const schemaTraversalStrategies: Record<
       const propVal = schema.values[(value as any).discriminant]
       return getSchemaAtPropPathInner(path, (value as any).value, propVal)
     }
-    return
+    return undefined
   },
   object: (path, value, schema) => {
     const key = path.shift()!
@@ -210,14 +217,9 @@ function getSchemaAtPropPathInner(
   schema: ComponentSchema
 ): undefined | ComponentSchema {
   if (path.length === 0) return schema
-  if (isLeafSchema(schema)) return
 
-  const strategy = schemaTraversalStrategies[schema.kind as keyof typeof schemaTraversalStrategies]
-  if (strategy) {
-    return strategy(path, value, schema)
-  }
-
-  assertNever(schema)
+  const strategy = schemaTraversalStrategies[schema.kind]
+  return strategy(path, value, schema)
 }
 
 export function getSchemaAtPropPath(
@@ -231,75 +233,68 @@ export function getSchemaAtPropPath(
   })
 }
 
-/** Validate conditional schema */
-function validateConditional(schema: any, value: unknown): boolean {
-  if (!('discriminant' in value) || !('value' in value)) return false
-  if (!schema.discriminant.validate(value.discriminant)) return false
-  return clientSideValidateProp(
-    schema.values[(value.discriminant as string)],
-    (value as any).value
-  )
-}
+/** Validates a prop based on its schema */
+function validatePropByKind(schema: ComponentSchema, value: unknown): boolean {
+  if (schema.kind === 'child' || schema.kind === 'relationship') return true
+  if (schema.kind === 'form') return schema.validate(value)
+  if (typeof value !== 'object' || value === null) return false
 
-/** Validate object schema */
-function validateObject(schema: any, value: unknown): boolean {
-  for (const [key, childProp] of Object.entries(schema.fields)) {
-    if (!clientSideValidateProp(childProp as ComponentSchema, (value as any)[key])) return false
+  if (schema.kind === 'conditional') {
+    if (!('discriminant' in value) || !('value' in value)) return false
+    if (!schema.discriminant.validate(value.discriminant)) return false
+    return clientSideValidateProp(
+      schema.values[(value.discriminant as string)],
+      value.value
+    )
   }
-  return true
-}
 
-/** Validate array schema */
-function validateArray(schema: any, value: unknown): boolean {
-  if (!Array.isArray(value)) return false
-  for (const innerVal of value) {
-    if (!clientSideValidateProp(schema.element, innerVal)) return false
+  if (schema.kind === 'object') {
+    for (const [key, childProp] of Object.entries(schema.fields)) {
+      if (!clientSideValidateProp(childProp, (value as any)[key])) return false
+    }
+    return true
   }
-  return true
-}
 
-/** Strategy map for validation by schema kind */
-const validationStrategies: Record<
-  Exclude<ComponentSchema['kind'], 'child' | 'relationship'>,
-  (schema: any, value: unknown) => boolean
-> = {
-  form: (schema, value) => schema.validate(value),
-  conditional: validateConditional,
-  object: validateObject,
-  array: validateArray,
+  if (schema.kind === 'array') {
+    if (!Array.isArray(value)) return false
+    for (const innerVal of value) {
+      if (!clientSideValidateProp(schema.element, innerVal)) return false
+    }
+    return true
+  }
+
+  return false
 }
 
 export function clientSideValidateProp(schema: ComponentSchema, value: unknown): boolean {
-  if (schema.kind === 'child' || schema.kind === 'relationship') return true
-
-  if (typeof value !== 'object' || value === null) {
-    return schema.kind === 'form' && schema.validate(value)
-  }
-
-  const strategy = validationStrategies[schema.kind as keyof typeof validationStrategies]
-  return strategy ? strategy(schema, value) : false
+  return validatePropByKind(schema, value)
 }
 
-/** Strategy map for ancestor schema traversal by kind */
+/** Strategy map for ancestor schema traversal */
 const ancestorTraversalStrategies: Record<
-  Exclude<ComponentSchema['kind'], 'child' | 'form' | 'relationship'>,
-  (currentProp: any, key: string | number, currentValue: unknown, rootValue: unknown) => {
-    prop: ComponentSchema
-    value: unknown
-  }
+  ComponentSchema['kind'],
+  (
+    currentProp: any,
+    currentValue: any,
+    key: string | number,
+    rootValue: unknown
+  ) => { prop: ComponentSchema; value: unknown } | null
 > = {
-  array: (currentProp, key, currentValue) => ({
+  array: (currentProp, currentValue, key) => ({
     prop: currentProp.element,
     value: (currentValue as any)[key],
   }),
-  conditional: (currentProp, key, currentValue, rootValue) => ({
+  conditional: (currentProp, currentValue, key, rootValue) => ({
     prop: currentProp.values[(rootValue as any).discriminant],
     value: (currentValue as any).value,
   }),
-  object: (currentProp, key, currentValue) => ({
+  object: (currentProp, currentValue, key) => ({
     prop: currentProp.fields[key],
     value: (currentValue as any)[key],
   }),
+  child: () => null,
+  form: () => null,
+  relationship: () => null,
 }
 
 export function getAncestorSchemas(
@@ -315,20 +310,15 @@ export function getAncestorSchemas(
   while (currentPath.length) {
     ancestors.push(currentProp)
     const key = currentPath.shift()!
+    const strategy = ancestorTraversalStrategies[currentProp.kind]
+    const result = strategy(currentProp, currentValue, key, value)
 
-    if (isLeafSchema(currentProp)) {
+    if (result === null) {
       throw new Error(`unexpected prop "${key}"`)
     }
 
-    const strategy =
-      ancestorTraversalStrategies[currentProp.kind as keyof typeof ancestorTraversalStrategies]
-    if (strategy) {
-      const result = strategy(currentProp, key, currentValue, value)
-      currentProp = result.prop
-      currentValue = result.value
-    } else {
-      assertNever(currentProp)
-    }
+    currentProp = result.prop
+    currentValue = result.value
   }
 
   return ancestors
@@ -345,9 +335,9 @@ export function getValueAtPropPath(value: unknown, inputPath: ReadonlyPropPath) 
   return value
 }
 
-/** Strategy map for traversal visitor by schema kind */
-const traversalVisitorStrategies: Record<
-  Exclude<ComponentSchema['kind'], 'form' | 'relationship' | 'child'>,
+/** Strategy map for prop traversal by schema kind */
+const propTraversalStrategies: Record<
+  ComponentSchema['kind'],
   (
     schema: any,
     value: unknown,
@@ -355,9 +345,18 @@ const traversalVisitorStrategies: Record<
     path: ReadonlyPropPath
   ) => void
 > = {
+  form: (schema, value, visitor, path) => {
+    visitor(schema, value, path)
+  },
+  relationship: (schema, value, visitor, path) => {
+    visitor(schema, value, path)
+  },
+  child: (schema, value, visitor, path) => {
+    visitor(schema, value, path)
+  },
   object: (schema, value, visitor, path) => {
     for (const [key, childProp] of Object.entries(schema.fields)) {
-      traverseProps(childProp as ComponentSchema, (value as any)[key], visitor, [...path, key])
+      traverseProps(childProp, (value as any)[key], visitor, [...path, key])
     }
     visitor(schema, value, path)
   },
@@ -386,30 +385,20 @@ export function traverseProps(
   visitor: (schema: ComponentSchema, value: unknown, path: ReadonlyPropPath) => void,
   path: ReadonlyPropPath = []
 ) {
-  if (isLeafSchema(schema)) {
-    visitor(schema, value, path)
-    return
-  }
-
-  const strategy =
-    traversalVisitorStrategies[schema.kind as keyof typeof traversalVisitorStrategies]
-  if (strategy) {
-    strategy(schema, value, visitor, path)
-  } else {
-    assertNever(schema)
-  }
+  const strategy = propTraversalStrategies[schema.kind]
+  strategy(schema, value, visitor, path)
 }
 
 /** Strategy map for value replacement by schema kind */
-const replacementStrategies: Record<
-  Exclude<ComponentSchema['kind'], 'form' | 'relationship' | 'child'>,
+const valueReplacementStrategies: Record<
+  ComponentSchema['kind'],
   (
     schema: any,
     value: unknown,
     newValue: unknown,
     key: string | number,
     newPath: ReadonlyPropPath
-  ) => unknown
+  ) => unknown | null
 > = {
   object: (schema, value, newValue, key, newPath) => ({
     ...(value as any),
@@ -422,3 +411,55 @@ const replacementStrategies: Record<
       discriminant: conditionalValue.discriminant,
       value: replaceValueAtPropPath(
         schema.values[key],
+        conditionalValue.value,
+        newValue,
+        newPath
+      ),
+    }
+  },
+  array: (schema, value, newValue, key, newPath) => {
+    const prevVal = value as unknown[]
+    const newVal = [...prevVal]
+    setKeysForArrayValue(newVal, getKeysForArrayValue(prevVal))
+    newVal[key as number] = replaceValueAtPropPath(
+      schema.element,
+      newVal[key as number],
+      newValue,
+      newPath
+    )
+    return newVal
+  },
+  form: () => null,
+  relationship: () => null,
+  child: () => null,
+}
+
+export function replaceValueAtPropPath(
+  schema: ComponentSchema,
+  value: unknown,
+  newValue: unknown,
+  path: ReadonlyPropPath
+): unknown {
+  if (path.length === 0) return newValue
+
+  const [key, ...newPath] = path
+
+  const strategy = valueReplacementStrategies[schema.kind]
+  const result = strategy(schema, value, newValue, key, newPath)
+
+  if (result !== null) return result
+
+  assert(schema.kind !== 'form' && schema.kind !== 'relationship' && schema.kind !== 'child')
+  assertNever(schema)
+}
+
+export function getPlaceholderTextForPropPath(
+  propPath: ReadonlyPropPath,
+  fields: Record<string, ComponentSchema>,
+  formProps: Record<string, any>
+): string {
+  const field = getSchemaAtPropPath(propPath, formProps, fields)
+  if (field?.kind === 'child') return field.options.placeholder
+  return ''
+}
+```

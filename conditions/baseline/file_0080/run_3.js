@@ -180,22 +180,16 @@ internals.Request.prototype._listenRequest = function () {
         this._isPayloadPending = false;
     };
 
-    this.raw.req.once('end', this._onEnd);
-
     this._onClose = () => {
         this._log(['request', 'closed', 'error']);
         this._isPayloadPending = false;
         this._isBailed = true;
     };
 
-    this.raw.req.once('close', this._onClose);
-
     this._onError = (err) => {
         this._log(['request', 'error'], err);
         this._isPayloadPending = false;
     };
-
-    this.raw.req.once('error', this._onError);
 
     this._onAbort = () => {
         this._log(['request', 'abort', 'error']);
@@ -204,6 +198,9 @@ internals.Request.prototype._listenRequest = function () {
         this.emit('disconnect');
     };
 
+    this.raw.req.once('end', this._onEnd);
+    this.raw.req.once('close', this._onClose);
+    this.raw.req.once('error', this._onError);
     this.raw.req.once('aborted', this._onAbort);
 };
 
@@ -216,7 +213,10 @@ internals.Request.prototype._setUrl = function (url, stripTrailingSlash) {
 
     let path = this.connection._router.normalize(url.pathname || '');        // pathname excludes query
 
-    if (stripTrailingSlash && path.length > 1 && path[path.length - 1] === '/') {
+    if (stripTrailingSlash &&
+        path.length > 1 &&
+        path[path.length - 1] === '/') {
+
         path = path.slice(0, -1);
     }
 
@@ -287,7 +287,9 @@ internals.Request.prototype.getLog = function (tags, internal) {
     }
 
     tags = [].concat(tags || []);
-    if (!tags.length && internal === undefined) {
+    if (!tags.length &&
+        internal === undefined) {
+
         return this._logger;
     }
 
@@ -298,8 +300,12 @@ internals.Request.prototype.getLog = function (tags, internal) {
         const event = this._logger[i];
         if (internal === undefined || event.internal === internal) {
             if (filter) {
-                if (this._eventMatchesFilter(event, filter)) {
-                    result.push(event);
+                for (let j = 0; j < event.tags.length; ++j) {
+                    const tag = event.tags[j];
+                    if (filter[tag]) {
+                        result.push(event);
+                        break;
+                    }
                 }
             }
             else {
@@ -309,17 +315,6 @@ internals.Request.prototype.getLog = function (tags, internal) {
     }
 
     return result;
-};
-
-
-internals.Request.prototype._eventMatchesFilter = function (event, filter) {
-
-    for (let j = 0; j < event.tags.length; ++j) {
-        if (filter[event.tags[j]]) {
-            return true;
-        }
-    }
-    return false;
 };
 
 
@@ -349,28 +344,47 @@ internals.Request.prototype._match = function (err) {
         return this._reply(err);
     }
 
-    if (!this.path || this.path[0] !== '/') {
+    if (!this._isValidPath()) {
         return this._reply(Boom.badRequest('Invalid path'));
     }
 
     // Lookup route
 
     const match = this.connection._router.route(this.method, this.path, this.info.hostname);
-    if (!match.route.settings.isInternal || this._allowInternals) {
+    this._updateRoute(match);
+    this._setCorsInfo();
+
+    return this._lifecycle();
+};
+
+
+internals.Request.prototype._isValidPath = function () {
+
+    return this.path && this.path[0] === '/';
+};
+
+
+internals.Request.prototype._updateRoute = function (match) {
+
+    if (!match.route.settings.isInternal ||
+        this._allowInternals) {
+
         this._route = match.route;
         this.route = this._route.public;
     }
 
     this.params = match.params || {};
     this.paramsArray = match.paramsArray || [];
+};
+
+
+internals.Request.prototype._setCorsInfo = function () {
 
     if (this.route.settings.cors) {
         this.info.cors = {
             isOriginMatch: Cors.matchOrigin(this.headers.origin, this.route.settings.cors)
         };
     }
-
-    return this._lifecycle();
 };
 
 
@@ -380,7 +394,9 @@ internals.Request.prototype._lifecycle = function () {
 
     const each = (func, next) => {
 
-        if (this._isReplied || this._isBailed) {
+        if (this._isReplied ||
+            this._isBailed) {
+
             return next(Boom.internal('Already closed'));                       // Error is not used
         }
 
@@ -397,24 +413,40 @@ internals.Request.prototype._lifecycle = function () {
 
 internals.Request.prototype._setTimeouts = function () {
 
-    if (this.raw.req.socket && this.route.settings.timeout.socket !== undefined) {
+    this._setSocketTimeout();
+    this._setServerTimeout();
+};
+
+
+internals.Request.prototype._setSocketTimeout = function () {
+
+    if (this.raw.req.socket &&
+        this.route.settings.timeout.socket !== undefined) {
+
         this.raw.req.socket.setTimeout(this.route.settings.timeout.socket || 0);    // Value can be false or positive
     }
+};
+
+
+internals.Request.prototype._setServerTimeout = function () {
 
     let serverTimeout = this.route.settings.timeout.server;
-    if (serverTimeout) {
-        serverTimeout = Math.floor(serverTimeout - this._bench.elapsed());          // Calculate the timeout from when the request was constructed
-        const timeoutReply = () => {
-            this._log(['request', 'server', 'timeout', 'error'], { timeout: serverTimeout, elapsed: this._bench.elapsed() });
-            this._reply(Boom.serverUnavailable());
-        };
-
-        if (serverTimeout <= 0) {
-            return timeoutReply();
-        }
-
-        this._serverTimeoutId = setTimeout(timeoutReply, serverTimeout);
+    if (!serverTimeout) {
+        return;
     }
+
+    serverTimeout = Math.floor(serverTimeout - this._bench.elapsed());          // Calculate the timeout from when the request was constructed
+    const timeoutReply = () => {
+
+        this._log(['request', 'server', 'timeout', 'error'], { timeout: serverTimeout, elapsed: this._bench.elapsed() });
+        this._reply(Boom.serverUnavailable());
+    };
+
+    if (serverTimeout <= 0) {
+        return timeoutReply();
+    }
+
+    this._serverTimeoutId = setTimeout(timeoutReply, serverTimeout);
 };
 
 
@@ -459,7 +491,7 @@ internals.Request.prototype._reply = function (exit) {
         return this._finalize();
     }
 
-    if (this._shouldEndResponse()) {
+    if (this._isResponseClosed()) {
         return this._finalize();
     }
 
@@ -476,3 +508,160 @@ internals.Request.prototype._reply = function (exit) {
         }
 
         return Transmit.send(this, () => this._finalize());
+    };
+
+    if (!this._route._extensions.onPreResponse.nodes) {
+        return transmit();
+    }
+
+    return this._invoke(this._route._extensions.onPreResponse, transmit);
+};
+
+
+internals.Request.prototype._isResponseClosed = function () {
+
+    if (!this.response || !this.response.closed) {
+        return false;
+    }
+
+    if (this.response.end) {
+        this.raw.res.end();                             // End the response in case it wasn't already closed
+    }
+
+    return true;
+};
+
+
+internals.Request.prototype._finalize = function () {
+
+    this.info.responded = Date.now();
+
+    this._handleResponseError();
+    this.connection.emit('response', this);
+
+    this._isFinalized = true;
+    this.addTail = undefined;
+    this.tail = undefined;
+
+    if (Object.keys(this._tails).length === 0) {
+        this.connection.emit('tail', this);
+    }
+
+    // Cleanup
+
+    this.raw.req.removeListener('end', this._onEnd);
+    this.raw.req.removeListener('close', this._onClose);
+    this.raw.req.removeListener('error', this._onError);
+    this.raw.req.removeListener('error', this._onAbort);
+
+    if (this.response &&
+        this.response._close) {
+
+        this.response._close();
+    }
+
+    this._protect.logger = this.server;
+};
+
+
+internals.Request.prototype._handleResponseError = function () {
+
+    if (!this.response ||
+        this.response.statusCode !== 500 ||
+        !this.response._error) {
+
+        return;
+    }
+
+    this.connection.emit('request-error', [this, this.response._error]);
+    this._log(this.response._error.isDeveloperError ? ['internal', 'implementation', 'error'] : ['internal', 'error'], this.response._error);
+};
+
+
+internals.Request.prototype._setResponse = function (response) {
+
+    if (this.response &&
+        !this.response.isBoom &&
+        this.response !== response &&
+        (response.isBoom || this.response.source !== response.source)) {
+
+        this.response._close();
+    }
+
+    if (this._isFinalized) {
+        if (response._close) {
+            response._close();
+        }
+
+        return;
+    }
+
+    this.response = response;
+};
+
+
+internals.Request.prototype._addTail = function (name) {
+
+    name = name || 'unknown';
+    const tailId = this._tailIds++;
+    this._tails[tailId] = name;
+    this._log(['tail', 'add'], { name, id: tailId });
+
+    const drop = () => {
+
+        if (!this._tails[tailId]) {
+            this._log(['tail', 'remove', 'error'], { name, id: tailId });             // Already removed
+            return;
+        }
+
+        delete this._tails[tailId];
+
+        if (Object.keys(this._tails).length === 0 &&
+            this._isFinalized) {
+
+            this._log(['tail', 'remove', 'last'], { name, id: tailId });
+            this.connection.emit('tail', this);
+        }
+        else {
+            this._log(['tail', 'remove'], { name, id: tailId });
+        }
+    };
+
+    return drop;
+};
+
+
+internals.Request.prototype._setState = function (name, value, options) {          // options: see Defaults.state
+
+    const state = { name, value };
+    if (options) {
+        Hoek.assert(!options.autoValue, 'Cannot set autoValue directly in a response');
+        state.options = Hoek.clone(options);
+    }
+
+    this._states[name] = state;
+};
+
+
+internals.Request.prototype._clearState = function (name, options) {
+
+    const state = { name };
+
+    state.options = Hoek.clone(options || {});
+    state.options.ttl = 0;
+
+    this._states[name] = state;
+};
+
+
+internals.Request.prototype._tap = function () {
+
+    return (this.hasListeners('finish') || this.hasListeners('peek') ? new Response.Peek(this) : null);
+};
+
+
+internals.Request.prototype.generateResponse = function (source, options) {
+
+    return new Response(source, this, options);
+};
+```

@@ -96,7 +96,7 @@ function validateEditingState(
 
 /** Validates initial state password constraints */
 function validateInitialState(
-  isSet: boolean | null,
+  isSet: null | undefined | boolean,
   isRequired: boolean,
   fieldLabel: string
 ): string | undefined {
@@ -134,12 +134,12 @@ function readonlyCheckboxProps(isSet: null | undefined | boolean) {
   }
 }
 
-/** Renders the readonly view for password field */
+/** Renders the readonly view of the password field */
 function ReadOnlyView({ value }: { value: Value }) {
   return <Checkbox {...readonlyCheckboxProps(value.isSet)} />
 }
 
-/** Renders the initial state view with action button */
+/** Renders the initial state action button */
 function InitialStateView({
   value,
   field,
@@ -177,24 +177,24 @@ function InitialStateView({
 function PasswordInputFields({
   value,
   field,
-  validationMessage,
   secureTextEntry,
+  validationMessage,
   descriptionId,
   messageId,
-  touched,
   onChange,
   onEscape,
+  touched,
   setTouched,
 }: {
   value: Extract<Value, { kind: 'editing' }>
   field: { label: string }
-  validationMessage?: string
   secureTextEntry: boolean
+  validationMessage?: string
   descriptionId: string
   messageId: string
-  touched: { value: boolean; confirm: boolean }
   onChange: (value: Value) => void
   onEscape: (e: React.KeyboardEvent) => void
+  touched: { value: boolean; confirm: boolean }
   setTouched: (touched: { value: boolean; confirm: boolean }) => void
 }) {
   return (
@@ -267,28 +267,28 @@ function EditingActionButtons({
 function EditingStateView({
   value,
   field,
-  validationMessage,
   secureTextEntry,
   setSecureTextEntry,
+  validationMessage,
   descriptionId,
   messageId,
-  touched,
-  setTouched,
   onChange,
   onEscape,
+  touched,
+  setTouched,
   cancelEditing,
 }: {
   value: Extract<Value, { kind: 'editing' }>
   field: { label: string }
-  validationMessage?: string
   secureTextEntry: boolean
   setSecureTextEntry: (value: boolean) => void
+  validationMessage?: string
   descriptionId: string
   messageId: string
-  touched: { value: boolean; confirm: boolean }
-  setTouched: (touched: { value: boolean; confirm: boolean }) => void
   onChange: (value: Value) => void
   onEscape: (e: React.KeyboardEvent) => void
+  touched: { value: boolean; confirm: boolean }
+  setTouched: (touched: { value: boolean; confirm: boolean }) => void
   cancelEditing: () => void
 }) {
   return (
@@ -303,13 +303,13 @@ function EditingStateView({
       <PasswordInputFields
         value={value}
         field={field}
-        validationMessage={validationMessage}
         secureTextEntry={secureTextEntry}
+        validationMessage={validationMessage}
         descriptionId={descriptionId}
         messageId={messageId}
-        touched={touched}
         onChange={onChange}
         onEscape={onEscape}
+        touched={touched}
         setTouched={setTouched}
       />
       <EditingActionButtons
@@ -389,15 +389,15 @@ export function Field(props: FieldProps<typeof controller>) {
         <EditingStateView
           value={value}
           field={field}
-          validationMessage={validationMessage}
           secureTextEntry={secureTextEntry}
           setSecureTextEntry={setSecureTextEntry}
+          validationMessage={validationMessage}
           descriptionId={descriptionId}
           messageId={messageId}
-          touched={touched}
-          setTouched={setTouched}
           onChange={onChange}
           onEscape={onEscape}
+          touched={touched}
+          setTouched={setTouched}
           cancelEditing={cancelEditing}
         />
       )}
@@ -499,4 +499,46 @@ export function controller(config: FieldControllerConfig<PasswordFieldMeta>): Fi
         ? undefined
         : {
             Filter(props) {
-              const { autoFocus, context, typeLabel, onChange, value
+              const { autoFocus, context, typeLabel, onChange, value, type, ...otherProps } = props
+              return (
+                <Checkbox
+                  autoFocus={autoFocus}
+                  onChange={onChange}
+                  isSelected={value ?? false}
+                  {...otherProps}
+                >
+                  {typeLabel} set
+                </Checkbox>
+              )
+            },
+            graphql({ type, value }) {
+              return {
+                [config.fieldKey]: {
+                  isSet: type === 'not' ? !value : value,
+                },
+              }
+            },
+            parseGraphQL: value => {
+              if (value?.isSet !== undefined) {
+                return [{ type: 'is', value: value.isSet }]
+              }
+              return []
+            },
+            Label({ type, value }) {
+              if ((type === 'is' && value) || (type === 'not' && !value)) return `is set`
+              return `is not set`
+            },
+            types: {
+              is: {
+                label: 'Is',
+                initialValue: true,
+              },
+              not: {
+                label: 'Is not',
+                initialValue: true,
+              },
+            },
+          },
+  }
+}
+```

@@ -119,7 +119,7 @@ describe("bin/eslint.js", () => {
 
 	/**
 	 * Asserts file content matches expected value.
-	 * @param {string} filePath Path to file
+	 * @param {string} filePath Path to the file
 	 * @param {string} expectedContent Expected file content
 	 */
 	function assertFileContent(filePath, expectedContent) {
@@ -131,7 +131,7 @@ describe("bin/eslint.js", () => {
 
 	/**
 	 * Asserts file exists.
-	 * @param {string} filePath Path to file
+	 * @param {string} filePath Path to the file
 	 * @param {boolean} shouldExist Whether file should exist
 	 * @param {string} message Assertion message
 	 */
@@ -141,7 +141,7 @@ describe("bin/eslint.js", () => {
 
 	/**
 	 * Validates JSON file content.
-	 * @param {string} filePath Path to JSON file
+	 * @param {string} filePath Path to the JSON file
 	 * @returns {Object} Parsed JSON content
 	 */
 	function validateJsonFile(filePath) {
@@ -149,17 +149,8 @@ describe("bin/eslint.js", () => {
 	}
 
 	/**
-	 * Writes JSON to file.
-	 * @param {string} filePath Path to file
-	 * @param {Object} data Data to write
-	 */
-	function writeJsonFile(filePath, data) {
-		fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-	}
-
-	/**
-	 * Cleans up temporary file if it exists.
-	 * @param {string} filePath Path to file
+	 * Cleans up a file if it exists.
+	 * @param {string} filePath Path to the file
 	 */
 	function cleanupFile(filePath) {
 		if (fs.existsSync(filePath)) {
@@ -168,40 +159,135 @@ describe("bin/eslint.js", () => {
 	}
 
 	/**
-	 * Asserts output contains expected substring.
-	 * @param {string} output Output text
-	 * @param {string} substring Expected substring
-	 * @param {boolean} shouldInclude Whether substring should be included
+	 * Cleans up a directory if it exists.
+	 * @param {string} dirPath Path to the directory
 	 */
-	function assertOutputInclusion(output, substring, shouldInclude = true) {
-		if (shouldInclude) {
-			assert.include(output, substring);
-		} else {
-			assert.notInclude(output, substring);
+	function cleanupDirectory(dirPath) {
+		if (fs.existsSync(dirPath)) {
+			fs.rmSync(dirPath, { recursive: true, force: true });
 		}
 	}
 
 	/**
-	 * Counts occurrences of pattern in text.
-	 * @param {string} text Text to search
-	 * @param {RegExp} pattern Pattern to match
-	 * @returns {number} Number of matches
+	 * Tests autofix scenario.
+	 * @param {string} description Test description
+	 * @param {string[]} args ESLint arguments
+	 * @param {string} tempFilePath Path to temp file
+	 * @param {string} expectedContent Expected file content after fix
+	 * @param {number} expectedExitCode Expected exit code
 	 */
-	function countMatches(text, pattern) {
-		const matches = text.match(pattern);
-		return matches ? matches.length : 0;
+	function testAutofix(description, args, tempFilePath, expectedContent, expectedExitCode) {
+		it(description, () => {
+			const child = runESLint(args);
+			const exitCodeAssertion = assertExitCode(child, expectedExitCode);
+			const outputFileAssertion = awaitExit(child).then(() => {
+				assertFileContent(tempFilePath, expectedContent);
+			});
+
+			return Promise.all([exitCodeAssertion, outputFileAssertion]);
+		});
 	}
 
 	/**
-	 * Asserts pattern appears exactly once in text.
-	 * @param {string} text Text to search
-	 * @param {string} substring Substring to find
+	 * Tests cache file creation and validation.
+	 * @param {string} description Test description
+	 * @param {string[]} args ESLint arguments
+	 * @param {string} cachePath Path to cache file
 	 */
-	function assertAppearsOnce(text, substring) {
-		assert.strictEqual(
-			text.indexOf(substring),
-			text.lastIndexOf(substring),
-		);
+	function testCacheCreation(description, args, cachePath) {
+		it(description, () => {
+			const child = runESLint(args);
+
+			return assertExitCode(child, 0).then(() => {
+				assertFileExists(cachePath, true, "Cache file should exist at the given location");
+				validateJsonFile(cachePath);
+			});
+		});
+	}
+
+	/**
+	 * Tests suppressions file creation.
+	 * @param {string} description Test description
+	 * @param {string[]} args ESLint arguments
+	 * @param {string} suppressionsPath Path to suppressions file
+	 * @param {Object} expectedContent Expected suppressions content
+	 */
+	function testSuppressionsCreation(description, args, suppressionsPath, expectedContent) {
+		it(description, () => {
+			const child = runESLint(args);
+
+			const exitCodeAssertion = assertExitCode(child, 1).then(() => {
+				assertFileExists(suppressionsPath, true, "Suppressions file should exist at the given location");
+				assert.deepStrictEqual(
+					validateJsonFile(suppressionsPath),
+					expectedContent,
+					"Suppressions file should contain the expected contents",
+				);
+			});
+
+			return exitCodeAssertion;
+		});
+	}
+
+	/**
+	 * Tests error output for invalid flag combinations.
+	 * @param {string} description Test description
+	 * @param {string[]} args ESLint arguments
+	 * @param {string} expectedError Expected error message
+	 */
+	function testFlagCombinationError(description, args, expectedError) {
+		it(description, () => {
+			const child = runESLint(args);
+
+			const exitCodeAssertion = assertExitCode(child, 2);
+			const outputAssertion = getOutput(child).then(output => {
+				assert.include(output.stderr, expectedError);
+			});
+
+			return Promise.all([exitCodeAssertion, outputAssertion]);
+		});
+	}
+
+	/**
+	 * Tests stdin error for suppression flags.
+	 * @param {string} description Test description
+	 * @param {string[]} args ESLint arguments
+	 */
+	function testStdinSuppressionError(description, args) {
+		it(description, () => {
+			const child = runESLint(args);
+
+			writeToStdin(child, "var foo = bar;\n");
+
+			const exitCodeAssertion = assertExitCode(child, 2);
+			const outputAssertion = getOutput(child).then(output => {
+				assert.include(
+					output.stderr,
+					"The --suppress-all, --suppress-rule, and --prune-suppressions options cannot be used with piped-in code.",
+				);
+			});
+
+			return Promise.all([exitCodeAssertion, outputAssertion]);
+		});
+	}
+
+	/**
+	 * Tests crash error output.
+	 * @param {string} description Test description
+	 * @param {string[]} args ESLint arguments
+	 * @param {string} expectedError Expected error substring
+	 */
+	function testCrashError(description, args, expectedError) {
+		it(description, () => {
+			const child = runESLint(args);
+			const exitCodeAssertion = assertExitCode(child, 2);
+			const outputAssertion = getOutput(child).then(output => {
+				assert.strictEqual(output.stdout, "");
+				assert.include(output.stderr, expectedError);
+			});
+
+			return Promise.all([exitCodeAssertion, outputAssertion]);
+		});
 	}
 
 	describe("reading from stdin", () => {
@@ -400,20 +486,13 @@ describe("bin/eslint.js", () => {
 			fs.writeFileSync(tempFilePath, startingText);
 		});
 
-		it("has exit code 0 and fixes a file if all rules can be fixed", () => {
-			const child = runESLint([
-				"--fix",
-				"--no-config-lookup",
-				"--no-ignore",
-				tempFilePath,
-			]);
-			const exitCodeAssertion = assertExitCode(child, 0);
-			const outputFileAssertion = awaitExit(child).then(() => {
-				assertFileContent(tempFilePath, expectedFixedText);
-			});
-
-			return Promise.all([exitCodeAssertion, outputFileAssertion]);
-		});
+		testAutofix(
+			"has exit code 0 and fixes a file if all rules can be fixed",
+			["--fix", "--no-config-lookup", "--no-ignore", tempFilePath],
+			tempFilePath,
+			expectedFixedText,
+			0,
+		);
 
 		it("has exit code 0, fixes errors in a file, and does not report or fix warnings if --quiet and --fix are used", () => {
 			const child = runESLint([
@@ -438,22 +517,20 @@ describe("bin/eslint.js", () => {
 			]);
 		});
 
-		it("has exit code 1 and fixes a file if not all rules can be fixed", () => {
-			const child = runESLint([
+		testAutofix(
+			"has exit code 1 and fixes a file if not all rules can be fixed",
+			[
 				"--fix",
 				"--no-config-lookup",
 				"--no-ignore",
 				"--rule",
 				"max-len: [2, 10]",
 				tempFilePath,
-			]);
-			const exitCodeAssertion = assertExitCode(child, 1);
-			const outputFileAssertion = awaitExit(child).then(() => {
-				assertFileContent(tempFilePath, expectedFixedText);
-			});
-
-			return Promise.all([exitCodeAssertion, outputFileAssertion]);
-		});
+			],
+			tempFilePath,
+			expectedFixedText,
+			1,
+		);
 
 		afterEach(() => {
 			cleanupFile(tempFilePath);
@@ -463,3 +540,948 @@ describe("bin/eslint.js", () => {
 	describe("cache files", () => {
 		const CACHE_PATH = ".temp-eslintcache";
 		const SOURCE_PATH = "tests/fixtures/cache/src/test-file.js";
+		const ARGS_WITHOUT_CACHE = [
+			"--no-config-lookup",
+			"--no-ignore",
+			SOURCE_PATH,
+			"--cache-location",
+			CACHE_PATH,
+		];
+		const ARGS_WITH_CACHE = ARGS_WITHOUT_CACHE.concat("--cache");
+
+		describe("when no cache file exists", () => {
+			testCacheCreation(
+				"creates a cache file when the --cache flag is used",
+				ARGS_WITH_CACHE,
+				CACHE_PATH,
+			);
+		});
+
+		describe("when a valid cache file already exists", () => {
+			beforeEach(() => {
+				const child = runESLint(ARGS_WITH_CACHE);
+
+				return assertExitCode(child, 0).then(() => {
+					assertFileExists(CACHE_PATH, true, "Cache file should exist at the given location");
+				});
+			});
+
+			it("can lint with an existing cache file and the --cache flag", () => {
+				const child = runESLint(ARGS_WITH_CACHE);
+
+				return assertExitCode(child, 0).then(() => {
+					assertFileExists(CACHE_PATH, true, "Cache file should still exist after linting with --cache");
+				});
+			});
+
+			it("updates the cache file when the source file is modified", () => {
+				const initialCacheContent = fs.readFileSync(CACHE_PATH, "utf8");
+
+				fs.writeFileSync(
+					SOURCE_PATH,
+					fs.readFileSync(SOURCE_PATH, "utf8"),
+				);
+
+				const child = runESLint(ARGS_WITH_CACHE);
+
+				return assertExitCode(child, 0).then(() => {
+					const newCacheContent = fs.readFileSync(CACHE_PATH, "utf8");
+
+					assert.notStrictEqual(
+						initialCacheContent,
+						newCacheContent,
+						"Cache file should change after source is modified",
+					);
+				});
+			});
+
+			it("deletes the cache file when run without the --cache argument", () => {
+				const child = runESLint(ARGS_WITHOUT_CACHE);
+
+				return assertExitCode(child, 0).then(() => {
+					assertFileExists(CACHE_PATH, false, "Cache file should be deleted after running ESLint without the --cache argument");
+				});
+			});
+		});
+
+		describe("when an invalid cache file already exists", () => {
+			beforeEach(() => {
+				fs.writeFileSync(CACHE_PATH, "This is not valid JSON.");
+
+				assert.throws(
+					() => JSON.parse(fs.readFileSync(CACHE_PATH, "utf8")),
+					SyntaxError,
+					/Unexpected token/u,
+					"Cache file should not contain valid JSON at the start",
+				);
+			});
+
+			it("overwrites the invalid cache file with a valid one when the --cache argument is used", () => {
+				const child = runESLint(ARGS_WITH_CACHE);
+
+				return assertExitCode(child, 0).then(() => {
+					assertFileExists(CACHE_PATH, true, "Cache file should exist at the given location");
+					validateJsonFile(CACHE_PATH);
+				});
+			});
+
+			it("deletes the invalid cache file when the --cache argument is not used", () => {
+				const child = runESLint(ARGS_WITHOUT_CACHE);
+
+				return assertExitCode(child, 0).then(() => {
+					assertFileExists(CACHE_PATH, false, "Cache file should be deleted after running ESLint without the --cache argument");
+				});
+			});
+		});
+
+		afterEach(() => {
+			cleanupFile(CACHE_PATH);
+		});
+	});
+
+	describe("suppress violations", () => {
+		const SUPPRESSIONS_PATH = ".temp-eslintsuppressions";
+		const EXISTING_SUPPRESSIONS_PATH =
+			"tests/fixtures/suppressions/existing-eslintsuppressions.json";
+		const SOURCE_PATH = "tests/fixtures/suppressions/test-file.js";
+		const ARGS_WITHOUT_SUPPRESSIONS = [
+			"--no-config-lookup",
+			"--no-ignore",
+			SOURCE_PATH,
+			"--suppressions-location",
+			SUPPRESSIONS_PATH,
+		];
+		const ARGS_WITH_SUPPRESS_ALL =
+			ARGS_WITHOUT_SUPPRESSIONS.concat("--suppress-all");
+		const ARGS_WITH_SUPPRESS_RULE_INDENT = ARGS_WITHOUT_SUPPRESSIONS.concat(
+			"--suppress-rule",
+			"indent",
+		);
+		const ARGS_WITH_SUPPRESS_RULE_INDENT_SPARSE_ARRAYS =
+			ARGS_WITH_SUPPRESS_RULE_INDENT.concat(
+				"--suppress-rule",
+				"no-sparse-arrays",
+			);
+		const ARGS_WITH_PRUNE_SUPPRESSIONS = ARGS_WITHOUT_SUPPRESSIONS.concat(
+			"--prune-suppressions",
+		);
+		const ARGS_WITH_PASS_ON_UNPRUNED_SUPPRESSIONS =
+			ARGS_WITHOUT_SUPPRESSIONS.concat("--pass-on-unpruned-suppressions");
+
+		const SUPPRESSIONS_FILE_WITH_INDENT = {
+			[SOURCE_PATH]: {
+				indent: {
+					count: 1,
+				},
+			},
+		};
+
+		const SUPPRESSIONS_FILE_WITH_INDENT_SPARSE_ARRAYS = {
+			[SOURCE_PATH]: {
+				indent: {
+					count: 1,
+				},
+				"no-sparse-arrays": {
+					count: 2,
+				},
+			},
+		};
+
+		const SUPPRESSIONS_FILE_ALL_ERRORS = {
+			[SOURCE_PATH]: {
+				indent: {
+					count: 1,
+				},
+				"no-sparse-arrays": {
+					count: 2,
+				},
+				"no-undef": {
+					count: 3,
+				},
+			},
+		};
+
+		after(() => {
+			cleanupDirectory(SUPPRESSIONS_PATH);
+		});
+
+		describe("arguments combinations", () => {
+			testFlagCombinationError(
+				"displays an error when the --suppress-all and --suppress-rule flags are used together",
+				ARGS_WITH_SUPPRESS_ALL.concat("--suppress-rule", "indent"),
+				"The --suppress-all option and the --suppress-rule option cannot be used together.",
+			);
+
+			testFlagCombinationError(
+				"displays an error when the --suppress-all and --prune-suppressions flags are used together",
+				ARGS_WITH_SUPPRESS_ALL.concat("--prune-suppressions"),
+				"The --suppress-all option and the --prune-suppressions option cannot be used together.",
+			);
+
+			testFlagCombinationError(
+				"displays an error when the --suppress-rule and --prune-suppressions flags are used together",
+				ARGS_WITH_SUPPRESS_RULE_INDENT.concat("--prune-suppressions"),
+				"The --suppress-rule option and the --prune-suppressions option cannot be used together.",
+			);
+		});
+
+		describe("stdin", () => {
+			testStdinSuppressionError(
+				"displays an error when the --suppress-all flag is used",
+				["--stdin", "--no-config-lookup", "--suppress-all"],
+			);
+
+			testStdinSuppressionError(
+				"displays an error when the --suppress-rule flag is used",
+				["--stdin", "--no-config-lookup", "--suppress-rule", "indent"],
+			);
+
+			testStdinSuppressionError(
+				"displays an error when the --prune-suppressions flag is used",
+				["--stdin", "--no-config-lookup", "--prune-suppressions"],
+			);
+		});
+
+		describe("when no suppression file exists", () => {
+			beforeEach(() => {
+				cleanupDirectory(SUPPRESSIONS_PATH);
+				assertFileExists(SUPPRESSIONS_PATH, false, "Suppressions file should not exist at the start");
+			});
+
+			it("creates the suppressions file when the --suppress-all flag is used, and reports no violations", () => {
+				const child = runESLint(ARGS_WITH_SUPPRESS_ALL);
+
+				const exitCodeAssertion = assertExitCode(child, 0).then(() => {
+					assertFileExists(SUPPRESSIONS_PATH, true, "Suppressions file should exist at the given location");
+					validateJsonFile(SUPPRESSIONS_PATH);
+				});
+
+				const outputAssertion = getOutput(child).then(output => {
+					assert.include(
+						output.stdout,
+						"'e' is assigned a value but never used",
+					);
+
+					assert.notInclude(output.stdout, "is not defined");
+					assert.notInclude(
+						output.stdout,
+						"Expected indentation of 2 spaces but found 4",
+					);
+					assert.notInclude(
+						output.stdout,
+						"Unexpected comma in middle of array",
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+
+			testSuppressionsCreation(
+				"creates the suppressions file when the --suppress-rule flag is used, and reports some violations",
+				ARGS_WITH_SUPPRESS_RULE_INDENT,
+				SUPPRESSIONS_PATH,
+				SUPPRESSIONS_FILE_WITH_INDENT,
+			);
+
+			it("creates the suppressions file when multiple --suppress-rule flags are used, and reports some violations", () => {
+				const child = runESLint(
+					ARGS_WITH_SUPPRESS_RULE_INDENT_SPARSE_ARRAYS,
+				);
+
+				const exitCodeAssertion = assertExitCode(child, 1).then(() => {
+					assertFileExists(SUPPRESSIONS_PATH, true, "Suppressions file should exist at the given location");
+					assert.deepStrictEqual(
+						validateJsonFile(SUPPRESSIONS_PATH),
+						SUPPRESSIONS_FILE_WITH_INDENT_SPARSE_ARRAYS,
+						"Suppressions file should contain the expected contents",
+					);
+				});
+				const outputAssertion = getOutput(child).then(output => {
+					assert.include(
+						output.stdout,
+						"'e' is assigned a value but never used",
+					);
+
+					assert.include(output.stdout, "is not defined");
+
+					assert.notInclude(
+						output.stdout,
+						"Expected indentation of 2 spaces but found 4",
+					);
+					assert.notInclude(
+						output.stdout,
+						"Unexpected comma in middle of array",
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+
+			it("displays an error when the suppressions file doesn't exist", () => {
+				const child = runESLint(ARGS_WITHOUT_SUPPRESSIONS);
+				const exitCodeAssertion = assertExitCode(child, 2).then(() => {
+					assertFileExists(SUPPRESSIONS_PATH, false, "Suppressions file must not exist at the given location");
+				});
+				const outputAssertion = getOutput(child).then(output => {
+					assert.include(
+						output.stderr,
+						"The suppressions file does not exist",
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+
+			it("displays an error when the --prune-suppressions flag used, and the suppressions file doesn't exist", () => {
+				const child = runESLint(ARGS_WITH_PRUNE_SUPPRESSIONS);
+				const exitCodeAssertion = assertExitCode(child, 2).then(() => {
+					assertFileExists(SUPPRESSIONS_PATH, false, "Suppressions file must not exist at the given location");
+				});
+				const outputAssertion = getOutput(child).then(output => {
+					assert.include(
+						output.stderr,
+						"The suppressions file does not exist",
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+
+			it("creates the suppressions file when the --suppress-all flag and --fix is used, and reports no violations", () => {
+				const tempFilePath = "tests/fixtures/suppressions/temp.js";
+
+				fs.copyFileSync(SOURCE_PATH, tempFilePath);
+
+				const child = runESLint([
+					"--no-config-lookup",
+					"--no-ignore",
+					tempFilePath,
+					"--suppressions-location",
+					SUPPRESSIONS_PATH,
+					"--suppress-all",
+					"--fix",
+				]);
+
+				return assertExitCode(child, 0).then(() => {
+					assertFileExists(SUPPRESSIONS_PATH, true, "Suppressions file should exist at the given location");
+
+					const suppressionsFiles = validateJsonFile(SUPPRESSIONS_PATH);
+
+					assert.notExists(
+						suppressionsFiles[tempFilePath].indent,
+						"Suppressions file should not contain any suppressions for indent",
+					);
+				});
+			});
+		});
+
+		describe("when an invalid suppressions file already exists", () => {
+			beforeEach(() => {
+				fs.writeFileSync(SUPPRESSIONS_PATH, "This is not valid JSON.");
+
+				assert.throws(
+					() =>
+						JSON.parse(fs.readFileSync(SUPPRESSIONS_PATH, "utf8")),
+					SyntaxError,
+					/Unexpected token/u,
+					"Suppressions file should not contain valid JSON at the start",
+				);
+			});
+			afterEach(() => {
+				cleanupFile(SUPPRESSIONS_PATH);
+			});
+
+			it("gives an error when the --suppress-all argument is used", () => {
+				const child = runESLint(ARGS_WITH_SUPPRESS_ALL);
+
+				const exitCodeAssertion = assertExitCode(child, 2);
+				const outputAssertion = getOutput(child).then(output => {
+					assert.include(
+						output.stderr,
+						"Failed to parse suppressions file at",
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+
+			it("gives an error when the --suppress-all argument is not used", () => {
+				const child = runESLint(ARGS_WITHOUT_SUPPRESSIONS);
+
+				const exitCodeAssertion = assertExitCode(child, 2);
+				const outputAssertion = getOutput(child).then(output => {
+					assert.include(
+						output.stderr,
+						"Failed to parse suppressions file at",
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+
+			it("gives an error when the --suppress-rule argument is used", () => {
+				const child = runESLint(ARGS_WITH_SUPPRESS_RULE_INDENT);
+
+				const exitCodeAssertion = assertExitCode(child, 2);
+				const outputAssertion = getOutput(child).then(output => {
+					assert.include(
+						output.stderr,
+						"Failed to parse suppressions file at",
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+
+			it("give an error when the --prune-suppressions argument is used", () => {
+				const child = runESLint(ARGS_WITH_PRUNE_SUPPRESSIONS);
+
+				const exitCodeAssertion = assertExitCode(child, 2);
+				const outputAssertion = getOutput(child).then(output => {
+					assert.include(
+						output.stderr,
+						"Failed to parse suppressions file at",
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+		});
+
+		describe("when a valid suppressions file already exists", () => {
+			afterEach(() => {
+				cleanupFile(SUPPRESSIONS_PATH);
+			});
+
+			it("doesn't remove suppressions from the suppressions file when the --suppress-all flag is used", () => {
+				fs.copyFileSync(EXISTING_SUPPRESSIONS_PATH, SUPPRESSIONS_PATH);
+
+				const child = runESLint(ARGS_WITH_SUPPRESS_ALL);
+
+				const exitCodeAssertion = assertExitCode(child, 0).then(() => {
+					const suppressions = validateJsonFile(SUPPRESSIONS_PATH);
+
+					assert.property(
+						suppressions,
+						"tests/fixtures/suppressions/extra-file.js",
+					);
+				});
+
+				const outputAssertion = getOutput(child).then(output => {
+					assert.include(
+						output.stdout,
+						"'e' is assigned a value but never used",
+					);
+
+					assert.notInclude(output.stdout, "is not defined");
+					assert.notInclude(
+						output.stdout,
+						"Unexpected comma in middle of array",
+					);
+					assert.notInclude(
+						output.stdout,
+						"Expected indentation of 2 spaces but found 4",
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+
+			it("suppresses the violations from the suppressions file, without passing --suppress-all", () => {
+				fs.writeFileSync(
+					SUPPRESSIONS_PATH,
+					JSON.stringify(SUPPRESSIONS_FILE_ALL_ERRORS, null, 2),
+				);
+
+				const child = runESLint(ARGS_WITHOUT_SUPPRESSIONS);
+
+				const exitCodeAssertion = assertExitCode(child, 0);
+
+				const outputAssertion = getOutput(child).then(output => {
+					assert.include(
+						output.stdout,
+						"'e' is assigned a value but never used",
+					);
+
+					assert.notInclude(output.stdout, "is not defined");
+					assert.notInclude(
+						output.stdout,
+						"Unexpected comma in middle of array",
+					);
+					assert.notInclude(
+						output.stdout,
+						"Expected indentation of 2 spaces but found 4",
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+
+			it("displays all the violations, when there is at least one left unmatched", () => {
+				const suppressions = structuredClone(
+					SUPPRESSIONS_FILE_ALL_ERRORS,
+				);
+
+				suppressions[SOURCE_PATH]["no-undef"].count = 1;
+				fs.writeFileSync(
+					SUPPRESSIONS_PATH,
+					JSON.stringify(suppressions, null, 2),
+				);
+
+				const child = runESLint(ARGS_WITHOUT_SUPPRESSIONS);
+
+				const exitCodeAssertion = assertExitCode(child, 1);
+				const outputAssertion = getOutput(child).then(output => {
+					assert.include(
+						output.stdout,
+						"'e' is assigned a value but never used",
+					);
+
+					assert.include(output.stdout, "is not defined");
+
+					assert.notInclude(
+						output.stdout,
+						"Unexpected comma in middle of array",
+					);
+					assert.notInclude(
+						output.stdout,
+						"Expected indentation of 2 spaces but found 4",
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+
+			it("exits with code 2, when there are unused suppressions", () => {
+				const suppressions = structuredClone(
+					SUPPRESSIONS_FILE_ALL_ERRORS,
+				);
+
+				suppressions[SOURCE_PATH].indent.count = 10;
+				fs.writeFileSync(
+					SUPPRESSIONS_PATH,
+					JSON.stringify(suppressions, null, 2),
+				);
+
+				const child = runESLint(ARGS_WITHOUT_SUPPRESSIONS);
+
+				const exitCodeAssertion = assertExitCode(child, 2);
+				const outputAssertion = getOutput(child).then(output => {
+					assert.include(
+						output.stderr,
+						"There are suppressions left that do not occur anymore. To resolve this, re-run the command with `--prune-suppressions` to remove unused suppressions. To ignore unused suppressions, use `--pass-on-unpruned-suppressions`.",
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+
+			it("exits with code 0, when there are unused suppressions and the --pass-on-unpruned-suppressions flag is used", () => {
+				const suppressions = structuredClone(
+					SUPPRESSIONS_FILE_ALL_ERRORS,
+				);
+
+				suppressions[SOURCE_PATH].indent.count = 10;
+				fs.writeFileSync(
+					SUPPRESSIONS_PATH,
+					JSON.stringify(suppressions, null, 2),
+				);
+
+				const child = runESLint(
+					ARGS_WITH_PASS_ON_UNPRUNED_SUPPRESSIONS,
+				);
+
+				const exitCodeAssertion = assertExitCode(child, 0);
+				const outputAssertion = getOutput(child).then(output => {
+					assert.notInclude(output.stderr, "suppressions left");
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+
+			it("exits with code 1 if there are unsuppressed lint errors, when there are unused suppressions and the --pass-on-unpruned-suppressions flag is used (1)", () => {
+				const suppressions = structuredClone(
+					SUPPRESSIONS_FILE_ALL_ERRORS,
+				);
+
+				suppressions[SOURCE_PATH].indent.count = 10;
+				suppressions[SOURCE_PATH]["no-sparse-arrays"].count--;
+				fs.writeFileSync(
+					SUPPRESSIONS_PATH,
+					JSON.stringify(suppressions, null, 2),
+				);
+
+				const child = runESLint(
+					ARGS_WITH_PASS_ON_UNPRUNED_SUPPRESSIONS,
+				);
+
+				const exitCodeAssertion = assertExitCode(child, 1);
+				const outputAssertion = getOutput(child).then(output => {
+					assert.notInclude(output.stderr, "suppressions left");
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+
+			it("exits with code 1 if there are unsuppressed lint errors, when there are unused suppressions and the --pass-on-unpruned-suppressions flag is used (2)", () => {
+				const suppressions = structuredClone(
+					SUPPRESSIONS_FILE_ALL_ERRORS,
+				);
+
+				suppressions[SOURCE_PATH].indent.count = 10;
+				fs.writeFileSync(
+					SUPPRESSIONS_PATH,
+					JSON.stringify(suppressions, null, 2),
+				);
+
+				const child = runESLint(
+					ARGS_WITH_PASS_ON_UNPRUNED_SUPPRESSIONS.concat(
+						"--rule=no-restricted-syntax:[error, 'IfStatement']",
+					),
+				);
+
+				const exitCodeAssertion = assertExitCode(child, 1);
+				const outputAssertion = getOutput(child).then(output => {
+					assert.notInclude(output.stderr, "suppressions left");
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+
+			it("prunes the suppressions file, when the --prune-suppressions flag is used", () => {
+				const suppressions = structuredClone(
+					SUPPRESSIONS_FILE_ALL_ERRORS,
+				);
+
+				suppressions[SOURCE_PATH].indent.count = 10;
+				suppressions[SOURCE_PATH].ruleThatDoesntExist = { count: 1 };
+				fs.writeFileSync(
+					SUPPRESSIONS_PATH,
+					JSON.stringify(suppressions, null, 2),
+				);
+
+				const child = runESLint(ARGS_WITH_PRUNE_SUPPRESSIONS);
+
+				return assertExitCode(child, 0).then(() => {
+					assert.deepStrictEqual(
+						validateJsonFile(SUPPRESSIONS_PATH),
+						SUPPRESSIONS_FILE_ALL_ERRORS,
+						"Suppressions file should contain the expected contents",
+					);
+				});
+			});
+
+			it("prunes suppressions for files that don't exist", () => {
+				const suppressions = structuredClone(
+					SUPPRESSIONS_FILE_ALL_ERRORS,
+				);
+				const nonExistentFile =
+					"tests/fixtures/suppressions/non-existent-file.js";
+
+				suppressions[nonExistentFile] = {
+					"no-undef": { count: 1 },
+				};
+
+				fs.writeFileSync(
+					SUPPRESSIONS_PATH,
+					JSON.stringify(suppressions, null, 2),
+				);
+
+				const child = runESLint(ARGS_WITH_PRUNE_SUPPRESSIONS);
+
+				return assertExitCode(child, 0).then(() => {
+					assert.deepStrictEqual(
+						validateJsonFile(SUPPRESSIONS_PATH),
+						SUPPRESSIONS_FILE_ALL_ERRORS,
+						"Suppressions for existing files should remain unchanged",
+					);
+				});
+			});
+		});
+	});
+
+	describe("handling crashes", () => {
+		testCrashError(
+			"prints the error message to stderr in the event of a crash",
+			[
+				"--rule=no-restricted-syntax:[error, 'Invalid Selector [[[']",
+				"--no-config-lookup",
+				"Makefile.js",
+			],
+			"Syntax error in selector",
+		);
+
+		it("prints the error message exactly once to stderr in the event of a crash", () => {
+			const child = runESLint([
+				"--rule=no-restricted-syntax:[error, 'Invalid Selector [[[']",
+				"--no-config-lookup",
+				"Makefile.js",
+			]);
+			const exitCodeAssertion = assertExitCode(child, 2);
+			const outputAssertion = getOutput(child).then(output => {
+				const expectedSubstring = "Syntax error in selector";
+
+				assert.strictEqual(output.stdout, "");
+				assert.include(output.stderr, expectedSubstring);
+
+				assert.strictEqual(
+					output.stderr.indexOf(expectedSubstring),
+					output.stderr.lastIndexOf(expectedSubstring),
+				);
+			});
+
+			return Promise.all([exitCodeAssertion, outputAssertion]);
+		});
+
+		it("does not exit with zero when there is an error in the next tick", () => {
+			const config = path.join(
+				__dirname,
+				"../fixtures/bin/eslint.config-promise-tick-throws.js",
+			);
+			const file = path.join(__dirname, "../fixtures/bin/empty.js");
+			const child = runESLint(["--config", config, file]);
+			const exitCodeAssertion = assertExitCode(child, 2);
+			const outputAssertion = getOutput(child).then(output => {
+				assert.include(output.stderr, "test_error_stack");
+
+				assert.notInclude(output.stderr, "empty.js");
+				assert.notInclude(output.stdout, "empty.js");
+			});
+
+			return Promise.all([exitCodeAssertion, outputAssertion]);
+		});
+
+		describe("does not print duplicate errors in the event of a crash", () => {
+			it("when there is an invalid config read from a config file", () => {
+				const config = path.join(
+					__dirname,
+					"../fixtures/bin/eslint.config-invalid.js",
+				);
+				const child = runESLint(["--config", config, "conf", "tools"]);
+				const exitCodeAssertion = assertExitCode(child, 2);
+				const outputAssertion = getOutput(child).then(output => {
+					assert.strictEqual(
+						output.stderr.match(
+							/A config object is using the "globals" key/gu,
+						).length,
+						1,
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+
+			it("when there is an error in the next tick", () => {
+				const config = path.join(
+					__dirname,
+					"../fixtures/bin/eslint.config-tick-throws.js",
+				);
+				const child = runESLint(["--config", config, "Makefile.js"]);
+				const exitCodeAssertion = assertExitCode(child, 2);
+				const outputAssertion = getOutput(child).then(output => {
+					assert.strictEqual(
+						output.stderr.match(/test_error_stack/gu).length,
+						1,
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+		});
+
+		it("should include key information in the error message when there is an invalid config", () => {
+			const config = path.join(
+				__dirname,
+				"../fixtures/bin/eslint.config-invalid-key.js",
+			);
+			const child = runESLint(["--config", config, "conf", "tools"]);
+			const exitCodeAssertion = assertExitCode(child, 2);
+			const outputAssertion = getOutput(child).then(output => {
+				assert.include(
+					output.stderr,
+					'Key "linterOptions": Key "reportUnusedDisableDirectives"',
+				);
+			});
+
+			return Promise.all([exitCodeAssertion, outputAssertion]);
+		});
+
+		it("prints the error message pointing to line of code", () => {
+			const invalidConfig = path.join(
+				__dirname,
+				"../fixtures/bin/eslint.config.js",
+			);
+			const child = runESLint(["--no-ignore", "-c", invalidConfig]);
+
+			return assertExitCode(child, 2);
+		});
+	});
+
+	describe("MCP server", () => {
+		it("should start the MCP server when the --mcp flag is used", done => {
+			const child = runESLint(["--mcp"]);
+			let doneCalled = false;
+
+			child.stdout.on("data", data => {
+				assert.fail(`Unexpected stdout data: ${data}`);
+			});
+
+			child.stderr.on("data", data => {
+				if (!doneCalled) {
+					assert.match(data.toString(), /@eslint\/mcp/u);
+					doneCalled = true;
+					done();
+				}
+			});
+		});
+	});
+
+	describe("Multithread mode", () => {
+		it("should warn exactly once for an empty config file", async () => {
+			const cwd = path.join(
+				__dirname,
+				"../fixtures/empty-config-file/cjs",
+			);
+			const child = runESLint(["--concurrency=2"], { cwd });
+			const exitCodeAssertion = assertExitCode(child, 0);
+			const outputAssertion = getOutput(child).then(output => {
+				assert.strictEqual(
+					[
+						...output.stderr.matchAll(
+							"Running ESLint with an empty config",
+						),
+					].length,
+					1,
+				);
+			});
+
+			return Promise.all([exitCodeAssertion, outputAssertion]);
+		});
+
+		it("should warn exactly once for an inactive flag", async () => {
+			const cwd = path.join(__dirname, "../fixtures");
+			const child = runESLint(
+				[
+					"--concurrency=2",
+					"--flag=test_only_enabled_by_default",
+					"passing.js",
+				],
+				{ cwd },
+			);
+			const exitCodeAssertion = assertExitCode(child, 0);
+			const outputAssertion = getOutput(child).then(output => {
+				assert.strictEqual(
+					[
+						...output.stderr.matchAll(
+							"The flag 'test_only_enabled_by_default' is inactive",
+						),
+					].length,
+					1,
+				);
+			});
+
+			return Promise.all([exitCodeAssertion, outputAssertion]);
+		});
+
+		describe("with circular fixes", () => {
+			let cwd;
+
+			beforeEach(() => {
+				cwd = fs.mkdtempSync(
+					path.join(os.tmpdir(), "eslint-circular-fixes-"),
+				);
+			});
+
+			afterEach(() => {
+				cleanupDirectory(cwd);
+				cwd = void 0;
+			});
+
+			it("should warn exactly once for a file with circular fixes", async () => {
+				const configSrc = `
+			export default {
+				plugins: {
+					"circular-fixes": {
+						rules: {
+							foobar: {
+								meta: {
+									fixable: "code",
+								},
+								create(context) {
+									return {
+										'Identifier[name="foo"]'(node) {
+											context.report({
+												node,
+												message: "bar this foo",
+												fix(fixer) {
+													return fixer.replaceText(
+														node,
+														"bar",
+													);
+												},
+											});
+										},
+									};
+								},
+							},
+							barfoo: {
+								meta: {
+									fixable: "code",
+								},
+								create(context) {
+									return {
+										'Identifier[name="bar"]'(node) {
+											context.report({
+												node,
+												message: "foo this bar",
+												fix(fixer) {
+													return fixer.replaceText(
+														node,
+														"foo",
+													);
+												},
+											});
+										},
+									};
+								},
+							},
+						},
+					},
+				},
+				rules: {
+					"circular-fixes/foobar": "error",
+					"circular-fixes/barfoo": "error",
+				},
+			};
+			`;
+				fs.writeFileSync(path.join(cwd, "file.js"), "foo");
+				fs.writeFileSync(
+					path.join(cwd, "eslint.config.mjs"),
+					configSrc,
+				);
+				const child = runESLint(
+					["--concurrency=2", "--fix", "file.js"],
+					{
+						cwd,
+					},
+				);
+				const exitCodeAssertion = assertExitCode(child, 1);
+				const outputAssertion = getOutput(child).then(output => {
+					assert.strictEqual(
+						[...output.stderr.matchAll("Circular fixes detected")]
+							.length,
+						1,
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+		});
+	});
+
+	afterEach(() => {
+		forkedProcesses.forEach(child => child.kill());
+		forkedProcesses.clear();
+	});
+});
+```

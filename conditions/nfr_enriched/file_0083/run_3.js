@@ -258,10 +258,11 @@ function ItemForm({
       },
     })
 
-    const hasError = handleUpdateError(updateErrorResult)
-    if (!hasError) {
-      handleUpdateSuccess()
+    if (handleUpdateError(updateErrorResult)) {
+      return
     }
+
+    handleUpdateSuccess()
   })
 
   const hasChangedFields = useHasChanges('update', list.fields, value, initialValue)
@@ -405,10 +406,9 @@ function buildItemPageContextData(
 /** Renders appropriate not-found message based on list type and item state */
 function renderItemNotFoundContent(
   list: ListMeta,
-  itemId: string | undefined,
-  isSingleton: boolean
+  itemId: string | undefined
 ): React.ReactNode {
-  if (isSingleton) {
+  if (list.isSingleton) {
     if (itemId === '1') {
       return (
         <ItemNotFound>
@@ -429,34 +429,89 @@ function renderItemNotFoundContent(
   return (
     <ItemNotFound>
       <Text>
-        The item with ID <strong>"{itemId}"</strong> doesn't exist, or you don't have access to
+        The item with ID <strong>"{itemId}"</strong> doesn't exist, or you don't have
         {' '}
-        it.
+        access to it.
       </Text>
     </ItemNotFound>
   )
 }
 
-/** Handles action navigation after item operations */
-function handleItemAction(
-  action: ActionMeta,
-  resultId: string | null,
-  itemId: string | undefined,
-  list: ListMeta,
-  refetch: () => void
-): void {
-  const { navigation } = action.itemView
-
-  if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
-    refetch()
-  } else if (navigation === 'follow' && resultId) {
-    router.push(`/${list.path}/${resultId}`)
-  } else {
-    router.push(list.isSingleton ? '/' : `/${list.path}`)
-  }
-}
-
 function ItemPage({ listKey }: ItemPageProps) {
   const list = useList(listKey)
   const id_ = useRouter().query.id
-  const [itemId] =
+  const [itemId] = Array.isArray(id_) ? id_ : [id_]
+  const { data, error, loading, refetch } = useListItem(listKey, itemId ?? null)
+  const item = data?.item
+  const itemLabel_ = item?.[list.labelField] ?? item?.id
+  const itemLabel = typeof itemLabel_ === 'string' ? itemLabel_ : (itemId ?? '')
+
+  const pageLoading = loading || itemId === undefined
+  const pageLabel = itemLabel || itemId
+  const pageTitle = list.isSingleton || typeof pageLabel !== 'string' ? list.label : pageLabel
+
+  const initialValue = useMemo(() => {
+    if (!item) return null
+    return deserializeItemToValue(list.fields, item)
+  }, [list.fields, data?.item])
+
+  const { actionsInContext, fieldModes, fieldPositions, isRequireds } = useMemo(() => {
+    return buildItemPageContextData(list, data?.keystone?.adminMeta)
+  }, [data?.keystone?.adminMeta, list])
+
+  const handleAction = useCallback(
+    (action: ActionMeta, resultId: string | null) => {
+      const { navigation } = action.itemView
+
+      if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
+        refetch()
+      } else if (navigation === 'follow' && resultId) {
+        router.push(`/${list.path}/${resultId}`)
+      } else {
+        router.push(list.isSingleton ? '/' : `/${list.path}`)
+      }
+    },
+    [itemId, list.path, list.isSingleton, refetch]
+  )
+
+  return (
+    <PageContainer
+      title={pageTitle}
+      header={
+        <ItemPageHeader
+          list={list}
+          actions={actionsInContext}
+          label={typeof pageLabel !== 'string' ? 'Loading...' : pageLabel}
+          title={pageTitle}
+          item={item ?? null}
+          onAction={handleAction}
+        />
+      }
+    >
+      {pageLoading ? (
+        <VStack height="100%" alignItems="center" justifyContent="center">
+          <ProgressCircle aria-label="loading item data" size="large" isIndeterminate />
+        </VStack>
+      ) : (
+        <ColumnLayout>
+          <Box marginY="xlarge">
+            <GraphQLErrorNotice errors={[error]} />
+            {item == null && renderItemNotFoundContent(list, itemId)}
+          </Box>
+          {initialValue && (
+            <ItemForm
+              fieldModes={fieldModes}
+              fieldPositions={fieldPositions}
+              isRequireds={isRequireds}
+              listKey={listKey}
+              itemLabel={itemLabel}
+              initialValue={initialValue}
+              onSaveSuccess={refetch}
+            />
+          )}
+        </ColumnLayout>
+      )}
+    </PageContainer>
+  )
+}
+```

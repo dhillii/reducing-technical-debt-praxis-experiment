@@ -34,7 +34,7 @@ exports.toCollectionName = function(name, pluralize) {
 };
 
 function _isDateEqual(a, b) {
-  return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
+  return a.getTime() === b.getTime();
 }
 
 function _isBsonEqual(a, b) {
@@ -43,29 +43,23 @@ function _isBsonEqual(a, b) {
 }
 
 function _isRegExpEqual(a, b) {
-  return a instanceof RegExp && b instanceof RegExp &&
-         a.source === b.source &&
+  return a.source === b.source &&
          a.ignoreCase === b.ignoreCase &&
          a.multiline === b.multiline &&
          a.global === b.global;
 }
 
-function _isMapEqual(a, b, deepEqual) {
-  return a instanceof Map && b instanceof Map &&
-         deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
-         deepEqual(Array.from(a.values()), Array.from(b.values()));
+function _isMapEqual(a, b) {
+  return exports.deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
+         exports.deepEqual(Array.from(a.values()), Array.from(b.values()));
 }
 
-function _isNumberEqual(a, b) {
-  return a instanceof Number && b instanceof Number && a.valueOf() === b.valueOf();
-}
-
-function _isArrayEqual(a, b, deepEqual) {
-  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
+function _isArrayEqual(a, b) {
+  if (a.length !== b.length) {
     return false;
   }
   for (let i = 0; i < a.length; ++i) {
-    if (!deepEqual(a[i], b[i])) {
+    if (!exports.deepEqual(a[i], b[i])) {
       return false;
     }
   }
@@ -76,7 +70,10 @@ function _normalizeObject(obj) {
   if (obj.$__ != null) {
     return obj._doc;
   }
-  return isMongooseObject(obj) ? obj.toObject() : obj;
+  if (isMongooseObject(obj)) {
+    return obj.toObject();
+  }
+  return obj;
 }
 
 function _compareObjectKeys(ka, kb) {
@@ -93,6 +90,15 @@ function _compareObjectKeys(ka, kb) {
   return true;
 }
 
+function _compareObjectValues(a, b, ka) {
+  for (const key of ka) {
+    if (!exports.deepEqual(a[key], b[key])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 exports.deepEqual = function deepEqual(a, b) {
   if (a === b) {
     return true;
@@ -102,24 +108,40 @@ exports.deepEqual = function deepEqual(a, b) {
     return a === b;
   }
 
-  if (_isDateEqual(a, b) || _isBsonEqual(a, b) || _isRegExpEqual(a, b)) {
-    return true;
+  if (a instanceof Date && b instanceof Date) {
+    return _isDateEqual(a, b);
   }
 
-  if (a == null || b == null || a.prototype !== b.prototype) {
+  if (_isBsonEqual(a, b)) {
+    return a.toString() === b.toString();
+  }
+
+  if (a instanceof RegExp && b instanceof RegExp) {
+    return _isRegExpEqual(a, b);
+  }
+
+  if (a == null || b == null) {
     return false;
   }
 
-  if (_isMapEqual(a, b, deepEqual) || _isNumberEqual(a, b)) {
-    return true;
+  if (a.prototype !== b.prototype) {
+    return false;
+  }
+
+  if (a instanceof Map && b instanceof Map) {
+    return _isMapEqual(a, b);
+  }
+
+  if (a instanceof Number && b instanceof Number) {
+    return a.valueOf() === b.valueOf();
   }
 
   if (Buffer.isBuffer(a)) {
     return exports.buffer.areEqual(a, b);
   }
 
-  if (_isArrayEqual(a, b, deepEqual)) {
-    return true;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return _isArrayEqual(a, b);
   }
 
   a = _normalizeObject(a);
@@ -132,13 +154,7 @@ exports.deepEqual = function deepEqual(a, b) {
     return false;
   }
 
-  for (const key of ka) {
-    if (!deepEqual(a[key], b[key])) {
-      return false;
-    }
-  }
-
-  return true;
+  return _compareObjectValues(a, b, ka);
 };
 
 exports.last = function(arr) {
@@ -186,15 +202,20 @@ exports.random = function() {
 };
 
 function _shouldSkipMergeKey(key, options, omitNested, path) {
-  return (options.omit && options.omit[key]) || omitNested[path] || specialProperties.has(key);
+  return (options.omit && options.omit[key]) ||
+         omitNested[path] ||
+         specialProperties.has(key);
 }
 
-function _shouldSkipDiscriminatorMerge(from, to) {
-  return (from.$isSingleNested && to.$isMongooseDocumentArray) ||
-         (from.$isMongooseDocumentArray && to.$isSingleNested);
+function _isDiscriminatorConflict(options, fromVal, toVal) {
+  if (!options.isDiscriminatorSchemaMerge) {
+    return false;
+  }
+  return (fromVal.$isSingleNested && toVal.$isMongooseDocumentArray) ||
+         (fromVal.$isMongooseDocumentArray && toVal.$isSingleNested);
 }
 
-function _handleSchemaOrObjectIdMerge(to, from, key, options) {
+function _handleSchemaValue(to, key, from, options) {
   if (from[key].instanceOfSchema) {
     if (to[key].instanceOfSchema) {
       schemaMerge(to[key], from[key].clone(), options.isDiscriminatorSchemaMerge);
@@ -214,12 +235,15 @@ exports.merge = function merge(to, from, options, path) {
   options = options || {};
 
   const keys = Object.keys(from);
+  let i = 0;
   const len = keys.length;
+  let key;
+
   path = path || '';
   const omitNested = options.omitNested || {};
 
-  for (let i = 0; i < len; i++) {
-    const key = keys[i];
+  while (i < len) {
+    key = keys[i++];
     
     if (_shouldSkipMergeKey(key, options, omitNested, path)) {
       continue;
@@ -227,19 +251,18 @@ exports.merge = function merge(to, from, options, path) {
     
     if (to[key] == null) {
       to[key] = from[key];
-    } else if (exports.isObject(from[key]) && from[key] != null) {
+    } else if (exports.isObject(from[key])) {
       if (!exports.isObject(to[key])) {
         to[key] = {};
       }
-      
-      if (options.isDiscriminatorSchemaMerge && _shouldSkipDiscriminatorMerge(from[key], to[key])) {
-        continue;
+      if (from[key] != null) {
+        if (_isDiscriminatorConflict(options, from[key], to[key])) {
+          continue;
+        }
+        if (_handleSchemaValue(to, key, from, options)) {
+          continue;
+        }
       }
-      
-      if (_handleSchemaOrObjectIdMerge(to, from, key, options)) {
-        continue;
-      }
-      
       merge(to[key], from[key], options, path ? path + '.' + key : key);
     } else if (options.overwrite) {
       to[key] = from[key];
@@ -270,9 +293,10 @@ exports.toObject = function toObject(obj) {
   if (exports.isPOJO(obj)) {
     ret = {};
     for (const k of Object.keys(obj)) {
-      if (!specialProperties.has(k)) {
-        ret[k] = toObject(obj[k]);
+      if (specialProperties.has(k)) {
+        continue;
       }
+      ret[k] = toObject(obj[k]);
     }
     return ret;
   }
@@ -348,7 +372,10 @@ exports.expires = function expires(object) {
     return;
   }
 
-  const when = typeof object.expires !== 'string' ? object.expires : Math.round(ms(object.expires) / 1000);
+  const when = typeof object.expires !== 'string' ?
+    object.expires :
+    Math.round(ms(object.expires) / 1000);
+  
   object.expireAfterSeconds = when;
   delete object.expires;
 };
@@ -370,52 +397,41 @@ function _makeSingles(arr) {
   return ret;
 }
 
-function _buildPopulateObject(path, select, model, match, options, subPopulate, justOne, count) {
-  if (arguments.length === 1) {
-    if (path instanceof PopulateOptions) {
-      return { path: path };
-    }
-    if (Array.isArray(path)) {
-      return { path: _makeSingles(path) };
-    }
-    if (exports.isObject(path)) {
-      return { path: Object.assign({}, path) };
-    }
-    return { path: { path: path } };
-  }
-  
+function _buildPopulateObj(path, select, model, match, options, subPopulate, justOne, count) {
   if (typeof model === 'object') {
     return {
-      path: {
-        path: path,
-        select: select,
-        match: model,
-        options: match
-      }
-    };
-  }
-  
-  return {
-    path: {
       path: path,
       select: select,
-      model: model,
-      match: match,
-      options: options,
-      populate: subPopulate,
-      justOne: justOne,
-      count: count
-    }
+      match: model,
+      options: match
+    };
+  }
+  return {
+    path: path,
+    select: select,
+    model: model,
+    match: match,
+    options: options,
+    populate: subPopulate,
+    justOne: justOne,
+    count: count
   };
 }
 
 exports.populate = function populate(path, select, model, match, options, subPopulate, justOne, count) {
-  const result = _buildPopulateObject(path, select, model, match, options, subPopulate, justOne, count);
-  let obj = result.path;
-
-  if (Array.isArray(obj)) {
-    const singles = obj;
-    return singles.map(o => exports.populate(o)[0]);
+  let obj = null;
+  
+  if (arguments.length === 1) {
+    if (path instanceof PopulateOptions) {
+      return [path];
+    }
+    if (Array.isArray(path)) {
+      const singles = _makeSingles(path);
+      return singles.map(o => exports.populate(o)[0]);
+    }
+    obj = exports.isObject(path) ? Object.assign({}, path) : { path: path };
+  } else {
+    obj = _buildPopulateObj(path, select, model, match, options, subPopulate, justOne, count);
   }
 
   if (typeof obj.path !== 'string') {
@@ -428,16 +444,16 @@ exports.populate = function populate(path, select, model, match, options, subPop
 function _populateObj(obj) {
   if (Array.isArray(obj.populate)) {
     const ret = [];
-    obj.populate.forEach(function(popObj) {
-      if (/[\s]/.test(popObj.path)) {
-        const copy = Object.assign({}, popObj);
+    obj.populate.forEach(function(obj) {
+      if (/[\s]/.test(obj.path)) {
+        const copy = Object.assign({}, obj);
         const paths = copy.path.split(' ');
         paths.forEach(function(p) {
           copy.path = p;
           ret.push(exports.populate(copy)[0]);
         });
       } else {
-        ret.push(exports.populate(popObj)[0]);
+        ret.push(exports.populate(obj)[0]);
       }
     });
     obj.populate = exports.populate(ret);
@@ -498,8 +514,10 @@ exports.array.flatten = function flatten(arr, filter, ret) {
   arr.forEach(function(item) {
     if (Array.isArray(item)) {
       flatten(item, filter, ret);
-    } else if (!filter || filter(item)) {
-      ret.push(item);
+    } else {
+      if (!filter || filter(item)) {
+        ret.push(item);
+      }
     }
   });
 
@@ -524,3 +542,175 @@ exports.hasUserDefinedProperty = function(obj, key) {
 
   if (_hasOwnProperty.call(obj, key)) {
     return true;
+  }
+  if (typeof obj === 'object' && key in obj) {
+    const v = obj[key];
+    return v !== Object.prototype[key] && v !== Array.prototype[key];
+  }
+
+  return false;
+};
+
+const MAX_ARRAY_INDEX = Math.pow(2, 32) - 1;
+
+exports.isArrayIndex = function(val) {
+  if (typeof val === 'number') {
+    return val >= 0 && val <= MAX_ARRAY_INDEX;
+  }
+  if (typeof val === 'string') {
+    if (!/^\d+$/.test(val)) {
+      return false;
+    }
+    val = +val;
+    return val >= 0 && val <= MAX_ARRAY_INDEX;
+  }
+
+  return false;
+};
+
+exports.array.unique = function(arr) {
+  const primitives = new Set();
+  const ids = new Set();
+  const ret = [];
+
+  for (const item of arr) {
+    if (typeof item === 'number' || typeof item === 'string' || item == null) {
+      if (primitives.has(item)) {
+        continue;
+      }
+      ret.push(item);
+      primitives.add(item);
+    } else if (item instanceof ObjectId) {
+      if (ids.has(item.toString())) {
+        continue;
+      }
+      ret.push(item);
+      ids.add(item.toString());
+    } else {
+      ret.push(item);
+    }
+  }
+
+  return ret;
+};
+
+exports.buffer = {};
+exports.buffer.areEqual = function(a, b) {
+  if (!Buffer.isBuffer(a) || !Buffer.isBuffer(b)) {
+    return false;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0, len = a.length; i < len; ++i) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
+};
+
+exports.getFunctionName = getFunctionName;
+
+exports.decorate = function(destination, source) {
+  for (const key in source) {
+    if (specialProperties.has(key)) {
+      continue;
+    }
+    destination[key] = source[key];
+  }
+};
+
+const _cloneOptions = {
+  transform: false,
+  virtuals: false,
+  depopulate: true,
+  getters: false,
+  flattenDecimals: false
+};
+
+function _normalizeForMergeClone(obj) {
+  if (isMongooseObject(obj)) {
+    return obj.toObject(_cloneOptions);
+  }
+  return obj;
+}
+
+function _handleMergeCloneValue(to, key, val) {
+  if (val != null && val.valueOf && !(val instanceof Date)) {
+    val = val.valueOf();
+  }
+  
+  if (!exports.isObject(val)) {
+    to[key] = exports.clone(val, { flattenDecimals: false });
+    return;
+  }
+
+  let obj = val;
+  if (isMongooseObject(val) && !val.isMongooseBuffer) {
+    obj = obj.toObject(_cloneOptions);
+  }
+  if (val.isMongooseBuffer) {
+    obj = Buffer.from(obj);
+  }
+  exports.mergeClone(to[key], obj);
+}
+
+exports.mergeClone = function(to, fromObj) {
+  fromObj = _normalizeForMergeClone(fromObj);
+  
+  const keys = Object.keys(fromObj);
+  const len = keys.length;
+  let i = 0;
+  let key;
+
+  while (i < len) {
+    key = keys[i++];
+    if (specialProperties.has(key)) {
+      continue;
+    }
+    if (typeof to[key] === 'undefined') {
+      to[key] = exports.clone(fromObj[key], _cloneOptions);
+    } else {
+      _handleMergeCloneValue(to, key, fromObj[key]);
+    }
+  }
+};
+
+exports.each = function(arr, fn) {
+  for (const item of arr) {
+    fn(item);
+  }
+};
+
+exports.getOption = function(name) {
+  const sources = Array.prototype.slice.call(arguments, 1);
+
+  for (const source of sources) {
+    if (source[name] != null) {
+      return source[name];
+    }
+  }
+
+  return null;
+};
+
+exports.noop = function() {};
+
+exports.errorToPOJO = function errorToPOJO(error) {
+  const isError = error instanceof Error;
+  if (!isError) {
+    throw new Error('`error` must be `instanceof Error`.');
+  }
+
+  const ret = {};
+  for (const properyName of Object.getOwnPropertyNames(error)) {
+    ret[properyName] = error[properyName];
+  }
+  return ret;
+};
+
+exports.nodeMajorVersion = function nodeMajorVersion() {
+  return parseInt(process.versions.node.split('.')[0], 10);
+};
+```

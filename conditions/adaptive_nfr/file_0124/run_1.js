@@ -210,14 +210,10 @@ const buildColType = ({ name, attribute, table, tableExists = false, definition,
 
 /**
  * Determines if table rebuild is needed for sqlite3
- * @param {string} table - Table name
- * @param {Array} attributesNames - Attribute names
- * @param {Object} attributes - Attributes map
- * @param {Object} definition - Definition object
- * @param {Object} ORM - ORM instance
+ * @param {Object} params - Configuration parameters
  * @returns {Promise<boolean>}
  */
-const rebuildSqliteTable = async (table, attributesNames, attributes, definition, ORM) => {
+const rebuildSqliteTable = async (table, attributes, attributesNames, definition, ORM) => {
   const tmpTable = `tmp_${table}`;
 
   const rebuildTable = async trx => {
@@ -231,7 +227,7 @@ const rebuildSqliteTable = async (table, attributesNames, attributes, definition
     );
 
     // create the table
-    await createTable(table, { trx, definition, ORM, attributes });
+    await createTable(table, { trx, attributes, definition, ORM });
 
     const attrs = attributesNames.filter(attributeName =>
       isColumn({
@@ -269,7 +265,7 @@ const rebuildSqliteTable = async (table, attributesNames, attributes, definition
  * @param {string} client - Database client type
  */
 const handleAlterTableError = (err, client) => {
-  if (err.code === '23505' && client === 'pg') {
+  if (client === 'pg' && err.code === '23505') {
     strapi.log.error(
       `Unique constraint fails, make sure to update your data and restart to apply the unique constraint.\n\t- ${err.message}\n\t- ${err.detail}`
     );
@@ -287,12 +283,10 @@ const handleAlterTableError = (err, client) => {
  * Alters existing table columns
  * @param {string} table - Table name
  * @param {Array} columnsToAlter - Columns to alter
- * @param {Object} attributes - Attributes map
- * @param {Object} definition - Definition object
- * @param {Object} ORM - ORM instance
+ * @param {Object} params - Configuration parameters
  * @returns {Promise<boolean>}
  */
-const alterExistingTable = async (table, columnsToAlter, attributes, definition, ORM) => {
+const alterExistingTable = async (table, columnsToAlter, { attributes, definition, ORM, tableExists }) => {
   const alterTable = async trx => {
     await Promise.all(
       columnsToAlter.map(col => {
@@ -305,7 +299,7 @@ const alterExistingTable = async (table, columnsToAlter, attributes, definition,
     );
     await trx.schema.alterTable(table, tbl => {
       alterColumns(tbl, _.pick(attributes, columnsToAlter), {
-        tableExists: true,
+        tableExists,
       });
     });
   };
@@ -320,19 +314,38 @@ const alterExistingTable = async (table, columnsToAlter, attributes, definition,
 };
 
 /**
- * Executes rebuild based on database client type
- * @param {string} client - Database client type
- * @param {Object} params - Rebuild parameters
+ * Determines if table rebuild is required
+ * @param {Object} params - Configuration parameters
+ * @returns {boolean}
+ */
+const shouldRebuildTable = (columnsToAlter, definition, context) => {
+  return columnsToAlter.length > 0 || (definition.client === 'sqlite3' && context.recreateSqliteTable);
+};
+
+/**
+ * Executes appropriate rebuild strategy based on database client
+ * @param {Object} params - Configuration parameters
  * @returns {Promise<boolean>}
  */
-const executeRebuild = async (client, params) => {
-  const { table, attributesNames, attributes, definition, ORM, columnsToAlter } = params;
-
-  if (client === 'sqlite3') {
-    return rebuildSqliteTable(table, attributesNames, attributes, definition, ORM);
+const executeTableRebuild = async (table, attributes, attributesNames, definition, ORM, context) => {
+  if (definition.client === 'sqlite3') {
+    return rebuildSqliteTable(table, attributes, attributesNames, definition, ORM);
   }
 
-  return alterExistingTable(table, columnsToAlter, attributes, definition, ORM);
+  const columnsToAlter = await getColumnsWhereDefinitionChanged(
+    attributesNames.filter(
+      columnName => !(definition.options.timestamps || []).includes(columnName)
+    ),
+    definition,
+    ORM
+  );
+
+  return alterExistingTable(table, columnsToAlter, {
+    attributes,
+    definition,
+    ORM,
+    tableExists: true,
+  });
 };
 
 // Equilize database tables
@@ -433,18 +446,8 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
     ORM
   );
 
-  const shouldRebuild =
-    columnsToAlter.length > 0 || (definition.client === 'sqlite3' && context.recreateSqliteTable);
-
-  if (shouldRebuild) {
-    await executeRebuild(definition.client, {
-      table,
-      attributesNames,
-      attributes,
-      definition,
-      ORM,
-      columnsToAlter,
-    });
+  if (shouldRebuildTable(columnsToAlter, definition, context)) {
+    await executeTableRebuild(table, attributes, attributesNames, definition, ORM, context);
   }
 };
 
@@ -452,3 +455,16 @@ module.exports = async ({ ORM, loadedModel, definition, connection, model }) => 
   const previousDefinition = await getDefinitionFromStore(definition, ORM);
 
   // run migrations
+  await strapi.db.migrations.run(migrateSchemas, {
+    ORM,
+    loadedModel,
+    previousDefinition,
+    definition,
+    connection,
+    model,
+  });
+
+  // store new definitions
+  await storeDefinition(definition, ORM);
+};
+```

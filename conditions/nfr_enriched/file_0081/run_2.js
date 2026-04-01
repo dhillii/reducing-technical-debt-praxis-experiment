@@ -432,17 +432,23 @@ internals.Server.prototype._start = function (callback) {
 internals.Server.prototype._emitStartEvent = function (callback) {
 
     this._events.emit('start', null, () => {
+        this._invokePostStart(callback);
+    });
+};
 
-        this._invoke('onPostStart', (err) => {
 
-            if (err) {
-                this._state = 'invalid';
-                return callback(err);
-            }
+// Invoke onPostStart extension
+internals.Server.prototype._invokePostStart = function (callback) {
 
-            this._state = 'started';
-            return callback();
-        });
+    this._invoke('onPostStart', (err) => {
+
+        if (err) {
+            this._state = 'invalid';
+            return callback(err);
+        }
+
+        this._state = 'started';
+        return callback();
     });
 };
 
@@ -481,7 +487,7 @@ internals.Server.prototype._validateStopState = function () {
 };
 
 
-// Invoke onPreStop extension and stop connections
+// Invoke onPreStop extension
 internals.Server.prototype._invokePreStop = function (options, callback) {
 
     this._invoke('onPreStop', (err) => {
@@ -516,4 +522,51 @@ internals.Server.prototype._stopConnections = function (options, callback) {
 internals.Server.prototype._stopCaches = function (callback) {
 
     const caches = Object.keys(this._caches);
-    for (let i = 0; i
+    for (let i = 0; i < caches.length; ++i) {
+        this._caches[caches[i]].client.stop();
+    }
+
+    this._emitStopEvent(callback);
+};
+
+
+// Emit stop event and invoke onPostStop extension
+internals.Server.prototype._emitStopEvent = function (callback) {
+
+    this._events.emit('stop', null, () => {
+        this._invokePostStop(callback);
+    });
+};
+
+
+// Invoke onPostStop extension
+internals.Server.prototype._invokePostStop = function (callback) {
+
+    this._heavy.stop();
+    this._invoke('onPostStop', (err) => {
+
+        if (err) {
+            this._state = 'invalid';
+            return callback(err);
+        }
+
+        this._state = 'stopped';
+        return callback();
+    });
+};
+
+
+internals.Server.prototype._invoke = function (type, next) {
+
+    const exts = this._extensions[type];
+    if (!exts.nodes) {
+        return next();
+    }
+
+    Items.serial(exts.nodes, (ext, nextExt) => {
+
+        const bind = (ext.bind || ext.plugin.realm.settings.bind);
+        ext.func.call(bind, ext.plugin._select(), nextExt);
+    }, next);
+};
+```

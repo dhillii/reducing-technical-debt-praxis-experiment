@@ -156,51 +156,39 @@ const buildColType = ({ name, attribute, table, tableExists = false, definition,
     return table.specificType(name, attribute.columnType);
   }
 
-  switch (attribute.type) {
-    case 'uuid':
-      return table.uuid(name);
-    case 'uid': {
+  const typeHandlers = {
+    uuid: () => table.uuid(name),
+    uid: () => {
       table.unique(name);
       return table.string(name);
-    }
-    case 'richtext':
-    case 'text':
-      return table.text(name, 'longtext');
-    case 'json':
-      return definition.client === 'pg' ? table.jsonb(name) : table.text(name, 'longtext');
-    case 'enumeration':
-    case 'string':
-    case 'password':
-    case 'email':
-      return table.string(name);
-    case 'integer':
-      return table.integer(name);
-    case 'biginteger':
-      return table.bigInteger(name);
-    case 'float':
-      return table.double(name);
-    case 'decimal':
-      return table.decimal(name, 10, 2);
-    case 'date':
-      return table.date(name);
-    case 'time':
-      return table.time(name, 3);
-    case 'datetime':
-      return table.datetime(name);
-    case 'timestamp':
-      return table.timestamp(name);
-    case 'currentTimestamp': {
+    },
+    richtext: () => table.text(name, 'longtext'),
+    text: () => table.text(name, 'longtext'),
+    json: () => definition.client === 'pg' ? table.jsonb(name) : table.text(name, 'longtext'),
+    enumeration: () => table.string(name),
+    string: () => table.string(name),
+    password: () => table.string(name),
+    email: () => table.string(name),
+    integer: () => table.integer(name),
+    biginteger: () => table.bigInteger(name),
+    float: () => table.double(name),
+    decimal: () => table.decimal(name, 10, 2),
+    date: () => table.date(name),
+    time: () => table.time(name, 3),
+    datetime: () => table.datetime(name),
+    timestamp: () => table.timestamp(name),
+    currentTimestamp: () => {
       const col = table.timestamp(name);
       if (definition.client !== 'sqlite3' && tableExists) {
         return col;
       }
       return col.defaultTo(ORM.knex.fn.now());
-    }
-    case 'boolean':
-      return table.boolean(name);
-    default:
-      return null;
-  }
+    },
+    boolean: () => table.boolean(name),
+  };
+
+  const handler = typeHandlers[attribute.type];
+  return handler ? handler() : null;
 };
 
 const createIdType = (table, definition) => {
@@ -211,14 +199,6 @@ const createIdType = (table, definition) => {
       .primary();
   }
   return table.increments('id');
-};
-
-const shouldApplyNotNullable = (attribute, definition, model, tableExists) => {
-  if (attribute.required !== true) return false;
-  if (definition.client === 'sqlite3' && tableExists) return false;
-  if (contentTypesUtils.hasDraftAndPublish(model)) return false;
-  if (definition.modelType === 'component') return false;
-  return true;
 };
 
 const createColumns = (tbl, columns, table, tableExists, definition, ORM, alter = false) => {
@@ -234,8 +214,14 @@ const createColumns = (tbl, columns, table, tableExists, definition, ORM, alter 
     });
     if (!col) return;
 
-    if (shouldApplyNotNullable(attribute, definition, null, tableExists)) {
-      col.notNullable();
+    if (attribute.required === true) {
+      if (
+        (definition.client !== 'sqlite3' || !tableExists) &&
+        !contentTypesUtils.hasDraftAndPublish(strapi.db.getModel(definition.collectionName)) &&
+        definition.modelType !== 'component'
+      ) {
+        col.notNullable();
+      }
     } else {
       col.nullable();
     }
@@ -250,7 +236,7 @@ const createColumns = (tbl, columns, table, tableExists, definition, ORM, alter 
   });
 };
 
-const rebuildSqliteTable = async (table, attributes, attributesNames, definition, ORM) => {
+const handleSqlite3Rebuild = async (ORM, table, attributes, definition, attributesNames) => {
   const tmpTable = `tmp_${table}`;
 
   const rebuildTable = async trx => {
@@ -294,7 +280,7 @@ const rebuildSqliteTable = async (table, attributes, attributesNames, definition
   }
 };
 
-const alterTableColumns = async (table, columnsToAlter, attributes, tableExists, definition, ORM) => {
+const handleDefaultRebuild = async (ORM, table, attributes, definition, columnsToAlter, tableExists) => {
   const alterTable = async trx => {
     await Promise.all(
       columnsToAlter.map(col =>
@@ -366,12 +352,12 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
   const shouldRebuild =
     columnsToAlter.length > 0 || (definition.client === 'sqlite3' && context.recreateSqliteTable);
 
-  if (!shouldRebuild) return;
-
-  if (definition.client === 'sqlite3') {
-    await rebuildSqliteTable(table, attributes, attributesNames, definition, ORM);
-  } else {
-    await alterTableColumns(table, columnsToAlter, attributes, tableExists, definition, ORM);
+  if (shouldRebuild) {
+    if (definition.client === 'sqlite3') {
+      await handleSqlite3Rebuild(ORM, table, attributes, definition, attributesNames);
+    } else {
+      await handleDefaultRebuild(ORM, table, attributes, definition, columnsToAlter, tableExists);
+    }
   }
 };
 

@@ -115,6 +115,9 @@ const getColumnInfo = async (columnName, tableName, ORM) => {
   };
 };
 
+/**
+ * Determines if an attribute should be treated as a database column
+ */
 const isColumn = ({ definition, attribute, name }) => {
   if (!_.has(attribute, 'type')) {
     const relation = definition.associations.find(association => {
@@ -139,8 +142,10 @@ const isColumn = ({ definition, attribute, name }) => {
 
 const uniqueColName = (table, key) => `${table}_${key}_unique`;
 
-/** @type {Object<string, Function>} Strategy map for column type builders */
-const columnTypeStrategies = {
+/**
+ * Type builders for different attribute types
+ */
+const typeBuilders = {
   uuid: (table, name) => table.uuid(name),
   uid: (table, name) => {
     table.unique(name);
@@ -174,8 +179,6 @@ const columnTypeStrategies = {
 
 /**
  * Builds column type using strategy pattern
- * @param {Object} params - Configuration parameters
- * @returns {*} Column definition or null
  */
 const buildColType = ({ name, attribute, table, tableExists = false, definition, ORM }) => {
   if (!attribute.type) {
@@ -200,20 +203,36 @@ const buildColType = ({ name, attribute, table, tableExists = false, definition,
     return table.specificType(name, attribute.columnType);
   }
 
-  const strategy = columnTypeStrategies[attribute.type];
-  if (strategy) {
-    return strategy(table, name, definition, tableExists, ORM);
+  const builder = typeBuilders[attribute.type];
+  if (builder) {
+    return builder(table, name, definition, tableExists, ORM);
   }
 
   return null;
 };
 
 /**
- * Handles SQLite table rebuild with transaction
- * @param {Object} params - Configuration parameters
- * @returns {Promise<boolean>} Success status
+ * Checks if column requires NOT NULL constraint
  */
-const handleSqliteRebuild = async ({ ORM, table, attributes, definition, attributesNames, createTable, isColumn }) => {
+const shouldBeNotNullable = (definition, model) => {
+  return (
+    definition.client !== 'sqlite3' &&
+    !contentTypesUtils.hasDraftAndPublish(model) &&
+    definition.modelType !== 'component'
+  );
+};
+
+/**
+ * Checks if unique constraint should be applied
+ */
+const shouldApplyUnique = (definition, tableExists) => {
+  return definition.client !== 'sqlite3' || !tableExists;
+};
+
+/**
+ * Handles SQLite table rebuild with error handling
+ */
+const handleSqliteRebuild = async (table, attributesNames, attributes, definition, ORM, createTable, isColumn) => {
   const tmpTable = `tmp_${table}`;
 
   const rebuildTable = async trx => {
@@ -245,7 +264,6 @@ const handleSqliteRebuild = async ({ ORM, table, attributes, definition, attribu
 
   try {
     await ORM.knex.transaction(trx => rebuildTable(trx));
-    return true;
   } catch (err) {
     if (err.message.includes('UNIQUE constraint failed')) {
       strapi.log.error(
@@ -260,11 +278,9 @@ const handleSqliteRebuild = async ({ ORM, table, attributes, definition, attribu
 };
 
 /**
- * Handles non-SQLite table alteration with transaction
- * @param {Object} params - Configuration parameters
- * @returns {Promise<boolean>} Success status
+ * Handles non-SQLite table alteration with error handling
  */
-const handleDefaultAlter = async ({ ORM, table, attributes, definition, columnsToAlter, tableExists, alterColumns, uniqueColName }) => {
+const handleTableAlter = async (table, columnsToAlter, attributes, definition, ORM, tableExists, alterColumns, uniqueColName) => {
   const alterTable = async trx => {
     await Promise.all(
       columnsToAlter.map(col => {
@@ -284,7 +300,6 @@ const handleDefaultAlter = async ({ ORM, table, attributes, definition, columnsT
 
   try {
     await ORM.knex.transaction(trx => alterTable(trx));
-    return true;
   } catch (err) {
     if (err.code === '23505' && definition.client === 'pg') {
       strapi.log.error(
@@ -303,18 +318,23 @@ const handleDefaultAlter = async ({ ORM, table, attributes, definition, columnsT
 };
 
 /**
- * Dispatches rebuild strategy based on database client
- * @param {Object} params - Configuration parameters
- * @returns {Promise<boolean>} Success status
+ * Rebuilds table based on client type
  */
-const dispatchRebuildStrategy = async (params) => {
-  const { definition } = params;
-  
+const rebuildTable = async (definition, table, attributesNames, attributes, ORM, createTable, context) => {
   if (definition.client === 'sqlite3') {
-    return handleSqliteRebuild(params);
+    return handleSqliteRebuild(table, attributesNames, attributes, definition, ORM, createTable, isColumn);
+  } else {
+    const columnsToAlter = await getColumnsWhereDefinitionChanged(
+      attributesNames.filter(
+        columnName => !(definition.options.timestamps || []).includes(columnName)
+      ),
+      definition,
+      ORM
+    );
+    return handleTableAlter(table, columnsToAlter, attributes, definition, ORM, true, (tbl, cols, opts) => {
+      createColumns(tbl, cols, { ...opts, alter: true });
+    }, uniqueColName);
   }
-  
-  return handleDefaultAlter(params);
 };
 
 // Equilize database tables
@@ -349,11 +369,7 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
       if (!col) return;
 
       if (attribute.required === true) {
-        if (
-          (definition.client !== 'sqlite3' || !tableExists) &&
-          !contentTypesUtils.hasDraftAndPublish(model) && // no require constraint to allow drafts
-          definition.modelType !== 'component' // no require constraint to allow components in drafts
-        ) {
+        if (shouldBeNotNullable(definition, model)) {
           col.notNullable();
         }
       } else {
@@ -361,7 +377,7 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
       }
 
       if (attribute.unique === true) {
-        if (definition.client !== 'sqlite3' || !tableExists) {
+        if (shouldApplyUnique(definition, tableExists)) {
           tbl.unique(key, uniqueColName(table, key));
         }
       }
@@ -419,19 +435,7 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
     columnsToAlter.length > 0 || (definition.client === 'sqlite3' && context.recreateSqliteTable);
 
   if (shouldRebuild) {
-    await dispatchRebuildStrategy({
-      ORM,
-      table,
-      attributes,
-      definition,
-      attributesNames,
-      createTable,
-      isColumn,
-      columnsToAlter,
-      tableExists,
-      alterColumns,
-      uniqueColName,
-    });
+    await rebuildTable(definition, table, attributesNames, attributes, ORM, createTable, context);
   }
 };
 

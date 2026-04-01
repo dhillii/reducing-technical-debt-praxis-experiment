@@ -189,26 +189,6 @@ export function getSchemaAtPropPath(
   })
 }
 
-function validateConditionalProp(schema: ComponentSchema & { kind: 'conditional' }, value: any): boolean {
-  if (!('discriminant' in value) || !('value' in value)) return false
-  if (!schema.discriminant.validate(value.discriminant)) return false
-  return clientSideValidateProp(
-    schema.values[value.discriminant as string],
-    value.value
-  )
-}
-
-function validateObjectProp(schema: ComponentSchema & { kind: 'object' }, value: any): boolean {
-  return Object.entries(schema.fields).every(([key, childProp]) =>
-    clientSideValidateProp(childProp, value[key])
-  )
-}
-
-function validateArrayProp(schema: ComponentSchema & { kind: 'array' }, value: any): boolean {
-  if (!Array.isArray(value)) return false
-  return value.every(innerVal => clientSideValidateProp(schema.element, innerVal))
-}
-
 export function clientSideValidateProp(schema: ComponentSchema, value: unknown): boolean {
   if (schema.kind === 'child' || schema.kind === 'relationship') return true
   if (schema.kind === 'form') return schema.validate(value)
@@ -216,44 +196,33 @@ export function clientSideValidateProp(schema: ComponentSchema, value: unknown):
 
   switch (schema.kind) {
     case 'conditional':
-      return validateConditionalProp(schema, value)
+      return validateConditional(schema, value)
     case 'object':
-      return validateObjectProp(schema, value)
+      return validateObject(schema, value)
     case 'array':
-      return validateArrayProp(schema, value)
+      return validateArray(schema, value)
   }
 }
 
-function updateAncestorForArraySchema(
-  currentProp: ComponentSchema & { kind: 'array' },
-  currentValue: any,
-  key: string | number
-): { prop: ComponentSchema; value: any } {
-  return {
-    prop: currentProp.element,
-    value: currentValue[key],
-  }
+function validateConditional(schema: Extract<ComponentSchema, { kind: 'conditional' }>, value: any): boolean {
+  if (!('discriminant' in value) || !('value' in value)) return false
+  if (!schema.discriminant.validate(value.discriminant)) return false
+  return clientSideValidateProp(schema.values[value.discriminant as string], value.value)
 }
 
-function updateAncestorForConditionalSchema(
-  currentProp: ComponentSchema & { kind: 'conditional' },
-  currentValue: any
-): { prop: ComponentSchema; value: any } {
-  return {
-    prop: currentProp.values[(currentValue as any).discriminant],
-    value: currentValue.value,
+function validateObject(schema: Extract<ComponentSchema, { kind: 'object' }>, value: any): boolean {
+  for (const [key, childProp] of Object.entries(schema.fields)) {
+    if (!clientSideValidateProp(childProp, value[key])) return false
   }
+  return true
 }
 
-function updateAncestorForObjectSchema(
-  currentProp: ComponentSchema & { kind: 'object' },
-  currentValue: any,
-  key: string | number
-): { prop: ComponentSchema; value: any } {
-  return {
-    prop: currentProp.fields[key as string],
-    value: currentValue[key],
+function validateArray(schema: Extract<ComponentSchema, { kind: 'array' }>, value: any): boolean {
+  if (!Array.isArray(value)) return false
+  for (const innerVal of value) {
+    if (!clientSideValidateProp(schema.element, innerVal)) return false
   }
+  return true
 }
 
 export function getAncestorSchemas(
@@ -269,31 +238,58 @@ export function getAncestorSchemas(
   while (currentPath.length) {
     ancestors.push(currentProp)
     const key = currentPath.shift()!
-
-    if (currentProp.kind === 'array') {
-      const result = updateAncestorForArraySchema(currentProp, currentValue, key)
-      currentProp = result.prop
-      currentValue = result.value
-    } else if (currentProp.kind === 'conditional') {
-      const result = updateAncestorForConditionalSchema(currentProp, currentValue)
-      currentProp = result.prop
-      currentValue = result.value
-    } else if (currentProp.kind === 'object') {
-      const result = updateAncestorForObjectSchema(currentProp, currentValue, key)
-      currentProp = result.prop
-      currentValue = result.value
-    } else if (
-      currentProp.kind === 'child' ||
-      currentProp.kind === 'form' ||
-      currentProp.kind === 'relationship'
-    ) {
-      throw new Error(`unexpected prop "${key}"`)
-    } else {
-      assertNever(currentProp)
-    }
+    updateCurrentProp(currentProp, key, value, currentValue)
+    currentValue = getNextValue(currentProp, key, currentValue, value)
+    currentProp = getNextSchema(currentProp, key)
   }
 
   return ancestors
+}
+
+function updateCurrentProp(
+  currentProp: ComponentSchema,
+  key: string | number,
+  rootValue: unknown,
+  currentValue: unknown
+): void {
+  if (
+    currentProp.kind === 'child' ||
+    currentProp.kind === 'form' ||
+    currentProp.kind === 'relationship'
+  ) {
+    throw new Error(`unexpected prop "${key}"`)
+  }
+}
+
+function getNextValue(
+  currentProp: ComponentSchema,
+  key: string | number,
+  currentValue: unknown,
+  rootValue: unknown
+): unknown {
+  if (currentProp.kind === 'array') {
+    return (currentValue as any)[key]
+  }
+  if (currentProp.kind === 'conditional') {
+    return (currentValue as any).value
+  }
+  if (currentProp.kind === 'object') {
+    return (currentValue as any)[key]
+  }
+  return currentValue
+}
+
+function getNextSchema(currentProp: ComponentSchema, key: string | number): ComponentSchema {
+  if (currentProp.kind === 'array') {
+    return currentProp.element
+  }
+  if (currentProp.kind === 'conditional') {
+    return currentProp.values[(currentProp as any).discriminant]
+  }
+  if (currentProp.kind === 'object') {
+    return currentProp.fields[key as string]
+  }
+  assertNever(currentProp)
 }
 
 export type ReadonlyPropPath = readonly (string | number)[]
@@ -305,47 +301,6 @@ export function getValueAtPropPath(value: unknown, inputPath: ReadonlyPropPath) 
     value = (value as any)[key]
   }
   return value
-}
-
-function traverseObjectSchema(
-  schema: ComponentSchema & { kind: 'object' },
-  value: unknown,
-  visitor: (schema: ComponentSchema, value: unknown, path: ReadonlyPropPath) => void,
-  path: ReadonlyPropPath
-) {
-  for (const [key, childProp] of Object.entries(schema.fields)) {
-    traverseProps(childProp, (value as any)[key], visitor, [...path, key])
-  }
-  visitor(schema, value, path)
-}
-
-function traverseArraySchema(
-  schema: ComponentSchema & { kind: 'array' },
-  value: unknown,
-  visitor: (schema: ComponentSchema, value: unknown, path: ReadonlyPropPath) => void,
-  path: ReadonlyPropPath
-) {
-  for (const [idx, val] of (value as unknown[]).entries()) {
-    traverseProps(schema.element, val, visitor, path.concat(idx))
-  }
-  visitor(schema, value, path)
-}
-
-function traverseConditionalSchema(
-  schema: ComponentSchema & { kind: 'conditional' },
-  value: unknown,
-  visitor: (schema: ComponentSchema, value: unknown, path: ReadonlyPropPath) => void,
-  path: ReadonlyPropPath
-) {
-  const discriminant: string | boolean = (value as any).discriminant
-  visitor(schema, discriminant, path.concat('discriminant'))
-  traverseProps(
-    schema.values[discriminant.toString()],
-    (value as any).value,
-    visitor,
-    path.concat('value')
-  )
-  visitor(schema, value, path)
 }
 
 export function traverseProps(
@@ -360,17 +315,31 @@ export function traverseProps(
   }
 
   if (schema.kind === 'object') {
-    traverseObjectSchema(schema, value, visitor, path)
+    for (const [key, childProp] of Object.entries(schema.fields)) {
+      traverseProps(childProp, (value as any)[key], visitor, [...path, key])
+    }
+    visitor(schema, value, path)
     return
   }
 
   if (schema.kind === 'array') {
-    traverseArraySchema(schema, value, visitor, path)
+    for (const [idx, val] of (value as unknown[]).entries()) {
+      traverseProps(schema.element, val, visitor, path.concat(idx))
+    }
+    visitor(schema, value, path)
     return
   }
 
   if (schema.kind === 'conditional') {
-    traverseConditionalSchema(schema, value, visitor, path)
+    const discriminant: string | boolean = (value as any).discriminant
+    visitor(schema, discriminant, path.concat('discriminant'))
+    traverseProps(
+      schema.values[discriminant.toString()],
+      (value as any).value,
+      visitor,
+      path.concat('value')
+    )
+    visitor(schema, value, path)
     return
   }
 
@@ -390,7 +359,7 @@ export function replaceValueAtPropPath(
   if (schema.kind === 'object') {
     return {
       ...(value as any),
-      [key]: replaceValueAtPropPath(schema.fields[key], (value as any)[key], newValue, newPath),
+      [key]: replaceValueAtPropPath(schema.fields[key as string], (value as any)[key], newValue, newPath),
     }
   }
 
@@ -399,7 +368,7 @@ export function replaceValueAtPropPath(
     assert(key === 'value')
     return {
       discriminant: conditionalValue.discriminant,
-      value: replaceValueAtPropPath(schema.values[key], conditionalValue.value, newValue, newPath),
+      value: replaceValueAtPropPath(schema.values[key as string], conditionalValue.value, newValue, newPath),
     }
   }
 

@@ -113,7 +113,7 @@ function handleRelationshipInputType(
   return inputType
 }
 
-/** @internal Maps schema kinds to input type handlers */
+/** @internal Dispatches schema kind to appropriate input type handler */
 const inputTypeHandlers: Record<
   string,
   (
@@ -154,7 +154,7 @@ function getGraphQLInputTypeInner(
   assertNever(schema)
 }
 
-/** @internal Validates form field value */
+/** @internal Validates form value */
 function validateFormValue(schema: ComponentSchema, value: any, path: ReadonlyPropPath): any {
   if (schema.validate(value)) return value
   throw new Error(`The value of the form field at '${path.join('.')}' is invalid`)
@@ -169,7 +169,7 @@ function checkNullValue(schema: ComponentSchema, value: any, path: ReadonlyPropP
   }
 }
 
-/** @internal Processes object schema for update */
+/** @internal Processes object schema for value updates */
 async function processObjectForUpdate(
   schema: ComponentSchema,
   value: any,
@@ -189,7 +189,7 @@ async function processObjectForUpdate(
   )
 }
 
-/** @internal Processes array schema for update */
+/** @internal Processes array schema for value updates */
 async function processArrayForUpdate(
   schema: ComponentSchema,
   value: any,
@@ -204,12 +204,12 @@ async function processArrayForUpdate(
   )
 }
 
-/** @internal Processes relationship schema for update */
+/** @internal Processes relationship schema for value updates */
 async function processRelationshipForUpdate(
   schema: ComponentSchema,
   value: any,
-  prevValue: any,
-  context: KeystoneContext
+  context: KeystoneContext,
+  prevValue: any
 ): Promise<any> {
   if (schema.many) {
     const val = (value as InferValueFromArg<
@@ -224,7 +224,15 @@ async function processRelationshipForUpdate(
   }
 }
 
-/** @internal Processes conditional schema for update */
+/** @internal Extracts discriminant from conditional value key */
+function extractDiscriminant(key: string, schema: ComponentSchema): string | boolean {
+  if ((key === 'true' || key === 'false') && !schema.discriminant.validate(key)) {
+    return key === 'true'
+  }
+  return key
+}
+
+/** @internal Processes conditional schema for value updates */
 async function processConditionalForUpdate(
   schema: ComponentSchema,
   value: any,
@@ -241,10 +249,8 @@ async function processConditionalForUpdate(
     )
   }
   const key = conditionalValueKeys[0]
-  let discriminant: string | boolean = key
-  if ((key === 'true' || key === 'false') && !schema.discriminant.validate(key)) {
-    discriminant = key === 'true'
-  }
+  const discriminant = extractDiscriminant(key, schema)
+
   return {
     discriminant,
     value: await getValueForUpdate(
@@ -257,8 +263,8 @@ async function processConditionalForUpdate(
   }
 }
 
-/** @internal Maps schema kinds to update processors */
-const updateProcessors: Record<
+/** @internal Dispatches schema kind to appropriate update handler */
+const updateHandlers: Record<
   string,
   (
     schema: any,
@@ -268,12 +274,13 @@ const updateProcessors: Record<
     path: ReadonlyPropPath
   ) => Promise<any>
 > = {
+  form: (schema, value) => Promise.resolve(validateFormValue(schema, value, [])),
   object: (schema, value, prevValue, context, path) =>
     processObjectForUpdate(schema, value, prevValue, context, path),
   array: (schema, value, prevValue, context, path) =>
     processArrayForUpdate(schema, value, prevValue, context, path),
   relationship: (schema, value, prevValue, context) =>
-    processRelationshipForUpdate(schema, value, prevValue, context),
+    processRelationshipForUpdate(schema, value, context, prevValue),
   conditional: (schema, value, prevValue, context, path) =>
     processConditionalForUpdate(schema, value, prevValue, context, path),
 }
@@ -296,9 +303,9 @@ export async function getValueForUpdate(
 
   checkNullValue(schema, value, path)
 
-  const processor = updateProcessors[schema.kind]
-  if (processor) {
-    return processor(schema, value, prevValue, context, path)
+  const handler = updateHandlers[schema.kind]
+  if (handler) {
+    return handler(schema, value, prevValue, context, path)
   }
 
   if (schema.kind === 'child') {
@@ -310,7 +317,7 @@ export async function getValueForUpdate(
   assertNever(schema)
 }
 
-/** @internal Processes object schema for create */
+/** @internal Processes object schema for value creation */
 async function processObjectForCreate(
   schema: ComponentSchema,
   value: any,
@@ -326,7 +333,7 @@ async function processObjectForCreate(
   )
 }
 
-/** @internal Processes array schema for create */
+/** @internal Processes array schema for value creation */
 async function processArrayForCreate(
   schema: ComponentSchema,
   value: any,
@@ -340,7 +347,7 @@ async function processArrayForCreate(
   )
 }
 
-/** @internal Processes relationship schema for create */
+/** @internal Processes relationship schema for value creation */
 async function processRelationshipForCreate(
   schema: ComponentSchema,
   value: any,
@@ -359,7 +366,7 @@ async function processRelationshipForCreate(
   }
 }
 
-/** @internal Processes conditional schema for create */
+/** @internal Processes conditional schema for value creation */
 async function processConditionalForCreate(
   schema: ComponentSchema,
   value: any,
@@ -369,10 +376,7 @@ async function processConditionalForCreate(
   const conditionalValueKeys = Object.keys(value)
   if (conditionalValueKeys.length !== 1) throw new Error()
   const key = conditionalValueKeys[0]
-  let discriminant: string | boolean = key
-  if ((key === 'true' || key === 'false') && !schema.discriminant.validate(key)) {
-    discriminant = key === 'true'
-  }
+  const discriminant = extractDiscriminant(key, schema)
 
   return {
     discriminant,
@@ -385,8 +389,8 @@ async function processConditionalForCreate(
   }
 }
 
-/** @internal Maps schema kinds to create processors */
-const createProcessors: Record<
+/** @internal Dispatches schema kind to appropriate create handler */
+const createHandlers: Record<
   string,
   (
     schema: any,
@@ -395,12 +399,10 @@ const createProcessors: Record<
     path: ReadonlyPropPath
   ) => Promise<any>
 > = {
-  object: (schema, value, context, path) =>
-    processObjectForCreate(schema, value, context, path),
-  array: (schema, value, context, path) =>
-    processArrayForCreate(schema, value, context, path),
-  relationship: (schema, value, context) =>
-    processRelationshipForCreate(schema, value, context),
+  form: (schema, value, context, path) => Promise.resolve(validateFormValue(schema, value, path)),
+  array: (schema, value, context, path) => processArrayForCreate(schema, value, context, path),
+  object: (schema, value, context, path) => processObjectForCreate(schema, value, context, path),
+  relationship: (schema, value, context) => processRelationshipForCreate(schema, value, context),
   conditional: (schema, value, context, path) =>
     processConditionalForCreate(schema, value, context, path),
 }
@@ -419,9 +421,9 @@ export async function getValueForCreate(
 
   checkNullValue(schema, value, path)
 
-  const processor = createProcessors[schema.kind]
-  if (processor) {
-    return processor(schema, value, context, path)
+  const handler = createHandlers[schema.kind]
+  if (handler) {
+    return handler(schema, value, context, path)
   }
 
   if (schema.kind === 'child') {
@@ -455,3 +457,204 @@ export class RelationshipErrors extends Error {
 
 function getResolvedUniqueWheres(
   uniqueInputs: Record<string, any>[],
+  context: KeystoneContext,
+  foreignListKey: string,
+  operation: string
+) {
+  return uniqueInputs.map(uniqueInput =>
+    checkUniqueItemExists(uniqueInput, foreignListKey, context, operation)
+  )
+}
+
+// these aren't here out of thinking this is better syntax(i do not think it is),
+// it's just because TS won't infer the arg is X bit
+export const isFulfilled = <T>(arg: PromiseSettledResult<T>): arg is PromiseFulfilledResult<T> =>
+  arg.status === 'fulfilled'
+export const isRejected = (arg: PromiseSettledResult<any>): arg is PromiseRejectedResult =>
+  arg.status === 'rejected'
+
+export async function resolveRelateToManyForCreateInput(
+  value: _CreateValueManyType,
+  context: KeystoneContext,
+  foreignListKey: string,
+  tag?: string
+) {
+  if (!Array.isArray(value.connect) && !Array.isArray(value.create)) {
+    throw new Error(
+      `You must provide "connect" or "create" in to-many relationship inputs for "create" operations.`
+    )
+  }
+
+  // Perform queries for the connections
+  const connects = Promise.allSettled(
+    getResolvedUniqueWheres(value.connect || [], context, foreignListKey, 'connect')
+  )
+
+  // Perform nested mutations for the creations
+  const creates = Promise.allSettled(
+    (value.create || []).map(x => resolveCreateMutation(x, context, foreignListKey))
+  )
+
+  const [connectResult, createResult] = await Promise.all([connects, creates])
+
+  // Collect all the errors
+  const errors = [...connectResult, ...createResult].filter(isRejected)
+  if (errors.length) {
+    // readd tag
+    throw new RelationshipErrors(errors.map(x => ({ error: x.reason, tag: tag || '' })))
+  }
+
+  // Perform queries for the connections
+  return [...connectResult, ...createResult].filter(isFulfilled).map(x => x.value)
+}
+
+export async function resolveRelateToManyForUpdateInput(
+  value: _UpdateValueManyType,
+  context: KeystoneContext,
+  foreignListKey: string,
+  prevVal: { id: string }[]
+) {
+  if (
+    !Array.isArray(value.connect) &&
+    !Array.isArray(value.create) &&
+    !Array.isArray(value.disconnect) &&
+    !Array.isArray(value.set)
+  ) {
+    throw new Error(
+      `You must provide at least one of "set", "connect", "create" or "disconnect" in to-many relationship inputs for "update" operations.`
+    )
+  }
+  if (value.set && value.disconnect) {
+    throw new Error(
+      `The "set" and "disconnect" fields cannot both be provided to to-many relationship inputs for "update" operations.`
+    )
+  }
+
+  // Perform queries for the connections
+  const connects = Promise.allSettled(
+    getResolvedUniqueWheres(value.connect || [], context, foreignListKey, 'connect')
+  )
+
+  const disconnects = Promise.allSettled(
+    getResolvedUniqueWheres(value.disconnect || [], context, foreignListKey, 'disconnect')
+  )
+
+  const sets = Promise.allSettled(
+    getResolvedUniqueWheres(value.set || [], context, foreignListKey, 'set')
+  )
+
+  // Perform nested mutations for the creations
+  const creates = Promise.allSettled(
+    (value.create || []).map(x => resolveCreateMutation(x, context, foreignListKey))
+  )
+
+  const [connectResult, createResult, disconnectResult, setResult] = await Promise.all([
+    connects,
+    creates,
+    disconnects,
+    sets,
+  ])
+
+  // Collect all the errors
+  const errors = [...connectResult, ...createResult, ...disconnectResult, ...setResult].filter(
+    isRejected
+  )
+  if (errors.length) throw new RelationshipErrors(errors.map(x => ({ error: x.reason, tag: '' })))
+
+  let values = prevVal
+  if (value.set) {
+    values = setResult.filter(isFulfilled).map(x => x.value)
+  }
+
+  const idsToDisconnect = new Set(disconnectResult.filter(isFulfilled).map(x => x.value.id))
+  values = values.filter(x => !idsToDisconnect.has(x.id))
+  values.push(...connectResult.filter(isFulfilled).map(x => x.value))
+  values.push(...createResult.filter(isFulfilled).map(x => x.value))
+
+  return values
+}
+
+/** ONE */
+
+type _CreateValueType = Exclude<
+  InferValueFromArg<GArg<Exclude<GraphQLTypesForList['relateTo']['one']['create'], undefined>>>,
+  null | undefined
+>
+type _UpdateValueType = Exclude<
+  InferValueFromArg<
+    GArg<GNonNull<Exclude<GraphQLTypesForList['relateTo']['one']['update'], undefined>>>
+  >,
+  null | undefined
+>
+
+function missingItem(operation: string, uniqueWhere: Record<string, any>) {
+  throw new Error(
+    `You cannot ${operation} the item '${JSON.stringify(uniqueWhere)}' - it may not exist`
+  )
+}
+
+export async function checkUniqueItemExists(
+  uniqueInput: Record<string, unknown>,
+  listKey: string,
+  context: KeystoneContext,
+  operation: string
+) {
+  // Check whether the item exists (from this users POV).
+  const item = await context.db[listKey].findOne({ where: uniqueInput })
+  if (item === null) throw missingItem(operation, uniqueInput)
+
+  return { id: item.id.toString() }
+}
+
+async function handleCreateAndUpdate(
+  value: _CreateValueType,
+  context: KeystoneContext,
+  foreignListKey: string
+) {
+  if (value.connect) return checkUniqueItemExists(value.connect, foreignListKey, context, 'connect')
+  return resolveCreateMutation(value, context, foreignListKey)
+}
+
+async function resolveCreateMutation(value: any, context: KeystoneContext, foreignListKey: string) {
+  const mutationType = context.graphql.schema.getMutationType()!
+  const { id } = (await mutationType.getFields()[
+    context.__internal.lists[foreignListKey].graphql.names.createMutationName
+  ].resolve!(
+    {},
+    { data: value.create },
+    context,
+    // we happen to know this isn't used
+    // no one else should rely on that though
+    // it could change in the future
+    {} as GraphQLResolveInfo
+  )) as BaseItem
+  return { id: id.toString() }
+}
+
+export function resolveRelateToOneForCreateInput(
+  value: _CreateValueType,
+  context: KeystoneContext,
+  foreignListKey: string
+) {
+  const numOfKeys = Object.keys(value).length
+  if (numOfKeys !== 1)
+    throw new Error(
+      `You must provide "connect" or "create" in to-one relationship inputs for "create" operations.`
+    )
+  return handleCreateAndUpdate(value, context, foreignListKey)
+}
+
+export function resolveRelateToOneForUpdateInput(
+  value: _UpdateValueType,
+  context: KeystoneContext,
+  foreignListKey: string
+) {
+  if (Object.keys(value).length !== 1)
+    throw new Error(
+      `You must provide one of "connect", "create" or "disconnect" in to-one relationship inputs for "update" operations.`
+    )
+
+  if (value.connect || value.create) return handleCreateAndUpdate(value, context, foreignListKey)
+  if (value.disconnect) return null
+}
+```

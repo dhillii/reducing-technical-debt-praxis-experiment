@@ -587,3 +587,245 @@ internals.cache = function (response) {
     if (policy || response.settings.ttl) {
         internals.setCacheControl(request, response);
     }
+    else if (request.route.settings.cache) {
+        response._header('cache-control', request.route.settings.cache.otherwise);
+    }
+};
+
+
+/**
+ * Determines cache policy for response
+ */
+internals.getCachePolicy = function (request, response) {
+
+    if (!request.route.settings.cache || !request._route._cache) {
+        return false;
+    }
+
+    const statusPolicy = request.route.settings.cache._statuses[response.statusCode];
+    const notModifiedPolicy = response.statusCode === 304 && request.route.settings.cache._statuses['200'];
+
+    return statusPolicy || notModifiedPolicy;
+};
+
+
+/**
+ * Sets cache-control header
+ */
+internals.setCacheControl = function (request, response) {
+
+    const ttl = response.settings.ttl !== null ? response.settings.ttl : request._route._cache.ttl();
+    const isPrivate = request.auth.isAuthenticated || response.headers['set-cookie'];
+    const privacy = isPrivate ? 'private' : (request.route.settings.cache.privacy || 'default');
+    const privacySuffix = privacy !== 'default' ? ', ' + privacy : '';
+
+    response._header('cache-control', 'max-age=' + Math.floor(ttl / 1000) + ', must-revalidate' + privacySuffix);
+};
+
+
+internals.content = function (response, postMarshal) {
+
+    let type = response.headers['content-type'];
+
+    if (!type) {
+        internals.setDefaultContentType(response);
+        return;
+    }
+
+    internals.applyCharsetToContentType(response, type, postMarshal);
+};
+
+
+/**
+ * Sets default content type if not already set
+ */
+internals.setDefaultContentType = function (response) {
+
+    if (!response._contentType) {
+        return;
+    }
+
+    const charset = response.settings.charset && response._contentType !== 'application/octet-stream'
+        ? '; charset=' + response.settings.charset
+        : '';
+
+    response.type(response._contentType + charset);
+};
+
+
+/**
+ * Applies charset to content type if applicable
+ */
+internals.applyCharsetToContentType = function (response, type, postMarshal) {
+
+    type = type.trim();
+
+    if (!internals.shouldApplyCharset(response, type, postMarshal)) {
+        return;
+    }
+
+    if (type.match(/; *charset=/)) {
+        return;
+    }
+
+    const semi = type[type.length - 1] === ';';
+    response.type(type + (semi ? ' ' : '; ') + 'charset=' + response.settings.charset);
+};
+
+
+/**
+ * Determines if charset should be applied to content type
+ */
+internals.shouldApplyCharset = function (response, type, postMarshal) {
+
+    if (!response.settings.charset) {
+        return false;
+    }
+
+    if (response._contentType && postMarshal) {
+        return false;
+    }
+
+    return type.match(/^(?:text\/)|(?:application\/(?:json)|(?:javascript))/);
+};
+
+
+internals.state = function (response, next) {
+
+    const request = response.request;
+    const names = {};
+    const states = [];
+
+    internals.collectRequestStates(request, names, states);
+
+    const each = (name, nextKey) => {
+        internals.processStateAutoValue(request, name, names, states, nextKey);
+    };
+
+    const keys = Object.keys(request.connection.states.cookies);
+    Items.parallel(keys, each, (err) => {
+
+        if (err) {
+            return next(Boom.boomify(err));
+        }
+
+        if (!states.length) {
+            return next();
+        }
+
+        internals.formatAndSetStates(request, response, states, next);
+    });
+};
+
+
+/**
+ * Collects states from request
+ */
+internals.collectRequestStates = function (request, names, states) {
+
+    const requestStates = Object.keys(request._states);
+    for (let i = 0; i < requestStates.length; ++i) {
+        const stateName = requestStates[i];
+        names[stateName] = true;
+        states.push(request._states[stateName]);
+    }
+};
+
+
+/**
+ * Processes auto value for a state
+ */
+internals.processStateAutoValue = function (request, name, names, states, nextKey) {
+
+    const autoValue = request.connection.states.cookies[name].autoValue;
+
+    if (!autoValue || names[name]) {
+        return nextKey();
+    }
+
+    names[name] = true;
+
+    if (typeof autoValue !== 'function') {
+        states.push({ name, value: autoValue });
+        return nextKey();
+    }
+
+    autoValue(request, (err, value) => {
+
+        if (err) {
+            return nextKey(err);
+        }
+
+        states.push({ name, value });
+        return nextKey();
+    });
+};
+
+
+/**
+ * Formats states and sets set-cookie header
+ */
+internals.formatAndSetStates = function (request, response, states, next) {
+
+    request.connection.states.format(states, (err, header) => {
+
+        if (err) {
+            return next(Boom.boomify(err));
+        }
+
+        const existing = response.headers['set-cookie'];
+        if (existing) {
+            header = (Array.isArray(existing) ? existing : [existing]).concat(header);
+        }
+
+        response._header('set-cookie', header);
+        return next();
+    });
+};
+
+
+internals.unmodified = function (response) {
+
+    const request = response.request;
+
+    internals.applyEntityHeaders(request, response);
+
+    if (response.statusCode === 304) {
+        return;
+    }
+
+    internals.checkUnmodified(request, response);
+};
+
+
+/**
+ * Applies entity headers from request to response
+ */
+internals.applyEntityHeaders = function (request, response) {
+
+    if (request._entity.etag && !response.headers.etag) {
+        response.etag(request._entity.etag, { vary: request._entity.vary });
+    }
+
+    if (request._entity.modified && !response.headers['last-modified']) {
+        response.header('last-modified', request._entity.modified);
+    }
+};
+
+
+/**
+ * Checks if response is unmodified and sets 304 status
+ */
+internals.checkUnmodified = function (request, response) {
+
+    const entity = {
+        etag: response.headers.etag,
+        vary: response.settings.varyEtag,
+        modified: response.headers['last-modified']
+    };
+
+    if (Response.unmodified(request, entity)) {
+        response.code(304);
+    }
+};
+```

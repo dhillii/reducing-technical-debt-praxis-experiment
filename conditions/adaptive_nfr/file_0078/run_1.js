@@ -125,7 +125,7 @@ internals.applyDefaultStrategy = function (options, path, defaultSettings) {
 /**
  * Converts legacy entity/scope to access format
  */
-internals.migrateAccessFormat = function (options) {
+internals.convertLegacyAccess = function (options) {
 
     if (options.entity !== undefined || options.scope !== undefined) {
         options.access = [{ entity: options.entity, scope: options.scope }];
@@ -136,14 +136,14 @@ internals.migrateAccessFormat = function (options) {
 
 
 /**
- * Validates payload configuration against strategies
+ * Validates payload configuration
  */
 internals.validatePayloadConfig = function (options, strategies, path) {
 
     let hasAuthenticatePayload = false;
-    for (let i = 0; i < options.strategies.length; ++i) {
-        const name = options.strategies[i];
-        const strategy = strategies[name];
+    for (let i = 0; i < strategies.length; ++i) {
+        const name = strategies[i];
+        const strategy = this._strategies[name];
         Hoek.assert(strategy, 'Unknown authentication strategy', name, 'in', path);
 
         Hoek.assert(strategy.methods.payload || options.payload !== 'required', 'Payload validation can only be required when all strategies support it in', path);
@@ -169,7 +169,7 @@ internals.Auth.prototype._setupRoute = function (options, path) {
 
     options.mode = options.mode || 'required';
 
-    internals.migrateAccessFormat(options);
+    internals.convertLegacyAccess(options);
 
     if (options.access) {
         for (let i = 0; i < options.access.length; ++i) {
@@ -182,7 +182,7 @@ internals.Auth.prototype._setupRoute = function (options, path) {
         options.payload = 'required';
     }
 
-    internals.validatePayloadConfig(options, this._strategies, path);
+    internals.validatePayloadConfig.call(this, options, options.strategies, path);
 
     return options;
 };
@@ -357,32 +357,11 @@ internals.handleUnauthenticatedError = function (authenticator, err, result, nex
 
 
 /**
- * Handles non-error responses (authenticated)
+ * Checks if error is a non-Boom error response
  */
-internals.handleAuthenticatedResponse = function (authenticator, result, next) {
+internals.isResponseError = function (err) {
 
-    const request = authenticator.request;
-    const config = authenticator.config;
-    const name = config.strategies[authenticator.current] || 'bypass';
-    const credentials = result.credentials;
-
-    request.auth.strategy = name;
-    request.auth.credentials = credentials;
-    request.auth.artifacts = result.artifacts;
-
-    const authenticated = () => {
-        request._log(['auth', name]);
-        request.auth.isAuthenticated = true;
-        return next();
-    };
-
-    const error = internals.access(request, config, credentials, name);
-    if (!error) {
-        return authenticated();
-    }
-
-    request._log(error.tags, error.data);
-    return next(error.err);
+    return err instanceof Error === false;
 };
 
 
@@ -450,7 +429,7 @@ internals.Authenticator = class {
         return next(err);
     }
 
-    validate(err, result, next) {
+    validate(err, result, next) {                 // err can be Boom, Error, or a valid response object
 
         const config = this.config;
         const request = this.request;
@@ -469,7 +448,7 @@ internals.Authenticator = class {
         // Unauthenticated
 
         if (err) {
-            if (err instanceof Error === false) {
+            if (internals.isResponseError(err)) {
                 request._log(['auth', 'unauthenticated', 'response', name], err.statusCode);
                 return next(err);
             }
@@ -479,54 +458,173 @@ internals.Authenticator = class {
 
         // Authenticated
 
-        return internals.handleAuthenticatedResponse(this, result, next);
+        const credentials = result.credentials;
+        request.auth.strategy = name;
+        request.auth.credentials = credentials;
+        request.auth.artifacts = result.artifacts;
+
+        const authenticated = () => {
+
+            request._log(['auth', name]);
+            request.auth.isAuthenticated = true;
+            return next();
+        };
+
+        // Check access rules
+
+        const error = internals.access(request, config, credentials, name);
+        if (!error) {
+            return authenticated();
+        }
+
+        request._log(error.tags, error.data);
+        return next(error.err);
     }
 };
 
 
 /**
- * Checks entity access rules
+ * Checks if entity matches request entity
  */
-internals.checkEntityAccess = function (access, requestEntity) {
+internals.entityMatches = function (entity, requestEntity) {
 
-    const entity = access.entity;
-    return entity && entity !== 'any' && entity !== requestEntity;
+    return !entity || entity === 'any' || entity === requestEntity;
 };
 
 
 /**
- * Checks scope access rules
+ * Validates scope requirements
  */
-internals.checkScopeAccess = function (access, credentials, request) {
+internals.validateScopeRequirements = function (credentials, scope) {
 
-    let scope = access.scope;
-    if (!scope) {
+    if (!credentials.scope) {
+        return false;
+    }
+
+    return internals.validateScope(credentials, scope, 'required') &&
+           internals.validateScope(credentials, scope, 'selection') &&
+           internals.validateScope(credentials, scope, 'forbidden');
+};
+
+
+/**
+ * Determines entity error type
+ */
+internals.getEntityError = function (requestEntity) {
+
+    const isApp = requestEntity === 'app';
+    const message = isApp ?
+        'Application credentials cannot be used on a user endpoint' :
+        'User credentials cannot be used on an application endpoint';
+    const entityType = isApp ? 'user' : 'app';
+
+    return { message, entityType };
+};
+
+
+internals.access = function (request, config, credentials, name) {
+
+    if (!config.access) {
         return null;
     }
 
-    if (!credentials.scope) {
-        return scope;
+    const requestEntity = (credentials.user ? 'user' : 'app');
+
+    const scopeErrors = [];
+    for (let i = 0; i < config.access.length; ++i) {
+        const access = config.access[i];
+
+        // Check entity
+
+        if (!internals.entityMatches(access.entity, requestEntity)) {
+            continue;
+        }
+
+        // Check scope
+
+        let scope = access.scope;
+        if (scope) {
+            scope = internals.expandScope(request, scope);
+            if (!internals.validateScopeRequirements(credentials, scope)) {
+                scopeErrors.push(scope);
+                continue;
+            }
+        }
+
+        return null;
     }
 
-    scope = internals.expandScope(request, scope);
-    if (!internals.validateScope(credentials, scope, 'required') ||
-        !internals.validateScope(credentials, scope, 'selection') ||
-        !internals.validateScope(credentials, scope, 'forbidden')) {
+    // Scope error
 
-        return scope;
+    if (scopeErrors.length) {
+        const data = { got: credentials.scope, need: scopeErrors };
+        return { err: Boom.forbidden('Insufficient scope', data), tags: ['auth', 'scope', 'error', name], data };
     }
 
-    return null;
+    // Entity error
+
+    const entityError = internals.getEntityError(requestEntity);
+    const tags = ['auth', 'entity', entityError.entityType, 'error', name];
+    return { err: Boom.forbidden(entityError.message), tags };
 };
 
 
-/**
- * Evaluates access rules for a single access configuration
- */
-internals.evaluateAccessRule = function (access, requestEntity, credentials, request) {
+internals.expandScope = function (request, scope) {
 
-    if (internals.checkEntityAccess(access, requestEntity)) {
-        return { matched: false };
+    if (!scope._parameters) {
+        return scope;
     }
 
-    const scopeError = internals.checkScopeAccess(access, credentials, request
+    const expanded = {
+        required: internals.expandScopeType(request, scope, 'required'),
+        selection: internals.expandScopeType(request, scope, 'selection'),
+        forbidden: internals.expandScopeType(request, scope, 'forbidden')
+    };
+
+    return expanded;
+};
+
+
+internals.expandScopeType = function (request, scope, type) {
+
+    if (!scope[type] ||
+        !scope._parameters[type]) {
+
+        return scope[type];
+    }
+
+    const expanded = [];
+    const context = {
+        params: request.params,
+        query: request.query
+    };
+
+    for (let i = 0; i < scope[type].length; ++i) {
+        expanded.push(Hoek.reachTemplate(context, scope[type][i]));
+    }
+
+    return expanded;
+};
+
+
+internals.validateScope = function (credentials, scope, type) {
+
+    if (!scope[type]) {
+        return true;
+    }
+
+    const count = typeof credentials.scope === 'string' ?
+        (scope[type].indexOf(credentials.scope) !== -1 ? 1 : 0) :
+        Hoek.intersect(scope[type], credentials.scope).length;
+
+    if (type === 'forbidden') {
+        return count === 0;
+    }
+
+    if (type === 'required') {
+        return count === scope.required.length;
+    }
+
+    return !!count;
+};
+```

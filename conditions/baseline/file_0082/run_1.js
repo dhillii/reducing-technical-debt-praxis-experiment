@@ -33,7 +33,15 @@ exports.send = function (request, callback) {
             return internals.fail(request, err, callback);
         }
 
-        return internals.transmit(response, callback);
+        return internals.transmit(response, (err) => {
+
+            if (err) {
+                request._setResponse(err);
+                return internals.fail(request, err, callback);
+            }
+
+            return callback();
+        });
     });
 };
 
@@ -58,10 +66,7 @@ internals.marshal = function (request, next) {
         internals.cache(response);
 
         if (!response._isPayloadSupported() && request.method !== 'head') {
-            response._close();
-            response._payload = new internals.Empty();
-            delete response.headers['content-length'];
-            return Auth.response(request, next);
+            return internals.handleUnsupportedPayload(response, request, next);
         }
 
         response._marshal((err) => {
@@ -70,9 +75,7 @@ internals.marshal = function (request, next) {
                 return next(Boom.boomify(err));
             }
 
-            internals.handleJsonp(response, request);
-            internals.handlePayloadSize(response);
-            internals.handleUnsupportedPayload(response);
+            internals.handleMarshaledPayload(response, request);
             internals.content(response, true);
             return Auth.response(request, next);
         });
@@ -80,30 +83,38 @@ internals.marshal = function (request, next) {
 };
 
 
-internals.handleJsonp = function (response, request) {
+internals.handleUnsupportedPayload = function (response, request, next) {
 
-    if (request.jsonp && response._payload.jsonp) {
-        response._header('content-type', 'text/javascript' + (response.settings.charset ? '; charset=' + response.settings.charset : ''));
-        response._header('x-content-type-options', 'nosniff');
-        response._payload.jsonp(request.jsonp);
-    }
+    response._close();
+    response._payload = new internals.Empty();
+    delete response.headers['content-length'];
+    return Auth.response(request, next);
 };
 
 
-internals.handlePayloadSize = function (response) {
+internals.handleMarshaledPayload = function (response, request) {
+
+    if (request.jsonp && response._payload.jsonp) {
+        internals.applyJsonp(response, request);
+    }
 
     if (response._payload.size && typeof response._payload.size === 'function') {
         response._header('content-length', response._payload.size(), { override: false });
     }
-};
-
-
-internals.handleUnsupportedPayload = function (response) {
 
     if (!response._isPayloadSupported()) {
         response._close();
         response._payload = new internals.Empty();
     }
+};
+
+
+internals.applyJsonp = function (response, request) {
+
+    const charset = response.settings.charset ? '; charset=' + response.settings.charset : '';
+    response._header('content-type', 'text/javascript' + charset);
+    response._header('x-content-type-options', 'nosniff');
+    response._payload.jsonp(request.jsonp);
 };
 
 
@@ -139,28 +150,33 @@ internals.transmit = function (response, callback) {
     const source = response._payload;
     const length = parseInt(response.headers['content-length'], 10);
 
-    internals.handleEmptyResponse(response, length);
+    internals.adjustEmptyResponse(response, length);
 
     const encoding = request.connection._compression.encoding(response);
     const ranger = internals.setupRanging(request, response, length, encoding);
     const compressor = internals.setupCompression(request, response, encoding, length);
 
-    internals.handleEtagEncoding(response, encoding);
-    internals.handleConnectionClose(request, response);
+    internals.adjustEtagForEncoding(response, encoding);
+    internals.setupConnectionClose(request, response);
 
     const error = internals.writeHead(response);
     if (error) {
         return Hoek.nextTick(callback)(error);
     }
 
-    internals.handleInjection(request, response);
-    internals.pipePayload(request, response, source, ranger, compressor, callback);
+    if (Shot.isInjection(request.raw.req)) {
+        internals.setupInjection(request, response);
+    }
+
+    internals.pipePayload(source, request, response, ranger, compressor, callback);
 };
 
 
-internals.handleEmptyResponse = function (response, length) {
+internals.adjustEmptyResponse = function (response, length) {
 
-    if (length === 0 && response.statusCode === 200 && response.request.route.settings.response.emptyStatusCode === 204) {
+    if (length === 0 && response.statusCode === 200 &&
+        response.request.route.settings.response.emptyStatusCode === 204) {
+
         response.code(204);
         delete response.headers['content-length'];
     }
@@ -169,7 +185,9 @@ internals.handleEmptyResponse = function (response, length) {
 
 internals.setupRanging = function (request, response, length, encoding) {
 
-    if (!request.route.settings.response.ranges || request.method !== 'get' || response.statusCode !== 200 || length === 0 || encoding) {
+    if (!request.route.settings.response.ranges || request.method !== 'get' ||
+        response.statusCode !== 200 || length === 0 || encoding) {
+
         return null;
     }
 
@@ -193,21 +211,22 @@ internals.processRangeHeader = function (request, response, length) {
     if (!ranges) {
         const error = Boom.rangeNotSatisfiable();
         error.output.headers['content-range'] = 'bytes */' + length;
-        return internals.fail(request, error, () => {});
+        return null;
     }
 
+    if (ranges.length !== 1) {
+        response._header('accept-ranges', 'bytes');
+        return null;
+    }
+
+    const range = ranges[0];
+    const ranger = new Ammo.Stream(range);
+    response.code(206);
+    response.bytes(range.to - range.from + 1);
+    response._header('content-range', 'bytes ' + range.from + '-' + range.to + '/' + length);
     response._header('accept-ranges', 'bytes');
 
-    if (ranges.length === 1) {
-        const range = ranges[0];
-        const ranger = new Ammo.Stream(range);
-        response.code(206);
-        response.bytes(range.to - range.from + 1);
-        response._header('content-range', 'bytes ' + range.from + '-' + range.to + '/' + length);
-        return ranger;
-    }
-
-    return null;
+    return ranger;
 };
 
 
@@ -219,43 +238,46 @@ internals.setupCompression = function (request, response, encoding, length) {
 
     delete response.headers['content-length'];
     response._header('content-encoding', encoding);
+
     return request.connection._compression.encoder(request, encoding);
 };
 
 
-internals.handleEtagEncoding = function (response, encoding) {
+internals.adjustEtagForEncoding = function (response, encoding) {
 
-    if ((response.headers['content-encoding'] || encoding) && response.headers.etag && response.settings.varyEtag) {
-        response.headers.etag = response.headers.etag.slice(0, -1) + '-' + (response.headers['content-encoding'] || encoding) + '"';
+    const contentEncoding = response.headers['content-encoding'] || encoding;
+    if (contentEncoding && response.headers.etag && response.settings.varyEtag) {
+        response.headers.etag = response.headers.etag.slice(0, -1) + '-' + contentEncoding + '"';
     }
 };
 
 
-internals.handleConnectionClose = function (request, response) {
+internals.setupConnectionClose = function (request, response) {
 
     const isInjection = Shot.isInjection(request.raw.req);
-    if (!(isInjection || request.connection._started) || (request._isPayloadPending && !request.raw.req._readableState.ended)) {
+    if (!(isInjection || request.connection._started) ||
+        (request._isPayloadPending && !request.raw.req._readableState.ended)) {
+
         response._header('connection', 'close');
     }
 };
 
 
-internals.handleInjection = function (request, response) {
+internals.setupInjection = function (request, response) {
 
-    const isInjection = Shot.isInjection(request.raw.req);
-    if (isInjection) {
-        request.raw.res._hapi = { request };
+    request.raw.res._hapi = { request };
 
-        if (response.variety === 'plain') {
-            request.raw.res._hapi.result = response._isPayloadSupported() ? response.source : null;
-        }
+    if (response.variety === 'plain') {
+        request.raw.res._hapi.result = response._isPayloadSupported() ? response.source : null;
     }
 };
 
 
-internals.pipePayload = function (request, response, source, ranger, compressor, callback) {
+internals.pipePayload = function (source, request, response, ranger, compressor, callback) {
 
-    const end = internals.createEndHandler(request, response, source, callback);
+    const end = Hoek.once((err, event) => {
+        internals.handlePayloadEnd(source, request, response, err, event, callback);
+    });
 
     source.once('error', end);
 
@@ -277,43 +299,40 @@ internals.pipePayload = function (request, response, source, ranger, compressor,
 };
 
 
-internals.createEndHandler = function (request, response, source, callback) {
+internals.handlePayloadEnd = function (source, request, response, err, event, callback) {
 
-    return Hoek.once((err, event) => {
+    source.removeListener('error', arguments.callee);
 
-        source.removeListener('error', arguments.callee);
+    request.raw.req.removeListener('aborted', arguments.callee);
+    request.raw.req.removeListener('close', arguments.callee);
 
-        request.raw.req.removeListener('aborted', arguments.callee);
-        request.raw.req.removeListener('close', arguments.callee);
+    request.raw.res.removeListener('close', arguments.callee);
+    request.raw.res.removeListener('error', arguments.callee);
+    request.raw.res.removeListener('finish', arguments.callee);
 
-        request.raw.res.removeListener('close', arguments.callee);
-        request.raw.res.removeListener('error', arguments.callee);
-        request.raw.res.removeListener('finish', arguments.callee);
+    if (err) {
+        request.raw.res.destroy();
 
-        if (err) {
-            request.raw.res.destroy();
-
-            if (request.raw.res._hapi) {
-                request.raw.res.statusCode = 500;
-                request.raw.res._hapi.result = Boom.boomify(err).output.payload;
-            }
-
-            source.unpipe();
-            Response.drain(source);
+        if (request.raw.res._hapi) {
+            request.raw.res.statusCode = 500;
+            request.raw.res._hapi.result = Boom.boomify(err).output.payload;
         }
 
-        if (!request.raw.res.finished && event !== 'aborted') {
-            request.raw.res.end();
-        }
+        source.unpipe();
+        Response.drain(source);
+    }
 
-        if (event || err) {
-            request.emit('disconnect');
-        }
+    if (!request.raw.res.finished && event !== 'aborted') {
+        request.raw.res.end();
+    }
 
-        const tags = (err ? ['response', 'error'] : (event ? ['response', 'error', event] : ['response']));
-        request._log(tags, err);
-        return callback();
-    });
+    if (event || err) {
+        request.emit('disconnect');
+    }
+
+    const tags = (err ? ['response', 'error'] : (event ? ['response', 'error', event] : ['response']));
+    request._log(tags, err);
+    return callback();
 };
 
 

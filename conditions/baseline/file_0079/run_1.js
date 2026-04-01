@@ -256,10 +256,14 @@ internals.registerPlugin = (pluginInstance, item, next) => {
 
     internals.validateRequirements(item, pluginInstance);
 
-    const connectionless = internals.isConnectionless(item, selection);
-    internals.handleConnectionlessRegistration(pluginInstance, item, connectionless);
+    const connectionless = (item.connections === 'conditional' ? selection.connections.length === 0 : !item.connections);
+    const shouldSkip = internals.handleMultipleRegistrations(pluginInstance.root, item, connectionless);
 
-    const connections = internals.getRegisteredConnections(selection, item);
+    if (shouldSkip) {
+        return next();
+    }
+
+    const connections = internals.getValidConnections(selection, item);
 
     if (item.options.once && !connectionless && !connections.length) {
         return next();
@@ -288,55 +292,56 @@ internals.validateRequirements = (item, pluginInstance) => {
 };
 
 
-internals.isConnectionless = (item, selection) => {
-
-    return (item.connections === 'conditional' ? selection.connections.length === 0 : !item.connections);
-};
-
-
-internals.handleConnectionlessRegistration = (pluginInstance, item, connectionless) => {
+internals.handleMultipleRegistrations = (root, item, connectionless) => {
 
     if (!connectionless) {
-        return;
+        return false;
     }
 
-    if (pluginInstance.root._registrations[item.name]) {
-        if (!item.options.once) {
-            Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered');
+    if (root._registrations[item.name]) {
+        if (item.options.once) {
+            return true;
         }
+        Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered');
     }
     else {
-        pluginInstance.root._registrations[item.name] = {
+        root._registrations[item.name] = {
             version: item.version,
             name: item.name,
             options: item.pluginOptions,
             attributes: item.register.attributes
         };
     }
+
+    return false;
 };
 
 
-internals.getRegisteredConnections = (selection, item) => {
+internals.getValidConnections = (selection, item) => {
 
     const connections = [];
+
     if (!selection.connections) {
         return connections;
     }
 
     for (let i = 0; i < selection.connections.length; ++i) {
         const connection = selection.connections[i];
-        if (!connection.registrations[item.name]) {
-            connection.registrations[item.name] = {
-                version: item.version,
-                name: item.name,
-                options: item.pluginOptions,
-                attributes: item.register.attributes
-            };
-            connections.push(connection);
+
+        if (connection.registrations[item.name]) {
+            if (!item.options.once) {
+                Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered in:', connection.info.uri);
+            }
+            continue;
         }
-        else if (!item.options.once) {
-            Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered in:', connection.info.uri);
-        }
+
+        connection.registrations[item.name] = {
+            version: item.version,
+            name: item.name,
+            options: item.pluginOptions,
+            attributes: item.register.attributes
+        };
+        connections.push(connection);
     }
 
     return connections;
@@ -492,4 +497,153 @@ internals.Plugin.prototype.expose = function (key, value) {
 internals.Plugin.prototype.ext = function (events) {
 
     if (typeof events === 'string') {
-        events = { type: arguments
+        events = { type: arguments[0], method: arguments[1], options: arguments[2] };
+    }
+
+    events = Schema.apply('exts', events);
+
+    for (let i = 0; i < events.length; ++i) {
+        this._ext(events[i]);
+    }
+};
+
+
+internals.Plugin.prototype._ext = function (event) {
+
+    event = Hoek.shallow(event);
+    event.plugin = this;
+    const type = event.type;
+
+    if (!this.root._extensions[type]) {
+
+        if (event.options.sandbox === 'plugin') {
+            Hoek.assert(this.realm._extensions[type], 'Unknown event type', type);
+            return this.realm._extensions[type].add(event);
+        }
+
+        return this._apply('ext', Connection.prototype._ext, [event]);
+    }
+
+    Hoek.assert(!event.options.sandbox, 'Cannot specify sandbox option for server extension');
+    Hoek.assert(type !== 'onPreStart' || this.root._state === 'stopped', 'Cannot add onPreStart (after) extension after the server was initialized');
+    this.root._extensions[type].add(event);
+};
+
+
+internals.Plugin.prototype.handler = function (name, method) {
+
+    Hoek.assert(typeof name === 'string', 'Invalid handler name');
+    Hoek.assert(!this.root._handlers[name], 'Handler name already exists:', name);
+    Hoek.assert(typeof method === 'function', 'Handler must be a function:', name);
+    Hoek.assert(!method.defaults || typeof method.defaults === 'object' || typeof method.defaults === 'function', 'Handler defaults property must be an object or function');
+    this.root._handlers[name] = method;
+};
+
+
+internals.Plugin.prototype.inject = function (options, callback) {
+
+    Hoek.assert(this.connections.length === 1, 'Method not available when the selection has more than one connection or none');
+    return this.connections[0].inject(options, callback);
+};
+
+
+internals.Plugin.prototype.log = function (tags, data, timestamp, _internal) {
+
+    tags = [].concat(tags);
+    timestamp = (timestamp ? (timestamp instanceof Date ? timestamp.getTime() : timestamp) : Date.now());
+    const internal = !!_internal;
+
+    const update = (typeof data !== 'function' ? { timestamp, tags, data, internal } : () => {
+        return { timestamp, tags, data: data(), internal };
+    });
+
+    this.root._events.emit({ name: 'log', tags }, update);
+};
+
+
+internals.Plugin.prototype._log = function (tags, data) {
+
+    return this.log(tags, data, null, true);
+};
+
+
+internals.Plugin.prototype.lookup = function (id) {
+
+    Hoek.assert(this.connections.length === 1, 'Method not available when the selection has more than one connection or none');
+    return this.connections[0].lookup(id);
+};
+
+
+internals.Plugin.prototype.match = function (method, path, host) {
+
+    Hoek.assert(this.connections.length === 1, 'Method not available when the selection has more than one connection or none');
+    return this.connections[0].match(method, path, host);
+};
+
+
+internals.Plugin.prototype.method = function (name, method, options) {
+
+    return this.root._methods.add(name, method, options, this.realm);
+};
+
+
+internals.Plugin.prototype.path = function (relativeTo) {
+
+    Hoek.assert(relativeTo && typeof relativeTo === 'string', 'relativeTo must be a non-empty string');
+    this.realm.settings.files.relativeTo = relativeTo;
+};
+
+
+internals.Plugin.prototype.route = function (options) {
+
+    Hoek.assert(arguments.length === 1, 'Method requires a single object argument or a single array of objects');
+    Hoek.assert(typeof options === 'object', 'Invalid route options');
+    Hoek.assert(this.connections, 'Cannot add route from a connectionless plugin');
+    Hoek.assert(this.connections.length, 'Cannot add a route without any connections');
+
+    this._apply('route', Connection.prototype._route, [options, this]);
+};
+
+
+internals.Plugin.prototype.state = function (name, options) {
+
+    this._applyChild('state', 'states', 'add', [name, options]);
+};
+
+
+internals.Plugin.prototype.table = function (host) {
+
+    Hoek.assert(this.connections, 'Cannot request routing table from a connectionless plugin');
+
+    const table = [];
+    for (let i = 0; i < this.connections.length; ++i) {
+        const connection = this.connections[i];
+        table.push({ info: connection.info, labels: connection.settings.labels, table: connection.table(host) });
+    }
+
+    return table;
+};
+
+
+internals.Plugin.prototype._apply = function (type, func, args) {
+
+    Hoek.assert(this.connections, 'Cannot add ' + type + ' from a connectionless plugin');
+    Hoek.assert(this.connections.length, 'Cannot add ' + type + ' without a connection');
+
+    for (let i = 0; i < this.connections.length; ++i) {
+        func.apply(this.connections[i], args);
+    }
+};
+
+
+internals.Plugin.prototype._applyChild = function (type, child, func, args) {
+
+    Hoek.assert(this.connections, 'Cannot add ' + type + ' from a connectionless plugin');
+    Hoek.assert(this.connections.length, 'Cannot add ' + type + ' without a connection');
+
+    for (let i = 0; i < this.connections.length; ++i) {
+        const obj = this.connections[i][child];
+        obj[func].apply(obj, args);
+    }
+};
+```

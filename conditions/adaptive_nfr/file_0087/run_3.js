@@ -100,7 +100,7 @@ export function Field(props: FieldProps<typeof controller>) {
 
 /**
  * Renders the appropriate field component based on display mode.
- * Dispatches to specific renderers to reduce cyclomatic complexity.
+ * Dispatches to specific renderers using a strategy object pattern.
  */
 function renderFieldByDisplayMode(
   displayMode: string,
@@ -122,11 +122,11 @@ function renderFieldByDisplayMode(
 ) {
   const renderers: Record<string, () => JSX.Element> = {
     'segmented-control': () => renderSegmentedControl(props),
-    'radio': () => renderRadio(props),
+    'radio': () => renderRadioGroup(props),
   }
 
   const renderer = renderers[displayMode]
-  return renderer ? renderer() : renderPicker(props)
+  return renderer ? renderer() : renderPickerField(props)
 }
 
 /**
@@ -144,18 +144,20 @@ function renderSegmentedControl(props: {
   value: string | number | null
   textValue: string
 }): JSX.Element {
+  const { label, description, errorMessage, isDisabled, isReadOnly, isRequired, onChange, items, value, textValue } = props
+
   return (
     <SegmentedControl
-      label={props.label}
-      description={props.description}
-      errorMessage={props.errorMessage}
-      isDisabled={props.isDisabled}
-      isReadOnly={props.isReadOnly}
-      isRequired={props.isRequired}
-      items={props.items}
-      onChange={props.onChange}
-      value={props.value}
-      textValue={props.textValue}
+      label={label}
+      description={description}
+      errorMessage={errorMessage}
+      isDisabled={isDisabled}
+      isReadOnly={isReadOnly}
+      isRequired={isRequired}
+      items={items}
+      onChange={onChange}
+      value={value}
+      textValue={textValue}
     >
       {item => <Item key={item.value}>{item.label}</Item>}
     </SegmentedControl>
@@ -165,7 +167,7 @@ function renderSegmentedControl(props: {
 /**
  * Renders a radio group field component.
  */
-function renderRadio(props: {
+function renderRadioGroup(props: {
   label: string
   description: string
   errorMessage: string | undefined
@@ -177,18 +179,20 @@ function renderRadio(props: {
   value: string | number | null
   preNullValue: string | number | null | undefined
 }): JSX.Element {
+  const { label, description, errorMessage, isDisabled, isReadOnly, isRequired, onChange, items, value, preNullValue } = props
+
   return (
     <RadioGroup
-      label={props.label}
-      description={props.description}
-      errorMessage={props.errorMessage}
-      isDisabled={props.isDisabled}
-      isReadOnly={props.isReadOnly}
-      isRequired={props.isRequired}
-      onChange={props.onChange}
-      value={props.value ?? props.preNullValue}
+      label={label}
+      description={description}
+      errorMessage={errorMessage}
+      isDisabled={isDisabled}
+      isReadOnly={isReadOnly}
+      isRequired={isRequired}
+      onChange={onChange}
+      value={value ?? preNullValue}
     >
-      {props.items.map(item => (
+      {items.map(item => (
         <Radio key={item.value} value={item.value}>
           {item.label}
         </Radio>
@@ -200,7 +204,7 @@ function renderRadio(props: {
 /**
  * Renders a picker (select) field component.
  */
-function renderPicker(props: {
+function renderPickerField(props: {
   label: string
   description: string
   errorMessage: string | undefined
@@ -213,22 +217,24 @@ function renderPicker(props: {
   longestLabelLength: number
   autoFocus: boolean
 }): JSX.Element {
+  const { label, description, errorMessage, isDisabled, isReadOnly, isRequired, onChange, items, value, longestLabelLength, autoFocus } = props
+
   return (
     <Picker
-      autoFocus={props.autoFocus}
-      label={props.label}
-      description={props.description}
-      errorMessage={props.errorMessage}
-      isDisabled={props.isDisabled}
-      isReadOnly={props.isReadOnly}
-      isRequired={props.isRequired}
-      items={props.items}
-      onSelectionChange={props.onChange}
-      selectedKey={props.value}
+      autoFocus={autoFocus}
+      label={label}
+      description={description}
+      errorMessage={errorMessage}
+      isDisabled={isDisabled}
+      isReadOnly={isReadOnly}
+      isRequired={isRequired}
+      items={items}
+      onSelectionChange={onChange}
+      selectedKey={value}
       flex={{ mobile: true, desktop: 'initial' }}
       UNSAFE_style={{
         fontSize: tokenSchema.typography.text.regular.size,
-        width: `clamp(${tokenSchema.size.alias.singleLineWidth}, calc(${props.longestLabelLength}ex + ${tokenSchema.size.icon.regular}), 100%)`,
+        width: `clamp(${tokenSchema.size.alias.singleLineWidth}, calc(${longestLabelLength}ex + ${tokenSchema.size.icon.regular}), 100%)`,
       }}
     >
       {item => <Item key={item.value}>{item.label}</Item>}
@@ -277,57 +283,33 @@ const FILTER_TYPES = {
 }
 
 /**
+ * Determines the appropriate filter type based on GraphQL filter key.
+ */
+function getFilterTypeFromGraphQL(key: string): 'matches' | 'not_matches' {
+  return key === 'notIn' ? 'not_matches' : 'matches'
+}
+
+/**
  * Determines the appropriate GraphQL filter key based on filter type.
  */
-function getGraphQLFilterKey(type: string): 'in' | 'notIn' {
+function getGraphQLKeyFromFilterType(type: string): 'in' | 'notIn' {
   return type === 'not_matches' ? 'notIn' : 'in'
 }
 
 /**
- * Determines the filter type label prefix based on filter type.
- */
-function getFilterTypePrefix(type: string): string {
-  return type === 'not_matches' ? 'is not' : 'is'
-}
-
-/**
- * Parses GraphQL filter value into filter type and value.
- */
-function parseGraphQLFilterEntry(
-  type: string,
-  value: unknown
-): { type: string; value: string[] } | null {
-  if (type === 'equals' && value != null) {
-    return { type: 'matches', value: [String(value)] }
-  }
-  if (type === 'notIn' || type === 'in') {
-    if (!Array.isArray(value)) return null
-    return {
-      type: type === 'notIn' ? 'not_matches' : 'matches',
-      value: value.filter(x => x != null).map(String),
-    }
-  }
-  return null
-}
-
-/**
- * Formats filter label based on filter type and selected values.
+ * Formats filter label based on type and value count.
  */
 function formatFilterLabel(
   type: string,
   value: string[],
-  optionsWithStringValues: Option[],
-  listFormatter: ReturnType<typeof useListFormatter>
+  labels: string[],
+  listFormatter: Intl.ListFormat
 ): string {
   if (value.length === 0) {
-    return type === 'not_matches' ? 'is set' : 'is not set'
+    return type === 'not_matches' ? `is set` : `is not set`
   }
 
-  const values = new Set(value)
-  const labels = optionsWithStringValues
-    .filter(opt => values.has(opt.value))
-    .map(i => i.label)
-  const prefix = getFilterTypePrefix(type)
+  const prefix = type === 'not_matches' ? `is not` : `is`
 
   if (value.length === 1) return `${prefix} ${labels[0]}`
   if (value.length === 2) return `${prefix} ${listFormatter.format(labels)}`
@@ -421,13 +403,22 @@ export function controller(config: Config): FieldController<
       },
       graphql: ({ type, value: options }) => ({
         [config.fieldKey]: {
-          [getGraphQLFilterKey(type)]: options.map(x => t(x)),
+          [getGraphQLKeyFromFilterType(type)]: options.map(x => t(x)),
         },
       }),
       parseGraphQL(value) {
-        return entriesTyped(value).flatMap(([type, filterValue]) => {
-          const parsed = parseGraphQLFilterEntry(type, filterValue)
-          return parsed ? [parsed] : []
+        return entriesTyped(value).flatMap(([type, value]) => {
+          if (type === 'equals' && value != null) {
+            return { type: 'matches', value: [value] }
+          }
+          if (type === 'notIn' || type === 'in') {
+            if (!value) return []
+            return {
+              type: getFilterTypeFromGraphQL(type),
+              value: value.filter(x => x != null),
+            }
+          }
+          return []
         })
       },
       Label({ type, value }) {
@@ -436,7 +427,12 @@ export function controller(config: Config): FieldController<
           type: 'disjunction',
         })
 
-        return formatFilterLabel(type, value, optionsWithStringValues, listFormatter)
+        const values = new Set(value)
+        const labels = optionsWithStringValues
+          .filter(opt => values.has(opt.value))
+          .map(i => i.label)
+
+        return formatFilterLabel(type, value, labels, listFormatter)
       },
       types: FILTER_TYPES,
     },

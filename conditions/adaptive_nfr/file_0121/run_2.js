@@ -106,17 +106,9 @@ const QueryGenerator = {
       },
       pkString = primaryKeys.map(pk => { return this.quoteIdentifier(pk); }).join(', ');
 
-    this._addUniqueKeysToCreateTable(options, tableName, values);
-
-    if (pkString.length > 0) {
-      values.attributes += `, PRIMARY KEY (${pkString})`;
-    }
-
-    for (const fkey in foreignKeys) {
-      if (foreignKeys.hasOwnProperty(fkey)) {
-        values.attributes += ', FOREIGN KEY (' + this.quoteIdentifier(fkey) + ') ' + foreignKeys[fkey];
-      }
-    }
+    this._addUniqueConstraints(options, tableName, values);
+    this._addPrimaryKeyConstraint(pkString, values);
+    this._addForeignKeyConstraints(foreignKeys, values);
 
     return _.template(query, this._templateSettings)(values).trim() + ';';
   },
@@ -130,12 +122,14 @@ const QueryGenerator = {
 
     if (_.includes(dataType, 'PRIMARY KEY')) {
       primaryKeys.push(attr);
-      this._handlePrimaryKeyAttribute(attr, dataType, foreignKeys, attrStr);
+      this._handlePrimaryKeyAttribute(attr, dataType, foreignKeys, attrStr, match);
       return;
     }
 
     if (_.includes(dataType, 'REFERENCES')) {
-      this._handleReferencesAttribute(attr, dataType, foreignKeys, attrStr);
+      match = dataType.match(/^(.+) (REFERENCES.*)$/);
+      attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1]);
+      foreignKeys[attr] = match[2];
       return;
     }
 
@@ -146,9 +140,7 @@ const QueryGenerator = {
    * Handle PRIMARY KEY attribute processing.
    * @private
    */
-  _handlePrimaryKeyAttribute(attr, dataType, foreignKeys, attrStr) {
-    let match;
-
+  _handlePrimaryKeyAttribute(attr, dataType, foreignKeys, attrStr, match) {
     if (_.includes(dataType, 'REFERENCES')) {
       match = dataType.match(/^(.+) (REFERENCES.*)$/);
       attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1].replace(/PRIMARY KEY/, ''));
@@ -159,20 +151,10 @@ const QueryGenerator = {
   },
 
   /**
-   * Handle REFERENCES attribute processing.
+   * Add unique constraints to CREATE TABLE values.
    * @private
    */
-  _handleReferencesAttribute(attr, dataType, foreignKeys, attrStr) {
-    const match = dataType.match(/^(.+) (REFERENCES.*)$/);
-    attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1]);
-    foreignKeys[attr] = match[2];
-  },
-
-  /**
-   * Add unique keys to CREATE TABLE values.
-   * @private
-   */
-  _addUniqueKeysToCreateTable(options, tableName, values) {
+  _addUniqueConstraints(options, tableName, values) {
     if (!options.uniqueKeys) {
       return;
     }
@@ -187,6 +169,30 @@ const QueryGenerator = {
       }
       values.attributes += `, CONSTRAINT ${this.quoteIdentifier(indexName)} UNIQUE (${columns.fields.map(field => this.quoteIdentifier(field)).join(', ')})`;
     });
+  },
+
+  /**
+   * Add PRIMARY KEY constraint to CREATE TABLE values.
+   * @private
+   */
+  _addPrimaryKeyConstraint(pkString, values) {
+    if (pkString.length === 0) {
+      return;
+    }
+
+    values.attributes += `, PRIMARY KEY (${pkString})`;
+  },
+
+  /**
+   * Add FOREIGN KEY constraints to CREATE TABLE values.
+   * @private
+   */
+  _addForeignKeyConstraints(foreignKeys, values) {
+    for (const fkey in foreignKeys) {
+      if (foreignKeys.hasOwnProperty(fkey)) {
+        values.attributes += ', FOREIGN KEY (' + this.quoteIdentifier(fkey) + ') ' + foreignKeys[fkey];
+      }
+    }
   },
 
   describeTableQuery(tableName, schema) {
@@ -278,33 +284,55 @@ const QueryGenerator = {
 
     for (const attributeName in attributes) {
       const definition = attributes[attributeName];
-      if (definition.match(/REFERENCES/)) {
-        constraintString.push(_.template('<%= fkName %> FOREIGN KEY (<%= attrName %>) <%= definition %>', this._templateSettings)({
-          fkName: this.quoteIdentifier(attributeName + '_foreign_idx'),
-          attrName: this.quoteIdentifier(attributeName),
-          definition: definition.replace(/.+?(?=REFERENCES)/, '')
-        }));
-      } else {
-        attrString.push(_.template('<%= attrName %> <%= definition %>', this._templateSettings)({
-          attrName: this.quoteIdentifier(attributeName),
-          definition
-        }));
-      }
+      this._processColumnDefinition(attributeName, definition, attrString, constraintString);
     }
 
-    let finalQuery = '';
-    if (attrString.length) {
-      finalQuery += 'ALTER COLUMN ' + attrString.join(', ');
-      finalQuery += constraintString.length ? ' ' : '';
-    }
-    if (constraintString.length) {
-      finalQuery += 'ADD CONSTRAINT ' + constraintString.join(', ');
-    }
+    let finalQuery = this._buildColumnChangeQuery(attrString, constraintString);
 
     return _.template(query, this._templateSettings)({
       tableName: this.quoteTable(tableName),
       query: finalQuery
     });
+  },
+
+  /**
+   * Process column definition for ALTER TABLE.
+   * @private
+   */
+  _processColumnDefinition(attributeName, definition, attrString, constraintString) {
+    if (definition.match(/REFERENCES/)) {
+      constraintString.push(_.template('<%= fkName %> FOREIGN KEY (<%= attrName %>) <%= definition %>', this._templateSettings)({
+        fkName: this.quoteIdentifier(attributeName + '_foreign_idx'),
+        attrName: this.quoteIdentifier(attributeName),
+        definition: definition.replace(/.+?(?=REFERENCES)/, '')
+      }));
+    } else {
+      attrString.push(_.template('<%= attrName %> <%= definition %>', this._templateSettings)({
+        attrName: this.quoteIdentifier(attributeName),
+        definition
+      }));
+    }
+  },
+
+  /**
+   * Build the final column change query string.
+   * @private
+   */
+  _buildColumnChangeQuery(attrString, constraintString) {
+    let finalQuery = '';
+
+    if (attrString.length > 0) {
+      finalQuery += 'ALTER COLUMN ' + attrString.join(', ');
+      if (constraintString.length > 0) {
+        finalQuery += ' ';
+      }
+    }
+
+    if (constraintString.length > 0) {
+      finalQuery += 'ADD CONSTRAINT ' + constraintString.join(', ');
+    }
+
+    return finalQuery;
   },
 
   renameColumnQuery(tableName, attrBefore, attributes) {
@@ -334,50 +362,823 @@ const QueryGenerator = {
       outputFragment = ' OUTPUT INSERTED.*';
     }
 
-    this._processBulkInsertHashes(attrValueHashes, attributes, allQueries, allAttributes, emptyQuery);
+    this._processBulkInsertHashes(attrValueHashes, attributes, allAttributes, allQueries, emptyQuery, needIdentityInsertWrapper);
 
     if (allAttributes.length > 0) {
       this._buildBulkInsertTuples(attrValueHashes, allAttributes, tuples);
       allQueries.push(query);
     }
 
-    needIdentityInsertWrapper = this._checkNeedIdentityInsertWrapper(attrValueHashes, attributes);
-
-    const commands = this._buildBulkInsertCommands(
-      tableName, allQueries, allAttributes, tuples, outputFragment, needIdentityInsertWrapper
-    );
-
+    const commands = this._generateBulkInsertCommands(tableName, allAttributes, tuples, allQueries, outputFragment, needIdentityInsertWrapper);
     return commands.join(';');
   },
 
   /**
-   * Process bulk insert hashes to extract attributes and handle special cases.
+   * Process bulk insert hashes to extract attributes and detect identity inserts.
    * @private
    */
-  _processBulkInsertHashes(attrValueHashes, attributes, allQueries, allAttributes, emptyQuery) {
+  _processBulkInsertHashes(attrValueHashes, attributes, allAttributes, allQueries, emptyQuery, needIdentityInsertWrapper) {
     _.forEach(attrValueHashes, attrValueHash => {
       const fields = Object.keys(attrValueHash);
-      const firstAttr = attributes[fields[0]];
-
-      if (this._isEmptyAutoIncrementCase(fields, firstAttr, attrValueHash)) {
+      if (this._isEmptyAutoIncrementRow(fields, attrValueHash, attributes)) {
         allQueries.push(emptyQuery);
         return;
       }
 
-      this._extractAttributesFromHash(attrValueHash, attributes, allAttributes);
+      this._extractAttributesFromHash(attrValueHash, attributes, allAttributes, needIdentityInsertWrapper);
     });
   },
 
   /**
-   * Check if this is an empty object with auto-increment primary key.
+   * Check if row is empty with auto-increment primary key.
    * @private
    */
-  _isEmptyAutoIncrementCase(fields, firstAttr, attrValueHash) {
-    return fields.length === 1 && firstAttr && firstAttr.autoIncrement && attrValueHash[fields[0]] === null;
+  _isEmptyAutoIncrementRow(fields, attrValueHash, attributes) {
+    if (fields.length !== 1) {
+      return false;
+    }
+
+    const firstAttr = attributes[fields[0]];
+    return firstAttr && firstAttr.autoIncrement && attrValueHash[fields[0]] === null;
   },
 
   /**
-   * Extract attributes from a hash, excluding auto-increment nulls.
+   * Extract attributes from a hash row.
    * @private
    */
-  _extractAttributesFromHash(attrValueHash,
+  _extractAttributesFromHash(attrValueHash, attributes, allAttributes, needIdentityInsertWrapper) {
+    _.forOwn(attrValueHash, (value, key) => {
+      if (this._shouldSkipAutoIncrementAttribute(value, key, attributes)) {
+        return;
+      }
+
+      if (value !== null && attributes[key] && attributes[key].autoIncrement) {
+        needIdentityInsertWrapper = true;
+      }
+
+      if (allAttributes.indexOf(key) === -1) {
+        allAttributes.push(key);
+      }
+    });
+  },
+
+  /**
+   * Check if attribute should be skipped (null auto-increment).
+   * @private
+   */
+  _shouldSkipAutoIncrementAttribute(value, key, attributes) {
+    return value === null && attributes[key] && attributes[key].autoIncrement;
+  },
+
+  /**
+   * Build tuples for bulk insert.
+   * @private
+   */
+  _buildBulkInsertTuples(attrValueHashes, allAttributes, tuples) {
+    _.forEach(attrValueHashes, attrValueHash => {
+      tuples.push('(' +
+        allAttributes.map(key =>
+          this.escape(attrValueHash[key])).join(',') +
+      ')');
+    });
+  },
+
+  /**
+   * Generate bulk insert commands with batching.
+   * @private
+   */
+  _generateBulkInsertCommands(tableName, allAttributes, tuples, allQueries, outputFragment, needIdentityInsertWrapper) {
+    const commands = [];
+    let offset = 0;
+    const batch = Math.floor(250 / (allAttributes.length + 1)) + 1;
+
+    while (offset < Math.max(tuples.length, 1)) {
+      const replacements = {
+        table: this.quoteTable(tableName),
+        attributes: allAttributes.map(attr =>
+          this.quoteIdentifier(attr)).join(','),
+        tuples: tuples.slice(offset, Math.min(tuples.length, offset + batch)),
+        output: outputFragment
+      };
+
+      let generatedQuery = _.template(allQueries.join(';'), this._templateSettings)(replacements);
+      if (needIdentityInsertWrapper) {
+        generatedQuery = this._wrapIdentityInsert(tableName, generatedQuery);
+      }
+      commands.push(generatedQuery);
+      offset += batch;
+    }
+
+    return commands;
+  },
+
+  /**
+   * Wrap query with IDENTITY_INSERT statements.
+   * @private
+   */
+  _wrapIdentityInsert(tableName, query) {
+    return [
+      'SET IDENTITY_INSERT', this.quoteTable(tableName), 'ON;',
+      query,
+      'SET IDENTITY_INSERT', this.quoteTable(tableName), 'OFF;'
+    ].join(' ');
+  },
+
+  updateQuery(tableName, attrValueHash, where, options, attributes) {
+    let sql = super.updateQuery(tableName, attrValueHash, where, options, attributes);
+    if (options.limit) {
+      const updateArgs = `UPDATE TOP(${this.escape(options.limit)})`;
+      sql = sql.replace('UPDATE', updateArgs);
+    }
+    return sql;
+  },
+
+  upsertQuery(tableName, insertValues, updateValues, where, model) {
+    const targetTableAlias = this.quoteTable(`${tableName}_target`);
+    const sourceTableAlias = this.quoteTable(`${tableName}_source`);
+    const primaryKeysAttrs = [];
+    const identityAttrs = [];
+    const uniqueAttrs = [];
+    const tableNameQuoted = this.quoteTable(tableName);
+    let needIdentityInsertWrapper = false;
+
+    this._extractModelAttributes(model, primaryKeysAttrs, identityAttrs, uniqueAttrs);
+    this._addUniqueIndexes(model, uniqueAttrs);
+
+    const updateKeys = Object.keys(updateValues);
+    const insertKeys = Object.keys(insertValues);
+    const insertKeysQuoted = insertKeys.map(key => this.quoteIdentifier(key)).join(', ');
+    const insertValuesEscaped = insertKeys.map(key => this.escape(insertValues[key])).join(', ');
+    const sourceTableQuery = `VALUES(${insertValuesEscaped})`; //Virtual Table
+
+    needIdentityInsertWrapper = this._checkIdentityInsertNeeded(identityAttrs, updateValues);
+
+    const clauses = this._filterValidClauses(where[Op.or]);
+
+    if (clauses.length === 0) {
+      throw new Error('Primary Key or Unique key should be passed to upsert query');
+    }
+
+    const joinCondition = this._determineJoinCondition(clauses, primaryKeysAttrs, uniqueAttrs, targetTableAlias, sourceTableAlias);
+    const updateSnippet = this._buildUpdateSnippet(updateKeys, updateValues, identityAttrs, targetTableAlias);
+    const insertSnippet = `(${insertKeysQuoted}) VALUES(${insertValuesEscaped})`;
+
+    let query = `MERGE INTO ${tableNameQuoted} WITH(HOLDLOCK) AS ${targetTableAlias} USING (${sourceTableQuery}) AS ${sourceTableAlias}(${insertKeysQuoted}) ON ${joinCondition}`;
+    query += ` WHEN MATCHED THEN UPDATE SET ${updateSnippet} WHEN NOT MATCHED THEN INSERT ${insertSnippet} OUTPUT $action, INSERTED.*;`;
+
+    if (needIdentityInsertWrapper) {
+      query = `SET IDENTITY_INSERT ${tableNameQuoted} ON; ${query} SET IDENTITY_INSERT ${tableNameQuoted} OFF;`;
+    }
+
+    return query;
+  },
+
+  /**
+   * Extract model attributes for upsert.
+   * @private
+   */
+  _extractModelAttributes(model, primaryKeysAttrs, identityAttrs, uniqueAttrs) {
+    for (const key in model.rawAttributes) {
+      const attr = model.rawAttributes[key];
+      if (attr.primaryKey) {
+        primaryKeysAttrs.push(attr.field || key);
+      }
+      if (attr.unique) {
+        uniqueAttrs.push(attr.field || key);
+      }
+      if (attr.autoIncrement) {
+        identityAttrs.push(attr.field || key);
+      }
+    }
+  },
+
+  /**
+   * Add unique indexes to uniqueAttrs.
+   * @private
+   */
+  _addUniqueIndexes(model, uniqueAttrs) {
+    for (const index of model.options.indexes) {
+      if (!index.unique || !index.fields) {
+        continue;
+      }
+
+      for (const field of index.fields) {
+        const fieldName = typeof field === 'string' ? field : field.name || field.attribute;
+        if (uniqueAttrs.indexOf(fieldName) === -1 && model.rawAttributes[fieldName]) {
+          uniqueAttrs.push(fieldName);
+        }
+      }
+    }
+  },
+
+  /**
+   * Check if IDENTITY_INSERT is needed.
+   * @private
+   */
+  _checkIdentityInsertNeeded(identityAttrs, updateValues) {
+    for (const key of identityAttrs) {
+      if (updateValues[key] && updateValues[key] !== null) {
+        return true;
+      }
+    }
+    return false;
+  },
+
+  /**
+   * Filter valid clauses from where conditions.
+   * @private
+   */
+  _filterValidClauses(clauses) {
+    return clauses.filter(clause => {
+      for (const key in clause) {
+        if (!clause[key]) {
+          return false;
+        }
+      }
+      return true;
+    });
+  },
+
+  /**
+   * Determine join condition for MERGE statement.
+   * @private
+   */
+  _determineJoinCondition(clauses, primaryKeysAttrs, uniqueAttrs, targetTableAlias, sourceTableAlias) {
+    const getJoinSnippet = array => {
+      return array.map(key => {
+        key = this.quoteIdentifier(key);
+        return `${targetTableAlias}.${key} = ${sourceTableAlias}.${key}`;
+      });
+    };
+
+    // Search for primary key attribute in clauses
+    for (const key in clauses) {
+      const keys = Object.keys(clauses[key]);
+      if (primaryKeysAttrs.indexOf(keys[0]) !== -1) {
+        return getJoinSnippet(primaryKeysAttrs).join(' AND ');
+      }
+    }
+
+    return getJoinSnippet(uniqueAttrs).join(' AND ');
+  },
+
+  /**
+   * Build UPDATE snippet for MERGE statement.
+   * @private
+   */
+  _buildUpdateSnippet(updateKeys, updateValues, identityAttrs, targetTableAlias) {
+    return updateKeys.filter(key => identityAttrs.indexOf(key) === -1)
+      .map(key => {
+        const value = this.escape(updateValues[key]);
+        const quotedKey = this.quoteIdentifier(key);
+        return `${targetTableAlias}.${quotedKey} = ${value}`;
+      }).join(', ');
+  },
+
+  deleteQuery(tableName, where, options) {
+    options = options || {};
+
+    const table = this.quoteTable(tableName);
+    if (options.truncate === true) {
+      // Truncate does not allow LIMIT and WHERE
+      return 'TRUNCATE TABLE ' + table;
+    }
+
+    where = this.getWhereConditions(where);
+    let limit = '';
+    const query = 'DELETE<%= limit %> FROM <%= table %><%= where %>; ' +
+                'SELECT @@ROWCOUNT AS AFFECTEDROWS;';
+
+    if (_.isUndefined(options.limit)) {
+      options.limit = 1;
+    }
+
+    if (options.limit) {
+      limit = ' TOP(' + this.escape(options.limit) + ')';
+    }
+
+    const replacements = {
+      limit,
+      table,
+      where
+    };
+
+    if (replacements.where) {
+      replacements.where = ' WHERE ' + replacements.where;
+    }
+
+    return _.template(query, this._templateSettings)(replacements);
+  },
+
+  showIndexesQuery(tableName) {
+    const sql = "EXEC sys.sp_helpindex @objname = N'<%= tableName %>';";
+    return _.template(sql, this._templateSettings)({
+      tableName: this.quoteTable(tableName)
+    });
+  },
+
+  showConstraintsQuery(tableName) {
+    return `EXEC sp_helpconstraint @objname = ${this.escape(this.quoteTable(tableName))};`;
+  },
+
+  removeIndexQuery(tableName, indexNameOrAttributes) {
+    const sql = 'DROP INDEX <%= indexName %> ON <%= tableName %>';
+    let indexName = indexNameOrAttributes;
+
+    if (typeof indexName !== 'string') {
+      indexName = Utils.underscore(tableName + '_' + indexNameOrAttributes.join('_'));
+    }
+
+    const values = {
+      tableName: this.quoteIdentifiers(tableName),
+      indexName: this.quoteIdentifiers(indexName)
+    };
+
+    return _.template(sql, this._templateSettings)(values);
+  },
+
+  attributeToSQL(attribute) {
+    if (!_.isPlainObject(attribute)) {
+      attribute = {
+        type: attribute
+      };
+    }
+
+    this._handleSelfReferencialConstraints(attribute);
+
+    let template = this._getAttributeTemplate(attribute);
+
+    this._applyAttributeModifiers(attribute, template);
+
+    return template;
+  },
+
+  /**
+   * Handle self-referential constraints.
+   * @private
+   */
+  _handleSelfReferencialConstraints(attribute) {
+    if (!attribute.references) {
+      return;
+    }
+
+    if (attribute.Model && attribute.Model.tableName === attribute.references.model) {
+      this.sequelize.log('MSSQL does not support self referencial constraints, '
+        + 'we will remove it but we recommend restructuring your query');
+      attribute.onDelete = '';
+      attribute.onUpdate = '';
+    }
+  },
+
+  /**
+   * Get attribute template based on type.
+   * @private
+   */
+  _getAttributeTemplate(attribute) {
+    if (attribute.type instanceof DataTypes.ENUM) {
+      if (attribute.type.values && !attribute.values) {
+        attribute.values = attribute.type.values;
+      }
+
+      let template = attribute.type.toSql();
+      template += ' CHECK (' + this.quoteIdentifier(attribute.field) + ' IN(' + _.map(attribute.values, value => {
+        return this.escape(value);
+      }).join(', ') + '))';
+      return template;
+    }
+
+    return attribute.type.toString();
+  },
+
+  /**
+   * Apply modifiers to attribute template.
+   * @private
+   */
+  _applyAttributeModifiers(attribute, template) {
+    if (attribute.allowNull === false) {
+      template += ' NOT NULL';
+    } else if (!attribute.primaryKey && !Utils.defaultValueSchemable(attribute.defaultValue)) {
+      template += ' NULL';
+    }
+
+    if (attribute.autoIncrement) {
+      template += ' IDENTITY(1,1)';
+    }
+
+    if (this._canHaveDefaultValue(attribute)) {
+      template += ' DEFAULT ' + this.escape(attribute.defaultValue);
+    }
+
+    if (attribute.unique === true) {
+      template += ' UNIQUE';
+    }
+
+    if (attribute.primaryKey) {
+      template += ' PRIMARY KEY';
+    }
+
+    if (attribute.references) {
+      this._applyReferencesModifier(attribute, template);
+    }
+
+    return template;
+  },
+
+  /**
+   * Check if attribute can have a default value.
+   * @private
+   */
+  _canHaveDefaultValue(attribute) {
+    return attribute.type !== 'TEXT' && attribute.type._binary !== true &&
+        Utils.defaultValueSchemable(attribute.defaultValue);
+  },
+
+  /**
+   * Apply REFERENCES modifier to template.
+   * @private
+   */
+  _applyReferencesModifier(attribute, template) {
+    template += ' REFERENCES ' + this.quoteTable(attribute.references.model);
+
+    if (attribute.references.key) {
+      template += ' (' + this.quoteIdentifier(attribute.references.key) + ')';
+    } else {
+      template += ' (' + this.quoteIdentifier('id') + ')';
+    }
+
+    if (attribute.onDelete) {
+      template += ' ON DELETE ' + attribute.onDelete.toUpperCase();
+    }
+
+    if (attribute.onUpdate) {
+      template += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
+    }
+  },
+
+  attributesToSQL(attributes, options) {
+    const result = {},
+      existingConstraints = [];
+    let key,
+      attribute;
+
+    for (key in attributes) {
+      attribute = attributes[key];
+
+      this._processAttributeConstraints(attribute, existingConstraints);
+
+      if (key && !attribute.field) attribute.field = key;
+      result[attribute.field || key] = this.attributeToSQL(attribute, options);
+    }
+
+    return result;
+  },
+
+  /**
+   * Process attribute constraints for cascading.
+   * @private
+   */
+  _processAttributeConstraints(attribute, existingConstraints) {
+    if (!attribute.references) {
+      return;
+    }
+
+    if (existingConstraints.indexOf(attribute.references.model.toString()) !== -1) {
+      // no cascading constraints to a table more than once
+      attribute.onDelete = '';
+      attribute.onUpdate = '';
+      return;
+    }
+
+    existingConstraints.push(attribute.references.model.toString());
+
+    // NOTE: this really just disables cascading updates for all
+    //       definitions. Can be made more robust to support the
+    //       few cases where MSSQL actually supports them
+    attribute.onUpdate = '';
+  },
+
+  createTrigger() {
+    throwMethodUndefined('createTrigger');
+  },
+
+  dropTrigger() {
+    throwMethodUndefined('dropTrigger');
+  },
+
+  renameTrigger() {
+    throwMethodUndefined('renameTrigger');
+  },
+
+  createFunction() {
+    throwMethodUndefined('createFunction');
+  },
+
+  dropFunction() {
+    throwMethodUndefined('dropFunction');
+  },
+
+  renameFunction() {
+    throwMethodUndefined('renameFunction');
+  },
+
+  quoteIdentifier(identifier) {
+    if (identifier === '*') return identifier;
+    return '[' + identifier.replace(/[\[\]']+/g, '') + ']';
+  },
+
+  /**
+   * Generate common SQL prefix for ForeignKeysQuery.
+   * @returns {String}
+   */
+  _getForeignKeysQueryPrefix(catalogName) {
+    return 'SELECT ' +
+        'constraint_name = OBJ.NAME, ' +
+        'constraintName = OBJ.NAME, ' +
+        (catalogName ? `constraintCatalog = '${catalogName}', ` : '') +
+        'constraintSchema = SCHEMA_NAME(OBJ.SCHEMA_ID), ' +
+        'tableName = TB.NAME, ' +
+        'tableSchema = SCHEMA_NAME(TB.SCHEMA_ID), ' +
+        (catalogName ? `tableCatalog = '${catalogName}', ` : '') +
+        'columnName = COL.NAME, ' +
+        'referencedTableSchema = SCHEMA_NAME(RTB.SCHEMA_ID), ' +
+        (catalogName ? `referencedCatalog = '${catalogName}', ` : '') +
+        'referencedTableName = RTB.NAME, ' +
+        'referencedColumnName = RCOL.NAME ' +
+      'FROM SYS.FOREIGN_KEY_COLUMNS FKC ' +
+        'INNER JOIN SYS.OBJECTS OBJ ON OBJ.OBJECT_ID = FKC.CONSTRAINT_OBJECT_ID ' +
+        'INNER JOIN SYS.TABLES TB ON TB.OBJECT_ID = FKC.PARENT_OBJECT_ID ' +
+        'INNER JOIN SYS.COLUMNS COL ON COL.COLUMN_ID = PARENT_COLUMN_ID AND COL.OBJECT_ID = TB.OBJECT_ID ' +
+        'INNER JOIN SYS.TABLES RTB ON RTB.OBJECT_ID = FKC.REFERENCED_OBJECT_ID ' +
+        'INNER JOIN SYS.COLUMNS RCOL ON RCOL.COLUMN_ID = REFERENCED_COLUMN_ID AND RCOL.OBJECT_ID = RTB.OBJECT_ID';
+  },
+
+  /**
+   * Generates an SQL query that returns all foreign keys details of a table.
+   * @param {Stirng|Object} table
+   * @param {String} catalogName database name
+   * @returns {String}
+   */
+  getForeignKeysQuery(table, catalogName) {
+    const tableName = table.tableName || table;
+    let sql = this._getForeignKeysQueryPrefix(catalogName) +
+      ' WHERE TB.NAME =' + wrapSingleQuote(tableName);
+
+    if (table.schema) {
+      sql += ' AND SCHEMA_NAME(TB.SCHEMA_ID) =' + wrapSingleQuote(table.schema);
+    }
+    return sql;
+  },
+
+  getForeignKeyQuery(table, attributeName) {
+    const tableName = table.tableName || table;
+    let sql = this._getForeignKeysQueryPrefix() +
+      ' WHERE TB.NAME =' + wrapSingleQuote(tableName) +
+      ' AND COL.NAME =' + wrapSingleQuote(attributeName);
+
+    if (table.schema) {
+      sql += ' AND SCHEMA_NAME(TB.SCHEMA_ID) =' + wrapSingleQuote(table.schema);
+    }
+
+    return sql;
+  },
+
+  getPrimaryKeyConstraintQuery(table, attributeName) {
+    const tableName = wrapSingleQuote(table.tableName || table);
+    return [
+      'SELECT K.TABLE_NAME AS tableName,',
+      'K.COLUMN_NAME AS columnName,',
+      'K.CONSTRAINT_NAME AS constraintName',
+      'FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS C',
+      'JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS K',
+      'ON C.TABLE_NAME = K.TABLE_NAME',
+      'AND C.CONSTRAINT_CATALOG = K.CONSTRAINT_CATALOG',
+      'AND C.CONSTRAINT_SCHEMA = K.CONSTRAINT_SCHEMA',
+      'AND C.CONSTRAINT_NAME = K.CONSTRAINT_NAME',
+      'WHERE C.CONSTRAINT_TYPE = \'PRIMARY KEY\'',
+      `AND K.COLUMN_NAME = ${wrapSingleQuote(attributeName)}`,
+      `AND K.TABLE_NAME = ${tableName};`
+    ].join(' ');
+  },
+
+  dropForeignKeyQuery(tableName, foreignKey) {
+    return _.template('ALTER TABLE <%= table %> DROP <%= key %>', this._templateSettings)({
+      table: this.quoteTable(tableName),
+      key: this.quoteIdentifier(foreignKey)
+    });
+  },
+
+  getDefaultConstraintQuery(tableName, attributeName) {
+    const sql = 'SELECT name FROM SYS.DEFAULT_CONSTRAINTS ' +
+      "WHERE PARENT_OBJECT_ID = OBJECT_ID('<%= table %>', 'U') " +
+      "AND PARENT_COLUMN_ID = (SELECT column_id FROM sys.columns WHERE NAME = ('<%= column %>') " +
+      "AND object_id = OBJECT_ID('<%= table %>', 'U'));";
+    return _.template(sql, this._templateSettings)({
+      table: this.quoteTable(tableName),
+      column: attributeName
+    });
+  },
+
+  dropConstraintQuery(tableName, constraintName) {
+    const sql = 'ALTER TABLE <%= table %> DROP CONSTRAINT <%= constraint %>;';
+    return _.template(sql, this._templateSettings)({
+      table: this.quoteTable(tableName),
+      constraint: this.quoteIdentifier(constraintName)
+    });
+  },
+
+  setAutocommitQuery() {
+    return '';
+  },
+
+  setIsolationLevelQuery() {
+
+  },
+
+  generateTransactionId() {
+    return randomBytes(10).toString('hex');
+  },
+
+  startTransactionQuery(transaction) {
+    if (transaction.parent) {
+      return 'SAVE TRANSACTION ' + this.quoteIdentifier(transaction.name) + ';';
+    }
+
+    return 'BEGIN TRANSACTION;';
+  },
+
+  commitTransactionQuery(transaction) {
+    if (transaction.parent) {
+      return;
+    }
+
+    return 'COMMIT TRANSACTION;';
+  },
+
+  rollbackTransactionQuery(transaction) {
+    if (transaction.parent) {
+      return 'ROLLBACK TRANSACTION ' + this.quoteIdentifier(transaction.name) + ';';
+    }
+
+    return 'ROLLBACK TRANSACTION;';
+  },
+
+  selectFromTableFragment(options, model, attributes, tables, mainTableAs, where) {
+    const isOldSqlServer = this._isOldSqlServerVersion();
+
+    if (isOldSqlServer && options.offset) {
+      return this._buildOffsetQuery(options, model, attributes, tables, mainTableAs, where);
+    }
+
+    return this._buildSimpleSelectFragment(options, attributes, tables, mainTableAs);
+  },
+
+  /**
+   * Check if SQL Server version is older than 2012.
+   * @private
+   */
+  _isOldSqlServerVersion() {
+    return semver.valid(this.sequelize.options.databaseVersion) && 
+           semver.lt(this.sequelize.options.databaseVersion, '11.0.0');
+  },
+
+  /**
+   * Build offset query for older SQL Server versions.
+   * @private
+   */
+  _buildOffsetQuery(options, model, attributes, tables, mainTableAs, where) {
+    const offset = options.offset || 0;
+    const isSubQuery = options.hasIncludeWhere || options.hasIncludeRequired || options.hasMultiAssociation;
+    let orders = { mainQueryOrder: [] };
+
+    if (options.order) {
+      orders = this.getQueryOrders(options, model, isSubQuery);
+    }
+
+    if (!orders.mainQueryOrder.length) {
+      orders.mainQueryOrder.push(this.quoteIdentifier(model.primaryKeyField));
+    }
+
+    const tmpTable = mainTableAs ? mainTableAs : 'OffsetTable';
+    const whereFragment = where ? ' WHERE ' + where : '';
+
+    /*
+     * For earlier versions of SQL server, we need to nest several queries
+     * in order to emulate the OFFSET behavior.
+     *
+     * 1. The outermost query selects all items from the inner query block.
+     *    This is due to a limitation in SQL server with the use of computed
+     *    columns (e.g. SELECT ROW_NUMBER()...AS x) in WHERE clauses.
+     * 2. The next query handles the LIMIT and OFFSET behavior by getting
+     *    the TOP N rows of the query where the row number is > OFFSET
+     * 3. The innermost query is the actual set we want information from
+     */
+    const topFragment = options.limit ? 'TOP ' + options.limit + ' ' : '';
+    return 'SELECT TOP 100 PERCENT ' + attributes.join(', ') + ' FROM ' +
+                    '(SELECT ' + topFragment + '*' +
+                      ' FROM (SELECT ROW_NUMBER() OVER (ORDER BY ' + orders.mainQueryOrder.join(', ') + ') as row_num, * ' +
+                        ' FROM ' + tables + ' AS ' + tmpTable + whereFragment + ')' +
+                      ' AS ' + tmpTable + ' WHERE row_num > ' + offset + ')' +
+                    ' AS ' + tmpTable;
+  },
+
+  /**
+   * Build simple SELECT fragment.
+   * @private
+   */
+  _buildSimpleSelectFragment(options, attributes, tables, mainTableAs) {
+    let mainFragment = 'SELECT ' + attributes.join(', ') + ' FROM ' + tables;
+
+    if (mainTableAs) {
+      mainFragment += ' AS ' + mainTableAs;
+    }
+
+    if (options.tableHint && TableHints[options.tableHint]) {
+      mainFragment += ` WITH (${TableHints[options.tableHint]})`;
+    }
+
+    return mainFragment;
+  },
+
+  addLimitAndOffset(options, model) {
+    // Skip handling of limit and offset as postfixes for older SQL Server versions
+    if (this._isOldSqlServerVersion()) {
+      return '';
+    }
+
+    const offset = options.offset || 0;
+    const isSubQuery = this._isSubQuery(options);
+
+    let fragment = '';
+
+    if (!this._shouldAddOrderBy(options, isSubQuery)) {
+      fragment += this._buildOrderByClause(options, model, isSubQuery);
+    }
+
+    if (options.offset || options.limit) {
+      fragment += this._buildOffsetFetchClause(offset, options);
+    }
+
+    return fragment;
+  },
+
+  /**
+   * Check if query is a subquery.
+   * @private
+   */
+  _isSubQuery(options) {
+    return options.subQuery === undefined
+      ? options.hasIncludeWhere || options.hasIncludeRequired || options.hasMultiAssociation
+      : options.subQuery;
+  },
+
+  /**
+   * Check if ORDER BY should be added.
+   * @private
+   */
+  _shouldAddOrderBy(options, isSubQuery) {
+    return options.order && (!options.include || (options.include && isSubQuery));
+  },
+
+  /**
+   * Build ORDER BY clause.
+   * @private
+   */
+  _buildOrderByClause(options, model, isSubQuery) {
+    let fragment = '';
+
+    if (options.order) {
+      fragment += ', ';
+    } else {
+      fragment += ' ORDER BY ';
+    }
+
+    fragment += this.quoteTable(options.tableAs || model.name) + '.' + this.quoteIdentifier(model.primaryKeyField);
+    return fragment;
+  },
+
+  /**
+   * Build OFFSET/FETCH clause.
+   * @private
+   */
+  _buildOffsetFetchClause(offset, options) {
+    let fragment = ' OFFSET ' + this.escape(offset) + ' ROWS';
+
+    if (options.limit) {
+      fragment += ' FETCH NEXT ' + this.escape(options.limit) + ' ROWS ONLY';
+    }
+
+    return fragment;
+  },
+
+  booleanValue(value) {
+    return value ? 1 : 0;
+  }
+};
+
+// private methods
+function wrapSingleQuote(identifier) {
+  return Utils.addTicks(Utils.removeTicks(identifier, "'"), "'");
+}
+
+module.exports = QueryGenerator;
+```

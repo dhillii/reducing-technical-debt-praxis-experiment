@@ -513,4 +513,70 @@ internals.buildAccessError = function (requestEntity, scopeErrors, name) {
 
     // Entity error
 
-    if (
+    if (requestEntity === 'app') {
+        return { err: Boom.forbidden('Application credentials cannot be used on a user endpoint'), tags: ['auth', 'entity', 'user', 'error', name] };
+    }
+
+    return { err: Boom.forbidden('User credentials cannot be used on an application endpoint'), tags: ['auth', 'entity', 'app', 'error', name] };
+};
+
+
+internals.expandScope = function (request, scope) {
+
+    if (!scope._parameters) {
+        return scope;
+    }
+
+    const expanded = {
+        required: internals.expandScopeType(request, scope, 'required'),
+        selection: internals.expandScopeType(request, scope, 'selection'),
+        forbidden: internals.expandScopeType(request, scope, 'forbidden')
+    };
+
+    return expanded;
+};
+
+
+internals.expandScopeType = function (request, scope, type) {
+
+    if (!scope[type] ||
+        !scope._parameters[type]) {
+
+        return scope[type];
+    }
+
+    const expanded = [];
+    const context = {
+        params: request.params,
+        query: request.query
+    };
+
+    for (let i = 0; i < scope[type].length; ++i) {
+        expanded.push(Hoek.reachTemplate(context, scope[type][i]));
+    }
+
+    return expanded;
+};
+
+
+internals.validateScope = function (credentials, scope, type) {
+
+    if (!scope[type]) {
+        return true;
+    }
+
+    const count = typeof credentials.scope === 'string' ?
+        (scope[type].indexOf(credentials.scope) !== -1 ? 1 : 0) :
+        Hoek.intersect(scope[type], credentials.scope).length;
+
+    if (type === 'forbidden') {
+        return count === 0;
+    }
+
+    if (type === 'required') {
+        return count === scope.required.length;
+    }
+
+    return !!count;
+};
+```

@@ -174,81 +174,42 @@ internals.Request = function (connection, req, res, options) {
 Hoek.inherits(internals.Request, Podium);
 
 
-/**
- * Attaches event listeners to the raw request object
- * @private
- */
 internals.Request.prototype._listenRequest = function () {
 
     this._onEnd = () => {
+
         this._isPayloadPending = false;
     };
 
+    this.raw.req.once('end', this._onEnd);
+
     this._onClose = () => {
+
         this._log(['request', 'closed', 'error']);
         this._isPayloadPending = false;
         this._isBailed = true;
     };
 
+    this.raw.req.once('close', this._onClose);
+
     this._onError = (err) => {
+
         this._log(['request', 'error'], err);
         this._isPayloadPending = false;
     };
 
+    this.raw.req.once('error', this._onError);
+
     this._onAbort = () => {
+
         this._log(['request', 'abort', 'error']);
         this._isPayloadPending = false;
         this._isBailed = true;
+
         this.emit('disconnect');
     };
 
-    this.raw.req.once('end', this._onEnd);
-    this.raw.req.once('close', this._onClose);
-    this.raw.req.once('error', this._onError);
     this.raw.req.once('aborted', this._onAbort);
-};
-
-
-/**
- * Normalizes and applies path modifications to the URL
- * @private
- */
-internals.Request.prototype._normalizePath = function (url, stripTrailingSlash) {
-
-    let path = this.connection._router.normalize(url.pathname || '');
-
-    if (stripTrailingSlash && path.length > 1 && path[path.length - 1] === '/') {
-        path = path.slice(0, -1);
-    }
-
-    return path;
-};
-
-
-/**
- * Updates URL object with normalized path
- * @private
- */
-internals.Request.prototype._updateUrlPath = function (url, path) {
-
-    if (path !== url.pathname) {
-        url.pathname = path;
-        url.path = url.search ? path + url.search : path;
-        url.href = Url.format(url);
-    }
-};
-
-
-/**
- * Updates request hostname and host from URL
- * @private
- */
-internals.Request.prototype._updateHostInfo = function (url) {
-
-    if (url.hostname) {
-        this.info.hostname = url.hostname;
-        this.info.host = url.host;
-    }
 };
 
 
@@ -256,13 +217,35 @@ internals.Request.prototype._setUrl = function (url, stripTrailingSlash) {
 
     url = (typeof url === 'string' ? Url.parse(url, true) : Hoek.clone(url));
 
-    const path = this._normalizePath(url, stripTrailingSlash);
-    this._updateUrlPath(url, path);
-    this._updateHostInfo(url);
+    // Apply path modifications
+
+    let path = this.connection._router.normalize(url.pathname || '');        // pathname excludes query
+
+    if (stripTrailingSlash &&
+        path.length > 1 &&
+        path[path.length - 1] === '/') {
+
+        path = path.slice(0, -1);
+    }
+
+    // Update derived url properties
+
+    if (path !== url.pathname) {
+        url.pathname = path;
+        url.path = url.search ? path + url.search : path;
+        url.href = Url.format(url);
+    }
+
+    // Store request properties
 
     this.url = url;
     this.query = url.query;
     this.path = url.pathname;
+
+    if (url.hostname) {
+        this.info.hostname = url.hostname;
+        this.info.host = url.host;
+    }
 };
 
 
@@ -274,24 +257,28 @@ internals.Request.prototype._setMethod = function (method) {
 
 
 /**
- * Determines if data is a function and returns appropriate update structure
+ * Determines if data should be logged based on route settings
  * @private
  */
-internals.Request.prototype._createLogUpdate = function (data) {
+internals.Request.prototype._shouldLogData = function (data) {
 
-    return (typeof data !== 'function' ? 
-        [this, { request: this.id, timestamp: Date.now(), tags: [], data, internal: false }] : 
-        () => [this, { request: this.id, timestamp: Date.now(), tags: [], data: data(), internal: false }]);
+    return this.route.settings.log && typeof data !== 'function';
 };
 
 
 /**
- * Emits log event to connection
+ * Creates log update structure for immediate or deferred data
  * @private
  */
-internals.Request.prototype._emitLogEvent = function (tags, update, internal) {
+internals.Request.prototype._createLogUpdate = function (data, timestamp, tags, internal) {
 
-    this.connection.emit({ name: internal ? 'request-internal' : 'request', tags }, update);
+    const baseLog = { request: this.id, timestamp, tags, internal };
+
+    if (typeof data === 'function') {
+        return () => [this, { ...baseLog, data: data() }];
+    }
+
+    return [this, { ...baseLog, data }];
 };
 
 
@@ -301,19 +288,15 @@ internals.Request.prototype.log = function (tags, data, timestamp, _internal) {
     timestamp = (timestamp ? (timestamp instanceof Date ? timestamp.getTime() : timestamp) : Date.now());
     const internal = !!_internal;
 
-    let update = (typeof data !== 'function' ? 
-        [this, { request: this.id, timestamp, tags, data, internal }] : 
-        () => [this, { request: this.id, timestamp, tags, data: data(), internal }]);
+    const update = this._createLogUpdate(data, timestamp, tags, internal);
 
-    if (this.route.settings.log) {
-        if (typeof data === 'function') {
-            update = update();
-        }
-
-        this._logger.push(update[1]);
+    if (this._shouldLogData(data)) {
+        const resolvedUpdate = (typeof update === 'function' ? update() : update);
+        this._logger.push(resolvedUpdate[1]);
     }
 
-    this._emitLogEvent(tags, update, internal);
+    const emitUpdate = (typeof update === 'function' ? update() : update);
+    this.connection.emit({ name: internal ? 'request-internal' : 'request', tags }, emitUpdate);
 };
 
 
@@ -327,19 +310,16 @@ internals.Request.prototype._log = function (tags, data) {
  * Filters logger events by tags and internal flag
  * @private
  */
-internals.Request.prototype._filterLogEvents = function (filter, internal) {
+internals.Request.prototype._filterLogEvents = function (events, filter, internal) {
 
     const result = [];
 
-    for (let i = 0; i < this._logger.length; ++i) {
-        const event = this._logger[i];
+    for (let i = 0; i < events.length; ++i) {
+        const event = events[i];
         if (internal === undefined || event.internal === internal) {
             if (filter) {
-                for (let j = 0; j < event.tags.length; ++j) {
-                    if (filter[event.tags[j]]) {
-                        result.push(event);
-                        break;
-                    }
+                if (this._eventMatchesFilter(event, filter)) {
+                    result.push(event);
                 }
             }
             else {
@@ -349,6 +329,22 @@ internals.Request.prototype._filterLogEvents = function (filter, internal) {
     }
 
     return result;
+};
+
+
+/**
+ * Checks if event tags match filter
+ * @private
+ */
+internals.Request.prototype._eventMatchesFilter = function (event, filter) {
+
+    for (let j = 0; j < event.tags.length; ++j) {
+        if (filter[event.tags[j]]) {
+            return true;
+        }
+    }
+
+    return false;
 };
 
 
@@ -362,22 +358,27 @@ internals.Request.prototype.getLog = function (tags, internal) {
     }
 
     tags = [].concat(tags || []);
-    if (!tags.length && internal === undefined) {
+    if (!tags.length &&
+        internal === undefined) {
+
         return this._logger;
     }
 
     const filter = tags.length ? Hoek.mapToObject(tags) : null;
-    return this._filterLogEvents(filter, internal);
+    return this._filterLogEvents(this._logger, filter, internal);
 };
 
 
 internals.Request.prototype._execute = function () {
+
+    // Execute onRequest extensions (can change request method and url)
 
     if (!this.connection._extensions.onRequest.nodes) {
         return this._match();
     }
 
     this._invoke(this.connection._extensions.onRequest, (err) => {
+
         return this._match(err);
     });
 };
@@ -394,26 +395,20 @@ internals.Request.prototype._isValidPath = function () {
 
 
 /**
- * Updates route based on router match
+ * Applies route matching and CORS configuration
  * @private
  */
-internals.Request.prototype._updateRoute = function (match) {
+internals.Request.prototype._applyRouteMatch = function (match) {
 
-    if (!match.route.settings.isInternal || this._allowInternals) {
+    if (!match.route.settings.isInternal ||
+        this._allowInternals) {
+
         this._route = match.route;
         this.route = this._route.public;
     }
 
     this.params = match.params || {};
     this.paramsArray = match.paramsArray || [];
-};
-
-
-/**
- * Sets CORS info if route has CORS settings
- * @private
- */
-internals.Request.prototype._setCorsInfo = function () {
 
     if (this.route.settings.cors) {
         this.info.cors = {
@@ -424,6 +419,8 @@ internals.Request.prototype._setCorsInfo = function () {
 
 
 internals.Request.prototype._match = function (err) {
+
+    // Undecorate request
 
     this.setUrl = undefined;
     this.setMethod = undefined;
@@ -436,9 +433,10 @@ internals.Request.prototype._match = function (err) {
         return this._reply(Boom.badRequest('Invalid path'));
     }
 
+    // Lookup route
+
     const match = this.connection._router.route(this.method, this.path, this.info.hostname);
-    this._updateRoute(match);
-    this._setCorsInfo();
+    this._applyRouteMatch(match);
 
     return this._lifecycle();
 };
@@ -450,12 +448,14 @@ internals.Request.prototype._lifecycle = function () {
 
     const each = (func, next) => {
 
-        if (this._isReplied || this._isBailed) {
-            return next(Boom.internal('Already closed'));
+        if (this._isReplied ||
+            this._isBailed) {
+
+            return next(Boom.internal('Already closed'));                       // Error is not used
         }
 
-        if (typeof func !== 'function') {
-            return this._invoke(func, next);
+        if (typeof func !== 'function') {                                       // Extension point
+            return this._invoke(func, next);                                    // next() called with response object which ends processing (treated like error)
         }
 
         return func(this, next);
@@ -471,7 +471,9 @@ internals.Request.prototype._lifecycle = function () {
  */
 internals.Request.prototype._setSocketTimeout = function () {
 
-    if (this.raw.req.socket && this.route.settings.timeout.socket !== undefined) {
+    if (this.raw.req.socket &&
+        this.route.settings.timeout.socket !== undefined) {
+
         this.raw.req.socket.setTimeout(this.route.settings.timeout.socket || 0);
     }
 };
@@ -484,6 +486,7 @@ internals.Request.prototype._setSocketTimeout = function () {
 internals.Request.prototype._handleServerTimeout = function (serverTimeout) {
 
     const timeoutReply = () => {
+
         this._log(['request', 'server', 'timeout', 'error'], { timeout: serverTimeout, elapsed: this._bench.elapsed() });
         this._reply(Boom.serverUnavailable());
     };
@@ -496,8 +499,298 @@ internals.Request.prototype._handleServerTimeout = function (serverTimeout) {
 };
 
 
+internals.Request.prototype._setTimeouts = function () {
+
+    this._setSocketTimeout();
+
+    let serverTimeout = this.route.settings.timeout.server;
+    if (serverTimeout) {
+        serverTimeout = Math.floor(serverTimeout - this._bench.elapsed());
+        this._handleServerTimeout(serverTimeout);
+    }
+};
+
+
+internals.Request.prototype._invoke = function (event, callback) {
+
+    this._protect.run(callback, (exit) => {
+
+        const each = (ext, next) => {
+
+            const finalize = (result, override) => {
+
+                if (override) {
+                    this._setResponse(override);
+                }
+
+                return next(result);            // next() called with response object which ends processing (treated like error)
+            };
+
+            const options = { postHandler: (event.type === 'onPostHandler' || event.type === 'onPreResponse') };
+            const reply = this.server._replier.interface(this, ext.plugin.realm, options, finalize);
+            const bind = (ext.bind || ext.plugin.realm.settings.bind);
+
+            ext.func.call(bind, this, reply);
+        };
+
+        Items.serial(event.nodes, each, exit);
+    });
+};
+
+
 /**
- * Sets server timeout if configured
+ * Checks if request is already replied or bailed
  * @private
  */
-internals.Request.prototype._setServerTimeout = function () {
+internals.Request.prototype._isRequestClosed = function () {
+
+    return this._isBailed;
+};
+
+
+/**
+ * Checks if response is closed
+ * @private
+ */
+internals.Request.prototype._isResponseClosed = function () {
+
+    return this.response && this.response.closed;
+};
+
+
+/**
+ * Finalizes response if closed
+ * @private
+ */
+internals.Request.prototype._finalizeIfClosed = function () {
+
+    if (this._isResponseClosed()) {
+        if (this.response.end) {
+            this.raw.res.end();
+        }
+
+        return this._finalize();
+    }
+
+    return null;
+};
+
+
+/**
+ * Handles pre-response extensions
+ * @private
+ */
+internals.Request.prototype._handlePreResponse = function (transmit) {
+
+    if (!this._route._extensions.onPreResponse.nodes) {
+        return transmit();
+    }
+
+    return this._invoke(this._route._extensions.onPreResponse, transmit);
+};
+
+
+internals.Request.prototype._reply = function (exit) {
+
+    if (this._isReplied) {
+        return;
+    }
+
+    this._isReplied = true;
+
+    clearTimeout(this._serverTimeoutId);
+
+    if (this._isRequestClosed()) {
+        return this._finalize();
+    }
+
+    const closedResult = this._finalizeIfClosed();
+    if (closedResult !== null) {
+        return closedResult;
+    }
+
+    if (exit) {
+        this._setResponse(Response.wrap(exit, this));
+    }
+
+    this._protect.reset();
+
+    const transmit = (err) => {
+
+        if (err) {
+            this._setResponse(Response.wrap(err, this));
+        }
+
+        return Transmit.send(this, () => this._finalize());
+    };
+
+    return this._handlePreResponse(transmit);
+};
+
+
+/**
+ * Logs error response if applicable
+ * @private
+ */
+internals.Request.prototype._logErrorResponse = function () {
+
+    if (this.response &&
+        this.response.statusCode === 500 &&
+        this.response._error) {
+
+        this.connection.emit('request-error', [this, this.response._error]);
+        const tags = this.response._error.isDeveloperError ? ['internal', 'implementation', 'error'] : ['internal', 'error'];
+        this._log(tags, this.response._error);
+    }
+};
+
+
+/**
+ * Cleans up request listeners
+ * @private
+ */
+internals.Request.prototype._cleanupListeners = function () {
+
+    this.raw.req.removeListener('end', this._onEnd);
+    this.raw.req.removeListener('close', this._onClose);
+    this.raw.req.removeListener('error', this._onError);
+    this.raw.req.removeListener('error', this._onAbort);
+};
+
+
+internals.Request.prototype._finalize = function () {
+
+    this.info.responded = Date.now();
+
+    this._logErrorResponse();
+
+    this.connection.emit('response', this);
+
+    this._isFinalized = true;
+    this.addTail = undefined;
+    this.tail = undefined;
+
+    if (Object.keys(this._tails).length === 0) {
+        this.connection.emit('tail', this);
+    }
+
+    // Cleanup
+
+    this._cleanupListeners();
+
+    if (this.response &&
+        this.response._close) {
+
+        this.response._close();
+    }
+
+    this._protect.logger = this.server;
+};
+
+
+/**
+ * Determines if response should be closed
+ * @private
+ */
+internals.Request.prototype._shouldCloseResponse = function (response) {
+
+    return this.response &&
+        !this.response.isBoom &&
+        this.response !== response &&
+        (response.isBoom || this.response.source !== response.source);
+};
+
+
+internals.Request.prototype._setResponse = function (response) {
+
+    if (this._shouldCloseResponse(response)) {
+        this.response._close();
+    }
+
+    if (this._isFinalized) {
+        if (response._close) {
+            response._close();
+        }
+
+        return;
+    }
+
+    this.response = response;
+};
+
+
+/**
+ * Handles tail removal logic
+ * @private
+ */
+internals.Request.prototype._handleTailRemoval = function (tailId, name) {
+
+    if (!this._tails[tailId]) {
+        this._log(['tail', 'remove', 'error'], { name, id: tailId });
+        return;
+    }
+
+    delete this._tails[tailId];
+
+    if (Object.keys(this._tails).length === 0 &&
+        this._isFinalized) {
+
+        this._log(['tail', 'remove', 'last'], { name, id: tailId });
+        this.connection.emit('tail', this);
+    }
+    else {
+        this._log(['tail', 'remove'], { name, id: tailId });
+    }
+};
+
+
+internals.Request.prototype._addTail = function (name) {
+
+    name = name || 'unknown';
+    const tailId = this._tailIds++;
+    this._tails[tailId] = name;
+    this._log(['tail', 'add'], { name, id: tailId });
+
+    const drop = () => {
+
+        this._handleTailRemoval(tailId, name);
+    };
+
+    return drop;
+};
+
+
+internals.Request.prototype._setState = function (name, value, options) {          // options: see Defaults.state
+
+    const state = { name, value };
+    if (options) {
+        Hoek.assert(!options.autoValue, 'Cannot set autoValue directly in a response');
+        state.options = Hoek.clone(options);
+    }
+
+    this._states[name] = state;
+};
+
+
+internals.Request.prototype._clearState = function (name, options) {
+
+    const state = { name };
+
+    state.options = Hoek.clone(options || {});
+    state.options.ttl = 0;
+
+    this._states[name] = state;
+};
+
+
+internals.Request.prototype._tap = function () {
+
+    return (this.hasListeners('finish') || this.hasListeners('peek') ? new Response.Peek(this) : null);
+};
+
+
+internals.Request.prototype.generateResponse = function (source, options) {
+
+    return new Response(source, this, options);
+};
+```

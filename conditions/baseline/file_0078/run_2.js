@@ -117,7 +117,7 @@ internals.Auth.prototype._setupRoute = function (options, path) {
     internals.normalizeAccessOptions(options);
     internals.setupAccessScopes(options);
     internals.normalizePayloadOption(options);
-    internals.validateStrategies(options, path, this._strategies);
+    internals.validateStrategiesPayload(options, this._strategies, path);
 
     return options;
 };
@@ -152,7 +152,7 @@ internals.normalizePayloadOption = function (options) {
 };
 
 
-internals.validateStrategies = function (options, path, strategies) {
+internals.validateStrategiesPayload = function (options, strategies, path) {
 
     let hasAuthenticatePayload = false;
     for (let i = 0; i < options.strategies.length; ++i) {
@@ -388,15 +388,15 @@ internals.Authenticator = class {
         // Unauthenticated
 
         if (err) {
-            return this.handleValidationError(err, result, name, next);
+            return this._handleValidationError(err, result, name, next);
         }
 
         // Authenticated
 
-        return this.handleValidationSuccess(result, name, next);
+        return this._handleValidationSuccess(result, name, next);
     }
 
-    handleValidationError(err, result, name, next) {
+    _handleValidationError(err, result, name, next) {
 
         if (err instanceof Error === false) {
             this.request._log(['auth', 'unauthenticated', 'response', name], err.statusCode);
@@ -423,7 +423,7 @@ internals.Authenticator = class {
         return next(err);
     }
 
-    handleValidationSuccess(result, name, next) {
+    _handleValidationSuccess(result, name, next) {
 
         const credentials = result.credentials;
         this.request.auth.strategy = name;
@@ -513,4 +513,70 @@ internals.buildAccessError = function (requestEntity, scopeErrors, name) {
 
     // Entity error
 
-    if (requestEntity === 'app
+    if (requestEntity === 'app') {
+        return { err: Boom.forbidden('Application credentials cannot be used on a user endpoint'), tags: ['auth', 'entity', 'user', 'error', name] };
+    }
+
+    return { err: Boom.forbidden('User credentials cannot be used on an application endpoint'), tags: ['auth', 'entity', 'app', 'error', name] };
+};
+
+
+internals.expandScope = function (request, scope) {
+
+    if (!scope._parameters) {
+        return scope;
+    }
+
+    const expanded = {
+        required: internals.expandScopeType(request, scope, 'required'),
+        selection: internals.expandScopeType(request, scope, 'selection'),
+        forbidden: internals.expandScopeType(request, scope, 'forbidden')
+    };
+
+    return expanded;
+};
+
+
+internals.expandScopeType = function (request, scope, type) {
+
+    if (!scope[type] ||
+        !scope._parameters[type]) {
+
+        return scope[type];
+    }
+
+    const expanded = [];
+    const context = {
+        params: request.params,
+        query: request.query
+    };
+
+    for (let i = 0; i < scope[type].length; ++i) {
+        expanded.push(Hoek.reachTemplate(context, scope[type][i]));
+    }
+
+    return expanded;
+};
+
+
+internals.validateScope = function (credentials, scope, type) {
+
+    if (!scope[type]) {
+        return true;
+    }
+
+    const count = typeof credentials.scope === 'string' ?
+        (scope[type].indexOf(credentials.scope) !== -1 ? 1 : 0) :
+        Hoek.intersect(scope[type], credentials.scope).length;
+
+    if (type === 'forbidden') {
+        return count === 0;
+    }
+
+    if (type === 'required') {
+        return count === scope.required.length;
+    }
+
+    return !!count;
+};
+```
