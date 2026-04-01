@@ -1,0 +1,502 @@
+```javascript
+import {HumanReadableError} from './errors';
+import {transformApiSiteData, transformApiTiersData, getUrlHistory} from './helpers';
+
+function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
+    const apiPath = 'members/api';
+
+    function endpointFor({type, resource}) {
+        if (type === 'members') {
+            return `${siteUrl.replace(/\/$/, '')}/${apiPath}/${resource}/`;
+        }
+    }
+
+    function contentEndpointFor({resource, params = {}}) {
+        if (apiUrl && apiKey) {
+            const searchParams = new URLSearchParams({
+                ...params,
+                key: apiKey
+            });
+            return `${apiUrl.replace(/\/$/, '')}/${resource}/?${searchParams.toString()}`;
+        }
+        return '';
+    }
+
+    function makeRequest({url, method = 'GET', headers = {}, credentials = undefined, body = undefined}) {
+        const options = {
+            method,
+            headers,
+            credentials,
+            body
+        };
+        return fetch(url, options);
+    }
+
+    async function handleJsonResponse(res, errorMessage) {
+        if (res.ok) {
+            return res.json();
+        }
+        throw new Error(errorMessage);
+    }
+
+    async function handleTextResponse(res, errorMessage) {
+        if (res.ok) {
+            return res.text();
+        }
+        throw new Error(errorMessage);
+    }
+
+    const api = {};
+
+    api.site = {
+        async read() {
+            const url = endpointFor({type: 'members', resource: 'site'});
+            const res = await makeRequest({
+                url,
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            return handleJsonResponse(res, 'Failed to fetch site data');
+        },
+
+        async newsletters() {
+            const url = contentEndpointFor({resource: 'newsletters', params: {limit: 100}});
+            const res = await makeRequest({
+                url,
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            return handleJsonResponse(res, 'Failed to fetch site data');
+        },
+
+        async tiers() {
+            const url = contentEndpointFor({resource: 'tiers', params: {limit: 100, include: 'monthly_price,yearly_price,benefits'}});
+            const res = await makeRequest({
+                url,
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            return handleJsonResponse(res, 'Failed to fetch site data');
+        },
+
+        async settings() {
+            const url = contentEndpointFor({resource: 'settings'});
+            const res = await makeRequest({
+                url,
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            return handleJsonResponse(res, 'Failed to fetch site data');
+        },
+
+        async offer({offerId}) {
+            const url = contentEndpointFor({resource: `offers/${offerId}`});
+            const res = await makeRequest({
+                url,
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            return handleJsonResponse(res, 'Failed to fetch offer data');
+        },
+
+        async recommendations({limit = 100} = {limit: 100}) {
+            const url = contentEndpointFor({resource: 'recommendations', params: {limit}});
+            const res = await makeRequest({
+                url,
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            return handleJsonResponse(res, 'Failed to fetch recommendations');
+        }
+    };
+
+    api.feedback = {
+        async add({uuid, key, postId, score}) {
+            let url = endpointFor({type: 'members', resource: 'feedback'});
+            if (uuid && key) {
+                url = url + `?uuid=${uuid}&key=${key}`;
+            }
+            const body = {
+                feedback: [
+                    {
+                        post_id: postId,
+                        score
+                    }
+                ]
+            };
+            const res = await makeRequest({
+                url,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify(body)
+            });
+            if (res.ok) {
+                return res.json();
+            }
+            const error = await HumanReadableError.fromApiResponse(res);
+            throw error ?? new Error('Failed to save feedback');
+        }
+    };
+
+    api.recommendations = {
+        trackClicked({recommendationId}) {
+            let url = endpointFor({type: 'members', resource: 'recommendations/' + recommendationId + '/clicked'});
+            navigator.sendBeacon(url);
+        },
+
+        trackSubscribed({recommendationId}) {
+            let url = endpointFor({type: 'members', resource: 'recommendations/' + recommendationId + '/subscribed'});
+            navigator.sendBeacon(url);
+        }
+    };
+
+    api.member = {
+        async identity() {
+            const url = endpointFor({type: 'members', resource: 'session'});
+            const res = await makeRequest({
+                url,
+                credentials: 'same-origin'
+            });
+            if (!res.ok || res.status === 204) {
+                return null;
+            }
+            return res.text();
+        },
+
+        async sessionData() {
+            const url = endpointFor({type: 'members', resource: 'member'});
+            const res = await makeRequest({
+                url,
+                credentials: 'same-origin'
+            });
+            if (!res.ok || res.status === 204) {
+                return null;
+            }
+            return res.json();
+        },
+
+        async update({name, subscribed, newsletters, enableCommentNotifications}) {
+            const url = endpointFor({type: 'members', resource: 'member'});
+            const body = {
+                name,
+                subscribed,
+                newsletters
+            };
+            if (enableCommentNotifications !== undefined) {
+                body.enable_comment_notifications = enableCommentNotifications;
+            }
+
+            const res = await makeRequest({
+                url,
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify(body)
+            });
+            if (!res.ok) {
+                return null;
+            }
+            return res.json();
+        },
+
+        async deleteSuppression() {
+            const url = endpointFor({type: 'members', resource: 'member/suppression'});
+
+            const res = await makeRequest({
+                url,
+                method: 'DELETE'
+            });
+            if (!res.ok) {
+                throw new Error('Your email has failed to resubscribe, please try again');
+            }
+            return true;
+        },
+
+        async getIntegrityToken() {
+            const url = endpointFor({type: 'members', resource: 'integrity-token'});
+            const res = await makeRequest({
+                url,
+                method: 'GET'
+            });
+
+            if (res.ok) {
+                return res.text();
+            }
+            const humanError = await HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
+            }
+            throw new Error('Failed to start a members session');
+        },
+
+        /**
+         * @returns {{
+         *     inboxLinks?: {
+         *         desktop: string;
+         *         android: string;
+         *         provider: 'gmail' | 'yahoo' | 'outlook' | 'proton' | 'icloud' | 'hey' | 'aol' | 'mailru';
+         *     };
+         *     otc_ref?: string;
+         * }}
+         */
+        async sendMagicLink({email, emailType, labels, name, oldEmail, newsletters, redirect, integrityToken, phonenumber, customUrlHistory, token, autoRedirect = true, includeOTC}) {
+            const url = endpointFor({type: 'members', resource: 'send-magic-link'});
+            const body = {
+                name,
+                email,
+                newsletters,
+                oldEmail,
+                emailType,
+                labels,
+                requestSrc: 'portal',
+                redirect,
+                integrityToken,
+                honeypot: phonenumber,
+                token,
+                autoRedirect,
+                includeOTC
+            };
+            const urlHistory = customUrlHistory ?? getUrlHistory();
+            if (urlHistory) {
+                body.urlHistory = urlHistory;
+            }
+
+            const res = await makeRequest({
+                url,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
+            });
+
+            if (res.ok) {
+                const contentType = (res.headers.get('content-type') || '').toLowerCase();
+                if (contentType.includes('application/json')) {
+                    try {
+                        return await res.json();
+                    } catch (e) {
+                        // fall through to response used pre-OTC
+                    }
+                }
+                return {};
+            }
+            const humanError = await HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
+            }
+            throw new Error('Failed to send magic link email');
+        },
+
+        async verifyOTC({otc, otcRef, redirect, integrityToken}) {
+            const url = endpointFor({type: 'members', resource: 'verify-otc'});
+            const body = {
+                otc,
+                otcRef,
+                redirect,
+                integrityToken
+            };
+
+            const res = await makeRequest({
+                url,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
+            });
+
+            if (res.ok) {
+                return await res.json();
+            }
+            const humanError = await HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
+            }
+            throw new Error('Failed to verify code');
+        },
+
+        async signout(all = false) {
+            const url = endpointFor({type: 'members', resource: 'session'});
+            const res = await makeRequest({
+                url,
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    all
+                })
+            });
+            if (res.ok) {
+                window.location.replace(siteUrl);
+                return 'Success';
+            }
+            throw new Error('Failed to signout');
+        },
+
+        async newsletters({uuid, key}) {
+            let url = endpointFor({type: 'members', resource: `member/newsletters`});
+            url = url + `?uuid=${uuid}&key=${key}`;
+            const res = await makeRequest({
+                url,
+                credentials: 'same-origin'
+            });
+            if (!res.ok || res.status === 204) {
+                return null;
+            }
+            return res.json();
+        },
+
+        async updateNewsletters({uuid, newsletters, key, enableCommentNotifications}) {
+            let url = endpointFor({type: 'members', resource: `member/newsletters`});
+            url = url + `?uuid=${uuid}&key=${key}`;
+            const body = {
+                newsletters
+            };
+
+            if (enableCommentNotifications !== undefined) {
+                body.enable_comment_notifications = enableCommentNotifications;
+            }
+
+            const res = await makeRequest({
+                url,
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
+            });
+            if (res.ok) {
+                return res.json();
+            }
+            throw new Error('Failed to update email preferences');
+        },
+
+        async updateEmailAddress({email}) {
+            const identity = await api.member.identity();
+            const url = endpointFor({type: 'members', resource: 'member/email'});
+            const body = {
+                email,
+                identity
+            };
+
+            const res = await makeRequest({
+                url,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
+            });
+            if (res.ok) {
+                return 'Success';
+            }
+            const errData = await res.json();
+            const errMssg = errData?.errors?.[0]?.message || 'Failed to send email address verification email';
+            throw new Error(errMssg);
+        },
+
+        async checkoutPlan({plan, tierId, cadence, cancelUrl, successUrl, email: customerEmail, name, offerId, newsletters, metadata = {}} = {}) {
+            const siteUrlObj = new URL(siteUrl);
+            const identity = await api.member.identity();
+            const url = endpointFor({type: 'members', resource: 'create-stripe-checkout-session'});
+
+            if (!cancelUrl) {
+                const checkoutCancelUrl = window.location.href.startsWith(siteUrlObj.href) ? new URL(window.location.href) : new URL(siteUrl);
+                checkoutCancelUrl.searchParams.set('stripe', 'cancel');
+                cancelUrl = checkoutCancelUrl.href;
+            }
+            const metadataObj = {
+                name,
+                newsletters: JSON.stringify(newsletters),
+                requestSrc: 'portal',
+                fp_tid: (window.FPROM || window.$FPROM)?.data?.tid,
+                urlHistory: getUrlHistory(),
+                ...metadata
+            };
+
+            const body = {
+                priceId: offerId ? null : plan,
+                offerId,
+                identity: identity,
+                metadata: metadataObj,
+                successUrl,
+                cancelUrl
+            };
+
+            if (customerEmail) {
+                body.customerEmail = customerEmail;
+            }
+
+            if (tierId && cadence) {
+                delete body.priceId;
+                body.tierId = offerId ? null : tierId;
+                body.cadence = offerId ? null : cadence;
+            }
+            const res = await makeRequest({
+                url,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
+            });
+            if (!res.ok) {
+                const errData = await res.json();
+                const errMssg = errData?.errors?.[0]?.message || 'Failed to signup, please try again.';
+                throw new Error(errMssg);
+            }
+            const responseBody = await res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            const redirectResult = await stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            });
+            if (redirectResult.error) {
+                throw new Error(redirectResult.error.message);
+            }
+        },
+
+        async checkoutDonation({successUrl, cancelUrl, metadata = {}, personalNote = ''} = {}) {
+            const identity = await api.member.identity();
+            const url = endpointFor({type: 'members', resource: 'create-stripe-checkout-session'});
+
+            const metadataObj = {
+                fp_tid: (window.FPROM || window.$FPROM)?.data?.tid,
+                urlHistory: getUrlHistory(),
+                ...metadata
+            };
+
+            const body = {
+                identity,
+                metadata: metadataObj,
+                successUrl,
+                cancelUrl,
+                type: 'donation',
+                personalNote
+            };
+
+            const response = await makeRequest({
+                url,
+                method: 'POST',
+                headers
