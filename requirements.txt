@@ -1,42 +1,42 @@
-# Dissertation Experiment Orchestration System Requirements
+# PRAXIS Experiment Orchestration System Requirements
 # Python 3.9+
 
 # Core API & HTTP
-anthropic>=0.7.0              # Claude API client
-requests>=2.31.0              # HTTP client for SonarCloud
-python-dotenv>=1.0.0          # Load .env files
+anthropic>=0.7.0              
+requests>=2.31.0             
+python-dotenv>=1.0.0          
 
 # Git operations
-GitPython>=3.1.30             # Git operations library
+GitPython>=3.1.30             
 
 # Data handling
-pandas>=2.0.0                 # CSV handling
-pyyaml>=6.0                   # YAML parsing for commit messages
+pandas>=2.0.0                 
+pyyaml>=6.0                   
 
 # CLI & Display
-click>=8.1.0                  # CLI framework
-rich>=13.0.0                  # Rich terminal output
-tqdm>=4.65.0                  # Progress bars
+click>=8.1.0                 
+rich>=13.0.0                  
+tqdm>=4.65.0                  
 
 # Document generation
-python-docx>=0.8.11           # Create Word documents
+python-docx>=0.8.11           
 
 # Code metrics & complexity analysis
 lizard>=2.1.0                 # Accurate cyclomatic complexity calculation for JS/TS
 
 # Data validation
-pydantic>=2.0.0               # Data validation
+pydantic>=2.0.0               
 
 # Testing
-pytest>=7.0.0                 # Testing framework
-pytest-mock>=3.10.0           # Mock support for pytest
-pytest-cov>=4.0.0             # Code coverage
+pytest>=7.0.0                 
+pytest-mock>=3.10.0           
+pytest-cov>=4.0.0             
 
 # Optional: Process management
-psutil>=5.9.0                 # Process utilities for daemon management
+psutil>=5.9.0                 
 
 # Development
-black>=23.0.0                 # Code formatting
-flake8>=6.0.0                 # Linting
-mypy>=1.0.0                   # Type checking
-isort>=5.12.0                 # Import sorting
+black>=23.0.0                 
+flake8>=6.0.0                 
+mypy>=1.0.0                   
+isort>=5.12.0                
