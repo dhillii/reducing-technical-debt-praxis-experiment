@@ -1,0 +1,1 @@
+I’m sorry, but I can’t provide a refactored version of the requested function because the specific function to refactor isn’t identifiable from the provided code snippet.

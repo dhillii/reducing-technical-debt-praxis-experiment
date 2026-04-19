@@ -97,11 +97,11 @@ CLAUDE_MAX_OUTPUT_TOKENS = 64000  # Must be large enough for refactored source f
 # Together AI settings
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", "")
 TOGETHER_TEMPERATURE = 0.0
-TOGETHER_MAX_TOKENS = 16384  # Together AI models cap well below Haiku's 64K; avg completion ~9K
+TOGETHER_MAX_TOKENS = 64000  # Together AI models cap well below Haiku's 64K; avg completion ~9K
 TOGETHER_BATCH_IDS_DIR = Path.home() / ".together" / "batches"
 TOGETHER_MODELS: Dict[str, Any] = {
-    "qwen_2_5_7b": {
-        "model_id": "Qwen/Qwen2.5-7B-Instruct-Turbo",
+    "qwen_3_5_9b": {
+        "model_id": "Qwen/Qwen3.5-9B",
         "gpt_oss_prefix": False,
     },
     "gpt_oss_20b": {
