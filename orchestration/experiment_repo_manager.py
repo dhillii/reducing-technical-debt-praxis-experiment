@@ -92,17 +92,20 @@ class ExperimentRepoManager:
         file_id: int,
         run_number: int,
         code: str,
+        conditions_root: str = "conditions",
     ) -> Path:
         """
         Write refactored code to file in the repository.
 
-        File structure: conditions/{condition}/file_{file_id:04d}/run_{run_number}.js
+        File structure: {conditions_root}/{condition}/file_{file_id:04d}/run_{run_number}.js
 
         Args:
-            condition: Refactoring condition (baseline, nfr_generic, adaptive_nfr)
+            condition: Refactoring condition (baseline, nfr_enriched, adaptive_nfr)
             file_id: File ID
             run_number: Run number (1, 2, or 3)
             code: Refactored code content
+            conditions_root: Root directory name (default "conditions"; use
+                             "conditions_<model_key>" for Together AI runs)
 
         Returns:
             Path to written file
@@ -111,7 +114,7 @@ class ExperimentRepoManager:
             raise ValueError("Repository not initialized")
 
         # Create directory structure
-        file_dir = self.repo_path / "conditions" / condition / f"file_{file_id:04d}"
+        file_dir = self.repo_path / conditions_root / condition / f"file_{file_id:04d}"
         file_dir.mkdir(parents=True, exist_ok=True)
 
         # Write code file

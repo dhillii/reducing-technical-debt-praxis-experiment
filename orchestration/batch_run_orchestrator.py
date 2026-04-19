@@ -1,8 +1,13 @@
 """
 Batch-mode orchestrator for running large-scale refactoring experiments.
 
-Integrates with the Anthropic Batch API to submit, poll, and process
-all 1,314 refactorings in parallel.
+Supports two inference providers:
+  - anthropic (model_key="haiku"): Anthropic Messages Batch API
+  - together   (model_key="llama_8b"|"gpt_oss_20b"|"llama_70b"|"gpt_oss_120b"):
+                Together AI Batch API
+
+Results from both providers are normalized before processing so all downstream
+logic (local metrics, CSV writes, git) is provider-agnostic.
 """
 
 import json
@@ -14,18 +19,30 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
 
-from api.batch_processor import BatchProcessor, BatchOrchestrator
-from api.claude_caller import ClaudeCaller
+from api.batch_processor import (
+    AnthropicBatchProvider,
+    TogetherBatchProvider,
+    BatchOrchestrator,
+    extract_code_from_response,
+)
 from orchestration.state_manager import StateManager
 from orchestration.experiment_repo_manager import ExperimentRepoManager
 from utils.config import (
     CSV_INPUT_FILE,
+    DATA_DIR,
+    PROJECT_ROOT,
     ACTIVE_PROMPTS_FILE,
     SOURCE_CODE_DIR,
     EXTRACTION_MANIFEST_FILE,
     SONARCLOUD_COMPONENT_TEMPLATE,
     CLAUDE_MODEL,
+    CLAUDE_TEMPERATURE,
     CLAUDE_MAX_OUTPUT_TOKENS,
+    EXPERIMENT_STATE_FILE,
+    TOGETHER_MODELS,
+    TOGETHER_TEMPERATURE,
+    TOGETHER_MAX_TOKENS,
+    TOGETHER_BATCH_IDS_DIR,
 )
 from utils.local_metrics import (
     analyze_code_metrics,
@@ -40,6 +57,7 @@ _TEXT_RESULT_COLUMNS = [
     "refactoring_applied",
     "git_commit_hash",
     "sonar_component_key",
+    "llm_model",
 ]
 
 _LOCAL_COMPUTED_COLUMNS = [
@@ -63,25 +81,84 @@ _LOCAL_COMPUTED_COLUMNS = [
 class BatchRunOrchestrator:
     """Orchestrates batch refactoring experiments end-to-end."""
 
-    def __init__(self):
-        """Initialize batch orchestrator."""
-        self.state_manager = StateManager()
-        self.batch_orchestrator = BatchOrchestrator()
+    def __init__(self, provider: str = "anthropic", model_key: str = "haiku"):
+        """
+        Initialize batch orchestrator.
+
+        Args:
+            provider:  "anthropic" (default) or "together"
+            model_key: "haiku" for Anthropic; one of "llama_8b", "gpt_oss_20b",
+                       "llama_70b", "gpt_oss_120b" for Together AI
+        """
+        self.provider = provider
+        self.model_key = model_key
+
+        # --- Resolve per-provider/model configuration ---
+        if provider == "anthropic":
+            self.model = CLAUDE_MODEL
+            self.max_tokens = CLAUDE_MAX_OUTPUT_TOKENS
+            self.temperature = CLAUDE_TEMPERATURE
+            self.gpt_oss_prefix = False
+            self.conditions_root = "conditions"
+            self.state_file = EXPERIMENT_STATE_FILE
+            self.output_csv = CSV_INPUT_FILE
+            batch_provider = AnthropicBatchProvider()
+        elif provider == "together":
+            if model_key not in TOGETHER_MODELS:
+                raise ValueError(
+                    f"Unknown Together AI model_key {model_key!r}. "
+                    f"Valid keys: {list(TOGETHER_MODELS)}"
+                )
+            cfg = TOGETHER_MODELS[model_key]
+            self.model = cfg["model_id"]
+            self.max_tokens = TOGETHER_MAX_TOKENS
+            self.temperature = TOGETHER_TEMPERATURE
+            self.gpt_oss_prefix = cfg["gpt_oss_prefix"]
+            self.conditions_root = f"conditions_{model_key}"
+            self.state_file = PROJECT_ROOT / f"experiment_state_{model_key}.json"
+            self.output_csv = DATA_DIR / f"together_dataset_{model_key}.csv"
+            batch_provider = TogetherBatchProvider(model_key=model_key)
+        else:
+            raise ValueError(f"Unknown provider {provider!r}. Use 'anthropic' or 'together'.")
+
+        self.state_manager = StateManager(state_file=self.state_file)
+        self.batch_orchestrator = BatchOrchestrator(provider=batch_provider)
         self.repo_manager = ExperimentRepoManager()
-        self.claude_caller = ClaudeCaller()
-        self.model = CLAUDE_MODEL
-        self.csv_df = pd.read_csv(CSV_INPUT_FILE, dtype={"record_id": str})
-        self._prompts: Dict[str, str] = self._load_prompts()
         self._git_lock = threading.Lock()
         self._csv_lock = threading.Lock()
         self._manifest_index: Optional[Dict[Tuple[str, str], int]] = None
+        self._prompts: Dict[str, str] = self._load_prompts()
+
+        # Load or initialize the output CSV
+        self.csv_df = self._load_or_init_csv()
         self._ensure_text_columns()
         self._ensure_local_metric_columns()
+
+        logger.info(
+            f"BatchRunOrchestrator: provider={provider}, model={self.model}, "
+            f"csv={self.output_csv.name}, state={self.state_file.name}"
+        )
         logger.info(f"Loaded CSV: {len(self.csv_df)} records, {len(self._prompts)} prompts")
 
     # -------------------------------------------------------------------------
-    # CSV column helpers
+    # CSV helpers
     # -------------------------------------------------------------------------
+
+    def _load_or_init_csv(self) -> pd.DataFrame:
+        """Load the output CSV, initialising it from the shell CSV for Together AI."""
+        if self.output_csv.exists():
+            return pd.read_csv(self.output_csv, dtype={"record_id": str})
+
+        # First run for this Together AI model: seed from shell CSV
+        logger.info(
+            f"Output CSV not found at {self.output_csv}. "
+            f"Seeding from shell CSV: {CSV_INPUT_FILE}"
+        )
+        shell_df = pd.read_csv(CSV_INPUT_FILE, dtype={"record_id": str})
+        self.output_csv.parent.mkdir(parents=True, exist_ok=True)
+        shell_df.to_csv(self.output_csv, index=False)
+        logger.info(f"Initialized Together AI CSV with {len(shell_df)} rows: {self.output_csv}")
+        return shell_df
 
     def _ensure_text_columns(self) -> None:
         for col in _TEXT_RESULT_COLUMNS:
@@ -215,8 +292,9 @@ class BatchRunOrchestrator:
                 "record_id": record_id,
                 "prompt": prompt,
                 "system_prompt": system_prompt,
-                "max_tokens": CLAUDE_MAX_OUTPUT_TOKENS,
-                "temperature": 0.0,
+                "max_tokens": self.max_tokens,
+                "temperature": self.temperature,
+                "reasoning_effort": "medium" if self.gpt_oss_prefix else None,
             })
 
         logger.info(f"Prepared {len(requests)} batch requests")
@@ -244,7 +322,10 @@ class BatchRunOrchestrator:
             batch_size=batch_size
         )
 
-        batch_ids_file = Path.home() / ".claude" / "batches" / "batch_ids.json"
+        if self.provider == "anthropic":
+            batch_ids_file = Path.home() / ".claude" / "batches" / "batch_ids.json"
+        else:
+            batch_ids_file = TOGETHER_BATCH_IDS_DIR / f"batch_ids_{self.model_key}.json"
         batch_ids_file.parent.mkdir(parents=True, exist_ok=True)
         with open(batch_ids_file, "w") as f:
             json.dump({
@@ -317,10 +398,13 @@ class BatchRunOrchestrator:
                 continue
 
             record_id = result["record_id"]
-            message = result["message"]
+            # Normalized fields from both providers
+            code = result["content"]           # already extracted by provider
+            prompt_tokens = result["prompt_tokens"]
+            completion_tokens = result["completion_tokens"]
 
-            if not message:
-                logger.warning(f"No message in result for {record_id}")
+            if not code:
+                logger.warning(f"No content in result for {record_id}")
                 continue
 
             # Skip already-processed rows
@@ -334,11 +418,6 @@ class BatchRunOrchestrator:
             if pd.notna(already_done) and str(already_done) == "Y":
                 logger.debug(f"Record {record_id} already processed, skipping")
                 continue
-
-            # Extract code from batch response
-            raw_text = message.content[0].text if message.content else ""
-            code = self.claude_caller.extract_code_from_response(raw_text, file_extension=".js")
-            tokens = message.usage
 
             # Get run and CSV row
             run = self.state_manager.get_run(record_id)
@@ -358,19 +437,20 @@ class BatchRunOrchestrator:
                 logger.warning(f"Could not resolve source file for {record_id}: {e}")
                 continue
 
-            # Write generated code file
+            # Write generated code file (provider/model-specific conditions_root)
             try:
                 self.repo_manager.write_code_file(
                     condition=run.condition,
                     file_id=run.file_id,
                     run_number=run.run_number,
                     code=code,
+                    conditions_root=self.conditions_root,
                 )
             except Exception as e:
                 logger.warning(f"Failed to write code file for {record_id}: {e}")
                 continue
 
-            # Queue for batch commit (don't commit yet)
+            # Queue for commit
             pre_cc = csv_row.get("pre_cyclomatic_complexity")
             batch_commits_to_make.append({
                 "record_id": int(record_id),
@@ -380,13 +460,14 @@ class BatchRunOrchestrator:
                 "condition": run.condition,
                 "run_number": run.run_number,
                 "llm_model": self.model,
-                "llm_temperature": 0.0,
-                "prompt_tokens": tokens.input_tokens,
-                "completion_tokens": tokens.output_tokens,
-                "total_tokens": tokens.input_tokens + tokens.output_tokens,
+                "llm_temperature": self.temperature,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
                 "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "pre_cc": int(pre_cc) if pd.notna(pre_cc) else None,
                 "run_object": run,
+                "source_file": source_file,
                 "csv_idx": idx,
             })
             commit_hash = ""  # Will be filled in after batch commit
@@ -413,14 +494,16 @@ class BatchRunOrchestrator:
                 run_number=run.run_number,
             )
 
-            # Update CSV row
+            # Update CSV row — including model/temperature written by both providers
             self._ensure_text_columns()
             self._ensure_local_metric_columns()
 
             self.csv_df.loc[idx, "refactoring_applied"] = "Y"
-            self.csv_df.loc[idx, "prompt_tokens"] = tokens.input_tokens
-            self.csv_df.loc[idx, "completion_tokens"] = tokens.output_tokens
-            self.csv_df.loc[idx, "llm_tokens_used"] = tokens.input_tokens + tokens.output_tokens
+            self.csv_df.loc[idx, "llm_model"] = self.model
+            self.csv_df.loc[idx, "llm_temperature"] = self.temperature
+            self.csv_df.loc[idx, "prompt_tokens"] = prompt_tokens
+            self.csv_df.loc[idx, "completion_tokens"] = completion_tokens
+            self.csv_df.loc[idx, "llm_tokens_used"] = prompt_tokens + completion_tokens
             self.csv_df.loc[idx, "git_commit_hash"] = commit_hash
             self.csv_df.loc[idx, "sonar_component_key"] = sonar_key
 
@@ -449,66 +532,94 @@ class BatchRunOrchestrator:
             processed_count += 1
             logger.info(f"Processed result {record_id} ({processed_count} so far)")
 
-        # Batch commits by condition+run_number (3 conditions × 3 runs = 9 commits total)
+        # Git commits strategy:
+        # - Anthropic (haiku): 9 grouped commits (condition × run), then push once
+        # - Together AI: single commit covering all files, then push once
         if batch_commits_to_make:
-            # Group by (condition, run_number)
-            from collections import defaultdict
-            commits_by_group = defaultdict(list)
-            for commit_info in batch_commits_to_make:
-                key = (commit_info["condition"], commit_info["run_number"])
-                commits_by_group[key].append(commit_info)
-
             with self._git_lock:
-                total_groups = len(commits_by_group)
-                for group_idx, (key, group) in enumerate(sorted(commits_by_group.items()), 1):
-                    condition, run_number = key
-                    logger.info(f"Committing group {group_idx}/{total_groups}: {condition}/run_{run_number} ({len(group)} files)")
+                if self.provider == "anthropic":
+                    # Group by (condition, run_number) → 9 commits max
+                    from collections import defaultdict
+                    commits_by_group = defaultdict(list)
+                    for commit_info in batch_commits_to_make:
+                        key = (commit_info["condition"], commit_info["run_number"])
+                        commits_by_group[key].append(commit_info)
 
+                    total_groups = len(commits_by_group)
+                    for group_idx, (key, group) in enumerate(sorted(commits_by_group.items()), 1):
+                        condition, run_number = key
+                        logger.info(
+                            f"Committing group {group_idx}/{total_groups}: "
+                            f"{condition}/run_{run_number} ({len(group)} files)"
+                        )
+                        try:
+                            first = group[0]
+                            commit_hash = self.repo_manager.create_commit(
+                                record_id=first["record_id"],
+                                file_id=first["file_id"],
+                                project_name=first["project_name"],
+                                file_name=f"{len(group)} files in {condition}/run_{run_number}",
+                                condition=condition,
+                                run_number=run_number,
+                                llm_model=first["llm_model"],
+                                llm_temperature=first["llm_temperature"],
+                                prompt_tokens=sum(c["prompt_tokens"] for c in group),
+                                completion_tokens=sum(c["completion_tokens"] for c in group),
+                                total_tokens=sum(c["total_tokens"] for c in group),
+                                timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                                pre_cc=first["pre_cc"],
+                            )
+                            for commit_info in group:
+                                commit_info["run_object"].git_commit_hash = commit_hash
+                                self.csv_df.loc[commit_info["csv_idx"], "git_commit_hash"] = commit_hash
+                            logger.info(f"  Committed {len(group)} files with hash {commit_hash[:8]}")
+                        except Exception as e:
+                            logger.error(f"Failed to commit group {condition}/run_{run_number}: {e}")
+                            for commit_info in group:
+                                self.csv_df.loc[commit_info["csv_idx"], "git_commit_hash"] = ""
+
+                else:
+                    # Together AI: single commit for all files in this retrieval pass
+                    n = len(batch_commits_to_make)
+                    first = batch_commits_to_make[0]
+                    logger.info(f"Committing {n} files for Together AI model {self.model_key}")
                     try:
-                        # Create one commit for all files in this condition/run group
-                        # Use first record's metadata as the commit message template
-                        first = group[0]
                         commit_hash = self.repo_manager.create_commit(
                             record_id=first["record_id"],
                             file_id=first["file_id"],
                             project_name=first["project_name"],
-                            file_name=f"{len(group)} files in {condition}/run_{run_number}",
-                            condition=condition,
-                            run_number=run_number,
-                            llm_model=first["llm_model"],
-                            llm_temperature=first["llm_temperature"],
-                            prompt_tokens=sum(c["prompt_tokens"] for c in group),
-                            completion_tokens=sum(c["completion_tokens"] for c in group),
-                            total_tokens=sum(c["total_tokens"] for c in group),
+                            file_name=f"{n} files via Together AI ({self.model_key})",
+                            condition=first["condition"],
+                            run_number=first["run_number"],
+                            llm_model=self.model,
+                            llm_temperature=self.temperature,
+                            prompt_tokens=sum(c["prompt_tokens"] for c in batch_commits_to_make),
+                            completion_tokens=sum(c["completion_tokens"] for c in batch_commits_to_make),
+                            total_tokens=sum(c["total_tokens"] for c in batch_commits_to_make),
                             timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                             pre_cc=first["pre_cc"],
                         )
-
-                        # Assign the same commit hash to all files in this group
-                        for commit_info in group:
+                        for commit_info in batch_commits_to_make:
                             commit_info["run_object"].git_commit_hash = commit_hash
                             self.csv_df.loc[commit_info["csv_idx"], "git_commit_hash"] = commit_hash
-
-                        logger.info(f"  Committed {len(group)} files with hash {commit_hash[:8]}")
-
+                        logger.info(f"  Single Together AI commit: {commit_hash[:8]}")
                     except Exception as e:
-                        logger.error(f"Failed to commit group {condition}/run_{run_number}: {e}")
-                        # Mark files as failed but continue
-                        for commit_info in group:
+                        logger.error(f"Failed to create Together AI commit: {e}")
+                        for commit_info in batch_commits_to_make:
                             self.csv_df.loc[commit_info["csv_idx"], "git_commit_hash"] = ""
 
-                # Push all commits once at the end
+                # Push once after all commits
                 try:
                     self.repo_manager.push_to_remote()
-                    logger.info(f"Batch git push succeeded ({total_groups} commits for {len(batch_commits_to_make)} files)")
+                    logger.info(f"Git push succeeded ({len(batch_commits_to_make)} files)")
                 except Exception as e:
-                    logger.warning(f"Batch git push failed: {e}")
+                    logger.warning(f"Git push failed: {e}")
 
         # Save CSV
         if auto_update_csv and processed_count > 0:
             with self._csv_lock:
-                self.csv_df.to_csv(CSV_INPUT_FILE, index=False)
-            logger.info(f"Updated CSV with {processed_count} new results")
+                self.csv_df.to_csv(self.output_csv, index=False)
+            logger.info(f"Updated CSV with {processed_count} new results → {self.output_csv.name}")
 
         return processed_count
 
@@ -572,14 +683,20 @@ class BatchRunOrchestrator:
     # -------------------------------------------------------------------------
 
     def _load_batch_ids(self, batch_ids: Optional[List[str]]) -> List[str]:
-        """Load batch IDs from argument or saved file."""
+        """Load batch IDs from argument or provider-specific saved file."""
         if batch_ids:
             return batch_ids
-        batch_ids_file = Path.home() / ".claude" / "batches" / "batch_ids.json"
+        if self.provider == "anthropic":
+            batch_ids_file = Path.home() / ".claude" / "batches" / "batch_ids.json"
+        else:
+            batch_ids_file = TOGETHER_BATCH_IDS_DIR / f"batch_ids_{self.model_key}.json"
         if batch_ids_file.exists():
             try:
                 with open(batch_ids_file) as f:
                     data = json.load(f)
+                # Support both formats: plain list or {"batch_ids": [...]}
+                if isinstance(data, list):
+                    return data
                 return data.get("batch_ids", [])
             except Exception as e:
                 logger.warning(f"Failed to load batch IDs: {e}")

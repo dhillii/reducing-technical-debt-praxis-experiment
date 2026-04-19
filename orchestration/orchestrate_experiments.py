@@ -56,6 +56,7 @@ class ExperimentOrchestrator:
         "refactoring_applied",
         "git_commit_hash",
         "sonar_component_key",
+        "llm_model",
     ]
 
     _LOCAL_COMPUTED_COLUMNS = [
@@ -995,13 +996,15 @@ def validate() -> None:
     default="PENDING",
     help="Which runs to submit (PENDING, IN_PROGRESS, etc.)"
 )
-def batch_submit(batch_size: int, status: str) -> None:
-    """Submit all pending refactoring runs to Anthropic Batch API."""
+@click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together"]), help="Inference provider")
+@click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b")
+def batch_submit(batch_size: int, status: str, provider: str, model: str) -> None:
+    """Submit all pending refactoring runs to the batch API."""
     setup_logging()
-    logger.info(f"Submitting {status} runs as batches (size: {batch_size})")
+    logger.info(f"Submitting {status} runs as batches (size: {batch_size}, provider={provider}, model={model})")
 
     try:
-        orchestrator = BatchRunOrchestrator()
+        orchestrator = BatchRunOrchestrator(provider=provider, model_key=model)
         batch_ids = orchestrator.submit_batches(batch_size=batch_size, status_filter=status)
 
         logger.info(f"✅ Successfully submitted {len(batch_ids)} batches:")
@@ -1019,12 +1022,14 @@ def batch_submit(batch_size: int, status: str) -> None:
 
 
 @cli.command("batch-poll")
-def batch_poll() -> None:
+@click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together"]), help="Inference provider")
+@click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b")
+def batch_poll(provider: str, model: str) -> None:
     """Poll status of submitted batches."""
     setup_logging()
 
     try:
-        orchestrator = BatchRunOrchestrator()
+        orchestrator = BatchRunOrchestrator(provider=provider, model_key=model)
         summary = orchestrator.poll_batches()
 
         if not summary:
@@ -1064,14 +1069,16 @@ def batch_poll() -> None:
     default=24,
     help="Maximum hours to wait (default: 24)"
 )
-def batch_stream(poll_interval: int, max_hours: int) -> None:
+@click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together"]), help="Inference provider")
+@click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b")
+def batch_stream(poll_interval: int, max_hours: int, provider: str, model: str) -> None:
     """Stream results from batches as they complete."""
     setup_logging()
     logger.info("Starting batch result streaming...")
-    logger.info(f"Polling every {poll_interval} seconds, max wait {max_hours} hours")
+    logger.info(f"Polling every {poll_interval} seconds, max wait {max_hours} hours (provider={provider}, model={model})")
 
     try:
-        orchestrator = BatchRunOrchestrator()
+        orchestrator = BatchRunOrchestrator(provider=provider, model_key=model)
         summary = orchestrator.stream_batch_results(
             poll_interval=poll_interval,
             max_wait_hours=max_hours
@@ -1088,13 +1095,15 @@ def batch_stream(poll_interval: int, max_hours: int) -> None:
 
 
 @cli.command("batch-retrieve")
-def batch_retrieve() -> None:
+@click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together"]), help="Inference provider")
+@click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b")
+def batch_retrieve(provider: str, model: str) -> None:
     """Retrieve results from completed batches."""
     setup_logging()
-    logger.info("Retrieving results from completed batches...")
+    logger.info(f"Retrieving results from completed batches (provider={provider}, model={model})...")
 
     try:
-        orchestrator = BatchRunOrchestrator()
+        orchestrator = BatchRunOrchestrator(provider=provider, model_key=model)
         count = orchestrator.retrieve_and_process_results(auto_update_csv=True)
 
         logger.info(f"✅ Retrieved and processed {count} results")
@@ -1106,13 +1115,16 @@ def batch_retrieve() -> None:
 
 
 @cli.command("batch-cancel")
-def batch_cancel() -> None:
+@click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together"]), help="Inference provider")
+@click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b")
+def batch_cancel(provider: str, model: str) -> None:
     """Cancel all submitted batches and reset PENDING state for resubmission."""
     setup_logging()
-    logger.info("Cancelling all submitted batches...")
+    logger.info(f"Cancelling all submitted batches (provider={provider}, model={model})...")
 
     try:
-        orchestrator = BatchRunOrchestrator()
+        from api.batch_processor import AnthropicBatchProvider, TogetherBatchProvider
+        orchestrator = BatchRunOrchestrator(provider=provider, model_key=model)
         batch_ids = orchestrator._load_batch_ids(None)
 
         if not batch_ids:
@@ -1120,9 +1132,13 @@ def batch_cancel() -> None:
             return
 
         cancelled = 0
+        proc = orchestrator.batch_orchestrator.processor
         for batch_id in batch_ids:
             try:
-                orchestrator.batch_orchestrator.processor.client.beta.messages.batches.cancel(batch_id)
+                if isinstance(proc, TogetherBatchProvider):
+                    proc.client.batches.cancel(batch_id)
+                else:
+                    proc.client.beta.messages.batches.cancel(batch_id)
                 logger.info(f"Cancelled batch: {batch_id}")
                 cancelled += 1
             except Exception as e:

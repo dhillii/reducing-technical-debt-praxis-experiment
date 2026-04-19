@@ -94,6 +94,30 @@ CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 CLAUDE_TEMPERATURE = 0.0
 CLAUDE_MAX_OUTPUT_TOKENS = 64000  # Must be large enough for refactored source files
 
+# Together AI settings
+TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", "")
+TOGETHER_TEMPERATURE = 0.0
+TOGETHER_MAX_TOKENS = 16384  # Together AI models cap well below Haiku's 64K; avg completion ~9K
+TOGETHER_BATCH_IDS_DIR = Path.home() / ".together" / "batches"
+TOGETHER_MODELS: Dict[str, Any] = {
+    "qwen_2_5_7b": {
+        "model_id": "Qwen/Qwen2.5-7B-Instruct-Turbo",
+        "gpt_oss_prefix": False,
+    },
+    "gpt_oss_20b": {
+        "model_id": "openai/gpt-oss-20b",
+        "gpt_oss_prefix": True,
+    },
+    "llama_70b": {
+        "model_id": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "gpt_oss_prefix": False,
+    },
+    "gpt_oss_120b": {
+        "model_id": "openai/gpt-oss-120b",
+        "gpt_oss_prefix": True,
+    },
+}
+
 # SonarCloud polling settings
 SONARCLOUD_POLL_INTERVAL = 5  # seconds between polls
 SONARCLOUD_POLL_TIMEOUT = 300  # max seconds to wait for analysis

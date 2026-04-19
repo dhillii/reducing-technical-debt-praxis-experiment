@@ -1,0 +1,279 @@
+/**
+ * Copyright (C) 2015 Laverna project Authors.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+/* global define */
+define([
+    'underscore',
+    'jquery',
+    'q',
+    'backbone',
+    'marionette',
+    'backbone.radio',
+    'dropbox',
+    'modules/dropbox/classes/adapter'
+], function(_, $, Q, Backbone, Marionette, Radio, Dropbox, adapter) {
+    'use strict';
+
+    var Sync = Marionette.Object.extend({
+        configs: {
+            key: '10iirspliqts95d',
+            interval: 2000,
+            intervalMax: 15000,
+            intervalMin: 2000,
+            statRemote: false
+        },
+
+        initialize: function() {
+            var configs = this.configs;
+            configs.key = Radio.request('configs', 'get:config', 'dropboxKey') || configs.key;
+            configs.accessToken = Radio.request('configs', 'get:config', 'dropboxAccessToken');
+
+            this.vent = Radio.channel('dropbox');
+
+            this.client = new Dropbox({
+                clientId: configs.key
+            });
+
+            Radio.reply('sync', 'start', this.startSync, this);
+
+            this.listenTo(Radio.channel('notes'), 'sync:model destroy:model restore:model', this.onSave);
+            this.listenTo(Radio.channel('notebooks'), 'sync:model destroy:model restore:model', this.onSave);
+            this.listenTo(Radio.channel('tags'), 'sync:model destroy:model restore:model', this.onSave);
+
+            this.checkAuth()
+            .then(function(authenticated) {
+                if (authenticated) {
+                    return this.onReady();
+                }
+
+                console.error('Dropbox authentication failed.');
+            })
+            .catch(function(err) {
+                console.log('Dropbox error', err);
+            });
+        },
+
+        startSync: function() {
+            if (this.timeout) {
+                clearTimeout(this.timeout);
+            }
+
+            this.timeout = setTimeout(_.bind(function() {
+                this.checkChanges();
+            }, this), 0);
+        },
+
+        checkAuth: function() {
+            var hash = this.parseHash();
+
+            if (this.configs.accessToken && this.configs.accessToken.length) {
+                this.client.setAccessToken(this.configs.accessToken);
+                return Promise.resolve(true);
+            }
+            else if (hash.access_token && hash.access_token.length) {
+                return this.saveAccessToken(hash.access_token);
+            }
+            else {
+                if (hash.error) {
+                    Radio.request('uri', 'navigate', '/');
+                }
+
+                return this.authenticate();
+            }
+        },
+
+        parseHash: function() {
+            var hash = window.location.hash.replace('#', '').split('&');
+            var ret = {};
+
+            if (!hash.length) {
+                return ret;
+            }
+
+            _.each(hash, function(str) {
+                var parts = str.replace(/\+/g, ' ').split('=');
+
+                if (parts.length > 1) {
+                    var key = parts.shift();
+                    var val = parts.length > 0 ? parts.join('=') : undefined;
+                    val = undefined ? null : decodeURIComponent(val.trim());
+                    ret[key] = val;
+                }
+            });
+
+            return ret;
+        },
+
+        authenticate: function() {
+            var defer = Q.defer();
+            var authUrl = this.client.getAuthenticationUrl(document.location);
+
+            Radio.once('Confirm', 'cancel', defer.reject);
+            Radio.once('Confirm', 'confirm', function() {
+                window.location = authUrl;
+            });
+
+            Radio.request('Confirm', 'start', {
+                title: $.t('dropbox.auth title'),
+                content: $.t('dropbox.auth confirm')
+            });
+
+            return defer.promise;
+        },
+
+        saveAccessToken: function(accessToken) {
+            var self = this;
+            return Radio.request('configs', 'save:object', {
+                name: 'dropboxAccessToken',
+                value: accessToken
+            })
+            .then(function() {
+                Radio.request('uri', 'navigate', '/');
+                self.configs.accessToken = accessToken;
+                return true;
+            });
+        },
+
+        onReady: function() {
+            var profile = Radio.request('uri', 'profile') || 'notes-db';
+            var self = this;
+            adapter.init(this.client, profile);
+
+            this.timeout = window.setTimeout(function() {
+                self.checkChanges();
+            }, 500);
+        },
+
+        checkChanges: function() {
+            var promises = [],
+                self = this;
+
+            this.configs.statRemote = false;
+            Radio.trigger('sync', 'start', 'dropbox');
+
+            _.each(['notes', 'notebooks', 'tags'], function(module) {
+                promises.push(function() {
+                    return Q.all([
+                        Radio.request(module, 'fetch', {encrypt: true}),
+                        adapter.getAll(module)
+                    ])
+                    .spread(function(localData, remoteData) {
+                        return self.syncAll(localData, remoteData, module);
+                    });
+                });
+            });
+
+            return _.reduce(promises, Q.when, new Q())
+            .then(function() {
+                Radio.trigger('sync', 'stop', 'dropbox');
+                self.startWatch();
+            })
+            .fail(function(err) {
+                if (err) {
+                    switch (err.status) {
+                        case 401:
+                            self.checkAuth();
+                            break;
+                        case 0:
+                            self.configs.interval = self.configs.intervalMax;
+                            self.startWatch();
+                            break;
+                    }
+                }
+
+                Radio.trigger('sync', 'stop', 'dropbox');
+                Radio.trigger('sync', 'error', {cloud: 'dropbox', error: err});
+                console.error('Error', arguments[0], arguments);
+            });
+        },
+
+        syncAll: function(localData, remoteData, module) {
+            var promises,
+                encryptKeys = localData.model.prototype.encryptKeys;
+
+            localData = (localData.fullCollection || localData).toJSON();
+
+            promises = this.checkRemoteChanges(localData, remoteData, module);
+            promises.push.apply(promises, this.checkLocalChanges(localData, remoteData, module, encryptKeys));
+
+            return _.reduce(promises, Q.when, new Q())
+            .then(function() {
+                return Radio.request(module, 'fetch', {encrypt: true});
+            });
+        },
+
+        checkRemoteChanges: function(localData, remoteData, module) {
+            var promises = [],
+                newData = _.filter(remoteData, function(rModel) {
+                    var model = _.findWhere(localData, {id: rModel.id});
+                    return !model || model.updated < rModel.updated;
+                });
+
+            if (newData.length) {
+                console.log('Dropbox changes:', newData);
+                this.configs.statRemote = true;
+
+                promises.push(function() {
+                    return Radio.request(module, 'save:all:raw', newData, {profile: adapter.profile});
+                });
+            }
+
+            return promises;
+        },
+
+        checkLocalChanges: function(localData, remoteData, module, encryptKeys) {
+            var promises = [];
+
+            _.each(localData, function(lModel) {
+                var model = _.findWhere(remoteData, {id: lModel.id});
+                if (model && model.updated >= lModel.updated) {
+                    return;
+                }
+
+                console.log('Dropbox local changes:', lModel);
+                promises.push(function() {
+                    return adapter.save(module, lModel, encryptKeys);
+                });
+            });
+
+            return promises;
+        },
+
+        startWatch: function() {
+            if (this.timeout) {
+                clearTimeout(this.timeout);
+            }
+
+            this.calcInterval();
+            console.log('interval is', this.configs.interval);
+
+            this.timeout = setTimeout(_.bind(function() {
+                this.checkChanges();
+            }, this), this.configs.interval);
+        },
+
+        calcInterval: function() {
+            var range = this.configs.intervalMax - this.configs.intervalMin;
+
+            if (this.configs.statRemote) {
+                this.configs.interval -= (range * 0.4);
+            }
+            else {
+                this.configs.interval += (range * 0.2);
+            }
+
+            this.configs.interval = Math.max(this.configs.intervalMin, this.configs.interval);
+            this.configs.interval = Math.min(this.configs.intervalMax, this.configs.interval);
+        },
+
+        onSave: function(model) {
+            return adapter.save(model.storeName, model.attributes, model.encryptKeys);
+        }
+    });
+
+    return Sync;
+});

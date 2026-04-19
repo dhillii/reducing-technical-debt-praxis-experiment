@@ -3,6 +3,7 @@
 
 # Core API & HTTP
 anthropic>=0.7.0              
+together>=1.5.13              # Together AI Batch API
 requests>=2.31.0             
 python-dotenv>=1.0.0          
 

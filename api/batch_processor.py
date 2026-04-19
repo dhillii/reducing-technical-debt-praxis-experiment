@@ -1,21 +1,638 @@
 """
-Anthropic Batch API processor for parallel refactoring experiments.
+Batch API processors for parallel refactoring experiments.
 
-Handles submission, polling, and result retrieval for batch processing.
-The Anthropic Batch API accepts a list of requests directly (not a file).
+Supports two providers:
+  - AnthropicBatchProvider: Anthropic Messages Batch API (async, proprietary)
+  - TogetherBatchProvider:  Together AI Batch API (JSONL upload → poll → download)
+
+Both providers expose the same public interface so BatchOrchestrator and
+BatchRunOrchestrator are provider-agnostic.
+
+Result dicts returned by retrieve_results() are normalized to:
+  {record_id, status: "succeeded"|"failed", content: str,
+   prompt_tokens: int, completion_tokens: int, error}
 """
 
 import json
+import re
+import requests as http_requests
+import tempfile
 import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 
 from anthropic import Anthropic, APIError
-from utils.config import ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_MAX_OUTPUT_TOKENS
+from utils.config import (
+    ANTHROPIC_API_KEY,
+    CLAUDE_MODEL,
+    CLAUDE_MAX_OUTPUT_TOKENS,
+    TOGETHER_API_KEY,
+    TOGETHER_BATCH_IDS_DIR,
+    TOGETHER_MODELS,
+)
 from utils.logger_config import get_logger
 
 logger = get_logger("batch_processor")
+
+
+# ---------------------------------------------------------------------------
+# Shared utility: code extraction from LLM responses
+# ---------------------------------------------------------------------------
+
+def extract_code_from_response(response_text: str, file_extension: str = ".js") -> str:
+    """
+    Extract generated code from an LLM response, stripping markdown fences.
+
+    Args:
+        response_text: Raw text from the model
+        file_extension: Expected file type (e.g. ".js", ".ts", ".tsx")
+
+    Returns:
+        Clean code string with fences removed
+    """
+    lang = file_extension.lstrip(".")
+
+    # Try language-specific fence first (```js ... ```)
+    if f"```{lang}" in response_text:
+        start_marker = f"```{lang}\n"
+        end_marker = "\n```"
+        if start_marker in response_text:
+            start_idx = response_text.find(start_marker) + len(start_marker)
+            end_idx = response_text.find(end_marker, start_idx)
+            if end_idx > start_idx:
+                return response_text[start_idx:end_idx].strip()
+
+    # Generic fence (``` ... ```)
+    if "```" in response_text:
+        start_marker = "```\n"
+        end_marker = "\n```"
+        if start_marker in response_text:
+            start_idx = response_text.find(start_marker) + len(start_marker)
+            end_idx = response_text.find(end_marker, start_idx)
+            if end_idx > start_idx:
+                return response_text[start_idx:end_idx].strip()
+
+    return response_text.strip()
+
+
+# ---------------------------------------------------------------------------
+# Anthropic provider
+# ---------------------------------------------------------------------------
+
+class AnthropicBatchProvider:
+    """Manages Anthropic Messages Batch API operations."""
+
+    def __init__(self, api_key: Optional[str] = None):
+        key = api_key or ANTHROPIC_API_KEY
+        if not key:
+            raise ValueError("ANTHROPIC_API_KEY not set")
+
+        self.client = Anthropic(api_key=key)
+        self.model = CLAUDE_MODEL
+        self.batch_dir = Path.home() / ".claude" / "batches"
+        self.batch_dir.mkdir(parents=True, exist_ok=True)
+
+    def build_batch_requests(
+        self,
+        requests_list: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """
+        Build Anthropic-formatted batch request dicts.
+
+        Each dict in requests_list must contain:
+          record_id, prompt, system_prompt, max_tokens (opt), temperature (opt)
+
+        Returns:
+            List of Anthropic batch request dicts
+        """
+        batch_requests = []
+        for req in requests_list:
+            batch_requests.append({
+                "custom_id": req["record_id"],
+                "params": {
+                    "model": self.model,
+                    "max_tokens": req.get("max_tokens", CLAUDE_MAX_OUTPUT_TOKENS),
+                    "temperature": req.get("temperature", 0.0),
+                    "system": req["system_prompt"],
+                    "messages": [
+                        {"role": "user", "content": req["prompt"]}
+                    ]
+                }
+            })
+        return batch_requests
+
+    def submit_batch(
+        self,
+        batch_requests: List[Dict[str, Any]],
+        batch_name: str = ""
+    ) -> str:
+        """Submit a list of Anthropic-formatted requests; return batch ID."""
+        response = self.client.beta.messages.batches.create(
+            requests=batch_requests,
+        )
+
+        batch_id = response.id
+        logger.info(
+            f"Submitted batch '{batch_name}': {batch_id} "
+            f"({len(batch_requests)} requests, model: {self.model})"
+        )
+
+        metadata = {
+            "batch_id": batch_id,
+            "batch_name": batch_name,
+            "model": self.model,
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
+            "request_count": len(batch_requests),
+        }
+        with open(self.batch_dir / f"{batch_id}_metadata.json", "w") as f:
+            json.dump(metadata, f, indent=2)
+
+        return batch_id
+
+    def poll_batch(self, batch_id: str) -> Dict[str, Any]:
+        """Return normalized status dict for a single batch."""
+        response = self.client.beta.messages.batches.retrieve(batch_id)
+        counts = response.request_counts
+
+        logger.debug(f"Batch {batch_id} raw attrs: {[a for a in dir(response) if not a.startswith('_')]}")
+
+        processing = getattr(counts, "processing", 0)
+        succeeded  = getattr(counts, "succeeded", 0)
+        errored    = getattr(counts, "errored", 0)
+        canceled   = getattr(counts, "canceled", 0)
+        expired    = getattr(counts, "expired", 0)
+
+        total = processing + succeeded + errored + canceled + expired
+        done  = succeeded + errored + canceled + expired
+        completion_pct = int(100 * done / total) if total > 0 else 0
+
+        raw_status = (
+            getattr(response, "processing_status", None)
+            or getattr(response, "status", None)
+            or "unknown"
+        )
+
+        return {
+            "batch_id": batch_id,
+            "status": raw_status,
+            "processing": processing,
+            "succeeded": succeeded,
+            "errored": errored,
+            "canceled": canceled,
+            "expired": expired,
+            "total_requests": total,
+            "completion_pct": completion_pct,
+        }
+
+    def retrieve_results(self, batch_id: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve results from a completed batch.
+
+        Returns normalized list:
+          {record_id, status, content, prompt_tokens, completion_tokens, error}
+        """
+        status = self.poll_batch(batch_id)
+        if status["status"] != "ended":
+            logger.warning(
+                f"Batch {batch_id} not complete yet "
+                f"(status: {status['status']}, {status['completion_pct']}%)"
+            )
+            return []
+
+        results = []
+        try:
+            for result in self.client.beta.messages.batches.results(batch_id):
+                message = getattr(result.result, "message", None)
+                error = getattr(result.result, "error", None)
+
+                if result.result.type == "succeeded" and message:
+                    raw_text = message.content[0].text if message.content else ""
+                    content = extract_code_from_response(raw_text, file_extension=".js")
+                    results.append({
+                        "record_id": result.custom_id,
+                        "status": "succeeded",
+                        "content": content,
+                        "prompt_tokens": message.usage.input_tokens,
+                        "completion_tokens": message.usage.output_tokens,
+                        "error": None,
+                    })
+                else:
+                    results.append({
+                        "record_id": result.custom_id,
+                        "status": "failed",
+                        "content": "",
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "error": str(error) if error else "unknown error",
+                    })
+
+            logger.info(f"Retrieved {len(results)} results from batch {batch_id}")
+        except Exception as e:
+            logger.error(f"Error retrieving results from batch {batch_id}: {e}")
+
+        return results
+
+    def list_batches(self) -> List[Dict[str, Any]]:
+        """List all submitted batches."""
+        batches = []
+        try:
+            for batch in self.client.beta.messages.batches.list():
+                batches.append({
+                    "batch_id": batch.id,
+                    "status": batch.status,
+                    "created_at": batch.created_at,
+                })
+        except Exception as e:
+            logger.error(f"Error listing batches: {e}")
+        return batches
+
+
+# Backward-compatibility alias (existing code imported BatchProcessor)
+BatchProcessor = AnthropicBatchProvider
+
+
+# ---------------------------------------------------------------------------
+# Together AI provider
+# ---------------------------------------------------------------------------
+
+class TogetherBatchProvider:
+    """
+    Manages Together AI Batch API operations.
+
+    Flow: write JSONL → upload file → create batch → poll → download output JSONL.
+    System prompt is placed as role=system inside the messages array (not top-level).
+    """
+
+    def __init__(self, model_key: str):
+        if not TOGETHER_API_KEY:
+            raise ValueError("TOGETHER_API_KEY not set")
+
+        try:
+            from together import Together
+        except ImportError:
+            raise ImportError(
+                "together package not installed. Run: pip install together>=1.5.13"
+            )
+
+        self.client = Together(api_key=TOGETHER_API_KEY)
+        self.model_key = model_key
+        self.model_id = TOGETHER_MODELS[model_key]["model_id"]
+        self.batch_dir = TOGETHER_BATCH_IDS_DIR
+        self.batch_dir.mkdir(parents=True, exist_ok=True)
+
+    def _download_file(self, file_id: str, dest: Path) -> None:
+        """Download a Together AI file via REST API (avoids SDK quirks)."""
+        url = f"https://api.together.xyz/v1/files/{file_id}/content"
+        resp = http_requests.get(
+            url,
+            headers={"Authorization": f"Bearer {TOGETHER_API_KEY}"},
+            timeout=120,
+        )
+        resp.raise_for_status()
+        dest.write_bytes(resp.content)
+
+    def build_batch_requests(
+        self,
+        requests_list: List[Dict[str, Any]],
+    ) -> Path:
+        """
+        Write all requests to a temporary JSONL file in Together AI batch format.
+
+        Each line:
+          {"custom_id": "<record_id>", "body": {"model": "...", "messages": [...],
+           "max_tokens": ..., "temperature": ...}}
+
+        Returns:
+            Path to the JSONL file (caller is responsible for cleanup)
+        """
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".jsonl",
+            delete=False,
+            prefix=f"together_batch_{self.model_key}_",
+        )
+        for req in requests_list:
+            body: Dict[str, Any] = {
+                "model": self.model_id,
+                "messages": [
+                    {"role": "system", "content": req["system_prompt"]},
+                    {"role": "user",   "content": req["prompt"]},
+                ],
+                "max_tokens":  req.get("max_tokens", 16384),
+                "temperature": req.get("temperature", 0.0),
+            }
+            reasoning_effort = req.get("reasoning_effort")
+            if reasoning_effort:
+                body["reasoning_effort"] = reasoning_effort
+            line = {"custom_id": req["record_id"], "body": body}
+            tmp.write(json.dumps(line) + "\n")
+        tmp.flush()
+        tmp.close()
+        return Path(tmp.name)
+
+    def submit_batch(
+        self,
+        jsonl_path: Path,
+        batch_name: str = ""
+    ) -> str:
+        """
+        Upload JSONL file and create a Together AI batch job.
+
+        Args:
+            jsonl_path: Path to JSONL input file
+            batch_name: Optional label for logging
+
+        Returns:
+            Batch ID string
+        """
+        logger.info(f"Uploading batch file: {jsonl_path}")
+        file_resp = self.client.files.upload(
+            file=str(jsonl_path),
+            purpose="batch-api",
+            check=False,
+        )
+        file_id = file_resp.id
+        logger.info(f"File uploaded: {file_id}")
+
+        batch_resp = self.client.batches.create(
+            input_file_id=file_id,
+            endpoint="/v1/chat/completions",
+            completion_window="24h",
+        )
+        # Together AI SDK v2.x wraps the BatchJob inside BatchCreateResponse.job
+        batch_id = batch_resp.job.id
+        logger.info(
+            f"Created batch '{batch_name}': {batch_id} "
+            f"(model: {self.model_id}, file: {file_id})"
+        )
+
+        metadata = {
+            "batch_id": batch_id,
+            "batch_name": batch_name,
+            "model_key": self.model_key,
+            "model_id": self.model_id,
+            "file_id": file_id,
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
+        }
+        with open(self.batch_dir / f"{batch_id}_metadata.json", "w") as f:
+            json.dump(metadata, f, indent=2)
+
+        # Clean up temp file after successful upload
+        try:
+            jsonl_path.unlink()
+        except Exception:
+            pass
+
+        return batch_id
+
+    def poll_batch(self, batch_id: str) -> Dict[str, Any]:
+        """
+        Return normalized status dict compatible with AnthropicBatchProvider.
+
+        Together AI statuses: VALIDATING, IN_PROGRESS, COMPLETED, FAILED, CANCELLED
+        """
+        batch = self.client.batches.retrieve(batch_id)
+        status = getattr(batch, "status", "UNKNOWN")
+        total = getattr(batch, "request_count", 0)
+
+        is_done = status in ("COMPLETED", "FAILED", "CANCELLED")
+        completion_pct = 100 if is_done else 0
+
+        return {
+            "batch_id": batch_id,
+            "status": status,
+            "processing": total if not is_done else 0,
+            "succeeded": total if status == "COMPLETED" else 0,
+            "errored": total if status == "FAILED" else 0,
+            "canceled": total if status == "CANCELLED" else 0,
+            "expired": 0,
+            "total_requests": total,
+            "completion_pct": completion_pct,
+        }
+
+    def retrieve_results(self, batch_id: str) -> List[Dict[str, Any]]:
+        """
+        Download output JSONL from a completed Together AI batch.
+
+        Returns normalized list:
+          {record_id, status, content, prompt_tokens, completion_tokens, error}
+        """
+        status_info = self.poll_batch(batch_id)
+        if status_info["status"] != "COMPLETED":
+            logger.warning(
+                f"Batch {batch_id} not COMPLETED yet "
+                f"(status: {status_info['status']})"
+            )
+            return []
+
+        batch = self.client.batches.retrieve(batch_id)
+        output_file_id = getattr(batch, "output_file_id", None)
+        error_file_id = getattr(batch, "error_file_id", None)
+
+        results: List[Dict[str, Any]] = []
+
+        if output_file_id:
+            output_path = self.batch_dir / f"{batch_id}_output.jsonl"
+            self._download_file(output_file_id, output_path)
+            logger.info(f"Downloaded output file: {output_path}")
+
+            with open(output_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                        custom_id = row.get("custom_id", "")
+                        resp = row.get("response", {})
+                        body = resp.get("body", {})
+                        status_code = resp.get("status_code", 0)
+
+                        if status_code == 200 and body.get("choices"):
+                            content_raw = body["choices"][0]["message"]["content"]
+                            content = extract_code_from_response(content_raw, file_extension=".js")
+                            usage = body.get("usage", {})
+                            results.append({
+                                "record_id": custom_id,
+                                "status": "succeeded",
+                                "content": content,
+                                "prompt_tokens": usage.get("prompt_tokens", 0),
+                                "completion_tokens": usage.get("completion_tokens", 0),
+                                "error": None,
+                            })
+                        else:
+                            results.append({
+                                "record_id": custom_id,
+                                "status": "failed",
+                                "content": "",
+                                "prompt_tokens": 0,
+                                "completion_tokens": 0,
+                                "error": f"status_code={status_code}",
+                            })
+                    except Exception as e:
+                        logger.warning(f"Could not parse output line: {e}")
+
+        # Collect errors from the error file (partial failures)
+        if error_file_id:
+            error_path = self.batch_dir / f"{batch_id}_errors.jsonl"
+            self._download_file(error_file_id, error_path)
+            logger.info(f"Downloaded error file: {error_path}")
+
+            failed_ids = {r["record_id"] for r in results}
+            with open(error_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                        custom_id = row.get("custom_id", "")
+                        if custom_id not in failed_ids:
+                            error_msg = str(row.get("error", "unknown error"))
+                            logger.warning(
+                                f"Record {custom_id} failed in batch: {error_msg}"
+                            )
+                            results.append({
+                                "record_id": custom_id,
+                                "status": "failed",
+                                "content": "",
+                                "prompt_tokens": 0,
+                                "completion_tokens": 0,
+                                "error": error_msg,
+                            })
+                    except Exception as e:
+                        logger.warning(f"Could not parse error line: {e}")
+
+        logger.info(
+            f"Retrieved {len(results)} results from batch {batch_id} "
+            f"({sum(1 for r in results if r['status'] == 'succeeded')} succeeded)"
+        )
+        return results
+
+    def list_batches(self) -> List[Dict[str, Any]]:
+        """List all Together AI batch jobs."""
+        batches = []
+        try:
+            for batch in self.client.batches.list():
+                batches.append({
+                    "batch_id": batch.id,
+                    "status": batch.status,
+                    "created_at": getattr(batch, "created_at", None),
+                })
+        except Exception as e:
+            logger.error(f"Error listing batches: {e}")
+        return batches
+
+
+# ---------------------------------------------------------------------------
+# Provider-agnostic orchestrator
+# ---------------------------------------------------------------------------
+
+class BatchOrchestrator:
+    """Orchestrates splitting, submitting and polling multiple batches."""
+
+    def __init__(self, provider: Optional[Any] = None):
+        """
+        Args:
+            provider: An AnthropicBatchProvider or TogetherBatchProvider instance.
+                      Defaults to AnthropicBatchProvider() for backward compatibility.
+        """
+        self.processor = provider if provider is not None else AnthropicBatchProvider()
+
+    def create_and_submit_batches(
+        self,
+        experiment_runs: List[Dict[str, Any]],
+        batch_size: int = 164,
+    ) -> List[str]:
+        """
+        Build requests and submit batches.
+
+        For TogetherBatchProvider, all runs are submitted as a single batch
+        (Together AI supports up to 50,000 requests; 1,314 << 50,000).
+
+        For AnthropicBatchProvider, runs are split into chunks of batch_size.
+
+        Returns:
+            List of submitted batch IDs
+        """
+        if isinstance(self.processor, TogetherBatchProvider):
+            return self._submit_together(experiment_runs)
+
+        return self._submit_anthropic(experiment_runs, batch_size)
+
+    def _submit_anthropic(
+        self,
+        experiment_runs: List[Dict[str, Any]],
+        batch_size: int,
+    ) -> List[str]:
+        total_runs = len(experiment_runs)
+        num_batches = (total_runs + batch_size - 1) // batch_size
+        logger.info(f"Splitting {total_runs} runs into {num_batches} Anthropic batches of ≤{batch_size}")
+
+        batch_ids = []
+        for i in range(num_batches):
+            chunk = experiment_runs[i * batch_size:(i + 1) * batch_size]
+            batch_name = f"refactor_batch_{i + 1:02d}_of_{num_batches:02d}"
+
+            requests = self.processor.build_batch_requests(chunk)
+            try:
+                batch_id = self.processor.submit_batch(requests, batch_name=batch_name)
+                batch_ids.append(batch_id)
+                if i < num_batches - 1:
+                    time.sleep(1)
+            except APIError as e:
+                logger.error(f"Failed to submit {batch_name}: {e}")
+
+        logger.info(f"Submitted {len(batch_ids)}/{num_batches} batches successfully")
+        return batch_ids
+
+    def _submit_together(self, experiment_runs: List[Dict[str, Any]]) -> List[str]:
+        total_runs = len(experiment_runs)
+        logger.info(f"Building Together AI batch for {total_runs} runs")
+
+        jsonl_path = self.processor.build_batch_requests(experiment_runs)
+        batch_name = f"refactor_all_{total_runs}_runs"
+        try:
+            batch_id = self.processor.submit_batch(jsonl_path, batch_name=batch_name)
+            logger.info(f"Submitted 1 Together AI batch: {batch_id}")
+            return [batch_id]
+        except Exception as e:
+            logger.error(f"Failed to submit Together AI batch: {e}")
+            return []
+
+    def poll_all_batches(self, batch_ids: List[str]) -> Dict[str, Any]:
+        """Poll all batches and return aggregated summary."""
+        batch_statuses = {}
+        total_requests = total_completed = total_processing = 0
+
+        for batch_id in batch_ids:
+            status = self.processor.poll_batch(batch_id)
+            batch_statuses[batch_id] = status
+            total_requests += status["total_requests"]
+            total_completed += status["succeeded"] + status["errored"] + status.get("canceled", 0) + status.get("expired", 0)
+            total_processing += status["processing"]
+
+        overall_pct = int(100 * total_completed / total_requests) if total_requests > 0 else 0
+
+        return {
+            "batch_statuses": batch_statuses,
+            "total_requests": total_requests,
+            "total_completed": total_completed,
+            "total_processing": total_processing,
+            "completion_pct": overall_pct,
+            "num_batches": len(batch_ids),
+        }
+
+    def retrieve_all_results(self, batch_ids: List[str]) -> List[Dict[str, Any]]:
+        """Retrieve normalized result dicts from all completed batches."""
+        all_results = []
+        for batch_id in batch_ids:
+            results = self.processor.retrieve_results(batch_id)
+            all_results.extend(results)
+        logger.info(f"Retrieved {len(all_results)} total results from {len(batch_ids)} batches")
+        return all_results
+
 
 
 class BatchProcessor:
@@ -192,78 +809,3 @@ class BatchProcessor:
         except Exception as e:
             logger.error(f"Error listing batches: {e}")
         return batches
-
-
-class BatchOrchestrator:
-    """Orchestrates splitting, submitting and polling multiple batches."""
-
-    def __init__(self):
-        self.processor = BatchProcessor()
-
-    def create_and_submit_batches(
-        self,
-        experiment_runs: List[Dict[str, Any]],
-        batch_size: int = 164,
-    ) -> List[str]:
-        """
-        Split experiment runs into batches, build requests, and submit all.
-
-        Args:
-            experiment_runs: List of run dicts (record_id, prompt, system_prompt, etc.)
-            batch_size: Max requests per batch
-
-        Returns:
-            List of submitted batch IDs
-        """
-        total_runs = len(experiment_runs)
-        num_batches = (total_runs + batch_size - 1) // batch_size
-        logger.info(f"Splitting {total_runs} runs into {num_batches} batches of ≤{batch_size}")
-
-        batch_ids = []
-        for i in range(num_batches):
-            chunk = experiment_runs[i * batch_size:(i + 1) * batch_size]
-            batch_name = f"refactor_batch_{i + 1:02d}_of_{num_batches:02d}"
-
-            requests = self.processor.build_batch_requests(chunk)
-            try:
-                batch_id = self.processor.submit_batch(requests, batch_name=batch_name)
-                batch_ids.append(batch_id)
-                if i < num_batches - 1:
-                    time.sleep(1)  # Avoid hammering the API
-            except APIError as e:
-                logger.error(f"Failed to submit {batch_name}: {e}")
-
-        logger.info(f"Submitted {len(batch_ids)}/{num_batches} batches successfully")
-        return batch_ids
-
-    def poll_all_batches(self, batch_ids: List[str]) -> Dict[str, Any]:
-        """Poll all batches and return aggregated summary."""
-        batch_statuses = {}
-        total_requests = total_completed = total_processing = 0
-
-        for batch_id in batch_ids:
-            status = self.processor.poll_batch(batch_id)
-            batch_statuses[batch_id] = status
-            total_requests += status["total_requests"]
-            total_completed += status["succeeded"] + status["errored"] + status["canceled"] + status["expired"]
-            total_processing += status["processing"]
-
-        overall_pct = int(100 * total_completed / total_requests) if total_requests > 0 else 0
-
-        return {
-            "batch_statuses": batch_statuses,
-            "total_requests": total_requests,
-            "total_completed": total_completed,
-            "total_processing": total_processing,
-            "completion_pct": overall_pct,
-            "num_batches": len(batch_ids),
-        }
-
-    def retrieve_all_results(self, batch_ids: List[str]) -> List[Dict[str, Any]]:
-        """Retrieve results from all completed batches."""
-        all_results = []
-        for batch_id in batch_ids:
-            results = self.processor.retrieve_results(batch_id)
-            all_results.extend(results)
-        logger.info(f"Retrieved {len(all_results)} total results from {len(batch_ids)} batches")
-        return all_results
