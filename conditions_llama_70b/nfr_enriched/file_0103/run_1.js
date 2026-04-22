@@ -1,0 +1,425 @@
+```javascript
+/**
+ * indexed db adapter
+ * === 
+ * - originally authored by Vivian Li
+ *
+ */ 
+
+Lawnchair.adapter('indexed-db', (function(){
+
+  // update the STORE_VERSION when the schema used by this adapter changes
+  // (for example, if you change the STORE_NAME above)
+  // NB: Causes onupgradeneeded to be fired, which erases the old database!
+  const STORE_VERSION = 3;
+
+  /**
+   * Retrieves the IndexedDB instance.
+   * @returns {IDBFactory} The IndexedDB instance.
+   */
+  const getIDB = () => {
+    return window.indexedDB || window.webkitIndexedDB || window.mozIndexedDB || window.oIndexedDB || window.msIndexedDB;
+  };
+
+  /**
+   * Retrieves the IDBTransaction instance.
+   * @returns {IDBTransaction} The IDBTransaction instance.
+   */
+  const getIDBTransaction = () => {
+    return window.IDBTransaction || window.webkitIDBTransaction || window.mozIDBTransaction || window.oIDBTransaction || window.msIDBTransaction;
+  };
+
+  /**
+   * Retrieves the IDBKeyRange instance.
+   * @returns {IDBKeyRange} The IDBKeyRange instance.
+   */
+  const getIDBKeyRange = () => {
+    return window.IDBKeyRange || window.webkitIDBKeyRange || window.mozIDBKeyRange || window.oIDBKeyRange || window.msIDBKeyRange;
+  };
+
+  // see https://groups.google.com/a/chromium.org/forum/?fromgroups#!topic/chromium-html5/OhsoAQLj7kc
+  const READ_WRITE = (getIDBTransaction() && 'READ_WRITE' in getIDBTransaction()) ? getIDBTransaction().READ_WRITE : 'readwrite';
+
+  return {
+    /**
+     * Checks if the IndexedDB adapter is valid.
+     * @returns {boolean} True if the adapter is valid, false otherwise.
+     */
+    valid: () => {
+      return !!getIDB();
+    },
+
+    /**
+     * Initializes the IndexedDB adapter.
+     * @param {object} options The options for the adapter.
+     * @param {function} callback The callback function.
+     */
+    init: (options, callback) => {
+      const self = this;
+      const cb = self.fn(self.name, callback);
+
+      if (cb && typeof cb !== 'function') {
+        throw 'callback not valid';
+      }
+
+      // queues pending operations
+      self.waiting = [];
+
+      // open idb
+      self.idb = getIDB();
+      const request = self.idb.open(self.name, STORE_VERSION);
+
+      // attach callback handlers
+      request.onerror = (e) => {
+        fail(e);
+      };
+      request.onupgradeneeded = () => {
+        onupgradeneeded(request);
+      };
+      request.onsuccess = (event) => {
+        onsuccess(event, cb);
+      };
+    },
+
+    /**
+     * Saves an object to the IndexedDB store.
+     * @param {object} obj The object to save.
+     * @param {function} callback The callback function.
+     * @returns {object} The IndexedDB adapter instance.
+     */
+    save: (obj, callback) => {
+      const self = this;
+      if (!self.store) {
+        self.waiting.push(() => {
+          self.save(obj, callback);
+        });
+        return self;
+      }
+
+      const objs = (self.isArray(obj) ? obj : [obj]).map((o) => {
+        if (!o.key) {
+          o.key = self.uuid();
+        }
+        return o;
+      });
+
+      const win = (e) => {
+        if (callback) {
+          self.lambda(callback).call(self, self.isArray(obj) ? objs : objs[0]);
+        }
+      };
+
+      const trans = self.db.transaction(self.record, READ_WRITE);
+      const store = trans.objectStore(self.record);
+
+      objs.forEach((o) => {
+        store.put(o, o.key);
+      });
+
+      trans.oncomplete = win;
+      trans.onabort = (e) => {
+        fail(e);
+      };
+
+      return self;
+    },
+
+    /**
+     * Saves multiple objects to the IndexedDB store.
+     * @param {array} objs The objects to save.
+     * @param {function} callback The callback function.
+     * @returns {object} The IndexedDB adapter instance.
+     */
+    batch: (objs, callback) => {
+      return this.save(objs, callback);
+    },
+
+    /**
+     * Retrieves an object from the IndexedDB store by key.
+     * @param {string} key The key of the object to retrieve.
+     * @param {function} callback The callback function.
+     * @returns {object} The IndexedDB adapter instance.
+     */
+    get: (key, callback) => {
+      const self = this;
+      if (!self.store) {
+        self.waiting.push(() => {
+          self.get(key, callback);
+        });
+        return self;
+      }
+
+      const win = (e) => {
+        const r = e.target.result;
+        if (callback) {
+          if (r) {
+            r.key = key;
+          }
+          self.lambda(callback).call(self, r);
+        }
+      };
+
+      if (!self.isArray(key)) {
+        const req = self.db.transaction(self.record).objectStore(self.record).get(key);
+
+        req.onsuccess = (event) => {
+          req.onsuccess = req.onerror = null;
+          win(event);
+        };
+        req.onerror = (event) => {
+          req.onsuccess = req.onerror = null;
+          fail(event);
+        };
+      } else {
+        const results = [];
+        const done = key.length;
+        const keys = key;
+
+        const getOne = (i) => {
+          self.get(keys[i], (obj) => {
+            results[i] = obj;
+            if ((--done) > 0) {
+              return;
+            }
+            if (callback) {
+              self.lambda(callback).call(self, results);
+            }
+          });
+        };
+
+        keys.forEach((key, i) => {
+          getOne(i);
+        });
+      }
+
+      return self;
+    },
+
+    /**
+     * Checks if an object exists in the IndexedDB store by key.
+     * @param {string} key The key of the object to check.
+     * @param {function} callback The callback function.
+     * @returns {object} The IndexedDB adapter instance.
+     */
+    exists: (key, callback) => {
+      const self = this;
+      if (!self.store) {
+        self.waiting.push(() => {
+          self.exists(key, callback);
+        });
+        return self;
+      }
+
+      const req = self.db.transaction(self.record).objectStore(self.record).openCursor(getIDBKeyRange().only(key));
+
+      req.onsuccess = (event) => {
+        req.onsuccess = req.onerror = null;
+        const result = event.target.result;
+        self.lambda(callback).call(self, result !== null && result !== undefined);
+      };
+      req.onerror = (event) => {
+        req.onsuccess = req.onerror = null;
+        fail(event);
+      };
+
+      return self;
+    },
+
+    /**
+     * Retrieves all objects from the IndexedDB store.
+     * @param {function} callback The callback function.
+     * @returns {object} The IndexedDB adapter instance.
+     */
+    all: (callback) => {
+      const self = this;
+      if (!self.store) {
+        self.waiting.push(() => {
+          self.all(callback);
+        });
+        return self;
+      }
+
+      const cb = self.fn(self.name, callback) || undefined;
+      const objectStore = self.db.transaction(self.record).objectStore(self.record);
+      const toReturn = [];
+
+      objectStore.openCursor().onsuccess = (event) => {
+        const cursor = event.target.result;
+        if (cursor) {
+          toReturn.push(cursor.value);
+          cursor['continue']();
+        } else {
+          if (cb) {
+            cb.call(self, toReturn);
+          }
+        }
+      };
+
+      return self;
+    },
+
+    /**
+     * Retrieves all keys from the IndexedDB store.
+     * @param {function} callback The callback function.
+     * @returns {object} The IndexedDB adapter instance.
+     */
+    keys: (callback) => {
+      const self = this;
+      if (!self.store) {
+        self.waiting.push(() => {
+          self.keys(callback);
+        });
+        return self;
+      }
+
+      const cb = self.fn(self.name, callback) || undefined;
+      const objectStore = self.db.transaction(self.record).objectStore(self.record);
+      const toReturn = [];
+
+      objectStore.openCursor().onsuccess = (event) => {
+        const cursor = event.target.result;
+        if (cursor) {
+          toReturn.push(cursor.key);
+          cursor['continue']();
+        } else {
+          if (cb) {
+            cb.call(self, toReturn);
+          }
+        }
+      };
+
+      return self;
+    },
+
+    /**
+     * Removes an object from the IndexedDB store by key.
+     * @param {string} key The key of the object to remove.
+     * @param {function} callback The callback function.
+     * @returns {object} The IndexedDB adapter instance.
+     */
+    remove: (keyOrArray, callback) => {
+      const self = this;
+      if (!self.store) {
+        self.waiting.push(() => {
+          self.remove(keyOrArray, callback);
+        });
+        return self;
+      }
+
+      const toDelete = self.isArray(keyOrArray) ? keyOrArray : [keyOrArray];
+      const win = () => {
+        if (callback) {
+          self.lambda(callback).call(self);
+        }
+      };
+
+      const os = self.db.transaction(self.record, READ_WRITE).objectStore(self.record);
+
+      toDelete.forEach((key) => {
+        os['delete'](key.key ? key.key : key);
+      });
+
+      os.transaction.oncomplete = win;
+      os.transaction.onabort = (e) => {
+        fail(e);
+      };
+
+      return self;
+    },
+
+    /**
+     * Clears all objects from the IndexedDB store.
+     * @param {function} callback The callback function.
+     * @returns {object} The IndexedDB adapter instance.
+     */
+    nuke: (callback) => {
+      const self = this;
+      if (!self.store) {
+        self.waiting.push(() => {
+          self.nuke(callback);
+        });
+        return self;
+      }
+
+      const win = () => {
+        if (callback) {
+          self.lambda(callback).call(self);
+        }
+      };
+
+      try {
+        const os = self.db.transaction(self.record, READ_WRITE).objectStore(self.record);
+        os.clear();
+        os.transaction.oncomplete = win;
+        os.transaction.onabort = (e) => {
+          fail(e);
+        };
+      } catch (e) {
+        if (e.name === 'NotFoundError') {
+          win();
+        } else {
+          fail(e);
+        }
+      }
+
+      return self;
+    }
+  };
+
+  /**
+   * Handles the onupgradeneeded event.
+   * @param {IDBRequest} request The request object.
+   */
+  function onupgradeneeded(request) {
+    const self = this;
+    self.db = request.result;
+    self.transaction = request.transaction;
+
+    try {
+      self.db.deleteObjectStore(self.record);
+    } catch (e) {
+      // ignore
+    }
+
+    self.db.createObjectStore(self.record, {
+      autoIncrement: useAutoIncrement(),
+    });
+  }
+
+  /**
+   * Handles the onsuccess event.
+   * @param {Event} event The event object.
+   * @param {function} cb The callback function.
+   */
+  function onsuccess(event, cb) {
+    const self = this;
+    self.db = event.target.result;
+    self.store = true;
+
+    while (self.waiting.length) {
+      self.waiting.shift().call(self);
+    }
+
+    if (cb) {
+      cb.call(self, self);
+    }
+  }
+
+  /**
+   * Handles errors.
+   * @param {Error} e The error object.
+   */
+  function fail(e) {
+    console.error('error in indexed-db adapter!', e);
+  }
+
+  /**
+   * Checks if auto-increment is supported.
+   * @returns {boolean} True if auto-increment is supported, false otherwise.
+   */
+  function useAutoIncrement() {
+    return !!window.indexedDB;
+  }
+
+})());
+```
