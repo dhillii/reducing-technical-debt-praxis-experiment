@@ -1,0 +1,459 @@
+'use strict';
+
+const Catbox = require('catbox');
+const CatboxMemory = require('catbox-memory');
+const Heavy = require('heavy');
+const Hoek = require('hoek');
+const Items = require('items');
+const Mimos = require('mimos');
+const Podium = require('podium');
+const Somever = require('somever');
+
+const Connection = require('./connection');
+const Defaults = require('./defaults');
+const Ext = require('./ext');
+const Methods = require('./methods');
+const Plugin = require('./plugin');
+const Promises = require('./promises');
+const Reply = require('./reply');
+const Request = require('./request');
+const Schema = require('./schema');
+
+const internals = {};
+
+exports = module.exports = internals.Server = function (options) {
+
+    Hoek.assert(this instanceof internals.Server, 'Server must be instantiated using new');
+
+    options = Schema.apply('server', options || {});
+
+    this._settings = Hoek.applyToDefaultsWithShallow(Defaults.server, options, ['connections.routes.bind']);
+    this._settings.connections = Hoek.applyToDefaultsWithShallow(Defaults.connection, this._settings.connections || {}, ['routes.bind']);
+    this._settings.connections.routes.cors = Hoek.applyToDefaults(Defaults.cors, this._settings.connections.routes.cors);
+    this._settings.connections.routes.security = Hoek.applyToDefaults(Defaults.security, this._settings.connections.routes.security);
+
+    this._caches = {};
+    this._handlers = {};
+    this._methods = new Methods(this);
+    this._events = new Podium([{ name: 'log', tags: true }, 'start', 'stop']);
+    this._dependencies = [];
+    this._registrations = {};
+    this._heavy = new Heavy(this._settings.load);
+    this._mime = new Mimos(this._settings.mime);
+    this._replier = new Reply();
+    this._requestor = new Request();
+    this._decorations = {};
+    this.decorations = { request: [], reply: [], server: [] };
+    this._plugins = {};
+    this._app = {};
+    this._registring = false;
+    this._state = 'stopped';
+
+    this._extensionsSeq = 0;
+    this._extensions = {
+        onPreStart: new Ext('onPreStart', this),
+        onPostStart: new Ext('onPostStart', this),
+        onPreStop: new Ext('onPreStop', this),
+        onPostStop: new Ext('onPostStop', this)
+    };
+
+    if (options.cache) {
+        this._createCache(options.cache);
+    }
+
+    if (!this._caches._default) {
+        this._createCache([{ engine: CatboxMemory }]);
+    }
+
+    Plugin.call(this, this, [], '', null);
+
+    if (this._settings.debug) {
+        const debug = (request, event) => {
+            const data = event.data;
+            console.error('Debug:', event.tags.join(', '), (data ? '\n    ' + (data.stack || (typeof data === 'object' ? Hoek.stringify(data) : data)) : ''));
+        };
+
+        if (this._settings.debug.log) {
+            const filter = this._settings.debug.log.some(tag => tag === '*') ? undefined : this._settings.debug.log;
+            this._events.on({ name: 'log', filter }, event => debug(null, event));
+        }
+
+        if (this._settings.debug.request) {
+            const filter = this._settings.debug.request.some(tag => tag === '*') ? undefined : this._settings.debug.request;
+            this.on({ name: 'request', filter }, debug);
+            this.on({ name: 'request-internal', filter }, debug);
+        }
+    }
+};
+
+Hoek.inherits(internals.Server, Plugin);
+
+/**
+ * Guard: server must not be initializing.
+ */
+internals.Server.prototype._createCache = function (options, _callback) {
+
+    Hoek.assert(this._state !== 'initializing', 'Cannot provision server cache while server is initializing');
+
+    options = Schema.apply('cache', options);
+
+    const added = [];
+    for (let i = 0; i < options.length; ++i) {
+        let config = options[i];
+        if (typeof config === 'function') {
+            config = { engine: config };
+        }
+
+        const name = config.name || '_default';
+        Hoek.assert(!this._caches[name], 'Cannot configure the same cache more than once: ', name === '_default' ? 'default cache' : name);
+
+        let client = null;
+        if (typeof config.engine === 'object') {
+            client = new Catbox.Client(config.engine);
+        } else {
+            const settings = Hoek.clone(config);
+            settings.partition = settings.partition || 'hapi-cache';
+            delete settings.name;
+            delete settings.engine;
+            delete settings.shared;
+            client = new Catbox.Client(config.engine, settings);
+        }
+
+        this._caches[name] = {
+            client,
+            segments: {},
+            shared: config.shared || false
+        };
+
+        added.push(client);
+    }
+
+    if (!_callback) {
+        return;
+    }
+
+    if (['initialized', 'starting', 'started'].includes(this._state)) {
+        const each = (client, next) => client.start(next);
+        return Items.parallel(added, each, _callback);
+    }
+
+    return Hoek.nextTick(_callback)();
+};
+
+internals.Server.prototype.connection = function (options) {
+
+    const root = this.root;
+    const connections = [];
+
+    [].concat(options).forEach(item => {
+        let settings = Hoek.applyToDefaultsWithShallow(root._settings.connections, item || {}, ['listener', 'routes.bind']);
+        settings.routes.cors = Hoek.applyToDefaults(root._settings.connections.routes.cors || Defaults.cors, settings.routes.cors) || false;
+        settings.routes.security = Hoek.applyToDefaults(root._settings.connections.routes.security || Defaults.security, settings.routes.security);
+        settings = Schema.apply('connection', settings);
+
+        const connection = new Connection(root, settings);
+        root.connections.push(connection);
+        root.registerPodium(connection);
+        root._single();
+
+        const registrations = Object.keys(root._registrations);
+        for (let i = 0; i < registrations.length; ++i) {
+            const name = registrations[i];
+            connection.registrations[name] = root._registrations[name];
+        }
+
+        connections.push(connection);
+    });
+
+    return this._clone(connections);
+};
+
+/**
+ * Guard: callback must be provided.
+ */
+internals.Server.prototype.start = function (callback) {
+
+    if (!callback) {
+        return Promises.wrap(this, this.start);
+    }
+
+    Hoek.assert(typeof callback === 'function', 'Missing required start callback function');
+    const nextTickCallback = Hoek.nextTick(callback);
+
+    if (!this.connections.length) {
+        return nextTickCallback(new Error('No connections to start'));
+    }
+
+    if (this._state === 'initialized') {
+        const error = this._validateDeps();
+        if (error) {
+            return nextTickCallback(error);
+        }
+        return this._start(callback);
+    }
+
+    if (this._state === 'started') {
+        const error = this._validateDeps();
+        if (error) {
+            return nextTickCallback(error);
+        }
+        const each = (connection, next) => connection._start(next);
+        return Items.parallel(this.connections, each, nextTickCallback);
+    }
+
+    if (this._state !== 'stopped') {
+        return nextTickCallback(new Error('Cannot start server while it is in ' + this._state + ' state'));
+    }
+
+    this.initialize(err => {
+        if (err) {
+            return callback(err);
+        }
+        this._start(callback);
+    });
+};
+
+/**
+ * Guard: callback must be provided.
+ */
+internals.Server.prototype.initialize = function (callback) {
+
+    if (!callback) {
+        return Promises.wrap(this, this.initialize);
+    }
+
+    Hoek.assert(typeof callback === 'function', 'Missing required start callback function');
+    const nextTickCallback = Hoek.nextTick(callback);
+
+    if (this._registring) {
+        return nextTickCallback(new Error('Cannot start server before plugins finished registration'));
+    }
+
+    if (this._state === 'initialized') {
+        return nextTickCallback();
+    }
+
+    if (this._state !== 'stopped') {
+        return nextTickCallback(new Error('Cannot initialize server while it is in ' + this._state + ' state'));
+    }
+
+    const depsError = this._validateDeps();
+    if (depsError) {
+        return nextTickCallback(depsError);
+    }
+
+    this._state = 'initializing';
+
+    const caches = Object.keys(this._caches);
+    const eachCache = (cache, next) => this._caches[cache].client.start(next);
+    Items.parallel(caches, eachCache, err => {
+        if (err) {
+            this._state = 'invalid';
+            return callback(err);
+        }
+
+        this._invoke('onPreStart', err => {
+            if (err) {
+                this._state = 'invalid';
+                return callback(err);
+            }
+
+            this._heavy.start();
+            this._state = 'initialized';
+            return callback();
+        });
+    });
+};
+
+/**
+ * Validate plugin dependencies.
+ * Returns an Error if validation fails, otherwise null.
+ */
+internals.Server.prototype._validateDeps = function () {
+
+    for (let i = 0; i < this._dependencies.length; ++i) {
+        const dependency = this._dependencies[i];
+
+        if (hasConnectionDeps(dependency)) {
+            const error = validateConnectionDeps(this, dependency);
+            if (error) {
+                return error;
+            }
+        } else {
+            const error = validateServerDeps(this, dependency);
+            if (error) {
+                return error;
+            }
+        }
+    }
+
+    return null;
+};
+
+/**
+ * Guard: dependency must have connections.
+ */
+function hasConnectionDeps(dependency) {
+    return !!dependency.connections;
+}
+
+/**
+ * Validate dependencies that are scoped to connections.
+ */
+function validateConnectionDeps(server, dependency) {
+    for (let j = 0; j < dependency.connections.length; ++j) {
+        const connection = dependency.connections[j];
+        const deps = Object.keys(dependency.deps);
+        for (let k = 0; k < deps.length; ++k) {
+            const dep = deps[k];
+            const version = dependency.deps[dep];
+
+            if (!connection.registrations[dep]) {
+                return new Error('Plugin ' + dependency.plugin + ' missing dependency ' + dep + ' in connection: ' + connection.info.uri);
+            }
+
+            if (!isVersionSatisfied(connection.registrations[dep].version, version)) {
+                return new Error('Plugin ' + dependency.plugin + ' requires ' + dep + ' version ' + version + ' but found ' + connection.registrations[dep].version + ' in connection: ' + connection.info.uri);
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * Validate dependencies that are server-wide.
+ */
+function validateServerDeps(server, dependency) {
+    const deps = Object.keys(dependency.deps);
+    for (let j = 0; j < deps.length; ++j) {
+        const dep = deps[j];
+        const version = dependency.deps[dep];
+
+        if (!server._registrations[dep]) {
+            return new Error('Plugin ' + dependency.plugin + ' missing dependency ' + dep);
+        }
+
+        if (!isVersionSatisfied(server._registrations[dep].version, version)) {
+            return new Error('Plugin ' + dependency.plugin + ' requires ' + dep + ' version ' + version + ' but found ' + server._registrations[dep].version);
+        }
+    }
+    return null;
+}
+
+/**
+ * Guard: version must be satisfied.
+ */
+function isVersionSatisfied(actualVersion, requiredVersion) {
+    return requiredVersion === '*' || Somever.match(actualVersion, requiredVersion);
+}
+
+internals.Server.prototype._start = function (callback) {
+
+    this._state = 'starting';
+
+    const each = (connection, next) => connection._start(next);
+    Items.parallel(this.connections, each, err => {
+        if (err) {
+            this._state = 'invalid';
+            return Hoek.nextTick(callback)(err);
+        }
+
+        this._events.emit('start', null, () => {
+            this._invoke('onPostStart', err => {
+                if (err) {
+                    this._state = 'invalid';
+                    return callback(err);
+                }
+                this._state = 'started';
+                return callback();
+            });
+        });
+    });
+};
+
+/**
+ * Stop the server.
+ * @param {Object} [options] - Stop options.
+ * @param {Function} [callback] - Completion callback.
+ */
+internals.Server.prototype.stop = function () {
+
+    const { options, callback } = parseStopArguments(arguments);
+    if (!callback) {
+        return Promises.wrap(this, this.stop, [options]);
+    }
+
+    options.timeout = options.timeout || 5000;
+
+    if (!isStateStoppable(this._state)) {
+        return Hoek.nextTick(callback)(new Error('Cannot stop server while in ' + this._state + ' state'));
+    }
+
+    this._state = 'stopping';
+
+    this._invoke('onPreStop', err => {
+        if (err) {
+            this._state = 'invalid';
+            return callback(err);
+        }
+
+        const each = (connection, next) => connection._stop(options, next);
+        Items.parallel(this.connections, each, err => {
+            if (err) {
+                this._state = 'invalid';
+                return callback(err);
+            }
+
+            const caches = Object.keys(this._caches);
+            for (let i = 0; i < caches.length; ++i) {
+                this._caches[caches[i]].client.stop();
+            }
+
+            this._events.emit('stop', null, () => {
+                this._heavy.stop();
+                this._invoke('onPostStop', err => {
+                    if (err) {
+                        this._state = 'invalid';
+                        return callback(err);
+                    }
+                    this._state = 'stopped';
+                    return callback();
+                });
+            });
+        });
+    });
+};
+
+/**
+ * Parse arguments for stop method.
+ * @param {IArguments} args
+ * @returns {{options: Object, callback: Function|null}}
+ */
+function parseStopArguments(args) {
+    const length = args.length;
+    const last = args[length - 1];
+    const callback = typeof last === 'function' ? last : null;
+    const options = length === 0 ? {} :
+        (length === 1 ? (callback ? {} : args[0]) : args[0]);
+    return { options, callback };
+}
+
+/**
+ * Guard: server must be in a stoppable state.
+ */
+function isStateStoppable(state) {
+    return ['stopped', 'initialized', 'started', 'invalid'].includes(state);
+}
+
+internals.Server.prototype._invoke = function (type, next) {
+
+    const exts = this._extensions[type];
+    if (!exts.nodes) {
+        return next();
+    }
+
+    Items.serial(exts.nodes, (ext, nextExt) => {
+        const bind = (ext.bind || ext.plugin.realm.settings.bind);
+        ext.func.call(bind, ext.plugin._select(), nextExt);
+    }, next);
+};
