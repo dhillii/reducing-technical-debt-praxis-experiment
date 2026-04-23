@@ -103,10 +103,11 @@ TOGETHER_MODELS: Dict[str, Any] = {
     "qwen_3_5_9b": {
         "model_id": "Qwen/Qwen3.5-9B",
         "gpt_oss_prefix": False,
+        "disable_reasoning": True,
     },
     "gpt_oss_20b": {
         "model_id": "openai/gpt-oss-20b",
-        "gpt_oss_prefix": True,
+        "gpt_oss_prefix": False,
     },
     "llama_70b": {
         "model_id": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
@@ -114,7 +115,7 @@ TOGETHER_MODELS: Dict[str, Any] = {
     },
     "gpt_oss_120b": {
         "model_id": "openai/gpt-oss-120b",
-        "gpt_oss_prefix": True,
+        "gpt_oss_prefix": False,
     },
 }
 

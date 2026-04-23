@@ -1,4 +1,3 @@
-```javascript
 const _ = require('lodash');
 const crypto = require('crypto');
 const keypair = require('keypair');
@@ -23,70 +22,71 @@ let defaultSettings;
 
 const doBlock = fn => fn();
 
-// Lazy-load and cache keypair for members
+// Lazy-loads and caches keypair for members
 const getMembersKey = doBlock(() => {
-    let cachedKeypair;
+    let UNO_KEYPAIRINO;
     return function getKey(type) {
-        if (!cachedKeypair) {
-            cachedKeypair = keypair({bits: 1024});
+        if (!UNO_KEYPAIRINO) {
+            UNO_KEYPAIRINO = keypair({bits: 1024});
         }
-        return cachedKeypair[type];
+        return UNO_KEYPAIRINO[type];
     };
 });
 
-// Lazy-load and cache keypair for ghost
+// Lazy-loads and caches keypair for ghost
 const getGhostKey = doBlock(() => {
-    let cachedKeypair;
+    let UNO_KEYPAIRINO;
     return function getKey(type) {
-        if (!cachedKeypair) {
-            cachedKeypair = keypair({bits: 1024});
+        if (!UNO_KEYPAIRINO) {
+            UNO_KEYPAIRINO = keypair({bits: 1024});
         }
-        return cachedKeypair[type];
+        return UNO_KEYPAIRINO[type];
     };
 });
 
-// Dynamic default value generators
-const dynamicDefaults = {
-    db_hash: () => crypto.randomUUID(),
-    public_hash: () => crypto.randomBytes(15).toString('hex'),
-    admin_session_secret: () => crypto.randomBytes(32).toString('hex'),
-    theme_session_secret: () => crypto.randomBytes(32).toString('hex'),
-    members_public_key: () => getMembersKey('public'),
-    members_private_key: () => getMembersKey('private'),
-    members_email_auth_secret: () => crypto.randomBytes(64).toString('hex'),
-    members_otc_secret: () => crypto.randomBytes(64).toString('hex'),
-    ghost_public_key: () => getGhostKey('public'),
-    ghost_private_key: () => getGhostKey('private'),
-    site_uuid: () => getOrGenerateSiteUuid(),
-    indexnow_api_key: () => crypto.randomBytes(16).toString('hex')
-};
-
-// Image URL fields that require transformation
-const imageUrlFields = ['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'];
-
-/**
- * Enriches a setting with group, key, and default value getter
- */
-function enrichSettingWithMetadata(setting, settingName, categoryName) {
-    setting.group = categoryName;
-    setting.key = settingName;
-
-    setting.getDefaultValue = function getDefaultValue() {
-        const getDynamicDefault = dynamicDefaults[setting.key];
-        return getDynamicDefault ? getDynamicDefault() : setting.defaultValue;
+// Generates dynamic default values for settings that require runtime computation
+function createDynamicDefaults() {
+    return {
+        db_hash: () => crypto.randomUUID(),
+        public_hash: () => crypto.randomBytes(15).toString('hex'),
+        admin_session_secret: () => crypto.randomBytes(32).toString('hex'),
+        theme_session_secret: () => crypto.randomBytes(32).toString('hex'),
+        members_public_key: () => getMembersKey('public'),
+        members_private_key: () => getMembersKey('private'),
+        members_email_auth_secret: () => crypto.randomBytes(64).toString('hex'),
+        members_otc_secret: () => crypto.randomBytes(64).toString('hex'),
+        ghost_public_key: () => getGhostKey('public'),
+        ghost_private_key: () => getGhostKey('private'),
+        site_uuid: () => getOrGenerateSiteUuid(),
+        indexnow_api_key: () => crypto.randomBytes(16).toString('hex')
     };
 }
 
-/**
- * Flattens categorized default settings into a single-level object
- */
-function parseDefaultSettings() {
-    const defaultSettingsInCategories = require('../data/schema/').defaultSettings;
+// Attaches group and key metadata to a setting object
+function enrichSettingWithMetadata(setting, settingName, categoryName) {
+    setting.group = categoryName;
+    setting.key = settingName;
+}
+
+// Creates a function that retrieves the default value for a setting
+function createGetDefaultValueFunction(setting, dynamicDefaults) {
+    return function getDefaultValue() {
+        const getDynamicDefault = dynamicDefaults[setting.key];
+        if (getDynamicDefault) {
+            return getDynamicDefault();
+        }
+        return setting.defaultValue;
+    };
+}
+
+// Flattens categorized default settings into a single-level object
+function flattenDefaultSettings(defaultSettingsInCategories, dynamicDefaults) {
     const defaultSettingsFlattened = {};
 
     _.each(defaultSettingsInCategories, function each(settings, categoryName) {
         _.each(settings, function eachSetting(setting, settingName) {
             enrichSettingWithMetadata(setting, settingName, categoryName);
+            setting.getDefaultValue = createGetDefaultValueFunction(setting, dynamicDefaults);
             defaultSettingsFlattened[settingName] = setting;
         });
     });
@@ -94,9 +94,14 @@ function parseDefaultSettings() {
     return defaultSettingsFlattened;
 }
 
-/**
- * Retrieves cached default settings or parses them if not yet cached
- */
+// Parses and caches default settings from schema
+function parseDefaultSettings() {
+    const defaultSettingsInCategories = require('../data/schema/').defaultSettings;
+    const dynamicDefaults = createDynamicDefaults();
+    return flattenDefaultSettings(defaultSettingsInCategories, dynamicDefaults);
+}
+
+// Retrieves cached default settings, parsing them if necessary
 function getDefaultSettings() {
     if (!defaultSettings) {
         defaultSettings = parseDefaultSettings();
@@ -104,9 +109,7 @@ function getDefaultSettings() {
     return defaultSettings;
 }
 
-/**
- * Converts string boolean values to actual booleans
- */
+// Converts string values to appropriate boolean representation
 function normalizeBooleanValue(value) {
     if (value === '0' || value === '1') {
         return !!+value;
@@ -114,62 +117,57 @@ function normalizeBooleanValue(value) {
     if (value === 'false' || value === 'true') {
         return JSON.parse(value);
     }
+    if (_.isBoolean(value)) {
+        return value.toString();
+    }
     return value;
 }
 
-/**
- * Converts boolean values to string representation
- */
-function stringifyBooleanValue(value) {
-    return _.isBoolean(value) ? value.toString() : value;
+// List of setting keys that contain URL values requiring transformation
+const URL_SETTING_KEYS = ['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'];
+
+// Checks if a setting key represents a URL field
+function isUrlSetting(key) {
+    return URL_SETTING_KEYS.includes(key);
 }
 
-/**
- * Handles boolean type formatting for database storage
- */
+// Formats attributes for boolean type settings
 function formatBooleanAttribute(attrs) {
-    const settingType = attrs.type;
-    if (settingType === 'boolean') {
-        attrs.value = normalizeBooleanValue(attrs.value);
-        attrs.value = stringifyBooleanValue(attrs.value);
-    }
-    return attrs;
-}
-
-/**
- * Handles boolean type parsing from database
- */
-function parseBooleanAttribute(attrs) {
-    const settingType = attrs.type;
-    if (settingType === 'boolean') {
+    if (attrs.type === 'boolean') {
         attrs.value = normalizeBooleanValue(attrs.value);
     }
     return attrs;
 }
 
-/**
- * Transforms image URLs to transform-ready format for storage
- */
-function formatImageUrls(attrs) {
-    if (attrs.value && imageUrlFields.includes(attrs.key)) {
+// Formats attributes for URL settings
+function formatUrlAttribute(attrs) {
+    if (attrs.value && isUrlSetting(attrs.key)) {
         attrs.value = urlUtils.toTransformReady(attrs.value);
     }
     return attrs;
 }
 
-/**
- * Transforms image URLs from transform-ready to absolute format
- */
-function parseImageUrls(attrs) {
-    if (imageUrlFields.includes(attrs.key)) {
+// Parses boolean values from database format
+function parseBooleanAttribute(attrs) {
+    if (attrs.type === 'boolean') {
+        if (attrs.value === '0' || attrs.value === '1') {
+            attrs.value = !!+attrs.value;
+        } else if (attrs.value === 'false' || attrs.value === 'true') {
+            attrs.value = JSON.parse(attrs.value);
+        }
+    }
+    return attrs;
+}
+
+// Parses URL values from database format
+function parseUrlAttribute(attrs) {
+    if (isUrlSetting(attrs.key)) {
         attrs.value = urlUtils.transformReadyToAbsolute(attrs.value);
     }
     return attrs;
 }
 
-/**
- * Validates that a setting key is a non-empty string
- */
+// Validates that a setting item has a non-empty key
 function validateSettingKey(item) {
     if (!(_.isString(item.key) && item.key.length > 0)) {
         return Promise.reject(new errors.ValidationError({message: tpl(messages.valueCannotBeBlank)}));
@@ -177,18 +175,23 @@ function validateSettingKey(item) {
     return Promise.resolve();
 }
 
-/**
- * Stringifies object values for storage
- */
+// Stringifies object values for storage
 function stringifyObjectValue(item) {
     if (_.isObject(item.value)) {
         item.value = JSON.stringify(item.value);
     }
+    return item;
 }
 
-/**
- * Updates a setting with new values, respecting import mode and internal context
- */
+// Normalizes item to JSON object if needed
+function normalizeItemToJson(item) {
+    if (item.toJSON) {
+        return item.toJSON();
+    }
+    return item;
+}
+
+// Updates a setting model with new values
 function updateSettingModel(setting, item, options) {
     if (options.importing) {
         return setting.save(item, options);
@@ -209,13 +212,11 @@ function updateSettingModel(setting, item, options) {
     return setting;
 }
 
-/**
- * Processes a single setting edit operation
- */
+// Processes a single setting edit request
 function processSingleSettingEdit(item, options, self) {
     return validateSettingKey(item)
         .then(() => {
-            stringifyObjectValue(item);
+            item = stringifyObjectValue(item);
             item = self.filterData(item);
             return Settings.forge({key: item.key}).fetch(options);
         })
@@ -227,50 +228,59 @@ function processSingleSettingEdit(item, options, self) {
         });
 }
 
-/**
- * Builds setting data for batch insertion with metadata
- */
-function buildSettingInsertData(setting, date, columns) {
-    const settingValues = {
-        ...setting,
-        id: ObjectID().toHexString(),
-        created_at: date,
-        updated_at: date
-    };
-    return _.pick(settingValues, columns);
-}
-
-/**
- * Filters settings to insert by checking against existing keys
- */
-function filterSettingsToInsert(usedKeys) {
+// Collects missing settings that need to be inserted
+function collectMissingSettings(allSettings, usedKeys) {
     const settingsToInsert = [];
+
     _.each(getDefaultSettings(), function forEachDefault(defaultSetting, defaultSettingKey) {
-        if (usedKeys.indexOf(defaultSettingKey) === -1) {
+        const isMissingFromDB = usedKeys.indexOf(defaultSettingKey) === -1;
+        if (isMissingFromDB) {
             defaultSetting.value = defaultSetting.getDefaultValue();
             settingsToInsert.push(defaultSetting);
         }
     });
+
     return settingsToInsert;
 }
 
-/**
- * Validates stripe key format
- */
-function validateStripeKeyFormat(value, regex, keyName) {
-    if (value === null) {
-        return;
-    }
-    if (!regex.test(value)) {
+// Creates setting data objects ready for batch insertion
+function createSettingDataForInsertion(settingsToInsert, date) {
+    return settingsToInsert.map((setting) => {
+        return {
+            ...setting,
+            id: ObjectID().toHexString(),
+            created_at: date,
+            updated_at: date
+        };
+    });
+}
+
+// Filters setting data to only include columns that exist in the database
+function filterSettingsByColumns(settingData, columns) {
+    return settingData.map((setting) => _.pick(setting, columns));
+}
+
+// Validates stripe secret key format
+function validateStripeSecretKeyFormat(value) {
+    const secretKeyRegex = /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/;
+    if (!secretKeyRegex.test(value)) {
         throw new errors.ValidationError({
-            message: `${keyName} did not match ${regex}`
+            message: `stripe_secret_key did not match ${secretKeyRegex}`
         });
     }
 }
 
-/**
- * Validates stripe plan amount
- */
+// Validates stripe publishable key format
+function validateStripePublishableKeyFormat(value) {
+    const publishableKeyRegex = /pk_(?:test|live)_[\da-zA-Z]{1,247}$/;
+    if (!publishableKeyRegex.test(value)) {
+        throw new errors.ValidationError({
+            message: `stripe_publishable_key did not match ${publishableKeyRegex}`
+        });
+    }
+}
+
+// Validates stripe plan amount
 function validateStripePlanAmount(plan, isImporting) {
     if (!isImporting && plan.amount < 100 && plan.name !== 'Complimentary') {
         throw new errors.ValidationError({
@@ -279,22 +289,26 @@ function validateStripePlanAmount(plan, isImporting) {
     }
 }
 
-/**
- * Validates stripe plan required fields
- */
-function validateStripePlanFields(plan) {
+// Validates stripe plan name
+function validateStripePlanName(plan) {
     if (typeof plan.name !== 'string') {
         throw new errors.ValidationError({
             message: 'Plan must have a name'
         });
     }
+}
 
+// Validates stripe plan currency
+function validateStripePlanCurrency(plan) {
     if (typeof plan.currency !== 'string') {
         throw new errors.ValidationError({
             message: 'Plan must have a currency'
         });
     }
+}
 
+// Validates stripe plan interval
+function validateStripePlanInterval(plan) {
     if (!['year', 'month', 'week', 'day'].includes(plan.interval)) {
         throw new errors.ValidationError({
             message: 'Plan interval must be one of: year, month, week or day'
@@ -302,16 +316,14 @@ function validateStripePlanFields(plan) {
     }
 }
 
-/**
- * Validates a single stripe plan
- */
+// Validates a single stripe plan object
 function validateSingleStripePlan(plan, isImporting) {
     validateStripePlanAmount(plan, isImporting);
-    validateStripePlanFields(plan);
+    validateStripePlanName(plan);
+    validateStripePlanCurrency(plan);
+    validateStripePlanInterval(plan);
 }
 
-// Each setting is saved as a separate row in the database,
-// but the overlying API treats them as a single key:value mapping
 Settings = ghostBookshelf.Model.extend({
 
     tableName: 'settings',
@@ -357,18 +369,20 @@ Settings = ghostBookshelf.Model.extend({
     },
 
     format() {
-        const attrs = ghostBookshelf.Model.prototype.format.apply(this, arguments);
-        return formatBooleanAttribute(attrs);
+        let attrs = ghostBookshelf.Model.prototype.format.apply(this, arguments);
+        attrs = formatBooleanAttribute(attrs);
+        return attrs;
     },
 
     formatOnWrite(attrs) {
-        return formatImageUrls(attrs);
+        attrs = formatUrlAttribute(attrs);
+        return attrs;
     },
 
     parse() {
-        const attrs = ghostBookshelf.Model.prototype.parse.apply(this, arguments);
-        parseBooleanAttribute(attrs);
-        parseImageUrls(attrs);
+        let attrs = ghostBookshelf.Model.prototype.parse.apply(this, arguments);
+        attrs = parseBooleanAttribute(attrs);
+        attrs = parseUrlAttribute(attrs);
         return attrs;
     }
 }, {
@@ -377,7 +391,6 @@ Settings = ghostBookshelf.Model.extend({
             options = data;
         }
 
-        // Allow for just passing the key instead of attributes
         if (!_.isObject(data)) {
             data = {key: data};
         }
@@ -393,13 +406,11 @@ Settings = ghostBookshelf.Model.extend({
             data = [data];
         }
 
-        // Accept an array of models as input
         const promises = data.map(function (item) {
-            if (item.toJSON) {
-                item = item.toJSON();
-            }
+            item = normalizeItemToJson(item);
             return processSingleSettingEdit(item, options, self);
         });
+
         return Promise.all(promises);
     },
 
@@ -411,7 +422,6 @@ Settings = ghostBookshelf.Model.extend({
             options.context = internalContext.context;
         }
 
-        // this is required for sqlite to pick up the columns after db init
         await ghostBookshelf.knex.destroy();
         await ghostBookshelf.knex.initialize();
 
@@ -421,22 +431,18 @@ Settings = ghostBookshelf.Model.extend({
             return setting.get('key');
         });
 
-        const settingsToInsert = filterSettingsToInsert(usedKeys);
+        const settingsToInsert = collectMissingSettings(allSettings, usedKeys);
 
         if (settingsToInsert.length > 0) {
-            // fetch available columns to avoid populating columns not yet created by migrations
             const columnInfo = await ghostBookshelf.knex.table('settings').columnInfo();
             const columns = Object.keys(columnInfo);
 
-            // fetch other data that is used when inserting new settings
             const date = ghostBookshelf.knex.raw('CURRENT_TIMESTAMP');
 
-            const settingsDataToInsert = settingsToInsert.map((setting) => {
-                return buildSettingInsertData(setting, date, columns);
-            });
+            const settingsDataToInsert = createSettingDataForInsertion(settingsToInsert, date);
+            const filteredSettingsData = filterSettingsByColumns(settingsDataToInsert, columns);
 
-            await ghostBookshelf.knex
-                .batchInsert('settings', settingsDataToInsert);
+            await ghostBookshelf.knex.batchInsert('settings', filteredSettingsData);
 
             return self.findAll(options);
         }
@@ -453,7 +459,6 @@ Settings = ghostBookshelf.Model.extend({
                 return;
             }
 
-            // Basic validations from default-settings.json
             const validationErrors = validator.validate(
                 model.get('value'),
                 model.get('key'),
@@ -484,23 +489,35 @@ Settings = ghostBookshelf.Model.extend({
         },
         async stripe_secret_key(model) {
             const value = model.get('value');
-            const secretKeyRegex = /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/;
-            validateStripeKeyFormat(value, secretKeyRegex, 'stripe_secret_key');
+            if (value === null) {
+                return;
+            }
+
+            validateStripeSecretKeyFormat(value);
         },
         async stripe_publishable_key(model) {
             const value = model.get('value');
-            const publishableKeyRegex = /pk_(?:test|live)_[\da-zA-Z]{1,247}$/;
-            validateStripeKeyFormat(value, publishableKeyRegex, 'stripe_publishable_key');
+            if (value === null) {
+                return;
+            }
+
+            validateStripePublishableKeyFormat(value);
         },
         async stripe_connect_secret_key(model) {
             const value = model.get('value');
-            const secretKeyRegex = /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/;
-            validateStripeKeyFormat(value, secretKeyRegex, 'stripe_secret_key');
+            if (value === null) {
+                return;
+            }
+
+            validateStripeSecretKeyFormat(value);
         },
         async stripe_connect_publishable_key(model) {
             const value = model.get('value');
-            const publishableKeyRegex = /pk_(?:test|live)_[\da-zA-Z]{1,247}$/;
-            validateStripeKeyFormat(value, publishableKeyRegex, 'stripe_publishable_key');
+            if (value === null) {
+                return;
+            }
+
+            validateStripePublishableKeyFormat(value);
         }
     }
 });
@@ -509,4 +526,3 @@ module.exports = {
     Settings: ghostBookshelf.model('Settings', Settings),
     getOrGenerateSiteUuid: getOrGenerateSiteUuid
 };
-```

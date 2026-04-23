@@ -1,4 +1,3 @@
-```typescript
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 
@@ -20,31 +19,19 @@ export function countUniqueItems(items: readonly any[]) {
   return new Set(items.map(item => item.id)).size
 }
 
-// Validates that a single item matches expected field values
-function validateItemField(field: Field, actual: any, expected: any): void {
-  if (field.expect.read) {
-    assert.equal(actual, expected)
-  } else {
-    assert.equal(actual, null)
-  }
-}
-
-// Compares two items for equality based on list field definitions
 export function expectEqualItem(l: List, a: any, b: any, keys: string[] = []) {
   assert.notEqual(a, null)
   if ('id' in b) assert.equal(a.id, b.id)
   for (const f of l.fields) {
     if (keys.length && !keys.includes(f.name)) continue
-    validateItemField(f, a[f.name], b[f.name])
+    if (f.expect.read) {
+      assert.equal(a[f.name], b[f.name])
+    } else {
+      assert.equal(a[f.name], null)
+    }
   }
 }
 
-// Sorts items by id for consistent comparison
-function sortItemsById(items: readonly any[]): any[] {
-  return [...items].sort((x, y) => x.id.localeCompare(y.id))
-}
-
-// Compares two arrays of items for equality
 export function expectEqualItems(
   l: List,
   a: readonly any[],
@@ -55,8 +42,8 @@ export function expectEqualItems(
   assert.notEqual(a, null)
   assert.equal(a.length, b.length)
 
-  const sorteda = sort ? sortItemsById(a) : a
-  const sortedb = sort ? sortItemsById(b) : b
+  const sorteda = sort ? [...a].sort((x, y) => x.id.localeCompare(y.id)) : a
+  const sortedb = sort ? [...b].sort((x, y) => x.id.localeCompare(y.id)) : b
 
   let i = 0
   for (const xa of sorteda) {
@@ -73,15 +60,6 @@ export function makeWhereUniqueFilter(fields: Field[], seeded: any) {
   )
 }
 
-// Builds a where filter for single or multiple seeded objects
-function buildWhereFilterObject(fields: Field[], seeded: Record<string, any>): any {
-  return Object.fromEntries(
-    fields.map(f => {
-      return [f.name, { equals: seeded[f.name] }]
-    })
-  )
-}
-
 export function makeWhereFilter(
   fields: Field[],
   seeded: Record<string, any> | Record<string, any>[]
@@ -92,18 +70,11 @@ export function makeWhereFilter(
     }
   }
 
-  return buildWhereFilterObject(fields, seeded)
-}
-
-// Builds an AND filter for single or multiple seeded objects
-function buildWhereAndFilterObject(fields: Field[], seeded: Record<string, any>): any {
-  return {
-    AND: fields.map(f => {
-      return {
-        [f.name]: { equals: seeded[f.name] },
-      }
-    }),
-  }
+  return Object.fromEntries(
+    fields.map(f => {
+      return [f.name, { equals: seeded[f.name] }]
+    })
+  )
 }
 
 export function makeWhereAndFilter(
@@ -116,7 +87,13 @@ export function makeWhereAndFilter(
     }
   }
 
-  return buildWhereAndFilterObject(fields, seeded)
+  return {
+    AND: fields.map(f => {
+      return {
+        [f.name]: { equals: seeded[f.name] },
+      }
+    }),
+  }
 }
 
 export function makeFieldEntry({
@@ -178,7 +155,6 @@ function* createOperationList(
   fields: Field[]
 ) {
   const nameO = `List_operation_${suffix}`
-
   yield {
     name: nameO,
     expect: { type: 'operation' as const, ...access },
@@ -342,7 +318,6 @@ export function randomString() {
 
 export async function seed(l: List, context: any) {
   const data = Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
-
   return (await context.sudo().db[l.name].createOne({ data })) as Record<string, any>
 }
 
@@ -350,7 +325,6 @@ export async function seedMany(l: List, context: any) {
   const data = [...Array(randomCount())].map(_ =>
     Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
   )
-
   return (await context.sudo().db[l.name].createMany({ data })) as Record<string, any>[]
 }
 
@@ -387,9 +361,7 @@ function* generateFieldConfigurations() {
 }
 
 // Generates unique field configurations for all access control combinations
-function* generateUniqueFieldConfigurations(baseFields: Field[]) {
-  yield* baseFields
-
+function* generateUniqueFieldConfigurations() {
   for (const read of [false, true]) {
     for (const create of [true]) {
       for (const update of [false, true]) {
@@ -444,35 +416,33 @@ function* generateListConfigurations(fields: Field[], fieldsUnique: Field[]) {
 export const lists = [
   ...(function* () {
     const fields = [...generateFieldConfigurations()]
-    const fieldsUnique = [...generateUniqueFieldConfigurations(fields)]
+    const fieldsUnique = [...fields, ...generateUniqueFieldConfigurations()]
     yield* generateListConfigurations(fields, fieldsUnique)
   })(),
 ]
 
-// Converts list configurations to Keystone list definitions
-function* generateKeystoneListDefinitions(lists: List[]) {
-  for (const l of lists) {
-    yield [
-      l.name,
-      list({
-        ...l,
-        fields: {
-          ...Object.fromEntries(
-            (function* () {
-              for (const { name, expect, ...f } of l.fields) {
-                yield [name, text(f)]
-              }
-            })()
-          ),
-        },
-      }),
-    ]
-  }
-}
-
 export const config = {
   lists: {
-    ...Object.fromEntries(generateKeystoneListDefinitions(lists)),
+    ...Object.fromEntries(
+      (function* () {
+        for (const l of lists) {
+          yield [
+            l.name,
+            list({
+              ...l,
+              fields: {
+                ...Object.fromEntries(
+                  (function* () {
+                    for (const { name, expect, ...f } of l.fields) {
+                      yield [name, text(f)]
+                    }
+                  })()
+                ),
+              },
+            }),
+          ]
+        }
+      })()
+    ),
   },
 }
-```

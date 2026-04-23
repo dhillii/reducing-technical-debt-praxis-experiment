@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Tests for FileReport class
  * @author Nicholas C. Zakas
@@ -57,7 +56,7 @@ function mockRuleMapper() {
 
 /**
  * Asserts that a message is correctly formatted.
- * @param {FileReport} fileReport The FileReport instance to test
+ * @param {Object} fileReport The FileReport instance to test
  * @param {string} expected The expected message
  * @param {...any} args The arguments to pass to `addRuleMessage`
  * @returns {void}
@@ -1011,7 +1010,6 @@ describe("FileReport", () => {
 			});
 		});
 
-		// This isn't officially supported, but autofix works the same way
 		it("should remove the whole suggestion if 'fix' function didn't return anything.", () => {
 			const reportDescriptor = {
 				node,
@@ -1500,7 +1498,6 @@ describe("FileReport", () => {
 				[],
 			]) {
 				assert.throws(
-					// eslint-disable-next-line no-loop-func -- Using arrow functions
 					() =>
 						fileReport.addRuleMessage("foo-rule", 2, {
 							node,
@@ -1511,7 +1508,6 @@ describe("FileReport", () => {
 				);
 
 				assert.throws(
-					// eslint-disable-next-line no-loop-func -- Using arrow functions
 					() =>
 						fileReport.addRuleMessage("foo-rule", 2, {
 							node,
@@ -1528,7 +1524,6 @@ describe("FileReport", () => {
 		});
 	});
 
-	// https://github.com/eslint/eslint/issues/16716
 	describe("unique `fix` and `fix.range` objects", () => {
 		const range = [0, 3];
 		const fix = { range, text: "baz" };
@@ -1844,4 +1839,3 @@ describe("FileReport", () => {
 		});
 	});
 });
-```

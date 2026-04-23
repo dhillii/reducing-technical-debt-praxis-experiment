@@ -1,12 +1,3 @@
-```javascript
-/**
- * Copyright (C) 2015 Laverna project Authors.
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
- */
-/* global define */
 define([
     'underscore',
     'jquery',
@@ -19,21 +10,6 @@ define([
 ], function(_, $, Q, Backbone, Marionette, Radio, Dropbox, adapter) {
     'use strict';
 
-    /**
-     * Dropbox synchronizer.
-     *
-     * Triggers:
-     * 1. `auth:success` on `dropbox` channel
-     *     - after authentication is completed successfully.
-     * 2. `start` on `sync` channel
-     *     when synchronizing starts
-     * 3. `stop` on `sync` channel
-     *     when synchronizing stops
-     *
-     * Replies:
-     * 1. `start` on `sync` channel
-     *     starts synchronizing.
-     */
     const Sync = Marionette.Object.extend({
 
         configs  : {
@@ -136,9 +112,9 @@ define([
 
                 if (parts.length > 1) {
                     const key  = parts.shift();
-                    let val  = parts.length > 0 ? parts.join('=') : undefined;
-                    val      = undefined ? null : decodeURIComponent(val.trim());
-                    ret[key] = val;
+                    const val  = parts.length > 0 ? parts.join('=') : undefined;
+                    const decodedVal = undefined ? null : decodeURIComponent(val.trim());
+                    ret[key] = decodedVal;
                 }
             });
 
@@ -256,11 +232,10 @@ define([
          */
         syncAll: function(localData, remoteData, module) {
             const encryptKeys = localData.model.prototype.encryptKeys;
-            let promises;
 
             localData = (localData.fullCollection || localData).toJSON();
 
-            promises = this.checkRemoteChanges(localData, remoteData, module);
+            let promises = this.checkRemoteChanges(localData, remoteData, module);
             promises.push.apply(
                 promises,
                 this.checkLocalChanges(localData, remoteData, module, encryptKeys)
@@ -360,4 +335,3 @@ define([
 
     return Sync;
 });
-```

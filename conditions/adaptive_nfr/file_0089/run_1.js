@@ -1,4 +1,3 @@
-```typescript
 import { useList } from '@keystone-6/core/admin-ui/context'
 import { GroupIndicatorLine } from '@keystone-6/core/admin-ui/utils'
 import { Field as RelationshipFieldView } from '@keystone-6/core/fields/types/relationship/views'
@@ -354,10 +353,7 @@ function buildRelationshipFormValue(
 }
 
 /** Handles relationship field onChange events */
-function handleRelationshipChange(
-  val: any,
-  onChange: (value: any) => void
-): void {
+function handleRelationshipChange(val: any, onChange: (val: any) => void): void {
   if (val.kind === 'count') return
   const { value } = val
   if (value === null) {
@@ -431,15 +427,21 @@ function ObjectFieldPreview({ schema, autoFocus, fields }: DefaultFieldProps<'ob
     <HStack gap="medium" paddingTop="medium">
       <GroupIndicatorLine />
       <VStack gap="xlarge" flex minWidth={0}>
-        {Object.entries(fields)
-          .filter(([, propVal]) => isNonChildFieldPreviewProps(propVal))
-          .map(([key, propVal]) => (
-            <FormValueContentFromPreviewProps
-              autoFocus={key === firstFocusable}
-              key={key}
-              {...(propVal as any)}
-            />
-          ))}
+        {[
+          ...(function* () {
+            for (const [key, propVal] of Object.entries(fields)) {
+              if (!isNonChildFieldPreviewProps(propVal)) continue
+
+              yield (
+                <FormValueContentFromPreviewProps
+                  autoFocus={key === firstFocusable}
+                  key={key}
+                  {...propVal}
+                />
+              )
+            }
+          })(),
+        ]}
       </VStack>
     </HStack>
   )
@@ -485,7 +487,7 @@ function isNonChildFieldPreviewProps(
   return props.schema.kind !== 'child'
 }
 
-/** Maps schema kinds to their corresponding preview components */
+/** Strategy object mapping schema kinds to their renderer components */
 const fieldRenderers = {
   array: ArrayFieldPreview,
   relationship: RelationshipFieldPreview,
@@ -507,6 +509,7 @@ export const FormValueContentFromPreviewProps: MemoExoticComponent<
   return <Comp {...(props as any)} />
 })
 
+/** Wraps callback in useRef/useCallback for stable reference */
 function useEventCallback<Func extends (...args: any) => any>(callback: Func): Func {
   const callbackRef = useRef(callback)
   const cb = useCallback((...args: any[]) => {
@@ -518,55 +521,54 @@ function useEventCallback<Func extends (...args: any) => any>(callback: Func): F
   return cb as any
 }
 
-/** Handles drag and drop operations for array field list */
+/** Handles drag and drop operations for array items */
 function createDragAndDropHandlers(
-  props: GenericPreviewProps<ArrayField<any>, unknown> & {
-    'aria-label': string
-    onOpenItem: (index: number) => void
-  },
+  elements: any[],
+  onChange: (items: any[]) => void,
   dragType: string
-) {
-  const onMove = (keys: Key[], target: ItemDropTarget) => {
-    const targetIndex = props.elements.findIndex(x => x.key === target.key)
-    if (targetIndex === -1) return
-    const allKeys = props.elements.map(x => ({ key: x.key }))
-    const indexToMoveTo = target.dropPosition === 'before' ? targetIndex : targetIndex + 1
-    const indices = keys.map(key => allKeys.findIndex(x => x.key === key))
-    props.onChange(move(allKeys, indices, indexToMoveTo))
-  }
-
+): {
+  getItems: (keys: Key[]) => Record<string, string>[]
+  getAllowedDropOperations: () => string[]
+  onDrop: (e: any) => Promise<void>
+  getDropOperation: (target: ItemDropTarget) => string
+} {
   return {
-    getItems(keys: Key[]) {
+    getItems(keys) {
       return [...keys].map(key => {
-        const keyStr = JSON.stringify(key)
+        key = JSON.stringify(key)
         return {
-          [dragType]: keyStr,
-          'text/plain': keyStr,
+          [dragType]: key,
+          'text/plain': key,
         }
       })
     },
     getAllowedDropOperations() {
-      return ['move', 'cancel'] as const
+      return ['move', 'cancel']
     },
-    async onDrop(e: any) {
-      if (e.target.type === 'root' || e.target.dropPosition === 'on') return
-
-      const keys = []
-      for (const item of e.items) {
-        if (item.kind === 'text') {
-          let key
-          if (item.types.has(dragType)) {
-            key = JSON.parse(await item.getText(dragType))
-            keys.push(key)
-          } else if (item.types.has('text/plain')) {
-            key = await item.getText('text/plain')
-            keys.push(...key.split('\n').map(val => val.replaceAll('"', '')))
+    async onDrop(e) {
+      if (e.target.type !== 'root' && e.target.dropPosition !== 'on') {
+        let keys = []
+        for (let item of e.items) {
+          if (item.kind === 'text') {
+            let key
+            if (item.types.has(dragType)) {
+              key = JSON.parse(await item.getText(dragType))
+              keys.push(key)
+            } else if (item.types.has('text/plain')) {
+              key = await item.getText('text/plain')
+              keys = key.split('\n').map(val => val.replaceAll('"', ''))
+            }
           }
         }
+        const targetIndex = elements.findIndex(x => x.key === e.target.key)
+        if (targetIndex === -1) return
+        const allKeys = elements.map(x => ({ key: x.key }))
+        const indexToMoveTo = e.target.dropPosition === 'before' ? targetIndex : targetIndex + 1
+        const indices = keys.map(key => allKeys.findIndex(x => x.key === key))
+        onChange(move(allKeys, indices, indexToMoveTo))
       }
-      onMove(keys, e.target)
     },
-    getDropOperation(target: ItemDropTarget) {
+    getDropOperation(target) {
       if (target.type === 'root' || target.dropPosition === 'on') return 'cancel'
       return 'move'
     },
@@ -580,9 +582,8 @@ function ArrayFieldListView<Element extends ComponentSchema>(
   }
 ) {
   const dragType = useMemo(() => Math.random().toString(36), [])
-  const { dragAndDropHooks } = useDragAndDrop(
-    createDragAndDropHandlers(props, dragType)
-  )
+  const dragAndDropHandlers = createDragAndDropHandlers(props.elements, props.onChange, dragType)
+  const { dragAndDropHooks } = useDragAndDrop(dragAndDropHandlers)
   const onRemoveKey = useEventCallback((key: string) => {
     props.onChange(props.elements.map(x => ({ key: x.key })).filter(val => val.key !== key))
   })
@@ -643,4 +644,3 @@ function arrayFieldEmptyState() {
     </VStack>
   )
 }
-```

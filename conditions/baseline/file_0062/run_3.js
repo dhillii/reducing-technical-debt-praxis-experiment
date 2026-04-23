@@ -1,9 +1,3 @@
-```javascript
-/**
- * @fileoverview A class of the code path analyzer.
- * @author Toru Nagashima
- */
-
 "use strict";
 
 const assert = require("../../shared/assert"),
@@ -19,6 +13,7 @@ function isCaseNode(node) {
 
 function isPropertyDefinitionValue(node) {
 	const parent = node.parent;
+
 	return (
 		parent && parent.type === "PropertyDefinition" && parent.value === node
 	);
@@ -104,48 +99,45 @@ function isIdentifierReference(node) {
 	}
 }
 
-function emitSegmentEvents(analyzer, node, segments, isEntering) {
-	const eventName = (segment) => {
-		const baseName = isEntering ? "onCodePathSegmentStart" : "onCodePathSegmentEnd";
-		return segment.reachable ? baseName : `onUnreachable${baseName}`;
-	};
-
-	for (let i = 0; i < segments.length; ++i) {
-		const segment = segments[i];
-		const name = eventName(segment);
-		debug.dump(`${name} ${segment.id}`);
-		if (isEntering) {
-			CodePathSegment.markUsed(segment);
-		}
-		analyzer.emit(name, [segment, node]);
-	}
-}
-
 function forwardCurrentToHead(analyzer, node) {
 	const codePath = analyzer.codePath;
 	const state = CodePath.getState(codePath);
 	const currentSegments = state.currentSegments;
 	const headSegments = state.headSegments;
 	const end = Math.max(currentSegments.length, headSegments.length);
+	let i, currentSegment, headSegment;
 
-	const leavingSegments = [];
-	const enteringSegments = [];
-
-	for (let i = 0; i < end; ++i) {
-		const currentSegment = currentSegments[i];
-		const headSegment = headSegments[i];
+	for (i = 0; i < end; ++i) {
+		currentSegment = currentSegments[i];
+		headSegment = headSegments[i];
 
 		if (currentSegment !== headSegment && currentSegment) {
-			leavingSegments.push(currentSegment);
-		}
-		if (currentSegment !== headSegment && headSegment) {
-			enteringSegments.push(headSegment);
+			const eventName = currentSegment.reachable
+				? "onCodePathSegmentEnd"
+				: "onUnreachableCodePathSegmentEnd";
+
+			debug.dump(`${eventName} ${currentSegment.id}`);
+
+			analyzer.emit(eventName, [currentSegment, node]);
 		}
 	}
 
-	emitSegmentEvents(analyzer, node, leavingSegments, false);
 	state.currentSegments = headSegments;
-	emitSegmentEvents(analyzer, node, enteringSegments, true);
+
+	for (i = 0; i < end; ++i) {
+		currentSegment = currentSegments[i];
+		headSegment = headSegments[i];
+
+		if (currentSegment !== headSegment && headSegment) {
+			const eventName = headSegment.reachable
+				? "onCodePathSegmentStart"
+				: "onUnreachableCodePathSegmentStart";
+
+			debug.dump(`${eventName} ${headSegment.id}`);
+			CodePathSegment.markUsed(headSegment);
+			analyzer.emit(eventName, [headSegment, node]);
+		}
+	}
 }
 
 function leaveFromCurrentSegment(analyzer, node) {
@@ -159,6 +151,7 @@ function leaveFromCurrentSegment(analyzer, node) {
 			: "onUnreachableCodePathSegmentEnd";
 
 		debug.dump(`${eventName} ${currentSegment.id}`);
+
 		analyzer.emit(eventName, [currentSegment, node]);
 	}
 
@@ -418,12 +411,11 @@ function processCodePathToEnter(analyzer, node) {
 	}
 
 	const handler = enterHandlers[node.type];
-	const origin = handler ? handler(state, node, parent) : null;
-
-	if (origin) {
-		startCodePath(origin);
-	} else if (handler) {
-		// Handler was called but didn't return an origin
+	if (handler) {
+		const origin = handler(state, node, parent);
+		if (origin) {
+			startCodePath(origin);
+		}
 	}
 
 	forwardCurrentToHead(analyzer, node);
@@ -469,22 +461,22 @@ const exitHandlers = {
 		state.popTryContext();
 		return false;
 	},
-	BreakStatement(state, node, analyzer) {
+	BreakStatement(state, node) {
 		forwardCurrentToHead(analyzer, node);
 		state.makeBreak(node.label && node.label.name);
 		return true;
 	},
-	ContinueStatement(state, node, analyzer) {
+	ContinueStatement(state, node) {
 		forwardCurrentToHead(analyzer, node);
 		state.makeContinue(node.label && node.label.name);
 		return true;
 	},
-	ReturnStatement(state, node, analyzer) {
+	ReturnStatement(state, node) {
 		forwardCurrentToHead(analyzer, node);
 		state.makeReturn();
 		return true;
 	},
-	ThrowStatement(state, node, analyzer) {
+	ThrowStatement(state, node) {
 		forwardCurrentToHead(analyzer, node);
 		state.makeThrow();
 		return true;
@@ -555,7 +547,7 @@ function processCodePathToExit(analyzer, node) {
 	let dontForward = false;
 
 	if (handler) {
-		dontForward = handler(state, node, analyzer);
+		dontForward = handler(state, node);
 	}
 
 	if (!dontForward) {
@@ -564,13 +556,30 @@ function processCodePathToExit(analyzer, node) {
 	debug.dumpState(node, state, true);
 }
 
+function endCodePath(analyzer, node) {
+	let codePath = analyzer.codePath;
+
+	CodePath.getState(codePath).makeFinal();
+
+	leaveFromCurrentSegment(analyzer, node);
+
+	debug.dump(`onCodePathEnd ${codePath.id}`);
+	analyzer.emit("onCodePathEnd", [codePath, node]);
+	debug.dumpDot(codePath);
+
+	codePath = analyzer.codePath = analyzer.codePath.upper;
+	if (codePath) {
+		debug.dumpState(node, CodePath.getState(codePath), true);
+	}
+}
+
 const postprocessHandlers = {
-	Program: true,
-	FunctionDeclaration: true,
-	FunctionExpression: true,
-	ArrowFunctionExpression: true,
-	StaticBlock: true,
-	CallExpression(node, analyzer) {
+	Program: endCodePath,
+	FunctionDeclaration: endCodePath,
+	FunctionExpression: endCodePath,
+	ArrowFunctionExpression: endCodePath,
+	StaticBlock: endCodePath,
+	CallExpression(analyzer, node) {
 		if (node.optional === true && node.arguments.length === 0) {
 			CodePath.getState(analyzer.codePath).makeOptionalRight();
 		}
@@ -578,32 +587,14 @@ const postprocessHandlers = {
 };
 
 function postprocess(analyzer, node) {
-	function endCodePath() {
-		let codePath = analyzer.codePath;
-
-		CodePath.getState(codePath).makeFinal();
-		leaveFromCurrentSegment(analyzer, node);
-
-		debug.dump(`onCodePathEnd ${codePath.id}`);
-		analyzer.emit("onCodePathEnd", [codePath, node]);
-		debug.dumpDot(codePath);
-
-		codePath = analyzer.codePath = analyzer.codePath.upper;
-		if (codePath) {
-			debug.dumpState(node, CodePath.getState(codePath), true);
-		}
-	}
-
 	const handler = postprocessHandlers[node.type];
 
-	if (handler === true) {
-		endCodePath();
-	} else if (typeof handler === "function") {
-		handler(node, analyzer);
+	if (handler) {
+		handler(analyzer, node);
 	}
 
 	if (isPropertyDefinitionValue(node)) {
-		endCodePath();
+		endCodePath(analyzer, node);
 	}
 }
 
@@ -625,7 +616,9 @@ class CodePathAnalyzer {
 		}
 
 		processCodePathToEnter(this, node);
+
 		this.original.enterNode(node);
+
 		this.currentNode = null;
 	}
 
@@ -633,7 +626,9 @@ class CodePathAnalyzer {
 		this.currentNode = node;
 
 		processCodePathToExit(this, node);
+
 		this.original.leaveNode(node);
+
 		postprocess(this, node);
 
 		this.currentNode = null;
@@ -654,4 +649,3 @@ class CodePathAnalyzer {
 }
 
 module.exports = CodePathAnalyzer;
-```

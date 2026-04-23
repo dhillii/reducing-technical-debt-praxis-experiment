@@ -985,12 +985,6 @@ def validate() -> None:
 
 @cli.command("batch-submit")
 @click.option(
-    "--batch-size",
-    type=int,
-    default=164,
-    help="Number of requests per batch (default: 164)"
-)
-@click.option(
     "--status",
     type=str,
     default="PENDING",
@@ -998,14 +992,14 @@ def validate() -> None:
 )
 @click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together"]), help="Inference provider")
 @click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b")
-def batch_submit(batch_size: int, status: str, provider: str, model: str) -> None:
+def batch_submit(status: str, provider: str, model: str) -> None:
     """Submit all pending refactoring runs to the batch API."""
     setup_logging()
-    logger.info(f"Submitting {status} runs as batches (size: {batch_size}, provider={provider}, model={model})")
+    logger.info(f"Submitting {status} runs as a single batch (provider={provider}, model={model})")
 
     try:
         orchestrator = BatchRunOrchestrator(provider=provider, model_key=model)
-        batch_ids = orchestrator.submit_batches(batch_size=batch_size, status_filter=status)
+        batch_ids = orchestrator.submit_batches(status_filter=status)
 
         logger.info(f"✅ Successfully submitted {len(batch_ids)} batches:")
         for batch_id in batch_ids:
@@ -1056,6 +1050,15 @@ def batch_poll(provider: str, model: str) -> None:
         sys.exit(1)
 
 
+_ALL_MODELS = [
+    ("anthropic", "haiku"),
+    ("together", "qwen_3_5_9b"),
+    ("together", "gpt_oss_20b"),
+    ("together", "llama_70b"),
+    ("together", "gpt_oss_120b"),
+]
+
+
 @cli.command("batch-stream")
 @click.option(
     "--poll-interval",
@@ -1070,28 +1073,33 @@ def batch_poll(provider: str, model: str) -> None:
     help="Maximum hours to wait (default: 24)"
 )
 @click.option("--provider", default="anthropic", type=click.Choice(["anthropic", "together"]), help="Inference provider")
-@click.option("--model", default="haiku", help="Model key: haiku | llama_8b | gpt_oss_20b | llama_70b | gpt_oss_120b")
-def batch_stream(poll_interval: int, max_hours: int, provider: str, model: str) -> None:
+@click.option("--model", default="haiku", help="Model key: haiku | qwen_3_5_9b | gpt_oss_20b | llama_70b | gpt_oss_120b")
+@click.option("--all-models", is_flag=True, default=False, help="Stream all models sequentially (ignores --provider and --model)")
+def batch_stream(poll_interval: int, max_hours: int, provider: str, model: str, all_models: bool) -> None:
     """Stream results from batches as they complete."""
     setup_logging()
-    logger.info("Starting batch result streaming...")
-    logger.info(f"Polling every {poll_interval} seconds, max wait {max_hours} hours (provider={provider}, model={model})")
 
-    try:
-        orchestrator = BatchRunOrchestrator(provider=provider, model_key=model)
-        summary = orchestrator.stream_batch_results(
-            poll_interval=poll_interval,
-            max_wait_hours=max_hours
-        )
+    targets = _ALL_MODELS if all_models else [(provider, model)]
 
-        logger.info("\n" + "=" * 80)
-        logger.info("STREAMING COMPLETE")
+    for prov, mdl in targets:
         logger.info("=" * 80)
-        logger.info(f"Final status: {summary}")
+        logger.info(f"Streaming: provider={prov}, model={mdl}")
+        logger.info(f"Polling every {poll_interval} seconds, max wait {max_hours} hours")
+        logger.info("=" * 80)
+        try:
+            orchestrator = BatchRunOrchestrator(provider=prov, model_key=mdl)
+            summary = orchestrator.stream_batch_results(
+                poll_interval=poll_interval,
+                max_wait_hours=max_hours,
+            )
+            logger.info(f"DONE [{prov}/{mdl}]: {summary}")
+        except Exception as e:
+            logger.error(f"Batch streaming failed for {prov}/{mdl}: {e}")
+            if not all_models:
+                sys.exit(1)
+            # In --all-models mode continue to next model rather than aborting
 
-    except Exception as e:
-        logger.error(f"Batch streaming failed: {e}")
-        sys.exit(1)
+    logger.info("All streaming complete.")
 
 
 @cli.command("batch-retrieve")

@@ -1,12 +1,3 @@
-```javascript
-/**
- * Copyright (C) 2015 Laverna project Authors.
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
- */
-/* global define */
 define([
     'q',
     'underscore',
@@ -40,31 +31,19 @@ define([
     const Encrypt = Marionette.Object.extend({
 
         initialize: function() {
+
             // Get configs
             this.configs = Radio.request('configs', 'get:object');
             this.keys    = {};
 
             this.sjcl = new Sjcl(this.configs);
 
-            this._registerDirectReplies();
-            this._registerDelegatedReplies();
-        },
-
-        /**
-         * Register replies that pass directly to Sjcl class.
-         * @private
-         */
-        _registerDirectReplies: function() {
+            // Pass requests directly to Sjcl class
             Radio.reply('encrypt', {
-                'sha256': this.sjcl.sha256,
+                'sha256'           : this.sjcl.sha256,
             }, this.sjcl);
-        },
 
-        /**
-         * Register replies that are handled by this class.
-         * @private
-         */
-        _registerDelegatedReplies: function() {
+            // Replies
             Radio.reply('encrypt', {
                 'randomize'        : this.randomize,
                 'change:configs'   : this.changeConfigs,
@@ -130,8 +109,8 @@ define([
         },
 
         /**
-         * Check if encryption backup is not empty (user changed settings).
-         * @private
+         * Check if encryption backup is not empty.
+         *
          * @return bool
          */
         _isEncryptionChanged: function() {
@@ -144,7 +123,7 @@ define([
 
         /**
          * Check if encryption is disabled.
-         * @private
+         *
          * @return bool
          */
         _isEncryptionDisabled: function() {
@@ -153,7 +132,7 @@ define([
 
         /**
          * Check if user has valid session or keys.
-         * @private
+         *
          * @return bool
          */
         _hasValidSession: function() {
@@ -189,18 +168,10 @@ define([
                 password: password
             }))
             .then(function(keys) {
-                self._setKeys(keys);
+                self.keys.key    = keys.key;
+                self.keys.hexKey = keys.hexKey;
                 self._saveSession();
             });
-        },
-
-        /**
-         * Set encryption keys.
-         * @private
-         */
-        _setKeys: function(keys) {
-            this.keys.key    = keys.key;
-            this.keys.hexKey = keys.hexKey;
         },
 
         /**
@@ -297,7 +268,7 @@ define([
 
         /**
          * Check if collection can be encrypted.
-         * @private
+         *
          * @return bool
          */
         _canEncryptCollection: function(collection) {
@@ -314,7 +285,7 @@ define([
                 return new Q();
             }
 
-            if (!this._hasEncryptionKey()) {
+            if (!this._hasDecryptionKey()) {
                 Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
                 return new Q();
             }
@@ -335,7 +306,7 @@ define([
 
         /**
          * Check if collection can be decrypted.
-         * @private
+         *
          * @return bool
          */
         _canDecryptCollection: function(collection) {
@@ -343,23 +314,25 @@ define([
         },
 
         /**
-         * Check if encryption key exists.
-         * @private
+         * Check if decryption key exists.
+         *
          * @return bool
          */
-        _hasEncryptionKey: function() {
+        _hasDecryptionKey: function() {
             return this.keys.key;
         },
 
         /**
-         * Execute a chain of promises sequentially.
-         * @private
+         * Execute a chain of promises with error handling.
+         *
+         * @param promises Array of promise functions
+         * @param errorMsg Error message prefix
          * @return promise
          */
-        _executePromiseChain: function(promises, errorLabel) {
+        _executePromiseChain: function(promises, errorMsg) {
             return _.reduce(promises, Q.when, new Q())
             .fail(function(e) {
-                console.error(errorLabel, e);
+                console.error(errorMsg, e);
             });
         },
 
@@ -438,15 +411,26 @@ define([
                 return null;
             }
 
-            let keys  = window.sessionStorage.getItem(this._getSessionKey());
-            try {
-                keys = JSON.parse(keys);
-                this.keys = keys || this.keys;
-            } catch (e) {
-                keys = null;
-            }
+            const sessionKey = this._getSessionKey();
+            const keysData = window.sessionStorage.getItem(sessionKey);
+            
+            return this._parseSessionKeys(keysData);
+        },
 
-            return keys;
+        /**
+         * Parse and validate session keys from storage.
+         *
+         * @param keysData Serialized keys data
+         * @return [object|null]
+         */
+        _parseSessionKeys: function(keysData) {
+            try {
+                const keys = JSON.parse(keysData);
+                this.keys = keys || this.keys;
+                return keys;
+            } catch (e) {
+                return null;
+            }
         },
 
         /**
@@ -455,9 +439,9 @@ define([
          * @return string
          */
         _getSessionKey: function() {
-            let profile = Radio.request('uri', 'profile') || 'default';
-            profile = (Number(this.configs.useDefaultConfigs) ? 'default' : profile);
-            return 'secureKey.' + profile;
+            const profile = Radio.request('uri', 'profile') || 'default';
+            const finalProfile = (Number(this.configs.useDefaultConfigs) ? 'default' : profile);
+            return 'secureKey.' + finalProfile;
         }
 
     });
@@ -469,4 +453,3 @@ define([
 
     return Encrypt;
 });
-```

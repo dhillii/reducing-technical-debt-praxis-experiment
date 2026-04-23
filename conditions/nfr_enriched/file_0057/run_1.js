@@ -1,21 +1,4 @@
-```javascript
-/**
- * Copyright (c) 2015-present, Facebook, Inc.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
 'use strict';
-
-// This alternative WebpackDevServer combines the functionality of:
-// https://github.com/webpack/webpack-dev-server/blob/webpack-1/client/index.js
-// https://github.com/webpack/webpack/blob/webpack-1/hot/dev-server.js
-
-// It only supports their simplest configuration (hot updates on same server).
-// It makes some opinionated choices on top, like adding a syntax error overlay
-// that looks similar to our console output. The error overlay is inspired by:
-// https://github.com/glenjamin/webpack-hot-middleware
 
 const stripAnsi = require('strip-ansi');
 const url = require('url');
@@ -23,118 +6,88 @@ const launchEditorEndpoint = require('./launchEditorEndpoint');
 const formatWebpackMessages = require('./formatWebpackMessages');
 const ErrorOverlay = require('react-error-overlay');
 
-// ============================================================================
-// State Management
-// ============================================================================
+// State management for hot module replacement
+const hmrState = {
+  isFirstCompilation: true,
+  mostRecentCompilationHash: null,
+  hasCompileErrors: false,
+  hadRuntimeError: false,
+};
 
-let hadRuntimeError = false;
-let isFirstCompilation = true;
-let mostRecentCompilationHash = null;
-let hasCompileErrors = false;
+// Configure error overlay editor handler
+ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
+  fetch(
+    launchEditorEndpoint +
+      '?fileName=' +
+      window.encodeURIComponent(errorLocation.fileName) +
+      '&lineNumber=' +
+      window.encodeURIComponent(errorLocation.lineNumber || 1) +
+      '&colNumber=' +
+      window.encodeURIComponent(errorLocation.colNumber || 1)
+  );
+});
 
-// ============================================================================
-// Error Overlay Setup
-// ============================================================================
+// Initialize error reporting
+ErrorOverlay.startReportingRuntimeErrors({
+  onError: function () {
+    hmrState.hadRuntimeError = true;
+  },
+  filename: '/static/js/bundle.js',
+});
 
-/**
- * Configures the error overlay editor handler to launch the editor at the
- * specified error location.
- */
-function setupErrorOverlayHandler() {
-  ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
-    // Keep this sync with errorOverlayMiddleware.js
-    fetch(
-      launchEditorEndpoint +
-        '?fileName=' +
-        window.encodeURIComponent(errorLocation.fileName) +
-        '&lineNumber=' +
-        window.encodeURIComponent(errorLocation.lineNumber || 1) +
-        '&colNumber=' +
-        window.encodeURIComponent(errorLocation.colNumber || 1)
-    );
+// Cleanup on module disposal
+if (module.hot && typeof module.hot.dispose === 'function') {
+  module.hot.dispose(function () {
+    ErrorOverlay.stopReportingRuntimeErrors();
   });
 }
 
-/**
- * Initializes runtime error reporting. Tracks if a runtime error occurs
- * to determine if a full page reload is necessary.
- */
-function initializeRuntimeErrorReporting() {
-  ErrorOverlay.startReportingRuntimeErrors({
-    onError: function () {
-      hadRuntimeError = true;
-    },
-    filename: '/static/js/bundle.js',
-  });
-}
-
-/**
- * Registers cleanup handler for hot module replacement disposal.
- */
-function registerHotModuleDisposal() {
-  if (module.hot && typeof module.hot.dispose === 'function') {
-    module.hot.dispose(function () {
-      ErrorOverlay.stopReportingRuntimeErrors();
-    });
-  }
-}
-
-setupErrorOverlayHandler();
-initializeRuntimeErrorReporting();
-registerHotModuleDisposal();
-
-// ============================================================================
-// WebSocket Connection
-// ============================================================================
-
-/**
- * Creates a WebSocket connection URL based on the current environment
- * and configuration.
- */
-function createWebSocketUrl() {
-  return url.format({
+// Create WebSocket connection to development server
+const connection = new WebSocket(
+  url.format({
     protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
     hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
     port: process.env.WDS_SOCKET_PORT || window.location.port,
     pathname: process.env.WDS_SOCKET_PATH || '/ws',
     slashes: true,
-  });
-}
+  })
+);
 
-const connection = new WebSocket(createWebSocketUrl());
-
-/**
- * Handles WebSocket connection closure by notifying the user.
- */
-function handleConnectionClose() {
+// Handle WebSocket disconnection
+connection.onclose = function () {
   if (typeof console !== 'undefined' && typeof console.info === 'function') {
     console.info(
       'The development server has disconnected.\nRefresh the page if necessary.'
     );
   }
-}
+};
 
-connection.onclose = handleConnectionClose;
-
-// ============================================================================
-// Console Utilities
-// ============================================================================
-
-/**
- * Clears the console if there are compile errors to clean up outdated messages.
- */
+// Clear outdated compilation errors from console
 function clearOutdatedErrors() {
   if (typeof console !== 'undefined' && typeof console.clear === 'function') {
-    if (hasCompileErrors) {
+    if (hmrState.hasCompileErrors) {
       console.clear();
     }
   }
 }
 
-/**
- * Logs formatted warnings to the console, limiting output to first 5 warnings.
- */
-function logWarningsToConsole(warnings) {
+// Handle successful compilation
+function handleSuccess() {
+  clearOutdatedErrors();
+
+  const isHotUpdate = !hmrState.isFirstCompilation;
+  hmrState.isFirstCompilation = false;
+  hmrState.hasCompileErrors = false;
+
+  if (isHotUpdate) {
+    tryApplyUpdates(function onHotUpdateSuccess() {
+      tryDismissErrorOverlay();
+    });
+  }
+}
+
+// Print warnings to console
+function printWarnings(warnings) {
   const formatted = formatWebpackMessages({
     warnings: warnings,
     errors: [],
@@ -154,9 +107,24 @@ function logWarningsToConsole(warnings) {
   }
 }
 
-/**
- * Logs formatted errors to the console.
- */
+// Handle compilation with warnings
+function handleWarnings(warnings) {
+  clearOutdatedErrors();
+
+  const isHotUpdate = !hmrState.isFirstCompilation;
+  hmrState.isFirstCompilation = false;
+  hmrState.hasCompileErrors = false;
+
+  printWarnings(warnings);
+
+  if (isHotUpdate) {
+    tryApplyUpdates(function onSuccessfulHotUpdate() {
+      tryDismissErrorOverlay();
+    });
+  }
+}
+
+// Log errors to console
 function logErrorsToConsole(errors) {
   if (typeof console !== 'undefined' && typeof console.error === 'function') {
     for (let i = 0; i < errors.length; i++) {
@@ -165,23 +133,13 @@ function logErrorsToConsole(errors) {
   }
 }
 
-// ============================================================================
-// Error Overlay Management
-// ============================================================================
+// Handle compilation with errors
+function handleErrors(errors) {
+  clearOutdatedErrors();
 
-/**
- * Dismisses the error overlay if there are no compile errors.
- */
-function tryDismissErrorOverlay() {
-  if (!hasCompileErrors) {
-    ErrorOverlay.dismissBuildError();
-  }
-}
+  hmrState.isFirstCompilation = false;
+  hmrState.hasCompileErrors = true;
 
-/**
- * Reports build errors to the overlay and logs them to console.
- */
-function reportBuildErrors(errors) {
   const formatted = formatWebpackMessages({
     errors: errors,
     warnings: [],
@@ -191,71 +149,20 @@ function reportBuildErrors(errors) {
   logErrorsToConsole(formatted.errors);
 }
 
-// ============================================================================
-// Message Handlers
-// ============================================================================
-
-/**
- * Handles successful compilation by clearing errors and attempting hot updates.
- */
-function handleSuccess() {
-  clearOutdatedErrors();
-
-  const isHotUpdate = !isFirstCompilation;
-  isFirstCompilation = false;
-  hasCompileErrors = false;
-
-  if (isHotUpdate) {
-    tryApplyUpdates(function onHotUpdateSuccess() {
-      tryDismissErrorOverlay();
-    });
+// Dismiss error overlay if no compile errors
+function tryDismissErrorOverlay() {
+  if (!hmrState.hasCompileErrors) {
+    ErrorOverlay.dismissBuildError();
   }
 }
 
-/**
- * Handles compilation with warnings by logging them and attempting hot updates.
- */
-function handleWarnings(warnings) {
-  clearOutdatedErrors();
-
-  const isHotUpdate = !isFirstCompilation;
-  isFirstCompilation = false;
-  hasCompileErrors = false;
-
-  logWarningsToConsole(warnings);
-
-  if (isHotUpdate) {
-    tryApplyUpdates(function onSuccessfulHotUpdate() {
-      tryDismissErrorOverlay();
-    });
-  }
-}
-
-/**
- * Handles compilation errors by reporting them and preventing reload attempts.
- */
-function handleErrors(errors) {
-  clearOutdatedErrors();
-
-  isFirstCompilation = false;
-  hasCompileErrors = true;
-
-  reportBuildErrors(errors);
-}
-
-/**
- * Updates the most recent compilation hash when a new one is available.
- */
+// Update the most recent compilation hash
 function handleAvailableHash(hash) {
-  mostRecentCompilationHash = hash;
+  hmrState.mostRecentCompilationHash = hash;
 }
 
-/**
- * Routes incoming WebSocket messages to appropriate handlers based on type.
- */
-function handleWebSocketMessage(event) {
-  const message = JSON.parse(event.data);
-  
+// Route incoming messages from WebSocket
+function routeMessage(message) {
   switch (message.type) {
     case 'hash':
       handleAvailableHash(message.data);
@@ -274,71 +181,37 @@ function handleWebSocketMessage(event) {
       handleErrors(message.data);
       break;
     default:
-      // Do nothing.
+      break;
   }
 }
 
-connection.onmessage = handleWebSocketMessage;
+// Handle incoming WebSocket messages
+connection.onmessage = function (e) {
+  const message = JSON.parse(e.data);
+  routeMessage(message);
+};
 
-// ============================================================================
-// Hot Module Replacement Utilities
-// ============================================================================
-
-/**
- * Checks if a newer version of the code is available.
- */
+// Check if a newer version of code is available
 function isUpdateAvailable() {
   /* globals __webpack_hash__ */
-  return mostRecentCompilationHash !== __webpack_hash__;
+  return hmrState.mostRecentCompilationHash !== __webpack_hash__;
 }
 
-/**
- * Checks if the module hot replacement system is in a state that allows updates.
- */
+// Check if hot module replacement is in idle state
 function canApplyUpdates() {
   return module.hot.status() === 'idle';
 }
 
-/**
- * Determines if the current state can accept errors during hot updates.
- * React Refresh can handle errors, but certain states require a full reload.
- */
+// Check if errors can be accepted during hot reload
 function canAcceptErrors() {
   const hasReactRefresh = process.env.FAST_REFRESH;
   const status = module.hot.status();
-  
   return hasReactRefresh && ['abort', 'fail'].indexOf(status) === -1;
 }
 
-// ============================================================================
-// Hot Update Application
-// ============================================================================
-
-/**
- * Processes the result of a hot module replacement check.
- * Handles both callback-based and Promise-based results.
- */
-function processHotUpdateResult(result, onHotUpdateSuccess) {
-  if (!result || !result.then) {
-    return;
-  }
-
-  result.then(
-    function (updatedModules) {
-      handleHotUpdateCompletion(null, updatedModules, onHotUpdateSuccess);
-    },
-    function (err) {
-      handleHotUpdateCompletion(err, null, onHotUpdateSuccess);
-    }
-  );
-}
-
-/**
- * Handles the completion of a hot module replacement check.
- * Determines whether to reload, retry, or continue.
- */
-function handleHotUpdateCompletion(err, updatedModules, onHotUpdateSuccess) {
-  const haveErrors = err || hadRuntimeError;
+// Handle the result of applying hot updates
+function handleApplyUpdates(err, updatedModules, onHotUpdateSuccess) {
+  const haveErrors = err || hmrState.hadRuntimeError;
   const needsForcedReload = !err && !updatedModules;
 
   if ((haveErrors && !canAcceptErrors()) || needsForcedReload) {
@@ -355,10 +228,7 @@ function handleHotUpdateCompletion(err, updatedModules, onHotUpdateSuccess) {
   }
 }
 
-/**
- * Attempts to apply hot module updates, falling back to a full page reload
- * if updates cannot be applied. Invokes the callback on successful update.
- */
+// Attempt to apply hot module updates
 function tryApplyUpdates(onHotUpdateSuccess) {
   if (!module.hot) {
     window.location.reload();
@@ -369,7 +239,18 @@ function tryApplyUpdates(onHotUpdateSuccess) {
     return;
   }
 
-  const result = module.hot.check(/* autoApply */ true);
-  processHotUpdateResult(result, onHotUpdateSuccess);
+  const result = module.hot.check(/* autoApply */ true, function (err, updatedModules) {
+    handleApplyUpdates(err, updatedModules, onHotUpdateSuccess);
+  });
+
+  if (result && result.then) {
+    result.then(
+      function (updatedModules) {
+        handleApplyUpdates(null, updatedModules, onHotUpdateSuccess);
+      },
+      function (err) {
+        handleApplyUpdates(err, null, onHotUpdateSuccess);
+      }
+    );
+  }
 }
-```

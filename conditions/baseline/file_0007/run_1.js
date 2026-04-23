@@ -1,4 +1,3 @@
-```typescript
 import EmailNotificationsTab from './users/email-notifications-tab';
 import NiceModal, {useModal} from '@ebay/nice-modal-react';
 import ProfileTab from './users/profile-tab';
@@ -13,44 +12,14 @@ import {ConfirmationModal, Heading, Icon, ImageUpload, LimitModal, Menu, type Me
 import {type ErrorMessages, useForm, useHandleError} from '@tryghost/admin-x-framework/hooks';
 import {HostLimitError, useLimiter} from '../../../hooks/use-limiter';
 import {type RoutingModalProps, useRouting} from '@tryghost/admin-x-framework/routing';
-import {type User, canAccessSettings, hasAdminAccess, isAditorUser, isAuthorOrContributor, isEditorUser, isOwnerUser, useDeleteUser, useEditUser, useGetUserBySlug, useMakeOwner} from '@tryghost/admin-x-framework/api/users';
+import {type User, canAccessSettings, hasAdminAccess, isAdminUser, isAuthorOrContributor, isEditorUser, isOwnerUser, useDeleteUser, useEditUser, useGetUserBySlug, useMakeOwner} from '@tryghost/admin-x-framework/api/users';
 import {getImageUrl, useUploadImage} from '@tryghost/admin-x-framework/api/images';
 import {useGlobalData} from '../../providers/global-data-provider';
 import {validateBlueskyUrl, validateFacebookUrl, validateInstagramUrl, validateLinkedInUrl, validateMastodonUrl, validateThreadsUrl, validateTikTokUrl, validateTwitterUrl, validateYouTubeUrl} from '../../../utils/social-urls/index';
 
-const validateName = ({name}: Partial<User>): string => {
-    if (!name) return 'Name is required';
-    if (name.length > 191) return 'Name is too long';
-    return '';
-};
-
-const validateEmail = ({email}: Partial<User>): string => {
-    return validator.isEmail(email || '') ? '' : 'Enter a valid email address';
-};
-
-const validateUrl = ({url}: Partial<User>): string => {
-    const valid = !url || validator.isURL(url, {require_tld: false});
-    return valid ? '' : 'Enter a valid URL';
-};
-
-const validateBio = ({bio}: Partial<User>): string => {
-    const valid = !bio || bio.length <= 250;
-    return valid ? '' : 'Bio is too long';
-};
-
-const validateLocation = ({location}: Partial<User>): string => {
-    const valid = !location || location.length <= 150;
-    return valid ? '' : 'Location is too long';
-};
-
-const validateWebsite = ({website}: Partial<User>): string => {
-    const valid = !website || (validator.isURL(website) && website.length <= 2000);
-    return valid ? '' : 'Enter a valid URL';
-};
-
-const createSocialValidator = (validateFn: (url: string) => void) => ({field}: Partial<User> & {field?: string}): string => {
+const validateSocialUrl = (validator: (url: string) => void, url: string): string => {
     try {
-        validateFn(field || '');
+        validator(url || '');
         return '';
     } catch (e) {
         return e instanceof Error ? e.message : '';
@@ -58,84 +27,41 @@ const createSocialValidator = (validateFn: (url: string) => void) => ({field}: P
 };
 
 const validators: Record<string, (u: Partial<User>) => string> = {
-    name: validateName,
-    email: validateEmail,
-    url: validateUrl,
-    bio: validateBio,
-    location: validateLocation,
-    website: validateWebsite,
-    facebook: ({facebook}) => {
-        try {
-            validateFacebookUrl(facebook || '');
-            return '';
-        } catch (e) {
-            return e instanceof Error ? e.message : '';
+    name: ({name}) => {
+        if (!name) {
+            return 'Name is required';
         }
+        return name.length > 191 ? 'Name is too long' : '';
     },
-    twitter: ({twitter}) => {
-        try {
-            validateTwitterUrl(twitter || '');
-            return '';
-        } catch (e) {
-            return e instanceof Error ? e.message : '';
-        }
+    email: ({email}) => {
+        const valid = validator.isEmail(email || '');
+        return valid ? '' : 'Enter a valid email address';
     },
-    threads: ({threads}) => {
-        try {
-            validateThreadsUrl(threads || '');
-            return '';
-        } catch (e) {
-            return e instanceof Error ? e.message : '';
-        }
+    url: ({url}) => {
+        const valid = !url || validator.isURL(url, {require_tld: false});
+        return valid ? '' : 'Enter a valid URL';
     },
-    bluesky: ({bluesky}) => {
-        try {
-            validateBlueskyUrl(bluesky || '');
-            return '';
-        } catch (e) {
-            return e instanceof Error ? e.message : '';
-        }
+    bio: ({bio}) => {
+        const valid = !bio || bio.length <= 250;
+        return valid ? '' : 'Bio is too long';
     },
-    linkedin: ({linkedin}) => {
-        try {
-            validateLinkedInUrl(linkedin || '');
-            return '';
-        } catch (e) {
-            return e instanceof Error ? e.message : '';
-        }
+    location: ({location}) => {
+        const valid = !location || location.length <= 150;
+        return valid ? '' : 'Location is too long';
     },
-    instagram: ({instagram}) => {
-        try {
-            validateInstagramUrl(instagram || '');
-            return '';
-        } catch (e) {
-            return e instanceof Error ? e.message : '';
-        }
+    website: ({website}) => {
+        const valid = !website || (validator.isURL(website) && website.length <= 2000);
+        return valid ? '' : 'Enter a valid URL';
     },
-    youtube: ({youtube}) => {
-        try {
-            validateYouTubeUrl(youtube || '');
-            return '';
-        } catch (e) {
-            return e instanceof Error ? e.message : '';
-        }
-    },
-    tiktok: ({tiktok}) => {
-        try {
-            validateTikTokUrl(tiktok || '');
-            return '';
-        } catch (e) {
-            return e instanceof Error ? e.message : '';
-        }
-    },
-    mastodon: ({mastodon}) => {
-        try {
-            validateMastodonUrl(mastodon || '');
-            return '';
-        } catch (e) {
-            return e instanceof Error ? e.message : '';
-        }
-    }
+    facebook: ({facebook}) => validateSocialUrl(validateFacebookUrl, facebook || ''),
+    twitter: ({twitter}) => validateSocialUrl(validateTwitterUrl, twitter || ''),
+    threads: ({threads}) => validateSocialUrl(validateThreadsUrl, threads || ''),
+    bluesky: ({bluesky}) => validateSocialUrl(validateBlueskyUrl, bluesky || ''),
+    linkedin: ({linkedin}) => validateSocialUrl(validateLinkedInUrl, linkedin || ''),
+    instagram: ({instagram}) => validateSocialUrl(validateInstagramUrl, instagram || ''),
+    youtube: ({youtube}) => validateSocialUrl(validateYouTubeUrl, youtube || ''),
+    tiktok: ({tiktok}) => validateSocialUrl(validateTikTokUrl, tiktok || ''),
+    mastodon: ({mastodon}) => validateSocialUrl(validateMastodonUrl, mastodon || '')
 };
 
 export interface UserDetailProps {
@@ -151,14 +77,6 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {ownerUser} = useStaffUsers();
     const {currentUser} = useGlobalData();
     const handleError = useHandleError();
-    const mainModal = useModal();
-    const {mutateAsync: uploadImage} = useUploadImage();
-    const {mutateAsync: updateUser} = useEditUser();
-    const {mutateAsync: deleteUser} = useDeleteUser();
-    const {mutateAsync: makeOwner} = useMakeOwner();
-    const limiter = useLimiter();
-    const editor = usePinturaEditor();
-
     const {formState, setFormState, saveState, handleSave, updateForm, errors, setErrors, clearError, okProps} = useForm({
         initialState: user,
         savingDelay: 500,
@@ -178,15 +96,24 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         onSaveError: handleError
     });
 
+    const mainModal = useModal();
+    const {mutateAsync: uploadImage} = useUploadImage();
+    const {mutateAsync: updateUser} = useEditUser();
+    const {mutateAsync: deleteUser} = useDeleteUser();
+    const {mutateAsync: makeOwner} = useMakeOwner();
+    const limiter = useLimiter();
+    const editor = usePinturaEditor();
+
     const setUserData = (newData: User) => updateForm(() => newData);
     const validateField = <K extends keyof User>(key: K, value: User[K]) => {
         const error = validators[key]?.({[key]: value});
         if (error) {
             setErrors({...errors, [key]: error});
             return false;
+        } else {
+            clearError(key);
+            return true;
         }
-        clearError(key);
-        return true;
     };
 
     const getTabFromPath = (path: string): string => {
@@ -202,13 +129,22 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     }, [currentUser, updateRoute]);
 
-    const handleSuspendSuccess = async (updatedUserData: User) => {
-        await updateUser(updatedUserData);
-        setFormState(() => updatedUserData);
-        showToast({
-            title: updatedUserData.status === 'inactive' ? 'User un-suspended' : 'User suspended',
-            type: 'success'
-        });
+    const handleLimitError = async (error: unknown) => {
+        if (error instanceof HostLimitError) {
+            NiceModal.show(LimitModal, {
+                formSheet: true,
+                prompt: error.message || `Your current plan doesn't support more users.`,
+                onOk: () => updateRoute({route: '/pro', isExternal: true})
+            });
+            return true;
+        }
+        return false;
+    };
+
+    const getSuspendWarningText = (status: string): string => {
+        return status === 'inactive' 
+            ? 'This user will be able to log in again and will have the same permissions they had previously.'
+            : 'This user will no longer be able to log in but their posts will be kept.';
     };
 
     const confirmSuspend = async (_user: User) => {
@@ -216,21 +152,15 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             try {
                 await limiter?.errorIfWouldGoOverLimit('staff');
             } catch (error) {
-                if (error instanceof HostLimitError) {
-                    NiceModal.show(LimitModal, {
-                        formSheet: true,
-                        prompt: error.message || `Your current plan doesn't support more users.`,
-                        onOk: () => updateRoute({route: '/pro', isExternal: true})
-                    });
+                if (await handleLimitError(error)) {
                     return;
                 }
                 throw error;
             }
         }
 
-        const warningText = _user.status === 'inactive'
-            ? 'This user will be able to log in again and will have the same permissions they had previously.'
-            : 'This user will no longer be able to log in but their posts will be kept.';
+        const warningText = getSuspendWarningText(_user.status);
+        const isInactive = _user.status === 'inactive';
 
         NiceModal.show(ConfirmationModal, {
             title: 'Are you sure you want to suspend this user?',
@@ -239,17 +169,22 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                     <strong>WARNING:</strong> {warningText}
                 </>
             ),
-            okLabel: _user.status === 'inactive' ? 'Un-suspend' : 'Suspend',
-            okRunningLabel: _user.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
+            okLabel: isInactive ? 'Un-suspend' : 'Suspend',
+            okRunningLabel: isInactive ? 'Un-suspending...' : 'Suspending...',
             okColor: 'red',
             onOk: async (modal) => {
+                const updatedUserData = {
+                    ..._user,
+                    status: isInactive ? 'active' : 'inactive'
+                };
                 try {
-                    const updatedUserData = {
-                        ..._user,
-                        status: _user.status === 'inactive' ? 'active' : 'inactive'
-                    };
-                    await handleSuspendSuccess(updatedUserData);
+                    await updateUser(updatedUserData);
+                    setFormState(() => updatedUserData);
                     modal?.remove();
+                    showToast({
+                        title: isInactive ? 'User un-suspended' : 'User suspended',
+                        type: 'success'
+                    });
                 } catch (e) {
                     handleError(e);
                 }
@@ -306,14 +241,18 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
-    const updateImageField = (imageType: 'cover_image' | 'profile_image', imageUrl: string) => {
-        updateForm((_user) => ({..._user, [imageType]: imageUrl}));
+    const updateImageField = (imageType: string, imageUrl: string) => {
+        updateForm((_user) => {
+            return imageType === 'cover_image' 
+                ? {..._user, cover_image: imageUrl}
+                : {..._user, profile_image: imageUrl};
+        });
     };
 
     const handleImageUpload = async (image: string, file: File) => {
         try {
             const imageUrl = getImageUrl(await uploadImage({file}));
-            updateImageField(image as 'cover_image' | 'profile_image', imageUrl);
+            updateImageField(image, imageUrl);
         } catch (e) {
             const error = e as APIError;
             if (error.response!.status === 415) {
@@ -324,13 +263,13 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     };
 
     const handleImageDelete = (image: string) => {
-        updateImageField(image as 'cover_image' | 'profile_image', '');
+        updateImageField(image, '');
     };
 
     const buildMenuItems = (): MenuItem[] => {
         const items: MenuItem[] = [];
 
-        if (isOwnerUser(currentUser) && isAditorUser(formState) && formState.status !== 'inactive') {
+        if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
             items.push({
                 id: 'make-owner',
                 label: 'Make owner',
@@ -344,13 +283,14 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         );
 
         if (canModifyUser) {
+            const suspendUserLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
             items.push({
                 id: 'delete-user',
                 label: 'Delete user',
                 onClick: () => confirmDelete(user, {owner: ownerUser})
             }, {
                 id: 'suspend-user',
-                label: formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user',
+                label: suspendUserLabel,
                 onClick: () => confirmSuspend(formState)
             });
         }
@@ -369,8 +309,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
 
     const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
     const menuItems = buildMenuItems();
+
     const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
     const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
+
     const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
     const initialTab = getTabFromPath(route);
     const [selectedTab, setSelectedTab] = useState<string>(initialTab);
@@ -381,29 +323,29 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         setSelectedTab(newTabId);
     };
 
-    const canAccessCurrentUser = canAccessSettings(currentUser);
+    const userCanAccess = canAccessSettings(currentUser);
 
     return (
         <Modal
             afterClose={navigateOnClose}
-            animate={canAccessCurrentUser}
-            backDrop={canAccessCurrentUser}
+            animate={userCanAccess}
+            backDrop={userCanAccess}
             buttonsDisabled={okProps.disabled}
             cancelLabel='Close'
             dirty={saveState === 'unsaved'}
             okColor={okProps.color}
             okLabel={okProps.label || 'Save'}
-            size={canAccessCurrentUser ? 'md' : 'bleed'}
+            size={userCanAccess ? 'md' : 'bleed'}
             stickyFooter={true}
             testId='user-detail-modal'
-            width={canAccessCurrentUser ? 600 : 'full'}
+            width={userCanAccess ? 600 : 'full'}
             onOk={async () => {
                 await handleSave({fakeWhenUnchanged: true});
             }}
         >
             <div>
-                <div className={`relative ${canAccessCurrentUser ? '-mx-8 -mt-8 rounded-t' : '-mx-10 -mt-10'}`}>
-                    <div className={`flex flex-wrap items-end justify-between gap-8 p-8 ${formState.cover_image ? 'bg-cover bg-center' : ''} ${!canAccessCurrentUser && 'min-h-[30vmin]'}`}
+                <div className={`relative ${userCanAccess ? '-mx-8 -mt-8 rounded-t' : '-mx-10 -mt-10'}`}>
+                    <div className={`flex flex-wrap items-end justify-between gap-8 p-8 ${formState.cover_image ? 'bg-cover bg-center' : ''} ${!userCanAccess && 'min-h-[30vmin]'}`}
                         style={{
                             backgroundImage: formState.cover_image ? `url(${formState.cover_image})` : 'none'
                         }}>
@@ -505,7 +447,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                         </div>
                     </div>
                 </div>
-                <div className={`${!canAccessCurrentUser && 'mx-auto max-w-[536px]'} mt-6 flex flex-col`}>
+                <div className={`${!userCanAccess && 'mx-auto max-w-[536px]'} mt-6 flex flex-col`}>
                     <TabView
                         selectedTab={selectedTab}
                         tabs={[
@@ -543,8 +485,11 @@ const UserDetailModal: React.FC<RoutingModalProps> = ({params}) => {
 
     const user = isCurrentUser ? currentUser : fetchedUserData?.users?.[0];
 
-    return user ? <UserDetailModalContent user={user} /> : null;
+    if (user) {
+        return <UserDetailModalContent user={user} />;
+    } else {
+        return null;
+    }
 };
 
 export default NiceModal.create(UserDetailModal);
-```

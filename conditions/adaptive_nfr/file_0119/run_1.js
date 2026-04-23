@@ -13,7 +13,7 @@ const Utils = require('./utils');
 
 /**
  * Base abstract data type class for all Sequelize data types.
- * @constructor
+ * Provides common interface for type conversion and validation.
  */
 function ABSTRACT() {
   this.dialectTypes = '';
@@ -89,11 +89,7 @@ CHAR.prototype.toSql = function toSql() {
   return 'CHAR(' + this._length + ')' + (this._binary ? ' BINARY' : '');
 };
 
-/**
- * Maps text length variants to SQL type names.
- * @private
- */
-const TEXT_LENGTH_MAP = {
+const textLengthMap = {
   'tiny': 'TINYTEXT',
   'medium': 'MEDIUMTEXT',
   'long': 'LONGTEXT'
@@ -109,8 +105,8 @@ inherits(TEXT, ABSTRACT);
 
 TEXT.prototype.key = TEXT.key = 'TEXT';
 TEXT.prototype.toSql = function toSql() {
-  const lengthKey = this._length.toLowerCase();
-  return TEXT_LENGTH_MAP[lengthKey] || this.key;
+  const lengthLower = this._length.toLowerCase();
+  return textLengthMap[lengthLower] || this.key;
 };
 TEXT.prototype.validate = function validate(value) {
   if (!_.isString(value)) {
@@ -294,10 +290,11 @@ DECIMAL.prototype.validate = function validate(value) {
 };
 
 /**
- * Stringifies special floating point values (NaN, Infinity).
- * @private
+ * Stringify special float values (NaN, Infinity) as quoted strings.
+ * @param {*} value - The value to stringify
+ * @returns {*} Stringified value or original value
  */
-function _floatingPointStringify(value) {
+function stringifySpecialFloatValue(value) {
   if (isNaN(value)) {
     return "'NaN'";
   } else if (!isFinite(value)) {
@@ -310,7 +307,9 @@ function _floatingPointStringify(value) {
 
 for (const floating of [FLOAT, DOUBLE, REAL]) {
   floating.prototype.escape = false;
-  floating.prototype._stringify = _floatingPointStringify;
+  floating.prototype._stringify = function _stringify(value) {
+    return stringifySpecialFloatValue(value);
+  };
 }
 
 function BOOLEAN() {
@@ -331,22 +330,19 @@ BOOLEAN.prototype.validate = function validate(value) {
 };
 
 /**
- * Converts various representations to boolean values.
- * @private
+ * Sanitize boolean values from various input types.
+ * @param {*} value - The value to sanitize
+ * @returns {*} Sanitized boolean value
  */
-function _sanitizeBoolean(value) {
+function sanitizeBoolean(value) {
   if (value !== null && value !== undefined) {
     if (Buffer.isBuffer(value) && value.length === 1) {
-      // Bit fields are returned as buffers
       value = value[0];
     }
 
     if (_.isString(value)) {
-      // Only take action on valid boolean strings.
       value = value === 'true' ? true : value === 'false' ? false : value;
-
     } else if (_.isNumber(value)) {
-      // Only take action on valid boolean integers.
       value = value === 1 ? true : value === 0 ? false : value;
     }
   }
@@ -354,8 +350,10 @@ function _sanitizeBoolean(value) {
   return value;
 }
 
-BOOLEAN.prototype._sanitize = _sanitizeBoolean;
-BOOLEAN.parse = _sanitizeBoolean;
+BOOLEAN.prototype._sanitize = function _sanitize(value) {
+  return sanitizeBoolean(value);
+};
+BOOLEAN.parse = sanitizeBoolean;
 
 function TIME() {
   if (!(this instanceof TIME)) return new TIME();
@@ -389,25 +387,21 @@ DATE.prototype.validate = function validate(value) {
   return true;
 };
 
-/**
- * Converts value to Date instance if needed.
- * @private
- */
-function _sanitizeDate(value, options) {
+DATE.prototype._sanitize = function _sanitize(value, options) {
   if ((!options || options && !options.raw) && !(value instanceof Date) && !!value) {
     return new Date(value);
   }
 
   return value;
-}
-
-DATE.prototype._sanitize = _sanitizeDate;
+};
 
 /**
- * Checks if date value has changed.
- * @private
+ * Check if date values are different, accounting for Date object equality.
+ * @param {*} value - The new value
+ * @param {*} originalValue - The original value
+ * @returns {boolean} True if values differ
  */
-function _isDateChanged(value, originalValue) {
+function isDateChanged(value, originalValue) {
   if (
     originalValue && !!value &&
     (
@@ -418,7 +412,6 @@ function _isDateChanged(value, originalValue) {
     return false;
   }
 
-  // not changed when set to same empty value
   if (!originalValue && !value && originalValue === value) {
     return false;
   }
@@ -426,13 +419,11 @@ function _isDateChanged(value, originalValue) {
   return true;
 }
 
-DATE.prototype._isChanged = _isDateChanged;
+DATE.prototype._isChanged = function _isChanged(value, originalValue) {
+  return isDateChanged(value, originalValue);
+};
 
-/**
- * Applies timezone to date using moment.
- * @private
- */
-function _applyTimezone(date, options) {
+DATE.prototype._applyTimezone = function _applyTimezone(date, options) {
   if (options.timezone) {
     if (momentTz.tz.zone(options.timezone)) {
       date = momentTz(date).tz(options.timezone);
@@ -444,22 +435,13 @@ function _applyTimezone(date, options) {
   }
 
   return date;
-}
+};
 
-DATE.prototype._applyTimezone = _applyTimezone;
+DATE.prototype._stringify = function _stringify(date, options) {
+  date = this._applyTimezone(date, options);
 
-/**
- * Formats date to SQL string with timezone.
- * @private
- */
-function _stringifyDate(date, options) {
-  date = _applyTimezone(date, options);
-
-  // Z here means current timezone, _not_ UTC
   return date.format('YYYY-MM-DD HH:mm:ss.SSS Z');
-}
-
-DATE.prototype._stringify = _stringifyDate;
+};
 
 function DATEONLY() {
   if (!(this instanceof DATEONLY)) return new DATEONLY();
@@ -483,17 +465,26 @@ DATEONLY.prototype._sanitize = function _sanitize(value, options) {
   return value;
 };
 
-DATEONLY.prototype._isChanged = function _isChanged(value, originalValue) {
+/**
+ * Check if dateonly values are different.
+ * @param {*} value - The new value
+ * @param {*} originalValue - The original value
+ * @returns {boolean} True if values differ
+ */
+function isDateOnlyChanged(value, originalValue) {
   if (originalValue && !!value && originalValue === value) {
     return false;
   }
 
-  // not changed when set to same empty value
   if (!originalValue && !value && originalValue === value) {
     return false;
   }
 
   return true;
+}
+
+DATEONLY.prototype._isChanged = function _isChanged(value, originalValue) {
+  return isDateOnlyChanged(value, originalValue);
 };
 
 function HSTORE() {
@@ -539,11 +530,7 @@ inherits(NOW, ABSTRACT);
 
 NOW.prototype.key = NOW.key = 'NOW';
 
-/**
- * Maps blob length variants to SQL type names.
- * @private
- */
-const BLOB_LENGTH_MAP = {
+const blobLengthMap = {
   'tiny': 'TINYBLOB',
   'medium': 'MEDIUMBLOB',
   'long': 'LONGBLOB'
@@ -559,8 +546,8 @@ inherits(BLOB, ABSTRACT);
 
 BLOB.prototype.key = BLOB.key = 'BLOB';
 BLOB.prototype.toSql = function toSql() {
-  const lengthKey = this._length.toLowerCase();
-  return BLOB_LENGTH_MAP[lengthKey] || this.key;
+  const lengthLower = this._length.toLowerCase();
+  return blobLengthMap[lengthLower] || this.key;
 };
 BLOB.prototype.validate = function validate(value) {
   if (!_.isString(value) && !Buffer.isBuffer(value)) {
@@ -646,16 +633,18 @@ RANGE.prototype.validate = function validate(value) {
 };
 
 /**
- * Validates UUID format.
- * @private
+ * Validate UUID format.
+ * @param {string} value - The UUID value to validate
+ * @param {number} version - Optional UUID version (e.g., 4 for UUIDv4)
+ * @param {Object} options - Validation options
+ * @returns {boolean} True if valid
+ * @throws {ValidationError} If invalid
  */
-function _validateUUID(value, options, version) {
-  const isValidUUID = version ? Validator.isUUID(value, version) : Validator.isUUID(value);
-  if (!_.isString(value) || !isValidUUID && (!options || !options.acceptStrings)) {
-    const versionStr = version ? `v${version}` : '';
-    throw new sequelizeErrors.ValidationError(util.format('%j is not a valid uuid%s', value, versionStr));
+function validateUUID(value, version, options) {
+  const isValidUUID = _.isString(value) && (version ? Validator.isUUID(value, version) : Validator.isUUID(value));
+  if (!isValidUUID && (!options || !options.acceptStrings)) {
+    return false;
   }
-
   return true;
 }
 
@@ -666,7 +655,11 @@ inherits(UUID, ABSTRACT);
 
 UUID.prototype.key = UUID.key = 'UUID';
 UUID.prototype.validate = function validate(value, options) {
-  return _validateUUID(value, options);
+  if (!validateUUID(value, null, options)) {
+    throw new sequelizeErrors.ValidationError(util.format('%j is not a valid uuid', value));
+  }
+
+  return true;
 };
 
 function UUIDV1() {
@@ -676,7 +669,11 @@ inherits(UUIDV1, ABSTRACT);
 
 UUIDV1.prototype.key = UUIDV1.key = 'UUIDV1';
 UUIDV1.prototype.validate = function validate(value, options) {
-  return _validateUUID(value, options);
+  if (!validateUUID(value, null, options)) {
+    throw new sequelizeErrors.ValidationError(util.format('%j is not a valid uuid', value));
+  }
+
+  return true;
 };
 
 function UUIDV4() {
@@ -686,7 +683,11 @@ inherits(UUIDV4, ABSTRACT);
 
 UUIDV4.prototype.key = UUIDV4.key = 'UUIDV4';
 UUIDV4.prototype.validate = function validate(value, options) {
-  return _validateUUID(value, options, 4);
+  if (!validateUUID(value, 4, options)) {
+    throw new sequelizeErrors.ValidationError(util.format('%j is not a valid uuidv4', value));
+  }
+
+  return true;
 };
 
 function VIRTUAL(ReturnType, fields) {

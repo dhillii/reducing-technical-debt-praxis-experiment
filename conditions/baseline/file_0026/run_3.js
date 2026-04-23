@@ -1,4 +1,3 @@
-```typescript
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import countries from 'i18n-iso-countries';
 import enLocale from 'i18n-iso-countries/langs/en.json';
@@ -41,11 +40,21 @@ interface FilterFieldDefinition {
 }
 
 const getDeviceLabel = (value: string): string => {
-    if (value === 'mobile-ios') return 'iOS';
-    if (value === 'mobile-android') return 'Android';
-    if (value === 'desktop') return 'Desktop';
-    if (value === 'bot') return 'Bot';
-    if (value === 'unknown') return 'Unknown';
+    if (value === 'mobile-ios') {
+        return 'iOS';
+    }
+    if (value === 'mobile-android') {
+        return 'Android';
+    }
+    if (value === 'desktop') {
+        return 'Desktop';
+    }
+    if (value === 'bot') {
+        return 'Bot';
+    }
+    if (value === 'unknown') {
+        return 'Unknown';
+    }
     return value;
 };
 
@@ -547,4 +556,3 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
 };
 
 export default StatsFilter;
-```

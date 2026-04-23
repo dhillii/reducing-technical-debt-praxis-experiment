@@ -1,4 +1,3 @@
-```javascript
 import React from 'react';
 import ActionButton from '../common/action-button';
 import AppContext from '../../app-context';
@@ -516,6 +515,7 @@ class SignupPage extends React.Component {
                 label: t('Email'),
                 name: 'email',
                 required: true,
+                tabIndex: 0,
                 errorMessage: errors.email || ''
             },
             {
@@ -541,6 +541,7 @@ class SignupPage extends React.Component {
                 label: t('Name'),
                 name: 'name',
                 required: true,
+                tabIndex: 0,
                 errorMessage: errors.name || ''
             });
         }
@@ -633,6 +634,7 @@ class SignupPage extends React.Component {
                 brandColor={brandColor}
                 label={label}
                 isRunning={isRunning}
+                tabIndex={0}
             />
         );
     }
@@ -908,4 +910,3 @@ class SignupPage extends React.Component {
 }
 
 export default SignupPage;
-```

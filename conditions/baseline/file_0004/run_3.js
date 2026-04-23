@@ -1,4 +1,3 @@
-```typescript
 import {useModal} from '@ebay/nice-modal-react';
 import clsx from 'clsx';
 import React, {useEffect, useState, forwardRef} from 'react';
@@ -200,7 +199,7 @@ const buildButtons = (
 };
 
 const buildModalClasses = (
-    align: string,
+    align: 'center' | 'left' | 'right',
     size: ModalSize,
     formSheet: boolean,
     animate: boolean,
@@ -305,31 +304,31 @@ const buildFooterContent = (
     leftButtonProps: ButtonProps | undefined,
     buttons: ButtonProps[]
 ): React.ReactNode => {
-    let content: React.ReactNode;
-
-    if (footer && footer !== false) {
-        content = footer;
-    } else if (footer === false) {
-        return null;
-    } else {
-        content = (
-            <div className={footerClasses}>
-                <div>
-                    {leftButtonProps && <Button {...leftButtonProps} />}
-                </div>
-                <div className='flex gap-3'>
-                    <ButtonGroup buttons={buttons} />
-                </div>
-            </div>
-        );
+    if (footer === true) {
+        return footer;
     }
+
+    if (footer === false) {
+        return null;
+    }
+
+    const defaultFooter = (
+        <div className={footerClasses}>
+            <div>
+                {leftButtonProps && <Button {...leftButtonProps} />}
+            </div>
+            <div className='flex gap-3'>
+                <ButtonGroup buttons={buttons} />
+            </div>
+        </div>
+    );
 
     return stickyFooter ? (
         <StickyFooter height={84}>
-            {content}
+            {defaultFooter}
         </StickyFooter>
     ) : (
-        <>{content}</>
+        defaultFooter
     );
 };
 
@@ -419,9 +418,6 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         sizeConfig
     );
 
-    const { classes: modalClassesWithWidth, styles: widthStyles } = applyWidthStyles(width, modalClasses);
-    const { classes: finalModalClasses, styles: finalStyles } = applyHeightStyles(height, modalClassesWithWidth, widthStyles);
-
     const backdropClasses = buildBackdropClasses(
         allowBackgroundInteraction,
         backDrop,
@@ -447,6 +443,15 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         'flex w-full items-center justify-between'
     );
 
+    const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (e.target === e.currentTarget && backDropClick) {
+            removeModal();
+        }
+    };
+
+    const { classes: finalModalClasses, styles: modalStyles } = applyWidthStyles(width, modalClasses);
+    const { classes: finalClasses, styles: finalStyles } = applyHeightStyles(height, finalModalClasses, modalStyles);
+
     const footerContent = buildFooterContent(
         footer,
         stickyFooter,
@@ -455,38 +460,29 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         buttons
     );
 
-    const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
-        if (e.target === e.currentTarget && backDropClick) {
-            removeModal();
-        }
-    };
-
-    const renderHeader = () => {
-        if (header === false) return null;
-
-        const showCloseButton = !topRightContent || topRightContent === 'close';
-
-        return (
+    const headerContent = header === false ? null : (
+        !topRightContent || topRightContent === 'close' ? (
             <header className={headerClasses}>
                 {title && <Heading level={3}>{title}</Heading>}
-                {showCloseButton ? (
-                    <div className={`${topRightContent !== 'close' && 'md:!invisible md:!hidden'} ${hideXOnMobile && 'hidden'} absolute right-6 top-6`}>
-                        <Button
-                            className='-m-2 cursor-pointer p-2 opacity-50 hover:opacity-100'
-                            icon='close'
-                            iconColorClass='text-black dark:text-white'
-                            size='sm'
-                            testId='close-modal'
-                            unstyled
-                            onClick={removeModal}
-                        />
-                    </div>
-                ) : (
-                    topRightContent
-                )}
+                <div className={`${topRightContent !== 'close' && 'md:!invisible md:!hidden'} ${hideXOnMobile && 'hidden'} absolute right-6 top-6`}>
+                    <Button
+                        className='-m-2 cursor-pointer p-2 opacity-50 hover:opacity-100'
+                        icon='close'
+                        iconColorClass='text-black dark:text-white'
+                        size='sm'
+                        testId='close-modal'
+                        unstyled
+                        onClick={removeModal}
+                    />
+                </div>
             </header>
-        );
-    };
+        ) : (
+            <header className={headerClasses}>
+                {title && <Heading level={3}>{title}</Heading>}
+                {topRightContent}
+            </header>
+        )
+    );
 
     return (
         <div className={backdropClasses} id='modal-backdrop' onMouseDown={handleBackdropClick}>
@@ -498,13 +494,13 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
             <section
                 ref={ref}
                 className={clsx(
-                    finalModalClasses,
+                    finalClasses,
                     allowBackgroundInteraction && 'pointer-events-auto'
                 )}
                 data-testid={testId}
                 style={finalStyles}
             >
-                {renderHeader()}
+                {headerContent}
                 <div className={contentClasses}>
                     {children}
                 </div>
@@ -517,4 +513,3 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
 Modal.displayName = 'Modal';
 
 export default Modal;
-```

@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview A class to manage state of generating a code path.
  * @author Toru Nagashima
@@ -2369,4 +2368,3 @@ class CodePathState {
 }
 
 module.exports = CodePathState;
-```

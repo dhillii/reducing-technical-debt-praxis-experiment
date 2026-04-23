@@ -1,4 +1,3 @@
-```javascript
 import BulkAddMembersLabelModal from '../components/members/modals/bulk-add-label';
 import BulkDeleteMembersModal from '../components/members/modals/bulk-delete';
 import BulkRemoveMembersLabelModal from '../components/members/modals/bulk-remove-label';
@@ -28,21 +27,10 @@ const PAID_PARAMS = [{
 }];
 
 /**
- * Determines if a filter param is surrounded by brackets and contains a single group
- * @param {string} filterParam - The filter parameter to check
- * @returns {boolean} True if filter should have brackets removed
- */
-function shouldRemoveBrackets(filterParam) {
-    const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
-    const MULTIPLE_GROUPS_RE = /\).*\(/;
-    return BRACKETS_SURROUNDED_RE.test(filterParam) && !MULTIPLE_GROUPS_RE.test(filterParam);
-}
-
-/**
- * Builds filter array based on label, paid status, and filter param
- * @param {string} label - The label filter
- * @param {string} paidParam - The paid status filter
- * @param {string} filterParam - The custom filter parameter
+ * Builds filter array based on label, paid status, and filter parameters
+ * @param {string} label - The label slug to filter by
+ * @param {string} paidParam - The paid status parameter ('true', 'false', or null)
+ * @param {string} filterParam - The NQL filter string
  * @returns {string[]} Array of filter strings
  */
 function buildFilters(label, paidParam, filterParam) {
@@ -64,23 +52,40 @@ function buildFilters(label, paidParam, filterParam) {
 }
 
 /**
- * Builds the API query object from parameters
- * @param {string} label - The label filter
- * @param {string} paidParam - The paid status filter
- * @param {string} searchParam - The search query
- * @param {string} filterParam - The custom filter parameter
- * @param {string[]} extraFilters - Additional filters to include
- * @returns {object} Query object for API
+ * Normalizes filter parameter by removing surrounding brackets if applicable
+ * @param {string} filterParam - The filter parameter to normalize
+ * @returns {string} Normalized filter parameter
  */
-function buildApiQuery(label, paidParam, searchParam, filterParam, extraFilters = []) {
-    const filters = buildFilters(label, paidParam, filterParam);
-    const allFilters = [...extraFilters, ...filters];
-    const searchQuery = searchParam ? {search: searchParam} : {};
+function normalizeFilterParam(filterParam) {
+    if (!filterParam) {
+        return filterParam;
+    }
 
-    return {
-        filter: allFilters.join('+'),
-        ...searchQuery
-    };
+    const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
+    const MULTIPLE_GROUPS_RE = /\).*\(/;
+
+    if (BRACKETS_SURROUNDED_RE.test(filterParam) && !MULTIPLE_GROUPS_RE.test(filterParam)) {
+        return filterParam.slice(1, -1);
+    }
+
+    return filterParam;
+}
+
+/**
+ * Checks if a filter type is restricted for bulk deletion
+ * @param {string} filterType - The filter type to check
+ * @returns {boolean} True if the filter type is restricted
+ */
+function isRestrictedStripeFilter(filterType) {
+    const restrictedTypes = [
+        'subscriptions.plan_interval',
+        'subscriptions.status',
+        'subscriptions.start_date',
+        'subscriptions.current_period_end',
+        'conversion',
+        'offer_redemptions'
+    ];
+    return restrictedTypes.includes(filterType);
 }
 
 export default class MembersController extends Controller {
@@ -286,16 +291,7 @@ export default class MembersController extends Controller {
             return false;
         }
 
-        const stripeFilterTypes = [
-            'subscriptions.plan_interval',
-            'subscriptions.status',
-            'subscriptions.start_date',
-            'subscriptions.current_period_end',
-            'conversion',
-            'offer_redemptions'
-        ];
-
-        const stripeFilters = this.filters.filter(f => stripeFilterTypes.includes(f.type));
+        const stripeFilters = this.filters.filter(f => isRestrictedStripeFilter(f.type));
 
         return stripeFilters.length === 0;
     }
@@ -310,11 +306,13 @@ export default class MembersController extends Controller {
     getApiQueryObject({params, extraFilters = []} = {}) {
         let {label, paidParam, searchParam, filterParam} = params ? params : this;
 
-        if (filterParam && shouldRemoveBrackets(filterParam)) {
-            filterParam = filterParam.slice(1, -1);
-        }
+        filterParam = normalizeFilterParam(filterParam);
 
-        return buildApiQuery(label, paidParam, searchParam, filterParam, extraFilters);
+        let filters = [...extraFilters, ...buildFilters(label, paidParam, filterParam)];
+
+        let searchQuery = searchParam ? {search: searchParam} : {};
+
+        return {...{filter: filters.join('+')}, ...searchQuery};
     }
 
     // Actions -----------------------------------------------------------------
@@ -559,14 +557,12 @@ export default class MembersController extends Controller {
             const order = orderParam ? `${orderParam} desc` : `created_at desc`;
             const includes = ['labels', 'tiers'];
 
-            query = {
+            query = {...{
                 include: includes.join(','),
                 order,
                 limit: range.length,
-                page: range.page,
-                ...searchQuery,
-                ...query
-            };
+                page: range.page
+            }, ...searchQuery, ...query};
 
             return this.store.query('member', query).then((result) => {
                 return {
@@ -602,4 +598,3 @@ export default class MembersController extends Controller {
         this.fetchMembersTask.perform(params);
     }
 }
-```

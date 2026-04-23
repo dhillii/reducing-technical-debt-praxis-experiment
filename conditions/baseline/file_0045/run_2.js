@@ -1,4 +1,3 @@
-```javascript
 const nql = require('@tryghost/nql');
 const logging = require('@tryghost/logging');
 
@@ -81,11 +80,11 @@ class PostsExporter {
             email = null;
         }
 
-        const published = post.get('status') !== 'draft' && post.get('status') !== 'scheduled';
-        
-        if (!published) {
+        let published = true;
+        if (post.get('status') === 'draft' || post.get('status') === 'scheduled') {
             // Manually clear it to avoid including information for a post that was reverted to draft
             email = null;
+            published = false;
         }
 
         const feedbackEnabled = email && email.get('feedback_enabled') && hasNewslettersWithFeedback;
@@ -234,9 +233,9 @@ class PostsExporter {
         } else {
             for (const key of Object.keys(filter)) {
                 if (key === 'label' && typeof filter.label === 'string') {
-                    strings.push(this.getLabelName(filter.label, allLabels));
+                    strings.push(this.getLabelString(filter.label, allLabels));
                 } else if (key === 'tier' && typeof filter.tier === 'string') {
-                    strings.push(this.getTierName(filter.tier, allTiers));
+                    strings.push(this.getTierString(filter.tier, allTiers));
                 } else if (key === 'status') {
                     strings.push(...this.getStatusStrings(filter.status));
                 }
@@ -246,12 +245,12 @@ class PostsExporter {
         return strings;
     }
 
-    getLabelName(labelSlug, allLabels) {
+    getLabelString(labelSlug, allLabels) {
         const label = allLabels.find(l => l.get('slug') === labelSlug);
         return label ? label.get('name') : labelSlug;
     }
 
-    getTierName(tierSlug, allTiers) {
+    getTierString(tierSlug, allTiers) {
         const tier = allTiers.find(l => l.get('slug') === tierSlug);
         return tier ? tier.get('name') : tierSlug;
     }
@@ -270,6 +269,7 @@ class PostsExporter {
             if (status.$ne === 'free') {
                 strings.push('Paid subscribers');
             }
+
             if (status.$ne === 'paid') {
                 strings.push('Free subscribers');
             }
@@ -279,4 +279,3 @@ class PostsExporter {
 }
 
 module.exports = PostsExporter;
-```

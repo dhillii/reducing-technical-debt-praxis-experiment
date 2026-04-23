@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /*!
@@ -283,11 +282,9 @@ Schema.prototype.add = function add(obj, prefix) {
       throw new TypeError('Invalid value for schema path `' + fullPath +
         '`, got value "' + obj[key] + '"');
     }
-
     if (key === '_id' && obj[key] === false) {
       continue;
     }
-
     if (obj[key] instanceof VirtualType || get(obj[key], 'constructor.name', null) === 'VirtualType') {
       this.virtual(obj[key]);
       continue;
@@ -298,7 +295,7 @@ Schema.prototype.add = function add(obj, prefix) {
         '`, got value "' + obj[key][0] + '"');
     }
 
-    this._addPath(fullPath, obj[key], prefix);
+    this._addPathOrNested(obj, key, fullPath, prefix);
   }
 
   const addedKeys = Object.keys(obj).
@@ -307,8 +304,9 @@ Schema.prototype.add = function add(obj, prefix) {
   return this;
 };
 
-Schema.prototype._addPath = function(fullPath, value, prefix) {
-  const key = fullPath.substring(prefix.length);
+Schema.prototype._addPathOrNested = function(obj, key, fullPath, prefix) {
+  const typeKey = this.options.typeKey;
+  const value = obj[key];
 
   if (!(utils.isPOJO(value) || value instanceof SchemaTypeOptions)) {
     if (prefix) {
@@ -320,22 +318,22 @@ Schema.prototype._addPath = function(fullPath, value, prefix) {
       this.nested[prefix.substr(0, prefix.length - 1)] = true;
     }
     this.path(fullPath, value);
-  } else if (!value[this.options.typeKey] || (this.options.typeKey === 'type' && value.type.type)) {
+  } else if (!value[typeKey] || (typeKey === 'type' && value.type.type)) {
     this.nested[fullPath] = true;
     this.add(value, fullPath + '.');
   } else {
-    this._addPathWithTypeKey(fullPath, value, prefix, key);
+    this._addTypeKeyPath(value, key, fullPath, prefix, typeKey);
   }
 };
 
-Schema.prototype._addPathWithTypeKey = function(fullPath, value, prefix, key) {
-  if (!this.options.typePojoToMixed && utils.isPOJO(value[this.options.typeKey])) {
+Schema.prototype._addTypeKeyPath = function(value, key, fullPath, prefix, typeKey) {
+  if (!this.options.typePojoToMixed && utils.isPOJO(value[typeKey])) {
     if (prefix) {
       this.nested[prefix.substr(0, prefix.length - 1)] = true;
     }
     const opts = { typePojoToMixed: false };
-    const _schema = new Schema(value[this.options.typeKey], opts);
-    const schemaWrappedPath = Object.assign({}, value, { [this.options.typeKey]: _schema });
+    const _schema = new Schema(value[typeKey], opts);
+    const schemaWrappedPath = Object.assign({}, value, { [typeKey]: _schema });
     this.path(prefix + key, schemaWrappedPath);
   } else {
     if (prefix) {
@@ -368,7 +366,7 @@ reserved.validate = 1;
 Schema.prototype.path = function(path, obj) {
   const cleanPath = _pathToPositionalSyntax(path);
   if (obj === undefined) {
-    return this._getPathForReading(path, cleanPath);
+    return this._getPathOrUndefined(path, cleanPath);
   }
 
   const firstPieceOfPath = path.split('.')[0];
@@ -381,12 +379,12 @@ Schema.prototype.path = function(path, obj) {
   }
 
   this._setPathInTree(path, obj);
-  this._processSchemaType(path, obj, cleanPath);
+  this._interpretAndSetPath(path, obj, cleanPath);
 
   return this;
 };
 
-Schema.prototype._getPathForReading = function(path, cleanPath) {
+Schema.prototype._getPathOrUndefined = function(path, cleanPath) {
   let schematype = _getPath(this, path, cleanPath);
   if (schematype != null) {
     return schematype;
@@ -436,30 +434,30 @@ Schema.prototype._setPathInTree = function(path, obj) {
   branch[last] = utils.clone(obj);
 };
 
-Schema.prototype._processSchemaType = function(path, obj, cleanPath) {
+Schema.prototype._interpretAndSetPath = function(path, obj, cleanPath) {
   this.paths[path] = this.interpretAsType(path, obj, this.options);
   const schemaType = this.paths[path];
 
   if (schemaType.$isSchemaMap) {
-    this._processMapType(path, obj, schemaType);
+    this._handleMapPath(path, obj, schemaType);
   }
 
   if (schemaType.$isSingleNested) {
-    this._processSingleNestedType(path, schemaType);
+    this._handleSingleNestedPath(path, schemaType);
   } else if (schemaType.$isMongooseDocumentArray) {
-    this._processDocumentArrayType(schemaType);
+    this._handleDocumentArrayPath(schemaType);
   }
 
   if (schemaType.$isMongooseArray && schemaType.caster instanceof SchemaType) {
-    this._processMongooseArray(path, schemaType);
+    this._handleMongooseArrayPath(path, schemaType);
   }
 
   if (schemaType.$isMongooseDocumentArray) {
-    this._processDocumentArrayPaths(path, schemaType);
+    this._handleDocumentArraySubpaths(path, schemaType);
   }
 };
 
-Schema.prototype._processMapType = function(path, obj, schemaType) {
+Schema.prototype._handleMapPath = function(path, obj, schemaType) {
   const mapPath = path + '.$*';
   let _mapType = { type: {} };
   if (utils.hasUserDefinedProperty(obj, 'of')) {
@@ -477,7 +475,7 @@ Schema.prototype._processMapType = function(path, obj, schemaType) {
   schemaType.$__schemaType = this.paths[mapPath];
 };
 
-Schema.prototype._processSingleNestedType = function(path, schemaType) {
+Schema.prototype._handleSingleNestedPath = function(path, schemaType) {
   for (const key of Object.keys(schemaType.schema.paths)) {
     this.singleNestedPaths[path + '.' + key] = schemaType.schema.paths[key];
   }
@@ -507,7 +505,7 @@ Schema.prototype._processSingleNestedType = function(path, schemaType) {
   });
 };
 
-Schema.prototype._processDocumentArrayType = function(schemaType) {
+Schema.prototype._handleDocumentArrayPath = function(schemaType) {
   Object.defineProperty(schemaType.schema, 'base', {
     configurable: true,
     enumerable: false,
@@ -522,7 +520,7 @@ Schema.prototype._processDocumentArrayType = function(schemaType) {
   });
 };
 
-Schema.prototype._processMongooseArray = function(path, schemaType) {
+Schema.prototype._handleMongooseArrayPath = function(path, schemaType) {
   let arrayPath = path;
   let _schemaType = schemaType;
 
@@ -549,7 +547,7 @@ Schema.prototype._processMongooseArray = function(path, schemaType) {
   }
 };
 
-Schema.prototype._processDocumentArrayPaths = function(path, schemaType) {
+Schema.prototype._handleDocumentArraySubpaths = function(path, schemaType) {
   for (const key of Object.keys(schemaType.schema.paths)) {
     const _schemaType = schemaType.schema.paths[key];
     this.subpaths[path + '.' + key] = _schemaType;
@@ -660,23 +658,27 @@ Schema.prototype.interpretAsType = function(path, obj, options) {
   }
 
   if (Array.isArray(type) || type === Array || type === 'array' || type === MongooseTypes.Array) {
-    return this._interpretArrayType(path, type, obj, options, MongooseTypes);
+    return this._interpretArrayType(path, type, obj, options);
   }
 
   if (type && type.instanceOfSchema) {
     return new MongooseTypes.Embedded(type, path, obj);
   }
 
-  name = this._getTypeName(type);
+  if (Buffer.isBuffer(type)) {
+    name = 'Buffer';
+  } else if (typeof type === 'function' || typeof type === 'object') {
+    name = type.schemaName || utils.getFunctionName(type);
+  } else {
+    name = type == null ? '' + type : type.toString();
+  }
 
   if (name) {
     name = name.charAt(0).toUpperCase() + name.substring(1);
   }
-
   if (name === 'ObjectID') {
     name = 'ObjectId';
   }
-
   if (name === 'ClockDate') {
     name = 'Date';
   }
@@ -690,7 +692,8 @@ Schema.prototype.interpretAsType = function(path, obj, options) {
   return new MongooseTypes[name](path, obj);
 };
 
-Schema.prototype._interpretArrayType = function(path, type, obj, options, MongooseTypes) {
+Schema.prototype._interpretArrayType = function(path, type, obj, options) {
+  const MongooseTypes = this.base != null ? this.base.Schema.Types : Schema.Types;
   let cast = (type === Array || type === 'array')
     ? obj.cast || obj.of
     : type[0];
@@ -703,7 +706,6 @@ Schema.prototype._interpretArrayType = function(path, type, obj, options, Mongoo
     }
     return new MongooseTypes.DocumentArray(path, cast, obj);
   }
-
   if (cast &&
       cast[options.typeKey] &&
       cast[options.typeKey].instanceOfSchema) {
@@ -723,23 +725,25 @@ Schema.prototype._interpretArrayType = function(path, type, obj, options, Mongoo
     cast = MongooseTypes[cast.charAt(0).toUpperCase() + cast.substring(1)];
   } else if (cast && (!cast[options.typeKey] || (options.typeKey === 'type' && cast.type.type))
       && utils.isPOJO(cast)) {
-    return this._interpretInlineArraySchema(path, cast, options, MongooseTypes);
+    return this._interpretInlineArraySchema(path, cast, obj, options);
   }
 
   if (cast) {
-    const castType = cast[options.typeKey] && (options.typeKey !== 'type' || !cast.type.type)
+    const type = cast[options.typeKey] && (options.typeKey !== 'type' || !cast.type.type)
       ? cast[options.typeKey]
       : cast;
 
-    const name = typeof castType === 'string'
-      ? castType
-      : castType.schemaName || utils.getFunctionName(castType);
+    let name = typeof type === 'string'
+      ? type
+      : type.schemaName || utils.getFunctionName(type);
 
-    const finalName = name === 'ClockDate' ? 'Date' : name;
+    if (name === 'ClockDate') {
+      name = 'Date';
+    }
 
-    if (!MongooseTypes.hasOwnProperty(finalName)) {
+    if (!MongooseTypes.hasOwnProperty(name)) {
       throw new TypeError('Invalid schema configuration: ' +
-        `\`${finalName}\` is not a valid type within the array \`${path}\`.` +
+        `\`${name}\` is not a valid type within the array \`${path}\`.` +
         'See http://bit.ly/mongoose-schematypes for a list of valid schema types.');
     }
   }
@@ -747,7 +751,8 @@ Schema.prototype._interpretArrayType = function(path, type, obj, options, Mongoo
   return new MongooseTypes.Array(path, cast || MongooseTypes.Mixed, obj, options);
 };
 
-Schema.prototype._interpretInlineArraySchema = function(path, cast, options, MongooseTypes) {
+Schema.prototype._interpretInlineArraySchema = function(path, cast, obj, options) {
+  const MongooseTypes = this.base != null ? this.base.Schema.Types : Schema.Types;
   if (Object.keys(cast).length) {
     const childSchemaOptions = { minimize: options.minimize };
     if (options.typeKey) {
@@ -769,19 +774,9 @@ Schema.prototype._interpretInlineArraySchema = function(path, cast, options, Mon
 
     const childSchema = new Schema(cast, childSchemaOptions);
     childSchema.$implicitlyCreated = true;
-    return new MongooseTypes.DocumentArray(path, childSchema, {});
+    return new MongooseTypes.DocumentArray(path, childSchema, obj);
   } else {
-    return new MongooseTypes.Array(path, MongooseTypes.Mixed, {});
-  }
-};
-
-Schema.prototype._getTypeName = function(type) {
-  if (Buffer.isBuffer(type)) {
-    return 'Buffer';
-  } else if (typeof type === 'function' || typeof type === 'object') {
-    return type.schemaName || utils.getFunctionName(type);
-  } else {
-    return type == null ? '' + type : type.toString();
+    return new MongooseTypes.Array(path, MongooseTypes.Mixed, obj);
   }
 };
 
@@ -1058,7 +1053,14 @@ Schema.prototype.set = function(key, value, _tags) {
       this._userProvidedOptions[key] = this.options[key];
       break;
     case '_id':
-      this._setIdOption(value);
+      this.options[key] = value;
+      this._userProvidedOptions[key] = this.options[key];
+
+      if (value && !this.paths['_id']) {
+        addAutoId(this);
+      } else if (!value && this.paths['_id'] != null && this.paths['_id'].auto) {
+        this.remove('_id');
+      }
       break;
     default:
       this.options[key] = value;
@@ -1067,17 +1069,6 @@ Schema.prototype.set = function(key, value, _tags) {
   }
 
   return this;
-};
-
-Schema.prototype._setIdOption = function(value) {
-  this.options._id = value;
-  this._userProvidedOptions._id = value;
-
-  if (value && !this.paths['_id']) {
-    addAutoId(this);
-  } else if (!value && this.paths['_id'] != null && this.paths['_id'].auto) {
-    this.remove('_id');
-  }
 };
 
 const safeDeprecationWarning = 'Mongoose: The `safe` option for schemas is ' +
@@ -1135,7 +1126,21 @@ Schema.prototype.virtual = function(name, options) {
     return mem[part];
   }, this.tree);
 
-  this._setupVirtualUnderDocArray(name, parts);
+  let cur = parts[0];
+  for (let i = 0; i < parts.length - 1; ++i) {
+    if (this.paths[cur] != null && this.paths[cur].$isMongooseDocumentArray) {
+      const remnant = parts.slice(i + 1).join('.');
+      const v = this.paths[cur].schema.virtual(remnant);
+      v.get((v, virtual, doc) => {
+        const parent = doc.__parentArray[arrayParentSymbol];
+        const path = cur + '.' + doc.__index + '.' + remnant;
+        return parent.get(path);
+      });
+      break;
+    }
+
+    cur += '.' + parts[i + 1];
+  }
 
   return virtuals[name];
 };
@@ -1202,24 +1207,6 @@ Schema.prototype._createReferenceVirtual = function(name, options) {
   }
 
   return virtual;
-};
-
-Schema.prototype._setupVirtualUnderDocArray = function(name, parts) {
-  let cur = parts[0];
-  for (let i = 0; i < parts.length - 1; ++i) {
-    if (this.paths[cur] != null && this.paths[cur].$isMongooseDocumentArray) {
-      const remnant = parts.slice(i + 1).join('.');
-      const v = this.paths[cur].schema.virtual(remnant);
-      v.get((v, virtual, doc) => {
-        const parent = doc.__parentArray[arrayParentSymbol];
-        const path = cur + '.' + doc.__index + '.' + remnant;
-        return parent.get(path);
-      });
-      break;
-    }
-
-    cur += '.' + parts[i + 1];
-  }
 };
 
 Schema.prototype.virtualpath = function(name) {
@@ -1448,4 +1435,3 @@ module.exports = exports = Schema;
 Schema.Types = MongooseTypes = require('./schema/index');
 
 exports.ObjectId = MongooseTypes.ObjectId;
-```

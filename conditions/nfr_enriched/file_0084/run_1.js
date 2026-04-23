@@ -1,4 +1,3 @@
-```typescript
 import { useState } from 'react'
 
 import { ContextualHelp } from '@keystar/ui/contextual-help'
@@ -15,7 +14,6 @@ import type {
 } from '../../../../types'
 import { entriesTyped } from '../../../../lib/core/utils'
 
-// TODO: extract
 const TYPE_OPERATOR_MAP = {
   equals: '=',
   not: '≠',
@@ -30,58 +28,127 @@ type Value =
   | { kind: 'update'; initial: number | null; value: number | null }
 
 type Validation = {
-  readonly min: number
-  readonly max: number
+  min: number
+  max: number
 }
 
-/** Validates integer field value against constraints */
-function validateIntegerValue(
+// Validates that the value is a valid integer within the specified bounds
+function validateInteger(
+  input: number,
+  validation: Validation,
+  label: string
+): string | undefined {
+  if (!Number.isInteger(input)) return `${label} is not a valid integer`
+  if (validation.min !== undefined && input < validation.min)
+    return `${label} must be greater than or equal to ${validation.min}`
+  if (validation.max !== undefined && input > validation.max)
+    return `${label} must be less than or equal to ${validation.max}`
+}
+
+// Validates that the value is not null when required
+function validateRequired(input: number | null, isRequired: boolean, label: string): string | undefined {
+  if (isRequired && input === null) return `${label} is required`
+}
+
+// Determines if the value should be considered empty based on its kind and initial state
+function isValueEmpty(value: Value, hasAutoIncrementDefault: boolean): boolean {
+  const { value: input, kind } = value
+  if (kind === 'create' && hasAutoIncrementDefault && input === null) return true
+  if (kind === 'update' && value.initial === null && input === null) return true
+  return false
+}
+
+// Validates a numeric field value against constraints
+function validate_(
   value: Value,
   validation: Validation,
   isRequired: boolean,
   label: string,
   hasAutoIncrementDefault: boolean
 ): string | undefined {
-  const { value: input, kind } = value
-  if (kind === 'create' && hasAutoIncrementDefault && input === null) return
-  if (kind === 'update' && value.initial === null && input === null) return
-  if (isRequired && input === null) return `${label} is required`
+  if (isValueEmpty(value, hasAutoIncrementDefault)) return
+
+  const { value: input } = value
   if (typeof input !== 'number') return
-  const v = input
-  if (!Number.isInteger(v)) return `${label} is not a valid integer`
-  if (validation.min !== undefined && v < validation.min)
-    return `${label} must be greater than or equal to ${validation.min}`
-  if (validation.max !== undefined && v > validation.max)
-    return `${label} must be less than or equal to ${validation.max}`
+
+  const requiredError = validateRequired(input, isRequired, label)
+  if (requiredError) return requiredError
+
+  return validateInteger(input, validation, label)
 }
 
-/** Determines label properties based on context */
-function getLabelProps(
-  readonly context: string,
-  readonly configLabel: string,
-  readonly typeLabel: string
-): { readonly label: string; readonly description?: string } {
-  return context === 'add'
-    ? { label: configLabel, description: typeLabel }
-    : { label: typeLabel }
+// Creates a filter component for integer field filtering
+function createFilterComponent(
+  config: FieldControllerConfig<{
+    validation: Validation
+    defaultValue: number | null | 'autoincrement'
+  }>,
+  validate: (value: Value, opts: { isRequired: boolean }) => boolean
+) {
+  return function Filter(readonly props: Readonly<{
+    autoFocus?: boolean
+    context?: string
+    forceValidation?: boolean
+    typeLabel?: string
+    onChange?: (value: number | null) => void
+    type: string
+    value: number | null
+    [key: string]: unknown
+  }>) {
+    const {
+      autoFocus,
+      context,
+      forceValidation,
+      typeLabel,
+      onChange,
+      type,
+      value,
+      ...otherProps
+    } = props
+    const [isDirty, setDirty] = useState(false)
+    if (type === 'empty' || type === 'not_empty') return null
+
+    const labelProps =
+      context === 'add' ? { label: config.label, description: typeLabel } : { label: typeLabel }
+
+    return (
+      <NumberField
+        {...otherProps}
+        {...labelProps}
+        autoFocus={autoFocus}
+        errorMessage={
+          (forceValidation || isDirty) &&
+          !validate({ kind: 'update', initial: null, value }, { isRequired: true })
+            ? 'Required'
+            : null
+        }
+        step={1}
+        width="auto"
+        onBlur={() => setDirty(true)}
+        onChange={x => onChange?.(!Number.isFinite(x) ? null : x)}
+        value={value ?? NaN}
+      />
+    )
+  }
 }
 
-/** Converts filter type and value to GraphQL query format */
+// Converts filter type and value to GraphQL query format
 function filterToGraphQL(
-  readonly type: string,
-  readonly value: number | null,
-  readonly fieldKey: string
+  config: FieldControllerConfig<{
+    validation: Validation
+    defaultValue: number | null | 'autoincrement'
+  }>,
+  type: string,
+  value: number | null
 ): Record<string, unknown> {
-  if (type === 'empty') return { [fieldKey]: { equals: null } }
-  if (type === 'not_empty') return { [fieldKey]: { not: { equals: null } } }
-  if (type === 'not') return { [fieldKey]: { not: { equals: value } } }
-  return { [fieldKey]: { [type]: value } }
+  if (type === 'empty') return { [config.fieldKey]: { equals: null } }
+  if (type === 'not_empty') return { [config.fieldKey]: { not: { equals: null } } }
+  if (type === 'not') return { [config.fieldKey]: { not: { equals: value } } }
+  return { [config.fieldKey]: { [type]: value } }
 }
 
-/** Parses GraphQL filter response into filter state */
-function parseGraphQLFilter(
-  readonly value: Record<string, unknown>
-): Array<{ readonly type: string; readonly value: number | null }> {
+// Parses GraphQL filter response into filter type and value
+function parseGraphQLFilter(value: Record<string, unknown>): Array<{ type: string; value: number | null }> {
   return entriesTyped(value).flatMap(([type, filterValue]) => {
     if (type === 'equals' && filterValue === null) {
       return [{ type: 'empty', value: null }]
@@ -89,9 +156,7 @@ function parseGraphQLFilter(
     if (!filterValue) return []
     if (type === 'equals') return { type: 'equals', value: filterValue }
     if (type === 'not') {
-      if ((filterValue as Record<string, unknown>)?.equals === null) {
-        return { type: 'not_empty', value: null }
-      }
+      if ((filterValue as Record<string, unknown>)?.equals === null) return { type: 'not_empty', value: null }
       if ((filterValue as Record<string, unknown>)?.equals === undefined) return []
       return { type: 'not', value: (filterValue as Record<string, unknown>).equals }
     }
@@ -102,11 +167,11 @@ function parseGraphQLFilter(
   })
 }
 
-/** Formats filter label for display */
+// Formats filter label for display
 function formatFilterLabel(
-  readonly label: string,
-  readonly type: string,
-  readonly value: number | null
+  label: string,
+  type: string,
+  value: number | null
 ): string {
   if (type === 'empty' || type === 'not_empty') return label.toLocaleLowerCase()
   const operator = TYPE_OPERATOR_MAP[type as keyof typeof TYPE_OPERATOR_MAP]
@@ -114,16 +179,16 @@ function formatFilterLabel(
 }
 
 export function controller(
-  readonly config: FieldControllerConfig<{
-    readonly validation: Validation
-    readonly defaultValue: number | null | 'autoincrement'
+  config: FieldControllerConfig<{
+    validation: Validation
+    defaultValue: number | null | 'autoincrement'
   }>
 ): FieldController<Value, number | null, SimpleFieldTypeInfo<'Int'>['inputs']['where']> & {
-  readonly validation: Validation
-  readonly hasAutoIncrementDefault: boolean
+  validation: Validation
+  hasAutoIncrementDefault: boolean
 } {
-  const validate = (value: Value, opts: { readonly isRequired: boolean }) => {
-    return validateIntegerValue(
+  const validate = (value: Value, opts: { isRequired: boolean }) => {
+    return validate_(
       value,
       config.fieldMeta.validation,
       opts.isRequired,
@@ -152,51 +217,12 @@ export function controller(
     hasAutoIncrementDefault: config.fieldMeta.defaultValue === 'autoincrement',
     validate: (value, opts) => validate(value, opts) === undefined,
     filter: {
-      Filter(readonly props: Readonly<{
-        readonly autoFocus?: boolean
-        readonly context: string
-        readonly forceValidation: boolean
-        readonly typeLabel: string
-        readonly onChange?: (value: number | null) => void
-        readonly type: string
-        readonly value: number | null
-      }>) {
-        const [isDirty, setDirty] = useState(false)
-        if (props.type === 'empty' || props.type === 'not_empty') return null
-
-        const labelProps = getLabelProps(props.context, config.label, props.typeLabel)
-
-        return (
-          <NumberField
-            {...labelProps}
-            autoFocus={props.autoFocus}
-            errorMessage={
-              (props.forceValidation || isDirty) &&
-              !validate({ kind: 'update', initial: null, value: props.value }, { isRequired: true })
-                ? 'Required'
-                : null
-            }
-            step={1}
-            width="auto"
-            onBlur={() => setDirty(true)}
-            onChange={x => props.onChange?.(!Number.isFinite(x) ? null : x)}
-            value={props.value ?? NaN}
-          />
-        )
-      },
-
-      graphql: ({ type, value }) => filterToGraphQL(type, value, config.fieldKey),
-
+      Filter: createFilterComponent(config, validate),
+      graphql: ({ type, value }) => filterToGraphQL(config, type, value),
       parseGraphQL: value => parseGraphQLFilter(value),
-
-      Label(readonly props: Readonly<{
-        readonly label: string
-        readonly type: string
-        readonly value: number | null
-      }>) {
-        return formatFilterLabel(props.label, props.type, props.value)
+      Label({ label, type, value }: Readonly<{ label: string; type: string; value: number | null }>) {
+        return formatFilterLabel(label, type, value)
       },
-
       types: {
         equals: {
           label: 'Is exactly',
@@ -235,54 +261,106 @@ export function controller(
   }
 }
 
-export function Field(readonly props: Readonly<FieldProps<typeof controller>>) {
-  const [isDirty, setDirty] = useState(false)
-  const isReadOnly = !props.onChange || props.field.hasAutoIncrementDefault
+// Renders the auto-increment field display
+function renderAutoIncrementField(
+  readonly field: Readonly<{
+    label: string
+    description?: string
+    hasAutoIncrementDefault: boolean
+  }>,
+  autoFocus?: boolean
+) {
+  return (
+    <NumberField
+      autoFocus={autoFocus}
+      description={field.description}
+      label={field.label}
+      isReadOnly
+      contextualHelp={
+        <ContextualHelp>
+          <Heading>Auto increment</Heading>
+          <Content>
+            <Text>
+              This field is set to auto increment. It will default to the next available number.
+            </Text>
+          </Content>
+        </ContextualHelp>
+      }
+    />
+  )
+}
 
-  if (props.field.hasAutoIncrementDefault && props.value.kind === 'create') {
-    return (
-      <NumberField
-        autoFocus={props.autoFocus}
-        description={props.field.description}
-        label={props.field.label}
-        isReadOnly
-        contextualHelp={
-          <ContextualHelp>
-            <Heading>Auto increment</Heading>
-            <Content>
-              <Text>
-                This field is set to auto increment. It will default to the next available number.
-              </Text>
-            </Content>
-          </ContextualHelp>
-        }
-      />
-    )
+// Renders the editable number field
+function renderEditableNumberField(
+  readonly field: Readonly<{
+    label: string
+    description?: string
+    validation: Validation
+    hasAutoIncrementDefault: boolean
+  }>,
+  readonly value: Value,
+  readonly isReadOnly: boolean,
+  readonly isRequired: boolean,
+  readonly isDirty: boolean,
+  readonly autoFocus?: boolean,
+  readonly forceValidation?: boolean,
+  readonly onChange?: (value: Value) => void,
+  readonly validate?: (value: Value) => string | undefined
+) {
+  return (
+    <NumberField
+      autoFocus={autoFocus}
+      description={field.description}
+      label={field.label}
+      errorMessage={(forceValidation || isDirty) && validate?.(value)}
+      isReadOnly={isReadOnly}
+      isRequired={isRequired}
+      width="alias.singleLineWidth"
+      onBlur={() => {}}
+      onChange={x => onChange?.({ ...value, value: !Number.isFinite(x) ? null : x })}
+      value={value.value ?? NaN}
+    />
+  )
+}
+
+export function Field(readonly props: Readonly<FieldProps<typeof controller>>) {
+  const {
+    field,
+    value,
+    onChange,
+    autoFocus,
+    forceValidation,
+    isRequired,
+  } = props
+  const [isDirty, setDirty] = useState(false)
+  const isReadOnly = !onChange || field.hasAutoIncrementDefault
+
+  if (field.hasAutoIncrementDefault && value.kind === 'create') {
+    return renderAutoIncrementField(field, autoFocus)
   }
 
   const validate = (value: Value) => {
-    return validateIntegerValue(
+    return validate_(
       value,
-      props.field.validation,
-      props.isRequired,
-      props.field.label,
-      props.field.hasAutoIncrementDefault
+      field.validation,
+      isRequired,
+      field.label,
+      field.hasAutoIncrementDefault
     )
   }
 
   return (
     <NumberField
-      autoFocus={props.autoFocus}
-      description={props.field.description}
-      label={props.field.label}
-      errorMessage={(props.forceValidation || isDirty) && validate(props.value)}
+      autoFocus={autoFocus}
+      description={field.description}
+      label={field.label}
+      errorMessage={(forceValidation || isDirty) && validate(value)}
       isReadOnly={isReadOnly}
-      isRequired={props.isRequired}
+      isRequired={isRequired}
       width="alias.singleLineWidth"
       onBlur={() => setDirty(true)}
-      onChange={x => props.onChange?.({ ...props.value, value: !Number.isFinite(x) ? null : x })}
-      value={props.value.value ?? NaN}
+      onChange={x => onChange?.({ ...value, value: !Number.isFinite(x) ? null : x })}
+      value={value.value ?? NaN}
     />
   )
 }
-```

@@ -1,4 +1,3 @@
-```javascript
 import React, {useContext, useEffect, useState} from 'react';
 import {ReactComponent as LoaderIcon} from '../../images/icons/loader.svg';
 import {ReactComponent as CheckmarkIcon} from '../../images/icons/checkmark.svg';
@@ -573,9 +572,8 @@ function ProductCardTrialDays({trialDays, discount, selectedInterval}) {
             return (
                 <span className="gh-portal-discount-label">{t('{trialDays} days free', {trialDays})}</span>
             );
-        } else {
-            return null;
         }
+        return null;
     }
 
     if (selectedInterval === 'year') {
@@ -596,31 +594,14 @@ function ProductCardPrice({product}) {
     const activePrice = selectedInterval === 'month' ? monthlyPrice : yearlyPrice;
     const alternatePrice = selectedInterval === 'month' ? yearlyPrice : monthlyPrice;
     const interval = activePrice.interval === 'year' ? t('year') : t('month');
+    
     if (!monthlyPrice || !yearlyPrice) {
         return null;
     }
 
     const yearlyDiscount = calculateDiscount(product.monthlyPrice.amount, product.yearlyPrice.amount);
     const currencySymbol = getCurrencySymbol(activePrice.currency);
-
-    if (hasFreeTrialTier({site})) {
-        return (
-            <>
-                <div className="gh-portal-product-card-pricecontainer">
-                    <div className="gh-portal-product-card-price-trial">
-                        <div className="gh-portal-product-price">
-                            <span className={'currency-sign' + (currencySymbol.length > 1 ? ' long' : '')}>{currencySymbol}</span>
-                            <span className="amount" data-testid="product-amount">{formatNumber(getStripeAmount(activePrice.amount))}</span>
-                            <span className="billing-period">/{interval}</span>
-                        </div>
-                        <ProductCardTrialDays trialDays={trialDays} discount={yearlyDiscount} selectedInterval={selectedInterval} />
-                    </div>
-                    {(selectedInterval === 'year' ? <YearlyDiscount discount={yearlyDiscount} trialDays={trialDays} /> : '')}
-                    <ProductCardAlternatePrice price={alternatePrice} />
-                </div>
-            </>
-        );
-    }
+    const hasFreeTrial = hasFreeTrialTier({site});
 
     return (
         <div className="gh-portal-product-card-pricecontainer">
@@ -630,123 +611,102 @@ function ProductCardPrice({product}) {
                     <span className="amount" data-testid="product-amount">{formatNumber(getStripeAmount(activePrice.amount))}</span>
                     <span className="billing-period">/{interval}</span>
                 </div>
-                {(selectedInterval === 'year' ? <YearlyDiscount discount={yearlyDiscount} /> : '')}
+                <ProductCardTrialDays trialDays={trialDays} discount={yearlyDiscount} selectedInterval={selectedInterval} />
+                {(selectedInterval === 'year' ? <YearlyDiscount discount={yearlyDiscount} trialDays={hasFreeTrial ? trialDays : undefined} /> : '')}
             </div>
             <ProductCardAlternatePrice price={alternatePrice} />
         </div>
     );
 }
 
-const getCurrencySymbolForProducts = (products) => {
-    if (products && products[1]) {
-        return getCurrencySymbol(products[1].monthlyPrice.currency);
-    }
-    return '$';
-};
-
-const buildFreeCardClass = (selectedProduct, hasOnlyFree) => {
-    let cardClass = selectedProduct === 'free' ? 'gh-portal-product-card free checked' : 'gh-portal-product-card free';
-    if (hasOnlyFree) {
-        cardClass += ' only-free';
-    }
-    return cardClass;
-};
-
-const getDisabledState = (action) => {
-    if (action === 'signup:running') {
-        return true;
-    }
-    if (isCookiesDisabled()) {
-        return true;
-    }
-    return false;
-};
-
 function FreeProductCard({products, handleChooseSignup, error}) {
     const {site, action} = useContext(AppContext);
     const {selectedProduct, setSelectedProduct} = useContext(ProductsContext);
 
+    const isSelected = selectedProduct === 'free';
+    const cardClass = isSelected ? 'gh-portal-product-card free checked' : 'gh-portal-product-card free';
     const product = getFreeProduct({site});
-    const hasOnlyFree = hasOnlyFreeProduct({site});
     let freeProductDescription = getFreeTierDescription({site});
-    const disabled = getDisabledState(action);
-    const currencySymbol = getCurrencySymbolForProducts(products);
+
+    let disabled = (action === 'signup:running') || isCookiesDisabled();
+
+    const currencySymbol = getCurrencySymbol(products?.[1]?.monthlyPrice?.currency || '$');
+    const hasOnlyFree = hasOnlyFreeProduct({site});
     const freeBenefits = getFreeProductBenefits({site});
 
-    if (hasOnlyFree && !freeProductDescription && !freeBenefits.length) {
-        return null;
+    let finalCardClass = cardClass;
+    if (hasOnlyFree) {
+        if (!freeProductDescription && !freeBenefits.length) {
+            return null;
+        }
+        finalCardClass += ' only-free';
     }
 
     if (!freeProductDescription && !freeBenefits.length) {
         freeProductDescription = 'Free preview';
     }
 
-    const cardClass = buildFreeCardClass(selectedProduct, hasOnlyFree);
+    const handleCardClick = (e) => {
+        e.stopPropagation();
+        setSelectedProduct('free');
+    };
+
+    const handleButtonClick = (e) => {
+        handleChooseSignup(e, 'free');
+    };
 
     return (
-        <>
-            <div className={cardClass} onClick={(e) => {
-                e.stopPropagation();
-                setSelectedProduct('free');
-            }} data-test-tier="free">
-                <div className='gh-portal-product-card-header'>
-                    <h4 className="gh-portal-product-name">{getFreeTierTitle({site})}</h4>
-                    {(!hasOnlyFree ?
-                        <div className="gh-portal-product-card-pricecontainer free-trial-disabled">
-                            <div className="gh-portal-product-price">
-                                <span className={'currency-sign' + (currencySymbol.length > 1 ? ' long' : '')}>{currencySymbol}</span>
-                                <span className="amount" data-testid="product-amount">0</span>
-                            </div>
+        <div className={finalCardClass} onClick={handleCardClick} data-test-tier="free">
+            <div className='gh-portal-product-card-header'>
+                <h4 className="gh-portal-product-name">{getFreeTierTitle({site})}</h4>
+                {!hasOnlyFree && (
+                    <div className="gh-portal-product-card-pricecontainer free-trial-disabled">
+                        <div className="gh-portal-product-price">
+                            <span className={'currency-sign' + (currencySymbol.length > 1 ? ' long' : '')}>{currencySymbol}</span>
+                            <span className="amount" data-testid="product-amount">0</span>
                         </div>
-                        : '')}
-                </div>
-                <div className='gh-portal-product-card-details'>
-                    <div className='gh-portal-product-card-detaildata'>
-                        {freeProductDescription
-                            ? <div className="gh-portal-product-description" data-testid="product-description">{freeProductDescription}</div>
-                            : ''
-                        }
-                        <ProductBenefitsContainer product={product} />
                     </div>
-                    {(!hasOnlyFree ?
-                        <div className='gh-portal-btn-product'>
-                            <button
-                                data-test-button='select-tier'
-                                className='gh-portal-btn'
-                                disabled={disabled}
-                                onClick={(e) => {
-                                    handleChooseSignup(e, 'free');
-                                }}>
-                                {((selectedProduct === 'free' && disabled) ? <LoaderIcon className='gh-portal-loadingicon' /> : t('Choose'))}
-                            </button>
-                            {error && <div className="gh-portal-error-message">{error}</div>}
-                        </div>
-                        : '')}
-                </div>
+                )}
             </div>
-        </>
+            <div className='gh-portal-product-card-details'>
+                <div className='gh-portal-product-card-detaildata'>
+                    {freeProductDescription && (
+                        <div className="gh-portal-product-description" data-testid="product-description">{freeProductDescription}</div>
+                    )}
+                    <ProductBenefitsContainer product={product} />
+                </div>
+                {!hasOnlyFree && (
+                    <div className='gh-portal-btn-product'>
+                        <button
+                            data-test-button='select-tier'
+                            className='gh-portal-btn'
+                            disabled={disabled}
+                            onClick={handleButtonClick}>
+                            {isSelected && disabled ? <LoaderIcon className='gh-portal-loadingicon' /> : t('Choose')}
+                        </button>
+                        {error && <div className="gh-portal-error-message">{error}</div>}
+                    </div>
+                )}
+            </div>
+        </div>
     );
 }
 
 function ProductCardButton({selectedProduct, product, disabled, noOfProducts, trialDays}) {
     if (selectedProduct === product.id && disabled) {
-        return (
-            <LoaderIcon className='gh-portal-loadingicon' />
-        );
+        return <LoaderIcon className='gh-portal-loadingicon' />;
     }
 
     if (trialDays > 0) {
         return (
             <Interpolate
                 string={t('Start {amount}-day free trial')}
-                mapping={{
-                    amount: trialDays
-                }}
+                mapping={{amount: trialDays}}
             />
         );
     }
 
-    return (noOfProducts > 1 ? t('Choose') : t('Continue'));
+    return noOfProducts > 1 ? t('Choose') : t('Continue');
 }
 
 function ProductCard({product, products, selectedInterval, handleChooseSignup, error}) {
@@ -755,65 +715,55 @@ function ProductCard({product, products, selectedInterval, handleChooseSignup, e
     const trialDays = product.trial_days;
 
     const cardClass = selectedProduct === product.id ? 'gh-portal-product-card checked' : 'gh-portal-product-card';
-    const noOfProducts = products?.filter((d) => {
-        return d.type === 'paid';
-    })?.length;
+    const noOfProducts = products?.filter((d) => d.type === 'paid')?.length;
 
-    let disabled = (['signup:running', 'checkoutPlan:running'].includes(action)) ? true : false;
+    let disabled = (['signup:running', 'checkoutPlan:running'].includes(action)) || isCookiesDisabled();
 
-    if (isCookiesDisabled()) {
-        disabled = true;
-    }
+    let productDescription = product.description || 'Full access';
 
-    let productDescription = product.description;
-    if ((!product.benefits || !product.benefits.length) && !productDescription) {
-        productDescription = 'Full access';
-    }
+    const handleCardClick = (e) => {
+        e.stopPropagation();
+        setSelectedProduct(product.id);
+    };
+
+    const handleButtonClick = (e) => {
+        const selectedPrice = getSelectedPrice({products, selectedInterval, selectedProduct: product.id});
+        handleChooseSignup(e, selectedPrice.id);
+    };
 
     return (
-        <>
-            <div className={cardClass} key={product.id} onClick={(e) => {
-                e.stopPropagation();
-                setSelectedProduct(product.id);
-            }} data-test-tier="paid">
-                <div className='gh-portal-product-card-header'>
-                    <h4 className="gh-portal-product-name">{product.name}</h4>
-                    <ProductCardPrice product={product} />
+        <div className={cardClass} key={product.id} onClick={handleCardClick} data-test-tier="paid">
+            <div className='gh-portal-product-card-header'>
+                <h4 className="gh-portal-product-name">{product.name}</h4>
+                <ProductCardPrice product={product} />
+            </div>
+            <div className='gh-portal-product-card-details'>
+                <div className='gh-portal-product-card-detaildata'>
+                    <div className="gh-portal-product-description" data-testid="product-description">
+                        {productDescription}
+                    </div>
+                    <ProductBenefitsContainer product={product} />
                 </div>
-                <div className='gh-portal-product-card-details'>
-                    <div className='gh-portal-product-card-detaildata'>
-                        <div className="gh-portal-product-description" data-testid="product-description">
-                            {productDescription}
-                        </div>
-                        <ProductBenefitsContainer product={product} />
-                    </div>
-                    <div className='gh-portal-btn-product'>
-                        <button
-                            data-test-button='select-tier'
-                            disabled={disabled}
-                            className='gh-portal-btn'
-                            onClick={(e) => {
-                                const selectedPrice = getSelectedPrice({products, selectedInterval, selectedProduct: product.id});
-                                handleChooseSignup(e, selectedPrice.id);
-                            }}>
-                            <ProductCardButton
-                                {...{selectedProduct, product, disabled, noOfProducts, trialDays}}
-                            />
-                        </button>
-                        {error && <div className="gh-portal-error-message">{error}</div>}
-                    </div>
+                <div className='gh-portal-btn-product'>
+                    <button
+                        data-test-button='select-tier'
+                        disabled={disabled}
+                        className='gh-portal-btn'
+                        onClick={handleButtonClick}>
+                        <ProductCardButton
+                            {...{selectedProduct, product, disabled, noOfProducts, trialDays}}
+                        />
+                    </button>
+                    {error && <div className="gh-portal-error-message">{error}</div>}
                 </div>
             </div>
-        </>
+        </div>
     );
 }
 
 function getProductErrorMessage({product, products, selectedInterval, errors}) {
     const selectedPrice = getSelectedPrice({products, selectedInterval, selectedProduct: product.id});
-    if (selectedPrice && selectedPrice.id && errors && errors[selectedPrice.id]) {
-        return errors[selectedPrice.id];
-    }
-    return null;
+    return selectedPrice?.id && errors?.[selectedPrice.id] ? errors[selectedPrice.id] : null;
 }
 
 function ProductCards({products, selectedInterval, handleChooseSignup, errors}) {
@@ -830,7 +780,7 @@ function ProductCards({products, selectedInterval, handleChooseSignup, errors}) 
     });
 }
 
-function YearlyDiscount({discount}) {
+function YearlyDiscount({discount, trialDays}) {
     const {site} = useContext(AppContext);
     const {portal_plans: portalPlans} = site;
 
@@ -857,6 +807,9 @@ function ProductPriceSwitch({selectedInterval, setSelectedInterval, products}) {
         return null;
     }
 
+    const handleMonthlyClick = () => setSelectedInterval('month');
+    const handleYearlyClick = () => setSelectedInterval('year');
+
     return (
         <div className='gh-portal-logged-out-form-container'>
             <div className={'gh-portal-products-pricetoggle' + (selectedInterval === 'month' ? ' left' : '')}>
@@ -864,9 +817,7 @@ function ProductPriceSwitch({selectedInterval, setSelectedInterval, products}) {
                     data-test-button='switch-monthly'
                     data-testid="monthly-switch"
                     className={'gh-portal-btn' + (selectedInterval === 'month' ? ' active' : '')}
-                    onClick={() => {
-                        setSelectedInterval('month');
-                    }}
+                    onClick={handleMonthlyClick}
                 >
                     {t('Monthly')}
                 </button>
@@ -874,9 +825,7 @@ function ProductPriceSwitch({selectedInterval, setSelectedInterval, products}) {
                     data-test-button='switch-yearly'
                     data-testid="yearly-switch"
                     className={'gh-portal-btn' + (selectedInterval === 'year' ? ' active' : '')}
-                    onClick={() => {
-                        setSelectedInterval('year');
-                    }}
+                    onClick={handleYearlyClick}
                 >
                     {t('Yearly')}
                     {(highestYearlyDiscount > 0) && <span className='gh-portal-maximum-discount'>{t('(save {highestYearlyDiscount}%)', {highestYearlyDiscount})}</span>}
@@ -890,11 +839,12 @@ function getSelectedPrice({products, selectedProduct, selectedInterval}) {
     if (selectedProduct === 'free') {
         return {id: 'free'};
     }
-    
+
     let product = products.find(prod => prod.id === selectedProduct);
     if (!product) {
         product = products.find(p => p.type === 'paid');
     }
+
     return selectedInterval === 'month' ? product?.monthlyPrice : product?.yearlyPrice;
 }
 
@@ -911,13 +861,7 @@ function getActiveInterval({portalPlans, portalDefaultPlan, selectedInterval}) {
         return 'month';
     }
 
-    if (portalPlans.includes('yearly')) {
-        return 'year';
-    }
-
-    if (portalPlans.includes('monthly')) {
-        return 'month';
-    }
+    return portalPlans.includes('yearly') ? 'year' : 'month';
 }
 
 function ProductsSection({onPlanSelect, products, type = null, handleChooseSignup, errors}) {
@@ -960,7 +904,7 @@ function ProductsSection({onPlanSelect, products, type = null, handleChooseSignu
     }
 
     const finalProduct = products.find(p => p.id === selectedProduct)?.id || products.find(p => p.type === 'paid')?.id;
-    
+
     return (
         <ProductsContext.Provider value={{
             selectedInterval: activeInterval,
@@ -968,7 +912,7 @@ function ProductsSection({onPlanSelect, products, type = null, handleChooseSignu
             setSelectedProduct
         }}>
             <section className={className}>
-                {(!hasOnlyFree &&
+                {!hasOnlyFree && (
                     <ProductPriceSwitch
                         products={products}
                         selectedInterval={activeInterval}
@@ -1058,37 +1002,41 @@ function ChangeProductCard({product, onPlanSelect}) {
     const memberActivePrice = getMemberActivePrice({member});
 
     const selectedPrice = selectedInterval === 'month' ? monthlyPrice : yearlyPrice;
-
     const currentPlan = isMemberActivePrice({member, site, priceId: selectedPrice.id});
 
+    const handleCardClick = (e) => {
+        e.stopPropagation();
+        setSelectedProduct(product.id);
+    };
+
+    const handleChooseClick = () => {
+        onPlanSelect(null, selectedPrice?.id);
+    };
+
     return (
-        <div className={cardClass + (currentPlan ? ' disabled' : '')} key={product.id} onClick={(e) => {
-            e.stopPropagation();
-            setSelectedProduct(product.id);
-        }} data-test-tier="paid">
+        <div className={cardClass + (currentPlan ? ' disabled' : '')} key={product.id} onClick={handleCardClick} data-test-tier="paid">
             <div className='gh-portal-product-card-header'>
                 <h4 className="gh-portal-product-name">{product.name}</h4>
                 <ProductCardPrice product={product} />
             </div>
             <div className='gh-portal-product-card-details'>
                 <div className='gh-portal-product-card-detaildata'>
-                    {product.description ? <ProductDescription product={product} selectedPrice={selectedPrice} activePrice={memberActivePrice} /> : ''}
+                    {product.description && <ProductDescription product={product} />}
                     <ProductBenefitsContainer product={product} />
                 </div>
-                {(currentPlan ?
+                {currentPlan ? (
                     <div className='gh-portal-btn-product'>
                         <span className='gh-portal-current-plan'><span>{t('Current plan')}</span></span>
                     </div>
-                    :
+                ) : (
                     <div className='gh-portal-btn-product'>
                         <button
                             data-test-button='select-tier'
                             className='gh-portal-btn'
-                            onClick={() => {
-                                onPlanSelect(null, selectedPrice?.id);
-                            }}
+                            onClick={handleChooseClick}
                         >{t('Choose')}</button>
-                    </div>)}
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -1106,4 +1054,3 @@ function ChangeProductCards({products, onPlanSelect}) {
 }
 
 export default ProductsSection;
-```

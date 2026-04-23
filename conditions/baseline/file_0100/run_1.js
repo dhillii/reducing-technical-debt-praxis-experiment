@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const ngModule = angular.module('woEmail');
@@ -1792,4 +1791,3 @@ function inlineExternalImages(message) {
         return prefix + localSource + suffix;
     });
 }
-```

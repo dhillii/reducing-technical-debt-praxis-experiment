@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Abstraction of JavaScript source code.
  * @author Nicholas C. Zakas
@@ -1177,4 +1176,3 @@ class SourceCode extends TokenStore {
 }
 
 module.exports = SourceCode;
-```

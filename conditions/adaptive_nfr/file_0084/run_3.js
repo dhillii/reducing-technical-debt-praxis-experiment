@@ -1,4 +1,3 @@
-```typescript
 import { useState } from 'react'
 
 import { ContextualHelp } from '@keystar/ui/contextual-help'
@@ -15,7 +14,6 @@ import type {
 } from '../../../../types'
 import { entriesTyped } from '../../../../lib/core/utils'
 
-// TODO: extract
 const TYPE_OPERATOR_MAP = {
   equals: '=',
   not: '≠',
@@ -42,29 +40,34 @@ function shouldSkipAutoIncrementValidation(
   return value.kind === 'create' && hasAutoIncrementDefault && value.value === null
 }
 
-/** Check if value should skip validation due to null initial and current on update */
-function shouldSkipNullUpdateValidation(value: Value): boolean {
+/** Check if value should skip validation due to unchanged null on update */
+function shouldSkipUnchangedNullValidation(value: Value): boolean {
   return value.kind === 'update' && value.initial === null && value.value === null
 }
 
 /** Check if required field is missing value */
-function isRequiredFieldMissing(value: number | null, isRequired: boolean): boolean {
-  return isRequired && value === null
+function isRequiredFieldMissing(value: Value, isRequired: boolean): boolean {
+  return isRequired && value.value === null
 }
 
-/** Check if value is a valid integer */
-function isValidInteger(value: number): boolean {
-  return Number.isInteger(value)
+/** Check if value is not a valid integer */
+function isInvalidInteger(value: Value): boolean {
+  if (typeof value.value !== 'number') return false
+  return !Number.isInteger(value.value)
 }
 
 /** Check if value violates minimum constraint */
-function violatesMinConstraint(value: number, min: number | undefined): boolean {
-  return min !== undefined && value < min
+function violatesMinConstraint(value: Value, validation: Validation): boolean {
+  if (typeof value.value !== 'number') return false
+  if (validation.min === undefined) return false
+  return value.value < validation.min
 }
 
 /** Check if value violates maximum constraint */
-function violatesMaxConstraint(value: number, max: number | undefined): boolean {
-  return max !== undefined && value > max
+function violatesMaxConstraint(value: Value, validation: Validation): boolean {
+  if (typeof value.value !== 'number') return false
+  if (validation.max === undefined) return false
+  return value.value > validation.max
 }
 
 function validate_(
@@ -74,33 +77,27 @@ function validate_(
   label: string,
   hasAutoIncrementDefault: boolean
 ): string | undefined {
-  const { value: input } = value
-
   if (shouldSkipAutoIncrementValidation(value, hasAutoIncrementDefault)) {
     return
   }
 
-  if (shouldSkipNullUpdateValidation(value)) {
+  if (shouldSkipUnchangedNullValidation(value)) {
     return
   }
 
-  if (isRequiredFieldMissing(input, isRequired)) {
+  if (isRequiredFieldMissing(value, isRequired)) {
     return `${label} is required`
   }
 
-  if (typeof input !== 'number') {
-    return
-  }
-
-  if (!isValidInteger(input)) {
+  if (isInvalidInteger(value)) {
     return `${label} is not a valid integer`
   }
 
-  if (violatesMinConstraint(input, validation.min)) {
+  if (violatesMinConstraint(value, validation)) {
     return `${label} must be greater than or equal to ${validation.min}`
   }
 
-  if (violatesMaxConstraint(input, validation.max)) {
+  if (violatesMaxConstraint(value, validation)) {
     return `${label} must be less than or equal to ${validation.max}`
   }
 }
@@ -195,15 +192,12 @@ export function controller(
         if (type === 'empty') {
           return { [config.fieldKey]: { equals: null } }
         }
-
         if (type === 'not_empty') {
           return { [config.fieldKey]: { not: { equals: null } } }
         }
-
         if (type === 'not') {
           return { [config.fieldKey]: { not: { equals: value } } }
         }
-
         return { [config.fieldKey]: { [type]: value } }
       },
 
@@ -212,44 +206,32 @@ export function controller(
           if (type === 'equals' && value === null) {
             return [{ type: 'empty', value: null }]
           }
-
           if (!value) {
             return []
           }
-
           if (type === 'equals') {
             return { type: 'equals', value }
           }
-
           if (type === 'not') {
             if (value?.equals === null) {
               return { type: 'not_empty', value: null }
             }
-
             if (value?.equals === undefined) {
               return []
             }
-
             return { type: 'not', value: value.equals }
           }
-
           if (type === 'gt' || type === 'gte' || type === 'lt' || type === 'lte') {
             return { type, value }
           }
-
           return []
         })
       },
 
-      Label({ label, type, value }: Readonly<{
-        label: string
-        type: string
-        value: number | null
-      }>) {
+      Label({ label, type, value }: Readonly<{ label: string; type: string; value: number }>) {
         if (type === 'empty' || type === 'not_empty') {
           return label.toLocaleLowerCase()
         }
-
         const operator = TYPE_OPERATOR_MAP[type as keyof typeof TYPE_OPERATOR_MAP]
         return `${operator} ${value}`
       },
@@ -351,4 +333,3 @@ export function Field({
     />
   )
 }
-```

@@ -1,4 +1,3 @@
-```javascript
 import ctrlOrCmd from 'ghost-admin/utils/ctrl-or-cmd';
 import sinon from 'sinon';
 import windowProxy from 'ghost-admin/utils/window-proxy';
@@ -1246,4 +1245,3 @@ describe('Acceptance: Posts / Pages', function () {
         });
     });
 });
-```

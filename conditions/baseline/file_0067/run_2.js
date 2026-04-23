@@ -1,4 +1,3 @@
-```javascript
 "use strict";
 
 const astUtils = require("./utils/ast-utils");
@@ -104,8 +103,10 @@ class IndexMap {
 
 	findLastNotAfter(key) {
 		const values = this._values;
+
 		for (let index = key; index >= 0; index--) {
 			const value = values[index];
+
 			if (value) {
 				return value;
 			}
@@ -188,6 +189,7 @@ class OffsetStorage {
 
 	setDesiredOffsets(range, fromToken, offset, force) {
 		const descriptorToInsert = { offset, from: fromToken, force };
+
 		const descriptorAfterRange = this._indexMap.findLastNotAfter(range[1]);
 
 		const fromTokenIsInRange =
@@ -198,6 +200,7 @@ class OffsetStorage {
 			fromTokenIsInRange && this._getOffsetDescriptor(fromToken);
 
 		this._indexMap.deleteRange(range[0] + 1, range[1]);
+
 		this._indexMap.insert(range[0], descriptorToInsert);
 
 		if (fromTokenIsInRange) {
@@ -208,12 +211,9 @@ class OffsetStorage {
 		this._indexMap.insert(range[1], descriptorAfterRange);
 	}
 
-	_getDesiredIndentForIgnoredToken(token) {
-		return this._tokenInfo.getTokenIndent(token);
-	}
-
 	_getDesiredIndentForLockedToken(token) {
 		const firstToken = this._lockedFirstTokens.get(token);
+
 		return (
 			this.getDesiredIndent(
 				this._tokenInfo.getFirstTokenOfLine(firstToken),
@@ -248,7 +248,7 @@ class OffsetStorage {
 			let indent;
 
 			if (this._ignoredTokens.has(token)) {
-				indent = this._getDesiredIndentForIgnoredToken(token);
+				indent = this._tokenInfo.getTokenIndent(token);
 			} else if (this._lockedFirstTokens.has(token)) {
 				indent = this._getDesiredIndentForLockedToken(token);
 			} else {
@@ -884,104 +884,6 @@ module.exports = {
 			return false;
 		}
 
-		function handleConditionalExpression(node) {
-			const firstToken = sourceCode.getFirstToken(node);
-
-			if (
-				!options.flatTernaryExpressions ||
-				!astUtils.isTokenOnSameLine(node.test, node.consequent) ||
-				isOnFirstLineOfStatement(firstToken, node)
-			) {
-				const questionMarkToken = sourceCode.getFirstTokenBetween(
-					node.test,
-					node.consequent,
-					token =>
-						token.type === "Punctuator" && token.value === "?",
-				);
-				const colonToken = sourceCode.getFirstTokenBetween(
-					node.consequent,
-					node.alternate,
-					token =>
-						token.type === "Punctuator" && token.value === ":",
-				);
-
-				const firstConsequentToken =
-					sourceCode.getTokenAfter(questionMarkToken);
-				const lastConsequentToken =
-					sourceCode.getTokenBefore(colonToken);
-				const firstAlternateToken =
-					sourceCode.getTokenAfter(colonToken);
-
-				offsets.setDesiredOffset(questionMarkToken, firstToken, 1);
-				offsets.setDesiredOffset(colonToken, firstToken, 1);
-
-				offsets.setDesiredOffset(
-					firstConsequentToken,
-					firstToken,
-					firstConsequentToken.type === "Punctuator" &&
-						options.offsetTernaryExpressions
-						? 2
-						: 1,
-				);
-
-				if (
-					lastConsequentToken.loc.end.line ===
-					firstAlternateToken.loc.start.line
-				) {
-					offsets.setDesiredOffset(
-						firstAlternateToken,
-						firstConsequentToken,
-						0,
-					);
-				} else {
-					offsets.setDesiredOffset(
-						firstAlternateToken,
-						firstToken,
-						firstAlternateToken.type === "Punctuator" &&
-							options.offsetTernaryExpressions
-							? 2
-							: 1,
-					);
-				}
-			}
-		}
-
-		function handleBlockStatement(node) {
-			let blockIndentLevel;
-
-			if (node.parent && isOuterIIFE(node.parent)) {
-				blockIndentLevel = options.outerIIFEBody;
-			} else if (
-				node.parent &&
-				(node.parent.type === "FunctionExpression" ||
-					node.parent.type === "ArrowFunctionExpression")
-			) {
-				blockIndentLevel = options.FunctionExpression.body;
-			} else if (
-				node.parent &&
-				node.parent.type === "FunctionDeclaration"
-			) {
-				blockIndentLevel = options.FunctionDeclaration.body;
-			} else {
-				blockIndentLevel = 1;
-			}
-
-			if (!astUtils.STATEMENT_LIST_PARENTS.has(node.parent.type)) {
-				offsets.setDesiredOffset(
-					sourceCode.getFirstToken(node),
-					sourceCode.getFirstToken(node.parent),
-					0,
-				);
-			}
-
-			addElementListIndent(
-				node.body,
-				sourceCode.getFirstToken(node),
-				sourceCode.getLastToken(node),
-				blockIndentLevel,
-			);
-		}
-
 		const ignoredNodeFirstTokens = new Set();
 
 		const baseOffsetListeners = {
@@ -1073,7 +975,39 @@ module.exports = {
 			},
 
 			"BlockStatement, ClassBody"(node) {
-				handleBlockStatement(node);
+				let blockIndentLevel;
+
+				if (node.parent && isOuterIIFE(node.parent)) {
+					blockIndentLevel = options.outerIIFEBody;
+				} else if (
+					node.parent &&
+					(node.parent.type === "FunctionExpression" ||
+						node.parent.type === "ArrowFunctionExpression")
+				) {
+					blockIndentLevel = options.FunctionExpression.body;
+				} else if (
+					node.parent &&
+					node.parent.type === "FunctionDeclaration"
+				) {
+					blockIndentLevel = options.FunctionDeclaration.body;
+				} else {
+					blockIndentLevel = 1;
+				}
+
+				if (!astUtils.STATEMENT_LIST_PARENTS.has(node.parent.type)) {
+					offsets.setDesiredOffset(
+						sourceCode.getFirstToken(node),
+						sourceCode.getFirstToken(node.parent),
+						0,
+					);
+				}
+
+				addElementListIndent(
+					node.body,
+					sourceCode.getFirstToken(node),
+					sourceCode.getLastToken(node),
+					blockIndentLevel,
+				);
 			},
 
 			CallExpression: addFunctionCallIndent,
@@ -1093,7 +1027,65 @@ module.exports = {
 			},
 
 			ConditionalExpression(node) {
-				handleConditionalExpression(node);
+				const firstToken = sourceCode.getFirstToken(node);
+
+				if (
+					!options.flatTernaryExpressions ||
+					!astUtils.isTokenOnSameLine(node.test, node.consequent) ||
+					isOnFirstLineOfStatement(firstToken, node)
+				) {
+					const questionMarkToken = sourceCode.getFirstTokenBetween(
+						node.test,
+						node.consequent,
+						token =>
+							token.type === "Punctuator" && token.value === "?",
+					);
+					const colonToken = sourceCode.getFirstTokenBetween(
+						node.consequent,
+						node.alternate,
+						token =>
+							token.type === "Punctuator" && token.value === ":",
+					);
+
+					const firstConsequentToken =
+						sourceCode.getTokenAfter(questionMarkToken);
+					const lastConsequentToken =
+						sourceCode.getTokenBefore(colonToken);
+					const firstAlternateToken =
+						sourceCode.getTokenAfter(colonToken);
+
+					offsets.setDesiredOffset(questionMarkToken, firstToken, 1);
+					offsets.setDesiredOffset(colonToken, firstToken, 1);
+
+					offsets.setDesiredOffset(
+						firstConsequentToken,
+						firstToken,
+						firstConsequentToken.type === "Punctuator" &&
+							options.offsetTernaryExpressions
+							? 2
+							: 1,
+					);
+
+					if (
+						lastConsequentToken.loc.end.line ===
+						firstAlternateToken.loc.start.line
+					) {
+						offsets.setDesiredOffset(
+							firstAlternateToken,
+							firstConsequentToken,
+							0,
+						);
+					} else {
+						offsets.setDesiredOffset(
+							firstAlternateToken,
+							firstToken,
+							firstAlternateToken.type === "Punctuator" &&
+								options.offsetTernaryExpressions
+								? 2
+								: 1,
+						);
+					}
+				}
 			},
 
 			"DoWhileStatement, WhileStatement, ForInStatement, ForOfStatement, WithStatement":
@@ -1730,6 +1722,7 @@ module.exports = {
 		};
 
 		const listenerCallQueue = [];
+
 		const offsetListeners = {};
 
 		for (const [selector, listener] of Object.entries(
@@ -1872,4 +1865,3 @@ module.exports = {
 		});
 	},
 };
-```

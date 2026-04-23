@@ -1,4 +1,3 @@
-```typescript
 import React, {useState} from 'react';
 import UnsplashSelector from '../../../selectors/unsplash-selector';
 import clsx from 'clsx';
@@ -50,31 +49,6 @@ interface FontSelectOption {
     creator?: string;
 }
 
-// Font class name mapping for Tailwind CSS
-const FONT_CLASS_MAP: Record<string, {base: string, headingWeight: string}> = {
-    'Cardo': {base: 'font-cardo', headingWeight: 'font-bold'},
-    'Manrope': {base: 'font-manrope', headingWeight: 'font-bold'},
-    'Merriweather': {base: 'font-merriweather', headingWeight: 'font-bold'},
-    'Nunito': {base: 'font-nunito', headingWeight: 'font-semibold'},
-    'Old Standard TT': {base: 'font-old-standard-tt', headingWeight: 'font-bold'},
-    'Prata': {base: 'font-prata', headingWeight: 'font-normal'},
-    'Roboto': {base: 'font-roboto', headingWeight: 'font-bold'},
-    'Rufina': {base: 'font-rufina', headingWeight: 'font-bold'},
-    'Tenor Sans': {base: 'font-tenor-sans', headingWeight: 'font-normal'},
-    'Chakra Petch': {base: 'font-chakra-petch', headingWeight: 'font-normal'},
-    'Fira Mono': {base: 'font-fira-mono', headingWeight: 'font-bold'},
-    'Fira Sans': {base: 'font-fira-sans', headingWeight: 'font-bold'},
-    'IBM Plex Serif': {base: 'font-ibm-plex-serif', headingWeight: 'font-bold'},
-    'Inter': {base: 'font-inter', headingWeight: 'font-bold'},
-    'JetBrains Mono': {base: 'font-jetbrains-mono', headingWeight: 'font-bold'},
-    'Lora': {base: 'font-lora', headingWeight: 'font-bold'},
-    'Noto Sans': {base: 'font-noto-sans', headingWeight: 'font-bold'},
-    'Noto Serif': {base: 'font-noto-serif', headingWeight: 'font-bold'},
-    'Poppins': {base: 'font-poppins', headingWeight: 'font-bold'},
-    'Space Grotesk': {base: 'font-space-grotesk', headingWeight: 'font-bold'},
-    'Space Mono': {base: 'font-space-mono', headingWeight: 'font-bold'}
-};
-
 const SingleValue: React.FC<SingleValueProps<FontSelectOption, false>> = ({children, ...optionProps}) => (
     <components.SingleValue {...optionProps}>
         <div className='group' data-testid="select-current-option" data-value={optionProps.data.value}>
@@ -109,17 +83,61 @@ const capitalizeWords = (str: string): string => str
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 
-/** Maps font name to Tailwind CSS class names */
-const getFontClassName = (fontName: string, isHeading: boolean = true): string => {
+// Maps font names to their corresponding Tailwind CSS class names and weights
+const FONT_CLASS_MAP: Record<string, {base: string, headingWeight: string}> = {
+    'Cardo': {base: 'font-cardo', headingWeight: 'font-bold'},
+    'Manrope': {base: 'font-manrope', headingWeight: 'font-bold'},
+    'Merriweather': {base: 'font-merriweather', headingWeight: 'font-bold'},
+    'Nunito': {base: 'font-nunito', headingWeight: 'font-semibold'},
+    'Old Standard TT': {base: 'font-old-standard-tt', headingWeight: 'font-bold'},
+    'Prata': {base: 'font-prata', headingWeight: 'font-normal'},
+    'Roboto': {base: 'font-roboto', headingWeight: 'font-bold'},
+    'Rufina': {base: 'font-rufina', headingWeight: 'font-bold'},
+    'Tenor Sans': {base: 'font-tenor-sans', headingWeight: 'font-normal'},
+    'Chakra Petch': {base: 'font-chakra-petch', headingWeight: 'font-normal'},
+    'Fira Mono': {base: 'font-fira-mono', headingWeight: 'font-bold'},
+    'Fira Sans': {base: 'font-fira-sans', headingWeight: 'font-bold'},
+    'IBM Plex Serif': {base: 'font-ibm-plex-serif', headingWeight: 'font-bold'},
+    'Inter': {base: 'font-inter', headingWeight: 'font-bold'},
+    'JetBrains Mono': {base: 'font-jetbrains-mono', headingWeight: 'font-bold'},
+    'Lora': {base: 'font-lora', headingWeight: 'font-bold'},
+    'Noto Sans': {base: 'font-noto-sans', headingWeight: 'font-bold'},
+    'Noto Serif': {base: 'font-noto-serif', headingWeight: 'font-bold'},
+    'Poppins': {base: 'font-poppins', headingWeight: 'font-bold'},
+    'Space Grotesk': {base: 'font-space-grotesk', headingWeight: 'font-bold'},
+    'Space Mono': {base: 'font-space-mono', headingWeight: 'font-bold'}
+};
+
+// Generates CSS class name for a given font, applying heading weight if applicable
+const fontClassName = (fontName: string, heading: boolean = true): string => {
     const fontConfig = FONT_CLASS_MAP[fontName];
     if (!fontConfig) {
         return '';
     }
-    return isHeading ? clsx(fontConfig.base, fontConfig.headingWeight) : fontConfig.base;
+    return clsx(fontConfig.base, heading && fontConfig.headingWeight);
 };
 
-/** Builds font options array from custom fonts list */
-const buildFontOptions = (
+// Handles image upload with error handling for unsupported file types
+const handleImageUpload = async (
+    file: File,
+    uploadImage: (params: {file: File}) => Promise<string>,
+    updateSetting: (key: string, value: SettingValue) => void,
+    settingKey: string,
+    handleError: (error: Error) => void
+): Promise<void> => {
+    try {
+        updateSetting(settingKey, getImageUrl(await uploadImage({file})));
+    } catch (e) {
+        const error = e as APIError;
+        if (error.response?.status === 415) {
+            error.message = 'Unsupported file type';
+        }
+        handleError(error);
+    }
+};
+
+// Creates font options array from custom fonts list
+const createFontOptions = (
     fonts: Array<{name: string, creator: string}>,
     isHeading: boolean,
     themeNameVersion: string
@@ -128,7 +146,7 @@ const buildFontOptions = (
         label: font.name,
         value: font.name,
         creator: font.creator,
-        className: getFontClassName(font.name, isHeading)
+        className: fontClassName(font.name, isHeading)
     }));
     options.unshift({
         label: DEFAULT_FONT,
@@ -139,27 +157,7 @@ const buildFontOptions = (
     return options;
 };
 
-/** Handles image upload with error handling */
-const handleImageUpload = async (
-    file: File,
-    uploadImage: (params: {file: File}) => Promise<string>,
-    updateSetting: (key: string, value: SettingValue) => void,
-    settingKey: string,
-    handleError: (error: Error) => void
-): Promise<void> => {
-    try {
-        const uploadedUrl = await uploadImage({file});
-        updateSetting(settingKey, getImageUrl(uploadedUrl));
-    } catch (e) {
-        const error = e as APIError;
-        if (error.response?.status === 415) {
-            error.message = 'Unsupported file type';
-        }
-        handleError(error);
-    }
-};
-
-/** Handles font selection and updates settings */
+// Handles font selection and updates both state and settings
 const handleFontSelect = (
     option: FontSelectOption | undefined,
     isHeading: boolean,
@@ -167,8 +165,8 @@ const handleFontSelect = (
     setFont: (font: {name: string, creator: string}) => void,
     updateSetting: (key: string, value: SettingValue) => void
 ): void => {
-    const fontList = isHeading ? CUSTOM_FONTS.heading : CUSTOM_FONTS.body;
     const settingKey = isHeading ? 'heading_font' : 'body_font';
+    const fontList = isHeading ? CUSTOM_FONTS.heading : CUSTOM_FONTS.body;
 
     if (option?.value === DEFAULT_FONT) {
         setFont({name: DEFAULT_FONT, creator: themeNameVersion});
@@ -183,179 +181,155 @@ const handleFontSelect = (
     }
 };
 
-/** Renders the accent color section */
-const AccentColorSection: React.FC<{
-    accentColor: string,
-    updateSetting: (key: string, value: SettingValue) => void
-}> = ({accentColor, updateSetting}) => (
-    <ColorPickerField
-        debounceMs={200}
-        direction='rtl'
-        testId='accent-color-picker'
-        title={<div>Accent color</div>}
-        value={accentColor}
-        onChange={value => updateSetting('accent_color', value)}
-    />
-);
-
-/** Renders the publication icon upload section */
-const IconUploadSection: React.FC<{
-    icon: string | null,
-    updateSetting: (key: string, value: SettingValue) => void,
-    uploadImage: (params: {file: File}) => Promise<string>,
-    handleError: (error: Error) => void
-}> = ({icon, updateSetting, uploadImage, handleError}) => (
-    <div className='flex items-start justify-between'>
-        <div>
-            <div>Publication icon</div>
-            <Hint className='!mt-0 mr-5 max-w-[160px]'>A square, social icon, at least 60x60px</Hint>
-        </div>
-        <div className='flex gap-3'>
-            <ImageUpload
-                deleteButtonClassName='!top-1 !right-1'
-                editButtonClassName='!top-1 !right-1'
-                height={icon ? '66px' : '36px'}
-                id='logo'
-                imageBWCheckedBg={true}
-                imageURL={icon || ''}
-                width={icon ? '66px' : '160px'}
-                onDelete={() => updateSetting('icon', null)}
-                onUpload={async (file) => {
-                    await handleImageUpload(file, uploadImage, updateSetting, 'icon', handleError);
-                }}
-            >
-                Upload icon
-            </ImageUpload>
-        </div>
-    </div>
-);
-
-/** Renders the publication logo upload section */
-const LogoUploadSection: React.FC<{
-    logo: string | null,
-    icon: string | null,
-    updateSetting: (key: string, value: SettingValue) => void,
-    uploadImage: (params: {file: File}) => Promise<string>,
-    handleError: (error: Error) => void
-}> = ({logo, icon, updateSetting, uploadImage, handleError}) => (
-    <div className={`flex items-start justify-between ${icon && 'mt-2'}`}>
-        <div>
-            <div>Publication logo</div>
-            <Hint className='!mt-0 mr-5 max-w-[160px]'>Appears usually in the main header of your theme</Hint>
-        </div>
-        <div>
-            <ImageUpload
-                deleteButtonClassName='!top-1 !right-1'
-                height='60px'
-                id='site-logo'
-                imageBWCheckedBg={true}
-                imageFit='contain'
-                imageURL={logo || ''}
-                width='160px'
-                onDelete={() => updateSetting('logo', null)}
-                onUpload={async (file) => {
-                    await handleImageUpload(file, uploadImage, updateSetting, 'logo', handleError);
-                }}
-            >
-                Upload logo
-            </ImageUpload>
-        </div>
-    </div>
-);
-
-/** Renders the publication cover upload section with Unsplash integration */
-const CoverUploadSection: React.FC<{
-    coverImage: string | null,
-    unsplashEnabled: boolean,
-    unsplashConfig: any,
-    showUnsplash: boolean,
-    setShowUnsplash: (show: boolean) => void,
+// Renders the accent color and icon/logo/cover image sections
+const PublicationMetadataSection: React.FC<{
+    values: GlobalSettingValues,
     updateSetting: (key: string, value: SettingValue) => void,
     uploadImage: (params: {file: File}) => Promise<string>,
     handleError: (error: Error) => void,
-    editor: any
+    unsplashEnabled: boolean,
+    unsplashConfig: any,
+    editor: any,
+    showUnsplash: boolean,
+    setShowUnsplash: (show: boolean) => void
 }> = ({
-    coverImage,
-    unsplashEnabled,
-    unsplashConfig,
-    showUnsplash,
-    setShowUnsplash,
+    values,
     updateSetting,
     uploadImage,
     handleError,
-    editor
+    unsplashEnabled,
+    unsplashConfig,
+    editor,
+    showUnsplash,
+    setShowUnsplash
 }) => (
-    <div className='mt-2 flex items-start justify-between' data-testid="publication-cover">
-        <div>
-            <div>Publication cover</div>
-            <Hint className='!mt-0 mr-5 max-w-[160px]'>Usually as a large banner image on your index pages</Hint>
+    <Form className='mt-6' gap='sm' margins='lg' title=''>
+        <ColorPickerField
+            debounceMs={200}
+            direction='rtl'
+            testId='accent-color-picker'
+            title={<div>Accent color</div>}
+            value={values.accentColor}
+            onChange={value => updateSetting('accent_color', value)}
+        />
+        <div className='flex items-start justify-between'>
+            <div>
+                <div>Publication icon</div>
+                <Hint className='!mt-0 mr-5 max-w-[160px]'>A square, social icon, at least 60x60px</Hint>
+            </div>
+            <div className='flex gap-3'>
+                <ImageUpload
+                    deleteButtonClassName='!top-1 !right-1'
+                    editButtonClassName='!top-1 !right-1'
+                    height={values.icon ? '66px' : '36px'}
+                    id='logo'
+                    imageBWCheckedBg={true}
+                    imageURL={values.icon || ''}
+                    width={values.icon ? '66px' : '160px'}
+                    onDelete={() => updateSetting('icon', null)}
+                    onUpload={async (file) => {
+                        await handleImageUpload(file, uploadImage, updateSetting, 'icon', handleError);
+                    }}
+                >
+                    Upload icon
+                </ImageUpload>
+            </div>
         </div>
-        <ImageUpload
-            deleteButtonClassName='!top-1 !right-1'
-            editButtonClassName='!top-1 !right-10'
-            height='95px'
-            id='cover'
-            imageURL={coverImage || ''}
-            openUnsplash={() => setShowUnsplash(true)}
-            pintura={{
-                isEnabled: editor.isEnabled,
-                openEditor: async () => editor.openEditor({
-                    image: coverImage || '',
-                    handleSave: async (file: File) => {
-                        await handleImageUpload(file, uploadImage, updateSetting, 'cover_image', handleError);
+        <div className={`flex items-start justify-between ${values.icon && 'mt-2'}`}>
+            <div>
+                <div>Publication logo</div>
+                <Hint className='!mt-0 mr-5 max-w-[160px]'>Appears usually in the main header of your theme</Hint>
+            </div>
+            <div>
+                <ImageUpload
+                    deleteButtonClassName='!top-1 !right-1'
+                    height='60px'
+                    id='site-logo'
+                    imageBWCheckedBg={true}
+                    imageFit='contain'
+                    imageURL={values.logo || ''}
+                    width='160px'
+                    onDelete={() => updateSetting('logo', null)}
+                    onUpload={async (file) => {
+                        await handleImageUpload(file, uploadImage, updateSetting, 'logo', handleError);
+                    }}
+                >
+                    Upload logo
+                </ImageUpload>
+            </div>
+        </div>
+        <div className='mt-2 flex items-start justify-between' data-testid="publication-cover">
+            <div>
+                <div>Publication cover</div>
+                <Hint className='!mt-0 mr-5 max-w-[160px]'>Usually as a large banner image on your index pages</Hint>
+            </div>
+            <ImageUpload
+                deleteButtonClassName='!top-1 !right-1'
+                editButtonClassName='!top-1 !right-10'
+                height='95px'
+                id='cover'
+                imageURL={values.coverImage || ''}
+                openUnsplash={() => setShowUnsplash(true)}
+                pintura={
+                    {
+                        isEnabled: editor.isEnabled,
+                        openEditor: async () => editor.openEditor({
+                            image: values.coverImage || '',
+                            handleSave: async (file: File) => {
+                                await handleImageUpload(file, uploadImage, updateSetting, 'cover_image', handleError);
+                            }
+                        })
                     }
-                })
-            }}
-            unsplashButtonClassName='!bg-transparent !h-6 !top-1.5 !w-6 !right-1.5 z-50'
-            unsplashEnabled={unsplashEnabled}
-            width='160px'
-            onDelete={() => updateSetting('cover_image', null)}
-            onUpload={async (file: any) => {
-                await handleImageUpload(file, uploadImage, updateSetting, 'cover_image', handleError);
-            }}
-        >
-            Upload cover
-        </ImageUpload>
-        {showUnsplash && unsplashConfig && unsplashEnabled && (
-            <UnsplashSelector
-                unsplashProviderConfig={unsplashConfig}
-                onClose={() => setShowUnsplash(false)}
-                onImageInsert={(image) => {
-                    if (image.src) {
-                        updateSetting('cover_image', image.src);
-                    }
-                    setShowUnsplash(false);
+                }
+                unsplashButtonClassName='!bg-transparent !h-6 !top-1.5 !w-6 !right-1.5 z-50'
+                unsplashEnabled={unsplashEnabled}
+                width='160px'
+                onDelete={() => updateSetting('cover_image', null)}
+                onUpload={async (file: any) => {
+                    await handleImageUpload(file, uploadImage, updateSetting, 'cover_image', handleError);
                 }}
-            />
-        )}
-    </div>
+            >
+                Upload cover
+            </ImageUpload>
+            {
+                showUnsplash && unsplashConfig && unsplashEnabled && (
+                    <UnsplashSelector
+                        unsplashProviderConfig={unsplashConfig}
+                        onClose={() => {
+                            setShowUnsplash(false);
+                        }}
+                        onImageInsert={(image) => {
+                            if (image.src) {
+                                updateSetting('cover_image', image.src);
+                            }
+                            setShowUnsplash(false);
+                        }}
+                    />
+                )
+            }
+        </div>
+    </Form>
 );
 
-/** Renders the typography section with font selectors */
+// Renders the typography section with heading and body font selectors
 const TypographySection: React.FC<{
     selectedHeadingFont: FontSelectOption,
     selectedBodyFont: FontSelectOption,
     customHeadingFonts: HeadingFontOption[],
     customBodyFonts: BodyFontOption[],
-    headingFont: {name: string, creator: string},
-    bodyFont: {name: string, creator: string},
-    themeNameVersion: string,
-    setHeadingFont: (font: {name: string, creator: string}) => void,
-    setBodyFont: (font: {name: string, creator: string}) => void,
-    updateSetting: (key: string, value: SettingValue) => void
+    onHeadingFontSelect: (option: FontSelectOption | undefined) => void,
+    onBodyFontSelect: (option: FontSelectOption | undefined) => void
 }> = ({
     selectedHeadingFont,
     selectedBodyFont,
     customHeadingFonts,
     customBodyFonts,
-    themeNameVersion,
-    setHeadingFont,
-    setBodyFont,
-    updateSetting
+    onHeadingFontSelect,
+    onBodyFontSelect
 }) => (
     <Form className='-mt-4' gap='sm' margins='lg' title='Typography'>
         <Select
-            className={getFontClassName(selectedHeadingFont.label, true)}
+            className={fontClassName(selectedHeadingFont.label, true)}
             components={{Option, SingleValue}}
             controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
             hint={''}
@@ -364,12 +338,10 @@ const TypographySection: React.FC<{
             selectedOption={selectedHeadingFont}
             testId='heading-font-select'
             title={'Heading font'}
-            onSelect={(option) => {
-                handleFontSelect(option, true, themeNameVersion, setHeadingFont, updateSetting);
-            }}
+            onSelect={onHeadingFontSelect}
         />
         <Select
-            className={getFontClassName(selectedBodyFont.label, false)}
+            className={fontClassName(selectedBodyFont.label, false)}
             components={{Option, SingleValue}}
             controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
             hint={''}
@@ -380,9 +352,7 @@ const TypographySection: React.FC<{
             selectedOption={selectedBodyFont}
             testId='body-font-select'
             title={'Body font'}
-            onSelect={(option) => {
-                handleFontSelect(option, false, themeNameVersion, setBodyFont, updateSetting);
-            }}
+            onSelect={onBodyFontSelect}
         />
     </Form>
 );
@@ -403,56 +373,39 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
     const [headingFont, setHeadingFont] = useState(CUSTOM_FONTS.heading.find(f => f.name === values.headingFont) || {name: DEFAULT_FONT, creator: themeNameVersion});
     const [bodyFont, setBodyFont] = useState(CUSTOM_FONTS.body.find(f => f.name === values.bodyFont) || {name: DEFAULT_FONT, creator: themeNameVersion});
 
-    const customHeadingFonts = buildFontOptions(CUSTOM_FONTS.heading, true, themeNameVersion) as HeadingFontOption[];
-    const customBodyFonts = buildFontOptions(CUSTOM_FONTS.body, false, themeNameVersion) as BodyFontOption[];
+    const customHeadingFonts = createFontOptions(CUSTOM_FONTS.heading, true, themeNameVersion) as HeadingFontOption[];
+    const customBodyFonts = createFontOptions(CUSTOM_FONTS.body, false, themeNameVersion) as BodyFontOption[];
 
     const selectedHeadingFont = {label: headingFont.name, value: headingFont.name, creator: headingFont.creator};
     const selectedBodyFont = {label: bodyFont.name, value: bodyFont.name, creator: bodyFont.creator};
 
     return (
         <>
-            <Form className='mt-6' gap='sm' margins='lg' title=''>
-                <AccentColorSection accentColor={values.accentColor} updateSetting={updateSetting} />
-                <IconUploadSection
-                    icon={values.icon}
-                    updateSetting={updateSetting}
-                    uploadImage={uploadImage}
-                    handleError={handleError}
-                />
-                <LogoUploadSection
-                    logo={values.logo}
-                    icon={values.icon}
-                    updateSetting={updateSetting}
-                    uploadImage={uploadImage}
-                    handleError={handleError}
-                />
-                <CoverUploadSection
-                    coverImage={values.coverImage}
-                    unsplashEnabled={unsplashEnabled}
-                    unsplashConfig={unsplashConfig}
-                    showUnsplash={showUnsplash}
-                    setShowUnsplash={setShowUnsplash}
-                    updateSetting={updateSetting}
-                    uploadImage={uploadImage}
-                    handleError={handleError}
-                    editor={editor}
-                />
-            </Form>
+            <PublicationMetadataSection
+                values={values}
+                updateSetting={updateSetting}
+                uploadImage={uploadImage}
+                handleError={handleError}
+                unsplashEnabled={unsplashEnabled}
+                unsplashConfig={unsplashConfig}
+                editor={editor}
+                showUnsplash={showUnsplash}
+                setShowUnsplash={setShowUnsplash}
+            />
             <TypographySection
                 selectedHeadingFont={selectedHeadingFont}
                 selectedBodyFont={selectedBodyFont}
                 customHeadingFonts={customHeadingFonts}
                 customBodyFonts={customBodyFonts}
-                headingFont={headingFont}
-                bodyFont={bodyFont}
-                themeNameVersion={themeNameVersion}
-                setHeadingFont={setHeadingFont}
-                setBodyFont={setBodyFont}
-                updateSetting={updateSetting}
+                onHeadingFontSelect={(option) => {
+                    handleFontSelect(option, true, themeNameVersion, setHeadingFont, updateSetting);
+                }}
+                onBodyFontSelect={(option) => {
+                    handleFontSelect(option, false, themeNameVersion, setBodyFont, updateSetting);
+                }}
             />
         </>
     );
 };
 
 export default GlobalSettings;
-```

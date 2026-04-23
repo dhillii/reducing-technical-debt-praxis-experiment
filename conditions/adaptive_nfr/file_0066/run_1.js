@@ -1,27 +1,7 @@
-```javascript
-/**
- * @fileoverview This option sets a specific tab width for your code
- *
- * This rule has been ported and modified from nodeca.
- * @author Vitaly Puzrin
- * @author Gyandeep Singh
- * @deprecated in ESLint v4.0.0
- */
-
 "use strict";
-
-//------------------------------------------------------------------------------
-// Requirements
-//------------------------------------------------------------------------------
 
 const astUtils = require("./utils/ast-utils");
 
-//------------------------------------------------------------------------------
-// Rule Definition
-//------------------------------------------------------------------------------
-// this rule has known coverage issues, but it's deprecated and shouldn't be updated in the future anyway.
-/* c8 ignore next */
-/** @type {import('../types').Rule.RuleModule} */
 module.exports = {
 	meta: {
 		type: "layout",
@@ -229,17 +209,12 @@ module.exports = {
 		const sourceCode = context.sourceCode;
 		const caseIndentStore = {};
 
-		// ========== Configuration Parsing ==========
+		// ============================================================================
+		// Configuration Processing
+		// ============================================================================
 
-		/**
-		 * Parses the indent type from context options
-		 * @returns {void}
-		 */
-		function parseIndentType() {
-			if (!context.options.length) {
-				return;
-			}
-
+		/** @returns {void} */
+		function processIndentType() {
 			if (context.options[0] === "tab") {
 				indentSize = 1;
 				indentType = "tab";
@@ -249,12 +224,8 @@ module.exports = {
 			}
 		}
 
-		/**
-		 * Applies variable declarator rules from options
-		 * @param {Object} variableDeclaratorRules - Rules to apply
-		 * @returns {void}
-		 */
-		function applyVariableDeclaratorRules(variableDeclaratorRules) {
+		/** @returns {void} */
+		function processVariableDeclaratorOption(variableDeclaratorRules) {
 			if (typeof variableDeclaratorRules === "number") {
 				options.VariableDeclarator = {
 					var: variableDeclaratorRules,
@@ -269,19 +240,15 @@ module.exports = {
 			}
 		}
 
-		/**
-		 * Applies secondary options from context
-		 * @returns {void}
-		 */
-		function applySecondaryOptions() {
-			if (!context.options[1]) {
-				return;
-			}
-
+		/** @returns {void} */
+		function processSecondaryOptions() {
 			const opts = context.options[1];
 
 			options.SwitchCase = opts.SwitchCase || 0;
-			applyVariableDeclaratorRules(opts.VariableDeclarator);
+
+			if (opts.VariableDeclarator) {
+				processVariableDeclaratorOption(opts.VariableDeclarator);
+			}
 
 			if (typeof opts.outerIIFEBody === "number") {
 				options.outerIIFEBody = opts.outerIIFEBody;
@@ -324,10 +291,16 @@ module.exports = {
 			}
 		}
 
-		parseIndentType();
-		applySecondaryOptions();
+		if (context.options.length) {
+			processIndentType();
+			if (context.options[1]) {
+				processSecondaryOptions();
+			}
+		}
 
-		// ========== Error Reporting ==========
+		// ============================================================================
+		// Utility Functions
+		// ============================================================================
 
 		/**
 		 * Creates an error message for a line, given the expected/actual indentation.
@@ -418,8 +391,6 @@ module.exports = {
 			});
 		}
 
-		// ========== Node Indent Utilities ==========
-
 		/**
 		 * Get the actual indent of node
 		 * @param {ASTNode|Token} node Node to examine
@@ -473,26 +444,12 @@ module.exports = {
 		}
 
 		/**
-		 * Checks if the given node starts and ends on the same line
-		 * @param {ASTNode} node The node to check
-		 * @returns {boolean} Whether or not the block starts and ends on the same line.
-		 */
-		function isSingleLineNode(node) {
-			const lastToken = sourceCode.getLastToken(node),
-				startLine = node.loc.start.line,
-				endLine = lastToken.loc.end.line;
-
-			return startLine === endLine;
-		}
-
-		// ========== Node Type Predicates ==========
-
-		/**
 		 * Returns a parent node of given node based on a specified type
+		 * if not present then return null
 		 * @param {ASTNode} node node to examine
 		 * @param {string} type type that is being looked for
 		 * @param {string} stopAtList end points for the evaluating code
-		 * @returns {ASTNode|null} if found then node otherwise null
+		 * @returns {ASTNode|void} if found then node otherwise null
 		 */
 		function getParentNodeByType(node, type, stopAtList) {
 			let parent = node.parent;
@@ -511,8 +468,9 @@ module.exports = {
 
 		/**
 		 * Returns the VariableDeclarator based on the current node
+		 * if not present then return null
 		 * @param {ASTNode} node node to examine
-		 * @returns {ASTNode|null} if found then node otherwise null
+		 * @returns {ASTNode|void} if found then node otherwise null
 		 */
 		function getVariableDeclaratorNode(node) {
 			return getParentNodeByType(node, "VariableDeclarator");
@@ -520,6 +478,7 @@ module.exports = {
 
 		/**
 		 * Check to see if the node is part of the multi-line variable declaration.
+		 * Also if its on the same line as the varNode
 		 * @param {ASTNode} node node to check
 		 * @param {ASTNode} varNode variable declaration node to check against
 		 * @returns {boolean} True if all the above condition satisfy
@@ -533,7 +492,8 @@ module.exports = {
 		}
 
 		/**
-		 * Check to see if the argument before the callee node is multi-line
+		 * Check to see if the argument before the callee node is multi-line and
+		 * there should only be 1 argument before the callee node
 		 * @param {ASTNode} node node to check
 		 * @returns {boolean} True if arguments are multi-line
 		 */
@@ -586,6 +546,19 @@ module.exports = {
 		}
 
 		/**
+		 * Checks if the given node starts and ends on the same line
+		 * @param {ASTNode} node The node to check
+		 * @returns {boolean} Whether or not the block starts and ends on the same line.
+		 */
+		function isSingleLineNode(node) {
+			const lastToken = sourceCode.getLastToken(node),
+				startLine = node.loc.start.line,
+				endLine = lastToken.loc.end.line;
+
+			return startLine === endLine;
+		}
+
+		/**
 		 * Check if the node or node body is a BlockStatement or not
 		 * @param {ASTNode} node node to test
 		 * @returns {boolean} True if it or its body is a block statement
@@ -614,39 +587,9 @@ module.exports = {
 			return regex.test(statementWithoutArgument);
 		}
 
-		/**
-		 * Check if node is a function type that needs special handling
-		 * @param {ASTNode} node node to check
-		 * @returns {boolean} True if node is a function expression or declaration
-		 */
-		function isFunctionNode(node) {
-			return (
-				node.type === "FunctionExpression" ||
-				node.type === "FunctionDeclaration" ||
-				node.type === "ArrowFunctionExpression"
-			);
-		}
-
-		/**
-		 * Check if parent is a statement with properties
-		 * @param {ASTNode} parent parent node to check
-		 * @returns {boolean} True if parent is a statement with properties
-		 */
-		function isStatementWithProperties(parent) {
-			const statementsWithProperties = [
-				"IfStatement",
-				"WhileStatement",
-				"ForStatement",
-				"ForInStatement",
-				"ForOfStatement",
-				"DoWhileStatement",
-				"ClassDeclaration",
-				"TryStatement",
-			];
-			return statementsWithProperties.includes(parent.type);
-		}
-
-		// ========== Indent Checking ==========
+		// ============================================================================
+		// Indent Checking Functions
+		// ============================================================================
 
 		/**
 		 * Check indent for node
@@ -773,7 +716,8 @@ module.exports = {
 		}
 
 		/**
-		 * Check last node line indent for return statements
+		 * Check last node line indent this detects, that block closed correctly
+		 * This function for more complicated return statement case, where closing parenthesis may be followed by ';'
 		 * @param {ASTNode} node Node to examine
 		 * @param {number} firstLineIndent first line needed indent
 		 * @returns {void}
@@ -836,32 +780,29 @@ module.exports = {
 		}
 
 		/**
-		 * Calculate function offset based on function type
+		 * Determine function offset based on function type and options
 		 * @param {ASTNode} calleeNode The function node
 		 * @returns {number} The offset to apply
 		 */
-		function calculateFunctionOffset(calleeNode) {
+		function getFunctionOffset(calleeNode) {
 			if (options.outerIIFEBody !== null && isOuterIIFE(calleeNode)) {
 				return options.outerIIFEBody * indentSize;
 			}
-
 			if (calleeNode.type === "FunctionExpression") {
 				return options.FunctionExpression.body * indentSize;
 			}
-
 			if (calleeNode.type === "FunctionDeclaration") {
 				return options.FunctionDeclaration.body * indentSize;
 			}
-
 			return indentSize;
 		}
 
 		/**
-		 * Calculate base indent for function block
+		 * Determine base indent for function block
 		 * @param {ASTNode} calleeNode The function node
 		 * @returns {number} The base indent
 		 */
-		function calculateBaseIndentForFunctionBlock(calleeNode) {
+		function getFunctionBaseIndent(calleeNode) {
 			if (
 				calleeNode.parent &&
 				(calleeNode.parent.type === "Property" ||
@@ -869,26 +810,30 @@ module.exports = {
 			) {
 				return getNodeIndent(calleeNode, false).goodChar;
 			}
-
 			return getNodeIndent(calleeNode).goodChar;
 		}
 
 		/**
 		 * Adjust indent for CallExpression context
 		 * @param {ASTNode} calleeNode The function node
-		 * @param {ASTNode} node The block statement node
-		 * @param {number} indent Current indent
+		 * @param {ASTNode} blockNode The block statement node
+		 * @param {number} indent Current indent value
 		 * @returns {number} Adjusted indent
 		 */
-		function adjustIndentForCallExpression(calleeNode, node, indent) {
+		function adjustIndentForCallExpression(calleeNode, blockNode, indent) {
+			if (calleeNode.parent.type !== "CallExpression") {
+				return indent;
+			}
+
 			const calleeParent = calleeNode.parent;
 
-			if (calleeNode.type === "FunctionExpression" || calleeNode.type === "ArrowFunctionExpression") {
+			if (
+				calleeNode.type !== "FunctionExpression" &&
+				calleeNode.type !== "ArrowFunctionExpression"
+			) {
 				if (
-					isArgBeforeCalleeNodeMultiline(calleeNode) &&
-					calleeParent.callee.loc.start.line ===
-						calleeParent.callee.loc.end.line &&
-					!isNodeFirstInLine(calleeNode)
+					calleeParent &&
+					calleeParent.loc.start.line < blockNode.loc.start.line
 				) {
 					return getNodeIndent(calleeParent).goodChar;
 				}
@@ -896,8 +841,10 @@ module.exports = {
 			}
 
 			if (
-				calleeParent &&
-				calleeParent.loc.start.line < node.loc.start.line
+				isArgBeforeCalleeNodeMultiline(calleeNode) &&
+				calleeParent.callee.loc.start.line ===
+					calleeParent.callee.loc.end.line &&
+				!isNodeFirstInLine(calleeNode)
 			) {
 				return getNodeIndent(calleeParent).goodChar;
 			}
@@ -912,13 +859,11 @@ module.exports = {
 		 */
 		function checkIndentInFunctionBlock(node) {
 			const calleeNode = node.parent;
-			let indent = calculateBaseIndentForFunctionBlock(calleeNode);
+			let indent = getFunctionBaseIndent(calleeNode);
 
-			if (calleeNode.parent.type === "CallExpression") {
-				indent = adjustIndentForCallExpression(calleeNode, node, indent);
-			}
+			indent = adjustIndentForCallExpression(calleeNode, node, indent);
 
-			const functionOffset = calculateFunctionOffset(calleeNode);
+			const functionOffset = getFunctionOffset(calleeNode);
 			indent += functionOffset;
 
 			const parentVarNode = getVariableDeclaratorNode(node);
@@ -937,12 +882,12 @@ module.exports = {
 		}
 
 		/**
-		 * Calculate node indent for array/object block
+		 * Determine node indent for array or object block
 		 * @param {ASTNode} node The array or object node
-		 * @param {ASTNode} parentVarNode The parent variable declarator
-		 * @returns {number} The calculated indent
+		 * @param {ASTNode} parentVarNode The parent variable declarator node
+		 * @returns {number} The calculated node indent
 		 */
-		function calculateNodeIndentForArrayOrObject(node, parentVarNode) {
+		function determineNodeIndentForBlock(node, parentVarNode) {
 			if (!isNodeFirstInLine(node)) {
 				return getNodeIndent(node).goodChar;
 			}
@@ -964,34 +909,61 @@ module.exports = {
 				return nodeIndent;
 			}
 
-			return applyArrayOrObjectIndentRules(node, parent, nodeIndent, parentVarNode);
+			return adjustNodeIndentForParentType(
+				node,
+				parent,
+				nodeIndent,
+				parentVarNode,
+			);
 		}
 
 		/**
-		 * Apply indent rules for array or object based on parent type
+		 * Adjust node indent based on parent type
 		 * @param {ASTNode} node The array or object node
 		 * @param {ASTNode} parent The parent node
 		 * @param {number} nodeIndent Current node indent
-		 * @param {ASTNode} parentVarNode The parent variable declarator
+		 * @param {ASTNode} parentVarNode The parent variable declarator node
 		 * @returns {number} The adjusted indent
 		 */
-		function applyArrayOrObjectIndentRules(node, parent, nodeIndent, parentVarNode) {
+		function adjustNodeIndentForParentType(
+			node,
+			parent,
+			nodeIndent,
+			parentVarNode,
+		) {
 			if (
 				parent.type === "VariableDeclarator" &&
 				parentVarNode.loc.start.line === parent.loc.start.line
 			) {
-				return nodeIndent + indentSize * options.VariableDeclarator[parentVarNode.parent.kind];
+				return (
+					nodeIndent +
+					indentSize *
+						options.VariableDeclarator[parentVarNode.parent.kind]
+				);
 			}
 
-			if (parent.type === "ObjectExpression" || parent.type === "ArrayExpression") {
-				return applyNestedArrayOrObjectIndent(node, parent, nodeIndent);
+			if (
+				parent.type === "ObjectExpression" ||
+				parent.type === "ArrayExpression"
+			) {
+				return adjustIndentForNestedArrayOrObject(
+					node,
+					parent,
+					nodeIndent,
+				);
 			}
 
-			if (parent.type === "CallExpression" || parent.type === "NewExpression") {
-				return applyCallExpressionIndent(parent, nodeIndent);
+			if (
+				parent.type === "CallExpression" ||
+				parent.type === "NewExpression"
+			) {
+				return adjustIndentForCallOrNewExpression(parent, nodeIndent);
 			}
 
-			if (parent.type === "LogicalExpression" || parent.type === "ArrowFunctionExpression") {
+			if (
+				parent.type === "LogicalExpression" ||
+				parent.type === "ArrowFunctionExpression"
+			) {
 				return nodeIndent + indentSize;
 			}
 
@@ -999,22 +971,29 @@ module.exports = {
 		}
 
 		/**
-		 * Apply indent for nested array or object
+		 * Adjust indent for nested array or object
 		 * @param {ASTNode} node The array or object node
-		 * @param {ASTNode} parent The parent node
+		 * @param {ASTNode} parent The parent array or object node
 		 * @param {number} nodeIndent Current node indent
 		 * @returns {number} The adjusted indent
 		 */
-		function applyNestedArrayOrObjectIndent(node, parent, nodeIndent) {
+		function adjustIndentForNestedArrayOrObject(node, parent, nodeIndent) {
 			const parentElements =
 				parent.type === "ObjectExpression"
 					? parent.properties
 					: parent.elements;
 
+			if (!parentElements[0]) {
+				return nodeIndent;
+			}
+
+			const firstElemStartLine = parentElements[0].loc.start.line;
+			const firstElemEndLine = parentElements[0].loc.end.line;
+			const parentStartLine = parent.loc.start.line;
+
 			if (
-				parentElements[0] &&
-				parentElements[0].loc.start.line === parent.loc.start.line &&
-				parentElements[0].loc.end.line !== parent.loc.start.line
+				firstElemStartLine === parentStartLine &&
+				firstElemEndLine !== parentStartLine
 			) {
 				return nodeIndent;
 			}
@@ -1027,36 +1006,23 @@ module.exports = {
 		}
 
 		/**
-		 * Apply indent for call expression
-		 * @param {ASTNode} parent The parent call expression
+		 * Adjust indent for call or new expression
+		 * @param {ASTNode} parent The call or new expression node
 		 * @param {number} nodeIndent Current node indent
 		 * @returns {number} The adjusted indent
 		 */
-		function applyCallExpressionIndent(parent, nodeIndent) {
+		function adjustIndentForCallOrNewExpression(parent, nodeIndent) {
 			if (typeof options.CallExpression.arguments === "number") {
 				return nodeIndent + options.CallExpression.arguments * indentSize;
 			}
 
 			if (options.CallExpression.arguments === "first") {
-				return nodeIndent;
+				if (parent.arguments.length > 0) {
+					return parent.arguments[0].loc.start.column;
+				}
 			}
 
 			return nodeIndent + indentSize;
-		}
-
-		/**
-		 * Calculate elements indent for array/object
-		 * @param {ASTNode} node The array or object node
-		 * @param {number} nodeIndent The node indent
-		 * @param {ASTNode[]} elements The elements
-		 * @returns {number} The elements indent
-		 */
-		function calculateElementsIndent(node, nodeIndent, elements) {
-			if (options[node.type] === "first") {
-				return elements.length ? elements[0].loc.start.column : 0;
-			}
-
-			return nodeIndent + indentSize * options[node.type];
 		}
 
 		/**
@@ -1077,11 +1043,18 @@ module.exports = {
 			elements = elements.filter(elem => elem !== null);
 
 			const parentVarNode = getVariableDeclaratorNode(node);
-			const nodeIndent = calculateNodeIndentForArrayOrObject(node, parentVarNode);
+			const nodeIndent = determineNodeIndentForBlock(node, parentVarNode);
 
 			checkFirstNodeLineIndent(node, nodeIndent);
 
-			let elementsIndent = calculateElementsIndent(node, nodeIndent, elements);
+			let elementsIndent;
+			if (options[node.type] === "first") {
+				elementsIndent = elements.length
+					? elements[0].loc.start.column
+					: 0;
+			} else {
+				elementsIndent = nodeIndent + indentSize * options[node.type];
+			}
 
 			if (isNodeInVarOnTop(node, parentVarNode)) {
 				elementsIndent +=
@@ -1118,36 +1091,13 @@ module.exports = {
 				return;
 			}
 
-			if (node.parent && isFunctionNode(node.parent)) {
+			if (isFunctionBlock(node)) {
 				checkIndentInFunctionBlock(node);
 				return;
 			}
 
-			let indent;
-			let nodesToCheck;
-
-			if (
-				node.parent &&
-				isStatementWithProperties(node.parent) &&
-				isNodeBodyBlock(node)
-			) {
-				indent = getNodeIndent(node.parent).goodChar;
-			} else if (node.parent && node.parent.type === "CatchClause") {
-				indent = getNodeIndent(node.parent.parent).goodChar;
-			} else {
-				indent = getNodeIndent(node).goodChar;
-			}
-
-			if (
-				node.type === "IfStatement" &&
-				node.consequent.type !== "BlockStatement"
-			) {
-				nodesToCheck = [node.consequent];
-			} else if (Array.isArray(node.body)) {
-				nodesToCheck = node.body;
-			} else {
-				nodesToCheck = [node.body];
-			}
+			const indent = determineBlockIndent(node);
+			const nodesToCheck = getBlockNodesToCheck(node);
 
 			if (nodesToCheck.length > 0) {
 				checkNodesIndent(nodesToCheck, indent + indentSize);
@@ -1159,7 +1109,74 @@ module.exports = {
 		}
 
 		/**
+		 * Check if node is a function block
+		 * @param {ASTNode} node The node to check
+		 * @returns {boolean} True if node is a function block
+		 */
+		function isFunctionBlock(node) {
+			return (
+				node.parent &&
+				(node.parent.type === "FunctionExpression" ||
+					node.parent.type === "FunctionDeclaration" ||
+					node.parent.type === "ArrowFunctionExpression")
+			);
+		}
+
+		/**
+		 * Determine indent for block statement
+		 * @param {ASTNode} node The block node
+		 * @returns {number} The indent value
+		 */
+		function determineBlockIndent(node) {
+			const statementsWithProperties = [
+				"IfStatement",
+				"WhileStatement",
+				"ForStatement",
+				"ForInStatement",
+				"ForOfStatement",
+				"DoWhileStatement",
+				"ClassDeclaration",
+				"TryStatement",
+			];
+
+			if (
+				node.parent &&
+				statementsWithProperties.includes(node.parent.type) &&
+				isNodeBodyBlock(node)
+			) {
+				return getNodeIndent(node.parent).goodChar;
+			}
+
+			if (node.parent && node.parent.type === "CatchClause") {
+				return getNodeIndent(node.parent.parent).goodChar;
+			}
+
+			return getNodeIndent(node).goodChar;
+		}
+
+		/**
+		 * Get nodes to check for block indentation
+		 * @param {ASTNode} node The block node
+		 * @returns {ASTNode[]} Array of nodes to check
+		 */
+		function getBlockNodesToCheck(node) {
+			if (
+				node.type === "IfStatement" &&
+				node.consequent.type !== "BlockStatement"
+			) {
+				return [node.consequent];
+			}
+
+			if (Array.isArray(node.body)) {
+				return node.body;
+			}
+
+			return [node.body];
+		}
+
+		/**
 		 * Filter out the elements which are on the same line of each other or the node.
+		 * basically have only 1 elements from each line except the variable declaration line.
 		 * @param {ASTNode} node Variable declaration node
 		 * @returns {ASTNode[]} Filtered elements
 		 */
@@ -1217,6 +1234,7 @@ module.exports = {
 
 		/**
 		 * Check and decide whether to check for indentation for blockless nodes
+		 * Scenarios are for or while statements without braces around them
 		 * @param {ASTNode} node node to examine
 		 * @returns {void}
 		 */
@@ -1253,7 +1271,61 @@ module.exports = {
 			return caseIndent;
 		}
 
-		// ========== Visitor Methods ==========
+		/**
+		 * Check function parameters indentation
+		 * @param {ASTNode} node The function node
+		 * @param {Object} options The function options
+		 * @returns {void}
+		 */
+		function checkFunctionParametersIndent(node, opts) {
+			if (isSingleLineNode(node)) {
+				return;
+			}
+
+			if (opts.parameters === "first" && node.params.length) {
+				checkNodesIndent(
+					node.params.slice(1),
+					node.params[0].loc.start.column,
+				);
+			} else if (opts.parameters !== null) {
+				checkNodesIndent(
+					node.params,
+					getNodeIndent(node).goodChar +
+						indentSize * opts.parameters,
+				);
+			}
+		}
+
+		/**
+		 * Check call expression arguments indentation
+		 * @param {ASTNode} node The call expression node
+		 * @returns {void}
+		 */
+		function checkCallExpressionArgumentsIndent(node) {
+			if (isSingleLineNode(node)) {
+				return;
+			}
+
+			if (
+				options.CallExpression.arguments === "first" &&
+				node.arguments.length
+			) {
+				checkNodesIndent(
+					node.arguments.slice(1),
+					node.arguments[0].loc.start.column,
+				);
+			} else if (options.CallExpression.arguments !== null) {
+				checkNodesIndent(
+					node.arguments,
+					getNodeIndent(node).goodChar +
+						indentSize * options.CallExpression.arguments,
+				);
+			}
+		}
+
+		// ============================================================================
+		// AST Visitor
+		// ============================================================================
 
 		return {
 			Program(node) {
@@ -1362,17 +1434,17 @@ module.exports = {
 			},
 
 			FunctionDeclaration(node) {
-				if (isSingleLineNode(node)) {
-					return;
-				}
-				checkFunctionParameters(node, options.FunctionDeclaration);
+				checkFunctionParametersIndent(
+					node,
+					options.FunctionDeclaration,
+				);
 			},
 
 			FunctionExpression(node) {
-				if (isSingleLineNode(node)) {
-					return;
-				}
-				checkFunctionParameters(node, options.FunctionExpression);
+				checkFunctionParametersIndent(
+					node,
+					options.FunctionExpression,
+				);
 			},
 
 			ReturnStatement(node) {
@@ -1390,56 +1462,8 @@ module.exports = {
 			},
 
 			CallExpression(node) {
-				if (isSingleLineNode(node)) {
-					return;
-				}
-				checkCallExpressionArguments(node);
+				checkCallExpressionArgumentsIndent(node);
 			},
 		};
-
-		/**
-		 * Check function parameters indentation
-		 * @param {ASTNode} node The function node
-		 * @param {Object} options The function options
-		 * @returns {void}
-		 */
-		function checkFunctionParameters(node, options) {
-			if (options.parameters === "first" && node.params.length) {
-				checkNodesIndent(
-					node.params.slice(1),
-					node.params[0].loc.start.column,
-				);
-			} else if (options.parameters !== null) {
-				checkNodesIndent(
-					node.params,
-					getNodeIndent(node).goodChar +
-						indentSize * options.parameters,
-				);
-			}
-		}
-
-		/**
-		 * Check call expression arguments indentation
-		 * @param {ASTNode} node The call expression node
-		 * @returns {void}
-		 */
-		function checkCallExpressionArguments(node) {
-			if (
-				options.CallExpression.arguments === "first" &&
-				node.arguments.length
-			) {
-				checkNodesIndent(
-					node.arguments.slice(1),
-					node.arguments[0].loc.start.column,
-				);
-			} else if (options.CallExpression.arguments !== null) {
-				checkNodesIndent(
-					node.arguments,
-					getNodeIndent(node).goodChar +
-						indentSize * options.CallExpression.arguments,
-				);
-			}
-		}
 	},
 };
-```

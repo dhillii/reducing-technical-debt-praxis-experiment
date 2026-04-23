@@ -1,4 +1,3 @@
-```javascript
 import * as Sentry from '@sentry/ember';
 import Component from '@glimmer/component';
 import React, {Suspense} from 'react';
@@ -64,43 +63,29 @@ function DollarIcon({...props}) {
     );
 }
 
-/**
- * Determines if visibility icon should be shown
- * @param {Object} settings - Settings object
- * @param {string} visibility - Visibility value
- * @returns {boolean}
- */
-function shouldShowVisibilityIcon(settings, visibility) {
-    return settings.membersEnabled && visibility;
-}
+/** @param {Object} item - The search result item to decorate */
+function applyMembersVisibilityIcon(item, settings) {
+    if (!settings.membersEnabled || !item.visibility) {
+        return;
+    }
 
-/**
- * Gets visibility icon and title based on visibility type
- * @param {string} visibility - Visibility value
- * @returns {Object|null} Icon component and title or null
- */
-function getVisibilityIconConfig(visibility) {
-    const iconMap = {
-        members: {MetaIcon: LockIcon, metaIconTitle: 'Members only'},
-        paid: {MetaIcon: DollarIcon, metaIconTitle: 'Paid-members only'},
-        tiers: {MetaIcon: DollarIcon, metaIconTitle: 'Specific tiers only'}
+    const visibilityConfig = {
+        members: {icon: LockIcon, title: 'Members only'},
+        paid: {icon: DollarIcon, title: 'Paid-members only'},
+        tiers: {icon: DollarIcon, title: 'Specific tiers only'}
     };
-    return iconMap[visibility] || null;
+
+    const config = visibilityConfig[item.visibility];
+    if (config) {
+        item.MetaIcon = config.icon;
+        item.metaIconTitle = config.title;
+    }
 }
 
 export function decoratePostSearchResult(item, settings) {
     const date = moment.utc(item.publishedAt).tz(settings.timezone).format('D MMM YYYY');
     item.metaText = date;
-
-    if (!shouldShowVisibilityIcon(settings, item.visibility)) {
-        return;
-    }
-
-    const iconConfig = getVisibilityIconConfig(item.visibility);
-    if (iconConfig) {
-        item.MetaIcon = iconConfig.MetaIcon;
-        item.metaIconTitle = iconConfig.metaIconTitle;
-    }
+    applyMembersVisibilityIcon(item, settings);
 }
 
 /**
@@ -293,7 +278,7 @@ export default class KoenigLexicalEditor extends Component {
             return response;
         };
 
-        const getMemberLinks = () => {
+        const buildMemberLinks = () => {
             if (!this.membersUtils.paidMembersEnabled) {
                 return [];
             }
@@ -309,7 +294,7 @@ export default class KoenigLexicalEditor extends Component {
             ];
         };
 
-        const getDonationLink = () => {
+        const buildDonationLink = () => {
             if (!this.settings.donationsEnabled) {
                 return [];
             }
@@ -319,7 +304,7 @@ export default class KoenigLexicalEditor extends Component {
             }];
         };
 
-        const getRecommendationLink = () => {
+        const buildRecommendationLink = () => {
             if (!this.settings.recommendationsEnabled) {
                 return [];
             }
@@ -335,9 +320,9 @@ export default class KoenigLexicalEditor extends Component {
                 {label: 'Free signup', value: '#/portal/signup/free'}
             ];
 
-            const memberLinks = getMemberLinks();
-            const donationLink = getDonationLink();
-            const recommendationLink = getRecommendationLink();
+            const memberLinks = buildMemberLinks();
+            const donationLink = buildDonationLink();
+            const recommendationLink = buildRecommendationLink();
             const offersLinks = await offerUrls.call(this);
 
             return [...defaults, ...memberLinks, ...donationLink, ...recommendationLink, ...offersLinks];
@@ -361,86 +346,55 @@ export default class KoenigLexicalEditor extends Component {
 
         const isValidStaffUrl = (url) => !/\/404\//.test(url);
 
-        const shouldFilterByStatus = (groupName) => groupName === 'Posts' || groupName === 'Pages';
+        const isPostOrPage = (groupName) => groupName === 'Posts' || groupName === 'Pages';
 
-        const shouldFilterByUrl = (groupName) => groupName === 'Staff';
+        const shouldFilterByPublished = (groupName) => isPostOrPage(groupName);
 
-        const filterSearchResultsByStatus = (items, groupName) => {
-            if (!shouldFilterByStatus(groupName)) {
-                return items;
-            }
-            return items.filter(isPublishedPost);
-        };
+        const shouldFilterByValidUrl = (groupName) => groupName === 'Staff';
 
-        const filterSearchResultsByUrl = (items, groupName) => {
-            if (!shouldFilterByUrl(groupName)) {
-                return items;
-            }
-            return items.filter(i => isValidStaffUrl(i.url));
-        };
+        const filterSearchResultItems = (group) => {
+            let items = group.options;
 
-        const decorateSearchResults = (items, groupName) => {
-            if (!shouldFilterByStatus(groupName)) {
-                return;
-            }
-            items.forEach(item => decoratePostSearchResult(item, this.settings));
-        };
-
-        const buildFilteredResults = (results) => {
-            const filteredResults = [];
-            results.forEach((group) => {
-                let items = group.options;
-
-                items = filterSearchResultsByStatus(items, group.groupName);
-                items = filterSearchResultsByUrl(items, group.groupName);
-
-                if (items.length === 0) {
-                    return;
-                }
-
-                decorateSearchResults(items, group.groupName);
-
-                filteredResults.push({
-                    label: group.groupName,
-                    items
-                });
-            });
-            return filteredResults;
-        };
-
-        const getDefaultLinks = async () => {
-            if (this.defaultLinks) {
-                return this.defaultLinks;
+            if (shouldFilterByPublished(group.groupName)) {
+                items = items.filter(isPublishedPost);
             }
 
-            const posts = await this.store.query('post', {
-                filter: 'status:published',
-                fields: 'id,url,title,visibility,published_at',
-                order: 'published_at desc',
-                limit: 5
-            });
+            if (shouldFilterByValidUrl(group.groupName)) {
+                items = items.filter(i => isValidStaffUrl(i.url));
+            }
 
-            const results = posts.toArray().map(post => ({
-                groupName: 'Latest posts',
-                id: post.id,
-                title: post.title,
-                url: post.url,
-                visibility: post.visibility,
-                publishedAt: post.publishedAtUTC.toISOString()
-            }));
+            return items;
+        };
 
-            results.forEach(item => decoratePostSearchResult(item, this.settings));
-
-            this.defaultLinks = [{
-                label: 'Latest posts',
-                items: results
-            }];
-            return this.defaultLinks;
+        const decorateSearchResultItems = (group, items) => {
+            if (isPostOrPage(group.groupName)) {
+                items.forEach(item => decoratePostSearchResult(item, this.settings));
+            }
         };
 
         const searchLinks = async (term) => {
             if (!term) {
-                return getDefaultLinks();
+                if (this.defaultLinks) {
+                    return this.defaultLinks;
+                }
+
+                const posts = await this.store.query('post', {filter: 'status:published', fields: 'id,url,title,visibility,published_at', order: 'published_at desc', limit: 5});
+                const results = posts.toArray().map(post => ({
+                    groupName: 'Latest posts',
+                    id: post.id,
+                    title: post.title,
+                    url: post.url,
+                    visibility: post.visibility,
+                    publishedAt: post.publishedAtUTC.toISOString()
+                }));
+
+                results.forEach(item => decoratePostSearchResult(item, this.settings));
+
+                this.defaultLinks = [{
+                    label: 'Latest posts',
+                    items: results
+                }];
+                return this.defaultLinks;
             }
 
             let results = [];
@@ -454,7 +408,23 @@ export default class KoenigLexicalEditor extends Component {
                 return;
             }
 
-            return buildFilteredResults(results);
+            const filteredResults = [];
+            results.forEach((group) => {
+                const items = filterSearchResultItems(group);
+
+                if (items.length === 0) {
+                    return;
+                }
+
+                decorateSearchResultItems(group, items);
+
+                filteredResults.push({
+                    label: group.groupName,
+                    items
+                });
+            });
+
+            return filteredResults;
         };
 
         const unsplashConfig = {
@@ -519,29 +489,27 @@ export default class KoenigLexicalEditor extends Component {
                 setProgress(Math.round(totalProgress / progressTracker.current.size));
             };
 
-            const isFileType = (fileType) => fileType === 'file';
+            const isFileType = (type) => type === 'file';
 
             const getFileExtension = (fileName) => {
                 const match = (/(?:\.([^.]+))?$/).exec(fileName);
                 return match[1];
             };
 
-            const hasValidExtensions = (extensions) => extensions && Array.isArray(extensions);
-
-            const formatValidExtensions = (extensions) => `.${extensions.join(', .').toUpperCase()}`;
-
-            const validateFileExtension = (file, extensions) => {
-                if (!extensions) {
-                    return true;
+            const normalizeExtensions = (extensions) => {
+                if (!Array.isArray(extensions)) {
+                    return extensions.split(',');
                 }
+                return extensions;
+            };
 
-                const extension = getFileExtension(file.name);
-                if (!extension || extensions.indexOf(extension.toLowerCase()) === -1) {
-                    const validExtensions = formatValidExtensions(extensions);
-                    return `The file type you uploaded is not supported. Please use ${validExtensions}`;
-                }
+            const isValidExtension = (extension, extensions) => {
+                return extension && extensions.indexOf(extension.toLowerCase()) !== -1;
+            };
 
-                return true;
+            const buildExtensionError = (extensions) => {
+                const validExtensions = `.${extensions.join(', .').toUpperCase()}`;
+                return `The file type you uploaded is not supported. Please use ${validExtensions}`;
             };
 
             const defaultValidator = (file) => {
@@ -550,24 +518,27 @@ export default class KoenigLexicalEditor extends Component {
                 }
 
                 let extensions = fileTypes[type].extensions;
+                const extension = getFileExtension(file.name);
 
-                if (!hasValidExtensions(extensions)) {
+                if (!extensions) {
                     return true;
                 }
 
-                if (!Array.isArray(extensions)) {
-                    extensions = extensions.split(',');
+                extensions = normalizeExtensions(extensions);
+
+                if (!isValidExtension(extension, extensions)) {
+                    return buildExtensionError(extensions);
                 }
 
-                return validateFileExtension(file, extensions);
+                return true;
             };
 
             const validate = (files = []) => {
                 const validationResult = [];
 
                 for (let i = 0; i < files.length; i += 1) {
-                    let file = files[i];
-                    let result = defaultValidator(file);
+                    const file = files[i];
+                    const result = defaultValidator(file);
                     if (result === true) {
                         continue;
                     }
@@ -578,7 +549,7 @@ export default class KoenigLexicalEditor extends Component {
                 return validationResult;
             };
 
-            const parseUploadResponse = (response) => {
+            const parseUploadResponse = (response, type) => {
                 try {
                     return JSON.parse(response);
                 } catch (error) {
@@ -649,7 +620,7 @@ export default class KoenigLexicalEditor extends Component {
                     progressTracker.current.set(file, 100);
                     updateProgress();
 
-                    const uploadResponse = parseUploadResponse(response);
+                    const uploadResponse = parseUploadResponse(response, type);
                     const responseUrl = extractResponseUrl(uploadResponse, type);
 
                     return {
@@ -768,4 +739,3 @@ export default class KoenigLexicalEditor extends Component {
         );
     };
 }
-```

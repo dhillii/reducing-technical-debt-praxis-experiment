@@ -1,4 +1,3 @@
-```javascript
 const nql = require('@tryghost/nql');
 const logging = require('@tryghost/logging');
 
@@ -63,17 +62,17 @@ class PostsExporter {
         const hasNewslettersWithFeedback = !!newsletters.find(newsletter => newsletter.get('feedback_enabled'));
 
         const mapped = posts.data.map((post) => {
-            return this.#mapPost(post, newsletters, labels, tiers, membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback);
+            return this.mapPostToExportRow(post, newsletters, labels, tiers, membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback);
         });
 
         if (mapped.length) {
-            this.#removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
+            this.removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
         }
 
         return mapped;
     }
 
-    #mapPost(post, newsletters, labels, tiers, membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback) {
+    mapPostToExportRow(post, newsletters, labels, tiers, membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback) {
         let email = post.related('email');
 
         // Weird bookshelf thing fix
@@ -115,7 +114,7 @@ class PostsExporter {
         };
     }
 
-    #removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled) {
+    removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled) {
         const removeableColumns = [];
 
         if (newsletters.length <= 1) {
@@ -233,12 +232,12 @@ class PostsExporter {
             }
         } else {
             for (const key of Object.keys(filter)) {
-                if (key === 'label' && typeof filter.label === 'string') {
-                    strings.push(this.#getLabelString(filter.label, allLabels));
-                } else if (key === 'tier' && typeof filter.tier === 'string') {
-                    strings.push(this.#getTierString(filter.tier, allTiers));
+                if (key === 'label') {
+                    this.handleLabelFilter(filter.label, allLabels, strings);
+                } else if (key === 'tier') {
+                    this.handleTierFilter(filter.tier, allTiers, strings);
                 } else if (key === 'status') {
-                    strings.push(...this.#getStatusStrings(filter.status));
+                    this.handleStatusFilter(filter.status, strings);
                 }
             }
         }
@@ -246,18 +245,31 @@ class PostsExporter {
         return strings;
     }
 
-    #getLabelString(labelSlug, allLabels) {
-        const label = allLabels.find(l => l.get('slug') === labelSlug);
-        return label ? label.get('name') : labelSlug;
+    handleLabelFilter(label, allLabels, strings) {
+        if (typeof label === 'string') {
+            const labelSlug = label;
+            const labelObj = allLabels.find(l => l.get('slug') === labelSlug);
+            if (labelObj) {
+                strings.push(labelObj.get('name'));
+            } else {
+                strings.push(labelSlug);
+            }
+        }
     }
 
-    #getTierString(tierSlug, allTiers) {
-        const tier = allTiers.find(l => l.get('slug') === tierSlug);
-        return tier ? tier.get('name') : tierSlug;
+    handleTierFilter(tier, allTiers, strings) {
+        if (typeof tier === 'string') {
+            const tierSlug = tier;
+            const tierObj = allTiers.find(l => l.get('slug') === tierSlug);
+            if (tierObj) {
+                strings.push(tierObj.get('name'));
+            } else {
+                strings.push(tierSlug);
+            }
+        }
     }
 
-    #getStatusStrings(status) {
-        const strings = [];
+    handleStatusFilter(status, strings) {
         if (typeof status === 'string') {
             if (status === 'free') {
                 strings.push('Free subscribers');
@@ -270,13 +282,12 @@ class PostsExporter {
             if (status.$ne === 'free') {
                 strings.push('Paid subscribers');
             }
+
             if (status.$ne === 'paid') {
                 strings.push('Free subscribers');
             }
         }
-        return strings;
     }
 }
 
 module.exports = PostsExporter;
-```

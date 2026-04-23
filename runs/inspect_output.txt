@@ -1,0 +1,27 @@
+=== File 1: corrupt row 85 ===
+Length of line 85: 52308942 chars
+Still fails: Unterminated string starting at: line 1 column 193 (char 192)
+Bad chars near position 192: ':"'
+custom_id from raw text: 85
+status_code from raw text: 200
+
+File 1 custom_ids: 1–84, count=84
+Missing custom_ids in file 1: []
+
+File 2 custom_ids: 1–1314, count=1120
+Missing custom_ids in file 2 (first 30): [18, 19, 20, 31, 32, 34, 35, 38, 40, 52, 53, 54, 55, 57, 58, 60, 259, 260, 274, 275, 276, 278, 279, 280, 338, 339, 340, 358, 359, 360]
+Total missing: 194
+
+=== File 2: truncated rows (finish_reason=length) ===
+custom_id=553  model=meta-llama/Llama-3.3-70B-Instruct-Turbo  usage={'cached_tokens': 0, 'completion_tokens': 64000, 'prompt_tokens': 12207, 'total_tokens': 76207}
+  Content starts: '```javascript\n/**\n * @fileoverview Rule to flag declared but unused variables\n * @author Ilya Volodin\n */\n\n"use strict";\n\n//----------------------------------------------------------------------------'
+  Content ends:   'Ref(ref) {\n  let target = ref.identifier.parent;\n\n  // "for (var ...) { return; }"\n  if (target.type === "VariableDeclarator") {\n    target = target.parent.parent;\n  }\n\n  if (\n    target.type !== "For'
+custom_id=558  model=meta-llama/Llama-3.3-70B-Instruct-Turbo  usage={'cached_tokens': 0, 'completion_tokens': 64000, 'prompt_tokens': 12346, 'total_tokens': 76346}
+  Content starts: '```javascript\n/**\n * @fileoverview Rule to flag declared but unused variables\n * @author Ilya Volodin\n */\n\n"use strict";\n\n//----------------------------------------------------------------------------'
+  Content ends:   'e is a read to update itself.\n     * @private\n     */\n    function isReadForItself(ref, rhsNode) {\n      const id = ref.identifier;\n      const parent = id.parent;\n\n      return (\n        ref.isRead()'
+custom_id=684  model=meta-llama/Llama-3.3-70B-Instruct-Turbo  usage={'cached_tokens': 0, 'completion_tokens': 64000, 'prompt_tokens': 11352, 'total_tokens': 75352}
+  Content starts: '```javascript\n/**\n * @fileoverview Integration tests for the eslint.js executable.\n * @author Teddy Katz\n */\n\n"use strict";\n\n//-------------------------------------------------------------------------'
+  Content ends:   ' NaN falsy value, false otherwise\n */\nfunction isNaNFalsyValueValueValueValueValueValueValueValueValueValueValueValueValueValueValueValueValueValueValue(value) {\n  return !Number.isNaN(value);\n}\n\n/**\n'
+
+=== File 2: short content rows (< 1000 chars) ===
+  custom_id=561 len=857: '```javascript\n/**\n * @fileoverview Collects the built-in rules into a map structure so that they can be imported all at once and without\n * using the file-system directly.\n * @author Peter (Somogyvari) Metz\n */\n\n"use strict";\n\n/* eslint sort-keys: ["error", "asc"] -- More readable for long list */\n\n'

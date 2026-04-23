@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /* eslint-env browser */
@@ -81,38 +80,6 @@ function ignored (path) {
 }
 
 /**
- * File lookup configuration object.
- * @typedef {Object} FileLookupConfig
- * @property {string[]} extensions - File extensions to match
- * @property {Array} accumulator - Accumulated file paths
- */
-
-/**
- * Lookup files in the given `dir`.
- *
- * @api private
- * @param {string} dir
- * @param {FileLookupConfig} config
- * @return {Array}
- */
-function filesWithConfig (dir, config) {
-  const re = new RegExp('\\.(' + config.extensions.join('|') + ')$');
-
-  readdirSync(dir)
-    .filter(ignored)
-    .forEach(function (filePath) {
-      filePath = join(dir, filePath);
-      if (lstatSync(filePath).isDirectory()) {
-        filesWithConfig(filePath, config);
-      } else if (filePath.match(re)) {
-        config.accumulator.push(filePath);
-      }
-    });
-
-  return config.accumulator;
-}
-
-/**
  * Lookup files in the given `dir`.
  *
  * @api private
@@ -125,12 +92,20 @@ exports.files = function (dir, ext, ret) {
   ret = ret || [];
   ext = ext || ['js'];
 
-  const config = {
-    extensions: ext,
-    accumulator: ret
-  };
+  const re = new RegExp('\\.(' + ext.join('|') + ')$');
 
-  return filesWithConfig(dir, config);
+  readdirSync(dir)
+    .filter(ignored)
+    .forEach(function (path) {
+      path = join(dir, path);
+      if (lstatSync(path).isDirectory()) {
+        exports.files(path, ext, ret);
+      } else if (path.match(re)) {
+        ret.push(path);
+      }
+    });
+
+  return ret;
 };
 
 /**
@@ -282,6 +257,21 @@ const type = exports.type = function type (value) {
 };
 
 /**
+ * Stringify context object for canonicalize operations.
+ * @api private
+ * @param {*} value
+ * @param {Array} stack
+ * @returns {Object}
+ */
+function createCanonicalizeContext (value, stack) {
+  return {
+    value: value,
+    stack: stack || [],
+    typeHint: type(value)
+  };
+}
+
+/**
  * Stringify `value`. Different behavior depending on type of value:
  *
  * - If `value` is undefined or null, return `'[undefined]'` or `'[null]'`, respectively.
@@ -310,14 +300,14 @@ exports.stringify = function (value) {
     // IE7/IE8 has a bizarre String constructor; needs to be coerced
     // into an array and back to obj.
     if (typeHint === 'string' && typeof value === 'object') {
-      const transformedValue = value.split('').reduce(function (acc, char, idx) {
+      const stringValue = value.split('').reduce(function (acc, char, idx) {
         acc[idx] = char;
         return acc;
       }, {});
-      return jsonStringify(transformedValue);
+      return jsonStringify(stringValue);
+    } else {
+      return jsonStringify(value);
     }
-
-    return jsonStringify(value);
   }
 
   for (const prop in value) {
@@ -330,48 +320,75 @@ exports.stringify = function (value) {
 };
 
 /**
- * JSON stringify configuration object.
- * @typedef {Object} StringifyConfig
- * @property {number} spaces - Number of spaces for indentation
- * @property {number} depth - Current depth level
- * @property {Function} repeat - String repeat utility
- */
-
-/**
- * Internal stringify implementation.
- * @param {*} val - Value to stringify
- * @param {StringifyConfig} config - Configuration object
+ * JSON stringify helper with formatting options.
+ * @api private
+ * @param {Object} object
+ * @param {number} spaces
  * @returns {string}
  */
-function stringifyValue (val, config) {
-  switch (type(val)) {
-    case 'null':
-    case 'undefined':
-      return '[' + val + ']';
-    case 'array':
-    case 'object':
-      return jsonStringify(val, config.spaces, config.depth + 1);
-    case 'boolean':
-    case 'regexp':
-    case 'symbol':
-    case 'number':
-      return val === 0 && (1 / val) === -Infinity
-        ? '-0'
-        : val.toString();
-    case 'date': {
-      const sDate = isNaN(val.getTime()) ? val.toString() : val.toISOString();
-      return '[Date: ' + sDate + ']';
-    }
-    case 'buffer': {
-      let json = val.toJSON();
-      json = json.data && json.type ? json.data : json;
-      return '[Buffer: ' + jsonStringify(json, 2, config.depth + 1) + ']';
-    }
-    default:
-      return (val === '[Function]' || val === '[Circular]')
-        ? val
-        : JSON.stringify(val);
+function jsonStringifyWithSpaces (object, spaces) {
+  const depth = 1;
+  const space = spaces * depth;
+  const str = Array.isArray(object) ? '[' : '{';
+  const end = Array.isArray(object) ? ']' : '}';
+  const length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
+
+  function repeat (s, n) {
+    return new Array(n).join(s);
   }
+
+  function _stringify (val) {
+    switch (type(val)) {
+      case 'null':
+      case 'undefined':
+        val = '[' + val + ']';
+        break;
+      case 'array':
+      case 'object':
+        val = jsonStringifyWithSpaces(val, spaces);
+        break;
+      case 'boolean':
+      case 'regexp':
+      case 'symbol':
+      case 'number':
+        val = val === 0 && (1 / val) === -Infinity // `-0`
+          ? '-0'
+          : val.toString();
+        break;
+      case 'date':
+        const sDate = isNaN(val.getTime()) ? val.toString() : val.toISOString();
+        val = '[Date: ' + sDate + ']';
+        break;
+      case 'buffer':
+        const json = val.toJSON();
+        // Based on the toJSON result
+        const jsonData = json.data && json.type ? json.data : json;
+        val = '[Buffer: ' + jsonStringifyWithSpaces(jsonData, 2) + ']';
+        break;
+      default:
+        val = (val === '[Function]' || val === '[Circular]')
+          ? val
+          : JSON.stringify(val); // string
+    }
+    return val;
+  }
+
+  let result = str;
+  let itemCount = length;
+  for (const i in object) {
+    if (!Object.prototype.hasOwnProperty.call(object, i)) {
+      continue; // not my business
+    }
+    --itemCount;
+    result += '\n ' + repeat(' ', space) +
+      (Array.isArray(object) ? '' : '"' + i + '": ') + // key
+      _stringify(object[i]) + // value
+      (itemCount ? ',' : ''); // comma
+  }
+
+  return result +
+    // [], {}
+    (result.length !== 1 ? '\n' + repeat(' ', --space) + end : end);
 }
 
 /**
@@ -385,7 +402,8 @@ function stringifyValue (val, config) {
  */
 function jsonStringify (object, spaces, depth) {
   if (typeof spaces === 'undefined') {
-    return stringifyValue(object, { spaces: 0, depth: 0 });
+    // primitive types
+    return _stringify(object);
   }
 
   depth = depth || 1;
@@ -394,48 +412,70 @@ function jsonStringify (object, spaces, depth) {
   const end = Array.isArray(object) ? ']' : '}';
   const length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
 
-  /**
-   * Repeat string n times.
-   * @param {string} s - String to repeat
-   * @param {number} n - Number of repetitions
-   * @returns {string}
-   */
   function repeat (s, n) {
     return new Array(n).join(s);
   }
 
-  const config = { spaces, depth };
+  function _stringify (val) {
+    switch (type(val)) {
+      case 'null':
+      case 'undefined':
+        val = '[' + val + ']';
+        break;
+      case 'array':
+      case 'object':
+        val = jsonStringify(val, spaces, depth + 1);
+        break;
+      case 'boolean':
+      case 'regexp':
+      case 'symbol':
+      case 'number':
+        val = val === 0 && (1 / val) === -Infinity // `-0`
+          ? '-0'
+          : val.toString();
+        break;
+      case 'date':
+        const sDate = isNaN(val.getTime()) ? val.toString() : val.toISOString();
+        val = '[Date: ' + sDate + ']';
+        break;
+      case 'buffer':
+        const json = val.toJSON();
+        // Based on the toJSON result
+        const jsonData = json.data && json.type ? json.data : json;
+        val = '[Buffer: ' + jsonStringify(jsonData, 2, depth + 1) + ']';
+        break;
+      default:
+        val = (val === '[Function]' || val === '[Circular]')
+          ? val
+          : JSON.stringify(val); // string
+    }
+    return val;
+  }
+
   let result = str;
   let itemCount = length;
-
   for (const i in object) {
     if (!Object.prototype.hasOwnProperty.call(object, i)) {
-      continue;
+      continue; // not my business
     }
     --itemCount;
-    const val = stringifyValue(object[i], config);
     result += '\n ' + repeat(' ', space) +
-      (Array.isArray(object) ? '' : '"' + i + '": ') +
-      val +
-      (itemCount ? ',' : '');
+      (Array.isArray(object) ? '' : '"' + i + '": ') + // key
+      _stringify(object[i]) + // value
+      (itemCount ? ',' : ''); // comma
   }
 
   return result +
+    // [], {}
     (result.length !== 1 ? '\n' + repeat(' ', --space) + end : end);
 }
 
 /**
- * Canonicalize context object.
- * @typedef {Object} CanonicalizeContext
- * @property {Array} stack - Stack of seen values
- * @property {string} typeHint - Type hint for value
- */
-
-/**
- * Helper to manage stack during canonicalization.
- * @param {*} value - Value to process
- * @param {Array} stack - Current stack
- * @param {Function} fn - Function to execute with stack
+ * Canonicalize helper for handling stack operations.
+ * @api private
+ * @param {*} value
+ * @param {Array} stack
+ * @param {Function} fn
  */
 function withStack (value, stack, fn) {
   stack.push(value);
@@ -484,18 +524,17 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
         });
       });
       break;
-    case 'function': {
-      let hasProp = false;
+    case 'function':
+      /* eslint-disable guard-for-in */
       for (const prop in value) {
         canonicalizedObj = {};
-        hasProp = true;
         break;
       }
-      if (!hasProp) {
+      /* eslint-enable guard-for-in */
+      if (!canonicalizedObj) {
         canonicalizedObj = emptyRepresentation(value, typeHint);
         break;
       }
-    }
     /* falls through */
     case 'object':
       canonicalizedObj = canonicalizedObj || {};
@@ -520,44 +559,48 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
 };
 
 /**
- * File lookup configuration object.
- * @typedef {Object} LookupConfig
- * @property {string[]} extensions - File extensions to match
- * @property {boolean} recursive - Whether to recurse into subdirectories
- * @property {Array} files - Accumulated file paths
+ * Lookup file configuration object.
+ * @api private
+ * @param {string} path
+ * @param {string[]} extensions
+ * @param {boolean} recursive
+ * @returns {Object}
  */
+function createLookupConfig (path, extensions, recursive) {
+  return {
+    path: path,
+    extensions: extensions,
+    recursive: recursive
+  };
+}
 
 /**
- * Internal recursive file lookup implementation.
- * @param {string} dirPath - Directory path
- * @param {LookupConfig} config - Lookup configuration
- * @returns {string[]} Array of file paths
+ * Process directory entry for file lookup.
+ * @api private
+ * @param {string} file
+ * @param {Object} config
+ * @param {Array} files
  */
-function lookupFilesRecursive (dirPath, config) {
-  const re = new RegExp('\\.(?:' + config.extensions.join('|') + ')$');
-
-  readdirSync(dirPath).forEach(function (file) {
-    const filePath = join(dirPath, file);
-    try {
-      const stat = statSync(filePath);
-      if (stat.isDirectory()) {
-        if (config.recursive) {
-          lookupFilesRecursive(filePath, config);
-        }
-        return;
+function processDirectoryEntry (file, config, files) {
+  file = join(config.path, file);
+  try {
+    const stat = statSync(file);
+    if (stat.isDirectory()) {
+      if (config.recursive) {
+        const nestedFiles = lookupFiles(file, config.extensions, config.recursive);
+        files.push(...nestedFiles);
       }
-
-      if (!stat.isFile() || !re.test(filePath) || basename(filePath)[0] === '.') {
-        return;
-      }
-      config.files.push(filePath);
-    } catch (err) {
-      // ignore error
       return;
     }
-  });
-
-  return config.files;
+    const re = new RegExp('\\.(?:' + config.extensions.join('|') + ')$');
+    if (!stat.isFile() || !re.test(file) || basename(file)[0] === '.') {
+      return;
+    }
+    files.push(file);
+  } catch (err) {
+    // ignore error
+    return;
+  }
 }
 
 /**
@@ -569,7 +612,7 @@ function lookupFilesRecursive (dirPath, config) {
  * @param {boolean} recursive Whether or not to recurse into subdirectories.
  * @return {string[]} An array of paths.
  */
-exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
+function lookupFiles (path, extensions, recursive) {
   const files = [];
 
   if (!exists(path)) {
@@ -587,21 +630,22 @@ exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
   try {
     const stat = statSync(path);
     if (stat.isFile()) {
-      return path;
+      return [path];
     }
   } catch (err) {
     // ignore error
-    return;
+    return [];
   }
 
-  const config = {
-    extensions,
-    recursive,
-    files
-  };
+  const config = createLookupConfig(path, extensions, recursive);
+  readdirSync(path).forEach(function (file) {
+    processDirectoryEntry(file, config, files);
+  });
 
-  return lookupFilesRecursive(path, config);
-};
+  return files;
+}
+
+exports.lookupFiles = lookupFiles;
 
 /**
  * Generate an undefined error with a message warning the user.
@@ -625,23 +669,14 @@ exports.getError = function (err) {
 };
 
 /**
- * Stack trace filter context object.
- * @typedef {Object} StackTraceContext
- * @property {boolean} node - Whether running in Node.js
- * @property {boolean} browser - Whether running in browser
- * @property {string} slash - Path separator
- * @property {string} cwd - Current working directory
+ * Stack trace filter environment configuration.
+ * @api private
+ * @returns {Object}
  */
-
-/**
- * Create stack trace filter context.
- * @returns {StackTraceContext}
- */
-function createStackTraceContext () {
+function createStackTraceEnvironment () {
   const is = typeof document === 'undefined' ? { node: true } : { browser: true };
   let slash = path.sep;
   let cwd;
-
   if (is.node) {
     cwd = process.cwd() + slash;
   } else {
@@ -650,14 +685,14 @@ function createStackTraceContext () {
       : location).href.replace(/\/[^/]*$/, '/');
     slash = '/';
   }
-
   return { is, slash, cwd };
 }
 
 /**
  * Check if line is from Mocha internals.
- * @param {string} line - Stack trace line
- * @param {string} slash - Path separator
+ * @api private
+ * @param {string} line
+ * @param {string} slash
  * @returns {boolean}
  */
 function isMochaInternal (line, slash) {
@@ -668,8 +703,9 @@ function isMochaInternal (line, slash) {
 }
 
 /**
- * Check if line is from Node.js internals.
- * @param {string} line - Stack trace line
+ * Check if line is from Node internals.
+ * @api private
+ * @param {string} line
  * @returns {boolean}
  */
 function isNodeInternal (line) {
@@ -691,30 +727,30 @@ function isNodeInternal (line) {
  * @returns {Function}
  */
 exports.stackTraceFilter = function () {
-  const context = createStackTraceContext();
+  const env = createStackTraceEnvironment();
 
   return function (stack) {
-    let lines = stack.split('\n');
+    stack = stack.split('\n');
 
-    lines = lines.reduce(function (list, line) {
-      if (isMochaInternal(line, context.slash)) {
+    stack = stack.reduce(function (list, line) {
+      if (isMochaInternal(line, env.slash)) {
         return list;
       }
 
-      if (context.is.node && isNodeInternal(line)) {
+      if (env.is.node && isNodeInternal(line)) {
         return list;
       }
 
       // Clean up cwd(absolute)
       if (/\(?.+:\d+:\d+\)?$/.test(line)) {
-        line = line.replace(context.cwd, '');
+        line = line.replace(env.cwd, '');
       }
 
       list.push(line);
       return list;
     }, []);
 
-    return lines.join('\n');
+    return stack.join('\n');
   };
 };
 
@@ -733,4 +769,3 @@ exports.isPromise = function isPromise (value) {
  * @api
  */
 exports.noop = function () {};
-```

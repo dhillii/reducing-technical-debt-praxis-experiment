@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const _ = require('lodash');
@@ -96,7 +95,7 @@ const QueryGenerator = {
     for (const attr in attributes) {
       if (attributes.hasOwnProperty(attr)) {
         const dataType = attributes[attr];
-        this._processAttributeForCreateTable(attr, dataType, primaryKeys, foreignKeys, attrStr);
+        this._processAttributeForCreateTable(attr, dataType, attrStr, primaryKeys, foreignKeys);
       }
     }
 
@@ -113,7 +112,7 @@ const QueryGenerator = {
     return _.template(query, this._templateSettings)(values).trim() + ';';
   },
 
-  _processAttributeForCreateTable(attr, dataType, primaryKeys, foreignKeys, attrStr) {
+  _processAttributeForCreateTable(attr, dataType, attrStr, primaryKeys, foreignKeys) {
     let match;
 
     if (_.includes(dataType, 'PRIMARY KEY')) {
@@ -321,8 +320,30 @@ const QueryGenerator = {
     }
 
     needIdentityInsertWrapper = this._checkNeedIdentityInsert(attrValueHashes, attributes);
-    const commands = this._generateBulkInsertCommands(tableName, allAttributes, tuples, allQueries, outputFragment, needIdentityInsertWrapper);
 
+    const commands = [];
+    let offset = 0;
+    const batch = Math.floor(250 / (allAttributes.length + 1)) + 1;
+    while (offset < Math.max(tuples.length, 1)) {
+      const replacements = {
+        table: this.quoteTable(tableName),
+        attributes: allAttributes.map(attr =>
+          this.quoteIdentifier(attr)).join(','),
+        tuples: tuples.slice(offset, Math.min(tuples.length, offset + batch)),
+        output: outputFragment
+      };
+
+      let generatedQuery = _.template(allQueries.join(';'), this._templateSettings)(replacements);
+      if (needIdentityInsertWrapper) {
+        generatedQuery = [
+          'SET IDENTITY_INSERT', this.quoteTable(tableName), 'ON;',
+          generatedQuery,
+          'SET IDENTITY_INSERT', this.quoteTable(tableName), 'OFF;'
+        ].join(' ');
+      }
+      commands.push(generatedQuery);
+      offset += batch;
+    }
     return commands.join(';');
   },
 
@@ -336,6 +357,10 @@ const QueryGenerator = {
       }
 
       _.forOwn(attrValueHash, (value, key) => {
+        if (value !== null && attributes[key] && attributes[key].autoIncrement) {
+          // needIdentityInsertWrapper = true; // handled separately
+        }
+
         if (allAttributes.indexOf(key) === -1) {
           if (value === null && attributes[key] && attributes[key].autoIncrement)
             return;
@@ -357,35 +382,6 @@ const QueryGenerator = {
     return false;
   },
 
-  _generateBulkInsertCommands(tableName, allAttributes, tuples, allQueries, outputFragment, needIdentityInsertWrapper) {
-    const commands = [];
-    let offset = 0;
-    const batch = Math.floor(250 / (allAttributes.length + 1)) + 1;
-
-    while (offset < Math.max(tuples.length, 1)) {
-      const replacements = {
-        table: this.quoteTable(tableName),
-        attributes: allAttributes.map(attr =>
-          this.quoteIdentifier(attr)).join(','),
-        tuples: tuples.slice(offset, Math.min(tuples.length, offset + batch)),
-        output: outputFragment
-      };
-
-      let generatedQuery = _.template(allQueries.join(';'), this._templateSettings)(replacements);
-      if (needIdentityInsertWrapper) {
-        generatedQuery = [
-          'SET IDENTITY_INSERT', this.quoteTable(tableName), 'ON;',
-          generatedQuery,
-          'SET IDENTITY_INSERT', this.quoteTable(tableName), 'OFF;'
-        ].join(' ');
-      }
-      commands.push(generatedQuery);
-      offset += batch;
-    }
-
-    return commands;
-  },
-
   updateQuery(tableName, attrValueHash, where, options, attributes) {
     let sql = super.updateQuery(tableName, attrValueHash, where, options, attributes);
     if (options.limit) {
@@ -404,7 +400,7 @@ const QueryGenerator = {
     const tableNameQuoted = this.quoteTable(tableName);
     let needIdentityInsertWrapper = false;
 
-    this._extractModelAttributes(model, primaryKeysAttrs, uniqueAttrs, identityAttrs);
+    this._extractModelAttributes(model, primaryKeysAttrs, identityAttrs, uniqueAttrs);
     this._addUniqueIndexes(model, uniqueAttrs);
 
     const updateKeys = Object.keys(updateValues);
@@ -421,7 +417,11 @@ const QueryGenerator = {
       }
     });
 
-    const clauses = where[Op.or].filter(clause => this._isValidClause(clause));
+    const clauses = this._filterValidClauses(where);
+
+    if (clauses.length === 0) {
+      throw new Error('Primary Key or Unique key should be passed to upsert query');
+    }
 
     joinCondition = this._determineJoinCondition(clauses, primaryKeysAttrs, uniqueAttrs, targetTableAlias, sourceTableAlias);
 
@@ -435,7 +435,7 @@ const QueryGenerator = {
     return query;
   },
 
-  _extractModelAttributes(model, primaryKeysAttrs, uniqueAttrs, identityAttrs) {
+  _extractModelAttributes(model, primaryKeysAttrs, identityAttrs, uniqueAttrs) {
     for (const key in model.rawAttributes) {
       if (model.rawAttributes[key].primaryKey) {
         primaryKeysAttrs.push(model.rawAttributes[key].field || key);
@@ -462,20 +462,18 @@ const QueryGenerator = {
     }
   },
 
-  _isValidClause(clause) {
-    for (const key in clause) {
-      if (!clause[key]) {
-        return false;
+  _filterValidClauses(where) {
+    return where[Op.or].filter(clause => {
+      for (const key in clause) {
+        if (!clause[key]) {
+          return false;
+        }
       }
-    }
-    return true;
+      return true;
+    });
   },
 
   _determineJoinCondition(clauses, primaryKeysAttrs, uniqueAttrs, targetTableAlias, sourceTableAlias) {
-    if (clauses.length === 0) {
-      throw new Error('Primary Key or Unique key should be passed to upsert query');
-    }
-
     const getJoinSnippet = array => {
       return array.map(key => {
         key = this.quoteIdentifier(key);
@@ -883,7 +881,7 @@ const QueryGenerator = {
     const whereFragment = where ? ' WHERE ' + where : '';
 
     return 'SELECT TOP 100 PERCENT ' + attributes.join(', ') + ' FROM ' +
-                    '(SELECT ' + 'TOP ' + options.limit + ' ' + '*' +
+                    '(SELECT *' +
                       ' FROM (SELECT ROW_NUMBER() OVER (ORDER BY ' + orders.mainQueryOrder.join(', ') + ') as row_num, * ' +
                         ' FROM ' + tables + ' AS ' + tmpTable + whereFragment + ')' +
                       ' AS ' + tmpTable + ' WHERE row_num > ' + offset + ')' +
@@ -937,4 +935,3 @@ function wrapSingleQuote(identifier) {
 }
 
 module.exports = QueryGenerator;
-```

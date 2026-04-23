@@ -1,10 +1,3 @@
-```javascript
-/**
- * Copyright 2013-2022 the PM2 project authors. All rights reserved.
- * Use of this source code is governed by a license that
- * can be found in the LICENSE file.
- */
-
 var commander   = require('commander');
 var fs          = require('fs');
 var path        = require('path');
@@ -17,50 +10,44 @@ var fclone      = require('fclone');
 
 var IMMUTABLE_MSG = chalk.bold.blue('Use --update-env to update environment variables');
 
-/**
- * Main Function to be imported
- * can be aliased to PM2
- *
- * To use it when PM2 is installed as a module:
- *
- * var PM2 = require('pm2');
- *
- * var pm2 = PM2(<opts>);
- *
- *
- * @param {Object}  opts
- * @param {String}  [opts.cwd=<current>]         override pm2 cwd for starting scripts
- * @param {String}  [opts.pm2_home=[<paths.js>]] pm2 directory for log, pids, socket files
- * @param {Boolean} [opts.independent=false]     unique PM2 instance (random pm2_home)
- * @param {Boolean} [opts.daemon_mode=true]      should be called in the same process or not
- * @param {String}  [opts.public_key=null]       keymetrics bucket public key
- * @param {String}  [opts.secret_key=null]       keymetrics bucket secret key
- * @param {String}  [opts.machine_name=null]     keymetrics instance name
- */
 var API = module.exports = function(opts) {
   if (!opts) opts = {};
   var that = this;
 
   this.daemon_mode = typeof(opts.daemon_mode) == 'undefined' ? true : opts.daemon_mode;
+  var conf = require('./conf');
+  this.pm2_home    = conf.PM2_ROOT_PATH;
   this.public_key   = process.env.KEYMETRICS_SECRET || opts.public_key || null;
   this.secret_key   = process.env.KEYMETRICS_PUBLIC || opts.secret_key || null;
   this.machine_name = process.env.INSTANCE_NAME || opts.machine_name || null
 
-  /**
-   * CWD resolution
-   */
   this.cwd         = process.cwd();
   if (opts.cwd) {
     this.cwd = path.resolve(opts.cwd);
   }
 
-  /**
-   * PM2 HOME resolution
-   */
-  this._initializePM2Home(opts);
+  if (opts.pm2_home && opts.independent == true)
+    throw new Error('You cannot set a pm2_home and independent instance in same time');
 
-  if (this._conf.IS_WINDOWS) {
-    this._setupWindowsStdout();
+  if (opts.pm2_home) {
+    this.pm2_home        = opts.pm2_home;
+    conf = util._extend(conf, path_structure(this.pm2_home));
+  }
+  else if (opts.independent == true && conf.IS_WINDOWS === false) {
+    var crypto = require('crypto');
+    var random_file = crypto.randomBytes(8).toString('hex');
+    this.pm2_home = path.join('/tmp', random_file);
+
+    if (typeof(opts.daemon_mode) == 'undefined')
+      this.daemon_mode = false;
+    conf = util._extend(conf, path_structure(this.pm2_home));
+  }
+
+  this._conf = conf;
+
+  if (conf.IS_WINDOWS) {
+    if (process.stdout._handle && process.stdout._handle.setBlocking)
+      process.stdout._handle.setBlocking(true);
   }
 
   this.Client = new Client({
@@ -75,65 +62,8 @@ var API = module.exports = function(opts) {
   this.gl_interact_infos = null;
   this.gl_is_km_linked = false;
 
-  this._checkKMLink();
-  this._loadInteractInfo();
-};
-
-/**
- * Initialize PM2 home directory configuration
- * @private
- */
-API.prototype._initializePM2Home = function(opts) {
-  var conf = require('./conf');
-  
-  if (opts.pm2_home && opts.independent == true)
-    throw new Error('You cannot set a pm2_home and independent instance in same time');
-
-  this.pm2_home = conf.PM2_ROOT_PATH;
-
-  if (opts.pm2_home) {
-    this.pm2_home = opts.pm2_home;
-    conf = util._extend(conf, path_structure(this.pm2_home));
-  }
-  else if (opts.independent == true && conf.IS_WINDOWS === false) {
-    this._setupIndependentInstance(conf);
-  }
-
-  this._conf = conf;
-};
-
-/**
- * Setup independent PM2 instance with random directory
- * @private
- */
-API.prototype._setupIndependentInstance = function(conf) {
-  var crypto = require('crypto');
-  var random_file = crypto.randomBytes(8).toString('hex');
-  this.pm2_home = path.join('/tmp', random_file);
-
-  if (typeof(this.daemon_mode) == 'undefined')
-    this.daemon_mode = false;
-  
-  conf = util._extend(conf, path_structure(this.pm2_home));
-};
-
-/**
- * Setup Windows stdout blocking
- * @private
- */
-API.prototype._setupWindowsStdout = function() {
-  if (process.stdout._handle && process.stdout._handle.setBlocking)
-    process.stdout._handle.setBlocking(true);
-};
-
-/**
- * Check if PM2 is linked to Keymetrics
- * @private
- */
-API.prototype._checkKMLink = function() {
-  var that = this;
   try {
-    var pid = fs.readFileSync(this._conf.INTERACTOR_PID_PATH);
+    var pid = fs.readFileSync(conf.INTERACTOR_PID_PATH);
     pid = parseInt(pid.toString().trim());
     process.kill(pid, 0);
     that.gl_is_km_linked = true;
@@ -143,29 +73,12 @@ API.prototype._checkKMLink = function() {
 
   if (this.secret_key && process.env.NODE_ENV == 'local_test')
     that.gl_is_km_linked = true;
-};
 
-/**
- * Load interaction information from KMDaemon
- * @private
- */
-API.prototype._loadInteractInfo = function() {
-  var that = this;
   KMDaemon.getInteractInfo(this._conf, function(i_err, interact) {
     that.gl_interact_infos = interact;
   });
 };
 
-//////////////////////////
-// Load all API methods //
-//////////////////////////
-
-/**
- * Connect to PM2
- * Calling this command is now optional
- *
- * @param {Function} cb callback once pm2 is ready for commands
- */
 API.prototype.connect = function(noDaemon, cb) {
   var that = this;
   this.start_timer = new Date();
@@ -191,13 +104,6 @@ API.prototype.connect = function(noDaemon, cb) {
   });
 }
 
-/**
- * Usefull when custom PM2 created with independent flag set to true
- * This will cleanup the newly created instance
- * by removing folder, killing PM2 and so on
- *
- * @param {Function} cb callback once cleanup is successfull
- */
 API.prototype.destroy = function(cb) {
   var exec = require('shelljs').exec;
   var that = this;
@@ -205,46 +111,32 @@ API.prototype.destroy = function(cb) {
   debug('Killing and deleting current deamon');
 
   this.killDaemon(function() {
-    that._performDestroy(exec, cb);
-  });
-};
+    var cmd = 'rm -rf ' + that.pm2_home;
+    var test_path = path.join(that.pm2_home, 'module_conf.json');
+    var test_path_2 = path.join(that.pm2_home, 'pm2.pid');
 
-/**
- * Perform actual destroy operation
- * @private
- */
-API.prototype._performDestroy = function(exec, cb) {
-  var that = this;
-  var cmd = 'rm -rf ' + that.pm2_home;
-  var test_path = path.join(that.pm2_home, 'module_conf.json');
+    if (that.pm2_home.indexOf('.pm2') > -1)
+      return cb(new Error('Destroy is not a allowed method on .pm2'));
 
-  if (that.pm2_home.indexOf('.pm2') > -1)
-    return cb(new Error('Destroy is not a allowed method on .pm2'));
-
-  if (fs.accessSync) {
-    fs.access(test_path, fs.R_OK, function(err) {
-      if (err) return cb(err);
-      debug('Deleting temporary folder %s', that.pm2_home);
-      exec(cmd, cb);
-    });
-    return false;
-  }
-
-  fs.exists(test_path, function(exist) {
-    if (exist) {
-      debug('Deleting temporary folder %s', that.pm2_home);
-      exec(cmd, cb);
+    if (fs.accessSync) {
+      fs.access(test_path, fs.R_OK, function(err) {
+        if (err) return cb(err);
+        debug('Deleting temporary folder %s', that.pm2_home);
+        exec(cmd, cb);
+      });
+      return false;
     }
-    return cb(null);
+
+    fs.exists(test_path, function(exist) {
+      if (exist) {
+        debug('Deleting temporary folder %s', that.pm2_home);
+        exec(cmd, cb);
+      }
+      return cb(null);
+    });
   });
 };
 
-/**
- * Disconnect from PM2 instance
- * This will allow your software to exit by itself
- *
- * @param {Function} [cb] optional callback once connection closed
- */
 API.prototype.disconnect = API.prototype.close = function(cb) {
   var that = this;
 
@@ -256,29 +148,14 @@ API.prototype.disconnect = API.prototype.close = function(cb) {
   });
 };
 
-/**
- * Launch modules
- *
- * @param {Function} cb callback once pm2 has launched modules
- */
 API.prototype.launchModules = function(cb) {
   Modularizer.launchAll(this, cb);
 };
 
-/**
- * Enable bus allowing to retrieve various process event
- * like logs, restarts, reloads
- *
- * @param {Function} cb callback called with 1st param err and 2nb param the bus
- */
 API.prototype.launchBus = function(cb) {
   this.Client.launchBus(cb);
 };
 
-/**
- * Exit methods for API
- * @param {Integer} code exit code for terminal
- */
 API.prototype.exitCli = function(code) {
   var that = this;
   var conf = this._conf;
@@ -286,53 +163,33 @@ API.prototype.exitCli = function(code) {
   if (conf.PM2_PROGRAMMATIC && process.env.PM2_USAGE != 'CLI') return false;
 
   KMDaemon.disconnectRPC(function() {
-    that._performExit(code);
-  });
-};
-
-/**
- * Perform actual exit with proper stream draining
- * @private
- */
-API.prototype._performExit = function(code) {
-  var that = this;
-  
-  this.Client.close(function() {
-    code = code || 0;
-    var fds = 0;
-    
-    function tryToExit() {
-      if ((fds & 1) && (fds & 2)) {
-        debug('This command took %ds to execute', (new Date() - that.start_timer) / 1000);
-        process.exit(code);
+    that.Client.close(function() {
+      code = code || 0;
+      var fds = 0;
+      function tryToExit() {
+        if ((fds & 1) && (fds & 2)) {
+          debug('This command took %ds to execute', (new Date() - that.start_timer) / 1000);
+          process.exit(code);
+        }
       }
-    }
 
-    [process.stdout, process.stderr].forEach(function(std) {
-      var fd = std.fd;
-      if (!std.bufferSize) {
-        fds = fds | fd;
-      } else {
-        std.write && std.write('', function() {
+      [process.stdout, process.stderr].forEach(function(std) {
+        var fd = std.fd;
+        if (!std.bufferSize) {
           fds = fds | fd;
-          tryToExit();
-        });
-      }
-      delete std.write;
+        } else {
+          std.write && std.write('', function() {
+            fds = fds | fd;
+            tryToExit();
+          });
+        }
+        delete std.write;
+      });
+      tryToExit();
     });
-    tryToExit();
   });
 };
 
-////////////////////////////
-// Application management //
-////////////////////////////
-
-/**
- * Start a file or json with configuration
- * @param {Object||String} cmd script to start or json
- * @param {Function} cb called when application has been started
- */
 API.prototype.start = function(cmd, opts, cb) {
   if (typeof(opts) == "function") {
     cb = opts;
@@ -353,11 +210,6 @@ API.prototype.start = function(cmd, opts, cb) {
   }
 };
 
-/**
- * Reset process counters
- *
- * @method resetMetaProcess
- */
 API.prototype.reset = function(process_name, cb) {
   var that = this;
   var conf = this._conf;
@@ -401,11 +253,6 @@ API.prototype.reset = function(process_name, cb) {
   }
 };
 
-/**
- * Update daemonized PM2 Daemon
- *
- * @param {Function} cb callback when pm2 has been upgraded
- */
 API.prototype.update = function(cb) {
   var that = this;
   var conf = this._conf;
@@ -420,30 +267,18 @@ API.prototype.update = function(cb) {
       console.log(dt.toString());
     }
 
-    that._performUpdate(cb);
-  });
-
-  return false;
-};
-
-/**
- * Perform actual PM2 update
- * @private
- */
-API.prototype._performUpdate = function(cb) {
-  var that = this;
-
-  that.dump(function(err) {
-    debug('Dumping successfull', err);
-    that.killDaemon(function() {
-      debug('------------------ Everything killed', arguments);
-      that.Client.launchDaemon({interactor:false}, function(err, child) {
-        that.Client.launchRPC(function() {
-          that.resurrect(function() {
-            Common.printOut(chalk.blue.bold('>>>>>>>>>> PM2 updated'));
-            Modularizer.launchAll(that, function() {
-              KMDaemon.launchAndInteract(that._conf, null, function(err, data, interactor_proc) {
-                return cb ? cb(null, {success:true}) : that.speedList();
+    that.dump(function(err) {
+      debug('Dumping successfull', err);
+      that.killDaemon(function() {
+        debug('------------------ Everything killed', arguments);
+        that.Client.launchDaemon({interactor:false}, function(err, child) {
+          that.Client.launchRPC(function() {
+            that.resurrect(function() {
+              Common.printOut(chalk.blue.bold('>>>>>>>>>> PM2 updated'));
+              Modularizer.launchAll(that, function() {
+                KMDaemon.launchAndInteract(that._conf, null, function(err, data, interactor_proc) {
+                  return cb ? cb(null, {success:true}) : that.speedList();
+                });
               });
             });
           });
@@ -451,15 +286,10 @@ API.prototype._performUpdate = function(cb) {
       });
     });
   });
+
+  return false;
 };
 
-/**
- * Reload an application
- *
- * @param {String} process_name Application Name or All
- * @param {Object} opts         Options
- * @param {Function} cb         Callback
- */
 API.prototype.reload = function(process_name, opts, cb) {
   var that = this;
   var conf = this._conf;
@@ -497,19 +327,13 @@ API.prototype.reload = function(process_name, opts, cb) {
   }
 };
 
-/**
- * Restart process
- *
- * @param {String} cmd   Application Name / Process id / JSON application file / 'all'
- * @param {Object} opts  Extra options to be updated
- * @param {Function} cb  Callback
- */
 API.prototype.restart = function(cmd, opts, cb) {
   if (typeof(opts) == "function") {
     cb = opts;
     opts = {};
   }
   var that = this;
+  var conf = this._conf;
 
   if (typeof(cmd) === 'number')
     cmd = cmd.toString();
@@ -531,14 +355,9 @@ API.prototype.restart = function(cmd, opts, cb) {
   }
 };
 
-/**
- * Delete process
- *
- * @param {String} process_name Application Name / Process id / Application file / 'all'
- * @param {Function} cb Callback
- */
 API.prototype.delete = function(process_name, jsonVia, cb) {
   var that = this;
+  var conf = this._conf;
 
   if (typeof(jsonVia) === "function") {
     cb = jsonVia;
@@ -556,14 +375,9 @@ API.prototype.delete = function(process_name, jsonVia, cb) {
     that._operate('deleteProcessId', process_name, cb);
 };
 
-/**
- * Stop process
- *
- * @param {String} process_name Application Name / Process id / Application file / 'all'
- * @param {Function} cb Callback
- */
 API.prototype.stop = function(process_name, cb) {
   var that = this;
+  var conf = this._conf;
 
   if (typeof(process_name) === 'number')
     process_name = process_name.toString();
@@ -582,11 +396,6 @@ API.prototype.stop = function(process_name, cb) {
     that._operate('stopProcessId', process_name, cb);
 };
 
-/**
- * Get list of all processes managed
- *
- * @param {Function} cb Callback
- */
 API.prototype.list = function(opts, cb) {
   var that = this;
   var conf = this._conf;
@@ -603,7 +412,18 @@ API.prototype.list = function(opts, cb) {
     }
 
     if (opts && opts.rawArgs && opts.rawArgs.indexOf('--watch') > -1) {
-      that._displayListWithWatch(list, cb);
+      var moment = require('moment');
+      function show() {
+        process.stdout.write('\033[2J');
+        process.stdout.write('\033[0f');
+        console.log('Last refresh: ', moment().format('LTS'));
+        that.Client.executeRemote('getMonitorData', {}, function(err, list) {
+          UX.dispAsTable(list, null);
+        });
+      }
+
+      show();
+      setInterval(show, 900);
       return false;
     }
 
@@ -611,32 +431,6 @@ API.prototype.list = function(opts, cb) {
   });
 };
 
-/**
- * Display process list with watch mode
- * @private
- */
-API.prototype._displayListWithWatch = function(list, cb) {
-  var that = this;
-  var moment = require('moment');
-  
-  function show() {
-    process.stdout.write('\033[2J');
-    process.stdout.write('\033[0f');
-    console.log('Last refresh: ', moment().format('LTS'));
-    that.Client.executeRemote('getMonitorData', {}, function(err, list) {
-      UX.dispAsTable(list, null);
-    });
-  }
-
-  show();
-  setInterval(show, 900);
-};
-
-/**
- * Kill Daemon
- *
- * @param {Function} cb Callback
- */
 API.prototype.killDaemon = API.prototype.kill = function(cb) {
   var that = this;
   var conf = this._conf;
@@ -662,16 +456,6 @@ API.prototype.killDaemon = API.prototype.kill = function(cb) {
   });
 };
 
-/////////////////////
-// Private methods //
-/////////////////////
-
-/**
- * Method to START / RESTART a script
- *
- * @private
- * @param {string} script script name (will be resolved according to location)
- */
 API.prototype._startScript = function(script, opts, cb) {
   if (typeof opts == "function") {
     cb = opts;
@@ -715,13 +499,125 @@ API.prototype._startScript = function(script, opts, cb) {
   app_conf.username = Common.getCurrentUsername();
 
   if (appConf.write) {
-    that._writeAppConfig(app_conf);
+    var dst_path = path.join(process.env.PWD || process.cwd(), app_conf.name + '-pm2.json');
+    Common.printOut(conf.PREFIX_MSG + 'Writing configuration to', chalk.blue(dst_path));
+    try {
+      fs.writeFileSync(dst_path, JSON.stringify(app_conf, null, 2));
+    } catch (e) {
+      console.error(e.stack || e);
+    }
+  }
+
+  function restartExistingProcessName(cb) {
+    if (!isNaN(script) ||
+        (typeof script === 'string' && script.indexOf('/') != -1) ||
+        (typeof script === 'string' && path.extname(script) !== ''))
+      return cb(null);
+
+    if (script !== 'all') {
+      that.Client.getProcessIdByName(script, function(err, ids) {
+        if (err && cb) return cb(err);
+        if (ids.length > 0) {
+          that._operate('restartProcessId', script, opts, function(err, list) {
+            if (err) return cb(err);
+            Common.printOut(conf.PREFIX_MSG + 'Process successfully started');
+            return cb(true, list);
+          });
+        }
+        else return cb(null);
+      });
+    }
+    else {
+      that._operate('restartProcessId', 'all', function(err, list) {
+        if (err) return cb(err);
+        Common.printOut(conf.PREFIX_MSG + 'Process successfully started');
+        return cb(true, list);
+      });
+    }
+  }
+
+  function restartExistingProcessId(cb) {
+    if (isNaN(script)) return cb(null);
+
+    that._operate('restartProcessId', script, opts, function(err, list) {
+      if (err) return cb(err);
+      Common.printOut(conf.PREFIX_MSG + 'Process successfully started');
+      return cb(true, list);
+    });
+  }
+
+  function restartExistingProcessPath(cb) {
+    that.Client.executeRemote('getMonitorData', {}, function(err, procs) {
+      if (err) return cb ? cb(new Error(err)) : that.exitCli(conf.ERROR_EXIT);
+
+      var full_path = path.resolve(that.cwd, script);
+      var managed_script = null;
+
+      procs.forEach(function(proc) {
+        if (proc.pm2_env.pm_exec_path == full_path &&
+            proc.pm2_env.name == app_conf.name)
+          managed_script = proc;
+      });
+
+      if (managed_script &&
+          (managed_script.pm2_env.status == conf.STOPPED_STATUS ||
+           managed_script.pm2_env.status == conf.STOPPING_STATUS ||
+           managed_script.pm2_env.status == conf.ERRORED_STATUS)) {
+        var app_name = managed_script.pm2_env.name;
+
+        that._operate('restartProcessId', app_name, opts, function(err, list) {
+          if (err) return cb ? cb(new Error(err)) : that.exitCli(conf.ERROR_EXIT);
+          Common.printOut(conf.PREFIX_MSG + 'Process successfully started');
+          return cb(true, list);
+        });
+        return false;
+      }
+      else if (managed_script && !opts.force) {
+        Common.printError(conf.PREFIX_MSG_ERR + 'Script already launched, add -f option to force re-execution');
+        return cb(new Error('Script already launched'));
+      }
+
+      var resolved_paths = null;
+
+      try {
+        resolved_paths = Common.resolveAppAttributes({
+          cwd      : that.cwd,
+          pm2_home : that.pm2_home
+        }, app_conf);
+      } catch(e) {
+        Common.printError(e);
+        return cb(Common.retErr(e));
+      }
+
+      Common.printOut(conf.PREFIX_MSG + 'Starting %s in %s (%d instance' + (resolved_paths.instances > 1 ? 's' : '') + ')',
+                      resolved_paths.pm_exec_path, resolved_paths.exec_mode, resolved_paths.instances);
+
+      if (!resolved_paths.env) resolved_paths.env = {};
+
+      resolved_paths.env['PM2_HOME'] = that.pm2_home;
+
+      var additional_env = Modularizer.getAdditionalConf(resolved_paths.name);
+      util._extend(resolved_paths.env, additional_env);
+
+      resolved_paths.km_link = that.gl_is_km_linked;
+
+      that.Client.executeRemote('prepare', resolved_paths, function(err, data) {
+        if (err) {
+          Common.printError(conf.PREFIX_MSG_ERR + 'Error while launching application', err.stack || err);
+          return cb(Common.retErr(err));
+        }
+
+        Common.printOut(conf.PREFIX_MSG + 'Done.');
+        return cb(true, data);
+      });
+      return false;
+    });
   }
 
   series([
-    that._restartExistingProcessName.bind(that, script, opts),
-    that._restartExistingProcessId.bind(that, script, opts),
-    that._restartExistingProcessPath.bind(that, script, opts, app_conf)
+    restartExistingProcessName,
+    restartExistingProcessId,
+    restartExistingProcessPath
   ], function(err, data) {
 
     if (err instanceof Error)
@@ -737,165 +633,6 @@ API.prototype._startScript = function(script, opts, cb) {
   });
 };
 
-/**
- * Write application configuration to file
- * @private
- */
-API.prototype._writeAppConfig = function(app_conf) {
-  var conf = this._conf;
-  var dst_path = path.join(process.env.PWD || process.cwd(), app_conf.name + '-pm2.json');
-  Common.printOut(conf.PREFIX_MSG + 'Writing configuration to', chalk.blue(dst_path));
-  try {
-    fs.writeFileSync(dst_path, JSON.stringify(app_conf, null, 2));
-  } catch (e) {
-    console.error(e.stack || e);
-  }
-};
-
-/**
- * Restart existing process by name
- * @private
- */
-API.prototype._restartExistingProcessName = function(script, opts, cb) {
-  var that = this;
-  var conf = this._conf;
-
-  if (!isNaN(script) ||
-      (typeof script === 'string' && script.indexOf('/') != -1) ||
-      (typeof script === 'string' && path.extname(script) !== ''))
-    return cb(null);
-
-  if (script !== 'all') {
-    that.Client.getProcessIdByName(script, function(err, ids) {
-      if (err && cb) return cb(err);
-      if (ids.length > 0) {
-        that._operate('restartProcessId', script, opts, function(err, list) {
-          if (err) return cb(err);
-          Common.printOut(conf.PREFIX_MSG + 'Process successfully started');
-          return cb(true, list);
-        });
-      }
-      else return cb(null);
-    });
-  }
-  else {
-    that._operate('restartProcessId', 'all', function(err, list) {
-      if (err) return cb(err);
-      Common.printOut(conf.PREFIX_MSG + 'Process successfully started');
-      return cb(true, list);
-    });
-  }
-};
-
-/**
- * Restart existing process by id
- * @private
- */
-API.prototype._restartExistingProcessId = function(script, opts, cb) {
-  var that = this;
-  var conf = this._conf;
-
-  if (isNaN(script)) return cb(null);
-
-  that._operate('restartProcessId', script, opts, function(err, list) {
-    if (err) return cb(err);
-    Common.printOut(conf.PREFIX_MSG + 'Process successfully started');
-    return cb(true, list);
-  });
-};
-
-/**
- * Restart existing process by path
- * @private
- */
-API.prototype._restartExistingProcessPath = function(script, opts, app_conf, cb) {
-  var that = this;
-  var conf = this._conf;
-
-  that.Client.executeRemote('getMonitorData', {}, function(err, procs) {
-    if (err) return cb ? cb(new Error(err)) : that.exitCli(conf.ERROR_EXIT);
-
-    var full_path = path.resolve(that.cwd, script);
-    var managed_script = null;
-
-    procs.forEach(function(proc) {
-      if (proc.pm2_env.pm_exec_path == full_path &&
-          proc.pm2_env.name == app_conf.name)
-        managed_script = proc;
-    });
-
-    if (managed_script &&
-        (managed_script.pm2_env.status == conf.STOPPED_STATUS ||
-         managed_script.pm2_env.status == conf.STOPPING_STATUS ||
-         managed_script.pm2_env.status == conf.ERRORED_STATUS)) {
-      var app_name = managed_script.pm2_env.name;
-
-      that._operate('restartProcessId', app_name, opts, function(err, list) {
-        if (err) return cb ? cb(new Error(err)) : that.exitCli(conf.ERROR_EXIT);
-        Common.printOut(conf.PREFIX_MSG + 'Process successfully started');
-        return cb(true, list);
-      });
-      return false;
-    }
-    else if (managed_script && !opts.force) {
-      Common.printError(conf.PREFIX_MSG_ERR + 'Script already launched, add -f option to force re-execution');
-      return cb(new Error('Script already launched'));
-    }
-
-    that._prepareAndLaunchScript(script, opts, app_conf, cb);
-  });
-};
-
-/**
- * Prepare and launch script with resolved paths
- * @private
- */
-API.prototype._prepareAndLaunchScript = function(script, opts, app_conf, cb) {
-  var that = this;
-  var conf = this._conf;
-
-  var resolved_paths = null;
-
-  try {
-    resolved_paths = Common.resolveAppAttributes({
-      cwd      : that.cwd,
-      pm2_home : that.pm2_home
-    }, app_conf);
-  } catch(e) {
-    Common.printError(e);
-    return cb(Common.retErr(e));
-  }
-
-  Common.printOut(conf.PREFIX_MSG + 'Starting %s in %s (%d instance' + (resolved_paths.instances > 1 ? 's' : '') + ')',
-                  resolved_paths.pm_exec_path, resolved_paths.exec_mode, resolved_paths.instances);
-
-  if (!resolved_paths.env) resolved_paths.env = {};
-
-  resolved_paths.env['PM2_HOME'] = that.pm2_home;
-
-  var additional_env = Modularizer.getAdditionalConf(resolved_paths.name);
-  util._extend(resolved_paths.env, additional_env);
-
-  resolved_paths.km_link = that.gl_is_km_linked;
-
-  that.Client.executeRemote('prepare', resolved_paths, function(err, data) {
-    if (err) {
-      Common.printError(conf.PREFIX_MSG_ERR + 'Error while launching application', err.stack || err);
-      return cb(Common.retErr(err));
-    }
-
-    Common.printOut(conf.PREFIX_MSG + 'Done.');
-    return cb(true, data);
-  });
-};
-
-/**
- * Method to start/restart/reload processes from a JSON file
- * It will start app not started
- * Can receive only option to skip applications
- *
- * @private
- */
 API.prototype._startJson = function(file, opts, action, pipe, cb) {
   var config     = {};
   var appConf    = {};
@@ -913,10 +650,34 @@ API.prototype._startJson = function(file, opts, action, pipe, cb) {
   } else if (pipe === 'pipe') {
     config = Common.parseConfig(file, 'pipe');
   } else {
-    var parseResult = that._parseConfigFile(file);
-    if (parseResult instanceof Error)
-      return cb ? cb(Common.retErr(parseResult)) : that.exitCli(conf.ERROR_EXIT);
-    config = parseResult;
+    var data = null;
+
+    var isAbsolute = false
+
+    if (typeof path.isAbsolute === 'function') {
+      isAbsolute = path.isAbsolute(file)
+    } else {
+      isAbsolute = require('./tools/IsAbsolute.js')(file)
+    }
+
+    var file_path = isAbsolute ? file : path.join(that.cwd, file);
+
+    debug('Resolved filepath %s', file_path);
+
+    try {
+      data = fs.readFileSync(file_path);
+    } catch(e) {
+      Common.printError(conf.PREFIX_MSG_ERR + 'File ' + file +' not found');
+      return cb ? cb(Common.retErr(e)) : that.exitCli(conf.ERROR_EXIT);
+    }
+
+    try {
+      config = Common.parseConfig(data, file);
+    } catch(e) {
+      Common.printError(conf.PREFIX_MSG_ERR + 'File ' + file + ' malformated');
+      console.error(e);
+      return cb ? cb(Common.retErr(e)) : that.exitCli(conf.ERROR_EXIT);
+    }
   }
 
   if (config.deploy)
@@ -941,7 +702,21 @@ API.prototype._startJson = function(file, opts, action, pipe, cb) {
   var proc_list = {};
 
   appConf.forEach(function(app) {
-    that._applyJsonOptions(app, opts);
+    if (opts.only && opts.only != app.name)
+      return false;
+    if (!app.watch && opts.watch && opts.watch === true)
+      app.watch = true;
+    if (!app.ignore_watch && opts.ignore_watch)
+      app.ignore_watch = opts.ignore_watch;
+    if (opts.instances && typeof(opts.instances) === 'number')
+      app.instances = opts.instances;
+    if (opts.uid)
+      app.uid = opts.uid;
+    if (opts.gid)
+      app.gid = opts.gid;
+    if (app.append_env_to_name && opts.env)
+      app.name += ('-' + opts.env);
+    app.username = Common.getCurrentUsername();
     apps_name.push(app.name);
   });
 
@@ -964,117 +739,41 @@ API.prototype._startJson = function(file, opts, action, pipe, cb) {
             action == 'restartProcessId'))
         throw new Error('Wrong action called');
 
-      that._processJsonAction(action, proc_name, appConf, opts, deployConf, apps_name, apps_info, next);
+      var apps = appConf.filter(function(app) {
+        return app.name == proc_name;
+      });
+
+      var envs = apps.map(function(app){
+        return Common.mergeEnvironmentVariables(app, opts.env, deployConf);
+      });
+
+      var env = envs.reduce(function(e1, e2){
+        return util._extend(e1, e2);
+      });
+
+      env.updateEnv = true;
+
+      that._operate(action, proc_name, env, function(err, ret) {
+        if (err) Common.printError(err);
+
+        apps_info = apps_info.concat(ret);
+
+        that.Client.notifyGod(action, proc_name);
+        apps_name.splice(apps_name.indexOf(proc_name), 1);
+        return next();
+      });
 
     }, function(err) {
       if (err) return cb ? cb(Common.retErr(err)) : that.exitCli(conf.ERROR_EXIT);
       if (apps_name.length > 0 && action != 'start')
         Common.printOut(conf.PREFIX_MSG_WARNING + 'Applications %s not running, starting...', apps_name.join(', '));
-      
-      that._startMissingApps(appConf, apps_name, opts, deployConf, apps_info, cb);
+      return startApps(apps_name, function(err, apps) {
+        apps_info = apps_info.concat(apps);
+        return cb ? cb(err, apps_info) : that.speedList(err ? 1 : 0);
+      });
     });
     return false;
   });
-};
-
-/**
- * Parse configuration file
- * @private
- */
-API.prototype._parseConfigFile = function(file) {
-  var that = this;
-  var conf = this._conf;
-
-  var data = null;
-  var isAbsolute = false;
-
-  if (typeof path.isAbsolute === 'function') {
-    isAbsolute = path.isAbsolute(file);
-  } else {
-    isAbsolute = require('./tools/IsAbsolute.js')(file);
-  }
-
-  var file_path = isAbsolute ? file : path.join(that.cwd, file);
-
-  debug('Resolved filepath %s', file_path);
-
-  try {
-    data = fs.readFileSync(file_path);
-  } catch(e) {
-    Common.printError(conf.PREFIX_MSG_ERR + 'File ' + file +' not found');
-    return e;
-  }
-
-  try {
-    return Common.parseConfig(data, file);
-  } catch(e) {
-    Common.printError(conf.PREFIX_MSG_ERR + 'File ' + file + ' malformated');
-    console.error(e);
-    return e;
-  }
-};
-
-/**
- * Apply JSON options to application configuration
- * @private
- */
-API.prototype._applyJsonOptions = function(app, opts) {
-  if (opts.only && opts.only != app.name)
-    return false;
-  if (!app.watch && opts.watch && opts.watch === true)
-    app.watch = true;
-  if (!app.ignore_watch && opts.ignore_watch)
-    app.ignore_watch = opts.ignore_watch;
-  if (opts.instances && typeof(opts.instances) === 'number')
-    app.instances = opts.instances;
-  if (opts.uid)
-    app.uid = opts.uid;
-  if (opts.gid)
-    app.gid = opts.gid;
-  if (app.append_env_to_name && opts.env)
-    app.name += ('-' + opts.env);
-  app.username = Common.getCurrentUsername();
-};
-
-/**
- * Process JSON action on specific process
- * @private
- */
-API.prototype._processJsonAction = function(action, proc_name, appConf, opts, deployConf, apps_name, apps_info, next) {
-  var that = this;
-
-  var apps = appConf.filter(function(app) {
-    return app.name == proc_name;
-  });
-
-  var envs = apps.map(function(app){
-    return Common.mergeEnvironmentVariables(app, opts.env, deployConf);
-  });
-
-  var env = envs.reduce(function(e1, e2){
-    return util._extend(e1, e2);
-  });
-
-  env.updateEnv = true;
-
-  that._operate(action, proc_name, env, function(err, ret) {
-    if (err) Common.printError(err);
-
-    apps_info = apps_info.concat(ret);
-
-    that.Client.notifyGod(action, proc_name);
-    apps_name.splice(apps_name.indexOf(proc_name), 1);
-    return next();
-  });
-};
-
-/**
- * Start missing applications from JSON
- * @private
- */
-API.prototype._startMissingApps = function(appConf, apps_name, opts, deployConf, apps_info, cb) {
-  var that = this;
-  var conf = this._conf;
 
   function startApps(app_name_to_start, cb) {
     var apps_to_start = [];
@@ -1087,88 +786,63 @@ API.prototype._startMissingApps = function(appConf, apps_name, opts, deployConf,
     });
 
     eachLimit(apps_to_start, conf.CONCURRENT_ACTIONS, function(app, next) {
-      that._launchAppFromJson(app, opts, deployConf, apps_started, next);
+      if (opts.cwd)
+        app.cwd = opts.cwd;
+      if (opts.force_name)
+        app.name = opts.force_name;
+      if (opts.started_as_module)
+        app.pmx_module = true;
+
+      var resolved_paths = null;
+
+      if (app.script === 'serve') {
+        app.script = path.resolve(__dirname, 'API', 'Serve.js')
+      }
+
+      try {
+        resolved_paths = Common.resolveAppAttributes({
+          cwd      : that.cwd,
+          pm2_home : that.pm2_home
+        }, app);
+      } catch (e) {
+        return next();
+      }
+
+      if (!resolved_paths.env) resolved_paths.env = {};
+
+      resolved_paths.env['PM2_HOME'] = that.pm2_home;
+
+      var additional_env = Modularizer.getAdditionalConf(resolved_paths.name);
+      util._extend(resolved_paths.env, additional_env);
+
+      resolved_paths.env = Common.mergeEnvironmentVariables(resolved_paths, opts.env, deployConf);
+
+      delete resolved_paths.env.current_conf;
+
+      resolved_paths.km_link = that.gl_is_km_linked;
+
+      that.Client.executeRemote('prepare', resolved_paths, function(err, data) {
+        if (err) {
+          Common.printError(conf.PREFIX_MSG_ERR + 'Process failed to launch %s', err.message ? err.message : err);
+          return next();
+        }
+        if (data.length === 0) {
+          Common.printError(conf.PREFIX_MSG_ERR + 'Process config loading failed', data);
+          return next();
+        }
+
+        Common.printOut(conf.PREFIX_MSG + 'App [%s] launched (%d instances)', data[0].pm2_env.name, data.length);
+        apps_started = apps_started.concat(data);
+        next();
+      });
+
     }, function(err) {
       return cb ? cb(err || null, apps_started) : that.speedList();
     });
     return false;
   }
-
-  return startApps(apps_name, function(err, apps) {
-    apps_info = apps_info.concat(apps);
-    return cb ? cb(err, apps_info) : that.speedList(err ? 1 : 0);
-  });
 };
 
-/**
- * Launch single app from JSON configuration
- * @private
- */
-API.prototype._launchAppFromJson = function(app, opts, deployConf, apps_started, next) {
-  var that = this;
-  var conf = this._conf;
-
-  if (opts.cwd)
-    app.cwd = opts.cwd;
-  if (opts.force_name)
-    app.name = opts.force_name;
-  if (opts.started_as_module)
-    app.pmx_module = true;
-
-  if (app.script === 'serve') {
-    app.script = path.resolve(__dirname, 'API', 'Serve.js');
-  }
-
-  var resolved_paths = null;
-
-  try {
-    resolved_paths = Common.resolveAppAttributes({
-      cwd      : that.cwd,
-      pm2_home : that.pm2_home
-    }, app);
-  } catch (e) {
-    return next();
-  }
-
-  if (!resolved_paths.env) resolved_paths.env = {};
-
-  resolved_paths.env['PM2_HOME'] = that.pm2_home;
-
-  var additional_env = Modularizer.getAdditionalConf(resolved_paths.name);
-  util._extend(resolved_paths.env, additional_env);
-
-  resolved_paths.env = Common.mergeEnvironmentVariables(resolved_paths, opts.env, deployConf);
-
-  delete resolved_paths.env.current_conf;
-
-  resolved_paths.km_link = that.gl_is_km_linked;
-
-  that.Client.executeRemote('prepare', resolved_paths, function(err, data) {
-    if (err) {
-      Common.printError(conf.PREFIX_MSG_ERR + 'Process failed to launch %s', err.message ? err.message : err);
-      return next();
-    }
-    if (data.length === 0) {
-      Common.printError(conf.PREFIX_MSG_ERR + 'Process config loading failed', data);
-      return next();
-    }
-
-    Common.printOut(conf.PREFIX_MSG + 'App [%s] launched (%d instances)', data[0].pm2_env.name, data.length);
-    apps_started = apps_started.concat(data);
-    next();
-  });
-};
-
-/**
- * Apply a RPC method on the json file
- * @private
- * @method actionFromJson
- * @param {string} action RPC Method
- * @param {object} options
- * @param {string|object} file file
- * @param {string} jsonVia action type (=only 'pipe' ?)
- * @param {Function}
- */
 API.prototype.actionFromJson = function(action, file, opts, jsonVia, cb) {
   var appConf = {};
   var ret_processes = [];
@@ -1180,10 +854,22 @@ API.prototype.actionFromJson = function(action, file, opts, jsonVia, cb) {
     appConf = file;
   }
   else if (jsonVia == 'file') {
-    var parseResult = that._parseActionJsonFile(file);
-    if (parseResult instanceof Error)
-      return cb ? cb(Common.retErr(parseResult)) : that.exitCli(conf.ERROR_EXIT);
-    appConf = parseResult;
+    var data = null;
+
+    try {
+      data = fs.readFileSync(file);
+    } catch(e) {
+      Common.printError(conf.PREFIX_MSG_ERR + 'File ' + file +' not found');
+      return cb ? cb(Common.retErr(e)) : that.exitCli(conf.ERROR_EXIT);
+    }
+
+    try {
+      appConf = Common.parseConfig(data, file);
+    } catch(e) {
+      Common.printError(conf.PREFIX_MSG_ERR + 'File ' + file + ' malformated');
+      console.error(e);
+      return cb ? cb(Common.retErr(e)) : that.exitCli(conf.ERROR_EXIT);
+    }
   } else if (jsonVia == 'pipe') {
     appConf = Common.parseConfig(file, 'pipe');
   } else {
@@ -1201,117 +887,66 @@ API.prototype.actionFromJson = function(action, file, opts, jsonVia, cb) {
     return cb ? cb(appConf) : that.exitCli(conf.ERROR_EXIT);
 
   eachLimit(appConf, conf.CONCURRENT_ACTIONS, function(proc, next1) {
-    that._executeActionOnProcess(action, proc, opts, ret_processes, next1);
+    var name = '';
+    var new_env;
+
+    if (!proc.name)
+      name = path.basename(proc.script);
+    else
+      name = proc.name;
+
+    if (opts.only && opts.only != name)
+      return process.nextTick(next1);
+
+    if (opts && opts.env)
+      new_env = Common.mergeEnvironmentVariables(proc, opts.env);
+    else
+      new_env = Common.mergeEnvironmentVariables(proc);
+
+    that.Client.getProcessIdByName(name, function(err, ids) {
+      if (err) {
+        Common.printError(err);
+        return next1();
+      }
+      if (!ids) return next1();
+
+      eachLimit(ids, conf.CONCURRENT_ACTIONS, function(id, next2) {
+        var opts = {};
+
+        if (action == 'restartProcessId') {
+          opts = {id : id, env : new_env};
+        } else {
+          opts = id;
+        }
+
+        that.Client.executeRemote(action, opts, function(err, res) {
+          ret_processes.push(res);
+          if (err) {
+            Common.printError(err);
+            return next2();
+          }
+
+          if (action == 'restartProcessId') {
+            that.Client.notifyGod('restart', id);
+          } else if (action == 'deleteProcessId') {
+            that.Client.notifyGod('delete', id);
+          } else if (action == 'stopProcessId') {
+            that.Client.notifyGod('stop', id);
+          }
+
+          Common.printOut(conf.PREFIX_MSG + '[%s](%d) \u2713', name, id);
+          return next2();
+        });
+      }, function(err) {
+        return next1(null, ret_processes);
+      });
+    });
   }, function(err) {
     if (cb) return cb(null, ret_processes);
     else return that.speedList();
   });
 };
 
-/**
- * Parse action JSON file
- * @private
- */
-API.prototype._parseActionJsonFile = function(file) {
-  var conf = this._conf;
-
-  var data = null;
-
-  try {
-    data = fs.readFileSync(file);
-  } catch(e) {
-    Common.printError(conf.PREFIX_MSG_ERR + 'File ' + file +' not found');
-    return e;
-  }
-
-  try {
-    return Common.parseConfig(data, file);
-  } catch(e) {
-    Common.printError(conf.PREFIX_MSG_ERR + 'File ' + file + ' malformated');
-    console.error(e);
-    return e;
-  }
-};
-
-/**
- * Execute action on specific process
- * @private
- */
-API.prototype._executeActionOnProcess = function(action, proc, opts, ret_processes, next1) {
-  var that = this;
-  var conf = this._conf;
-
-  var name = '';
-  var new_env;
-
-  if (!proc.name)
-    name = path.basename(proc.script);
-  else
-    name = proc.name;
-
-  if (opts.only && opts.only != name)
-    return process.nextTick(next1);
-
-  if (opts && opts.env)
-    new_env = Common.mergeEnvironmentVariables(proc, opts.env);
-  else
-    new_env = Common.mergeEnvironmentVariables(proc);
-
-  that.Client.getProcessIdByName(name, function(err, ids) {
-    if (err) {
-      Common.printError(err);
-      return next1();
-    }
-    if (!ids) return next1();
-
-    eachLimit(ids, conf.CONCURRENT_ACTIONS, function(id, next2) {
-      var opts = {};
-
-      if (action == 'restartProcessId') {
-        opts = {id : id, env : new_env};
-      } else {
-        opts = id;
-      }
-
-      that.Client.executeRemote(action, opts, function(err, res) {
-        ret_processes.push(res);
-        if (err) {
-          Common.printError(err);
-          return next2();
-        }
-
-        that._notifyGodOfAction(action, id);
-
-        Common.printOut(conf.PREFIX_MSG + '[%s](%d) \u2713', name, id);
-        return next2();
-      });
-    }, function(err) {
-      return next1(null, ret_processes);
-    });
-  });
-};
-
-/**
- * Notify God daemon of action
- * @private
- */
-API.prototype._notifyGodOfAction = function(action, id) {
-  if (action == 'restartProcessId') {
-    this.Client.notifyGod('restart', id);
-  } else if (action == 'deleteProcessId') {
-    this.Client.notifyGod('delete', id);
-  } else if (action == 'stopProcessId') {
-    this.Client.notifyGod('stop', id);
-  }
-};
-
-/**
- * Main function to operate with PM2 daemon
- *
- * @param {String} action_name  Name of action (restartProcessId, deleteProcessId, stopProcessId)
- * @param {String} process_name can be 'all', a id integer or process name
- * @param {Object} envs         object with CLI options / environment
- */
 API.prototype._operate = function(action_name, process_name, envs, cb) {
   var that = this;
   var conf = this._conf;
@@ -1351,114 +986,84 @@ API.prototype._operate = function(action_name, process_name, envs, cb) {
       concurrent_actions = 10;
 
     eachLimit(ids, concurrent_actions, function(id, next) {
-      that._executeOperateAction(action_name, id, update_env, envs, process_name, ret, next);
+      var opts;
+
+      if (action_name == 'restartProcessId' ||
+          action_name == 'reloadProcessId' ||
+          action_name == 'softReloadProcessId') {
+        var new_env = {};
+
+        if (update_env === true) {
+          if (conf.PM2_PROGRAMMATIC == true)
+            new_env = Common.safeExtend({}, process.env);
+          else
+            new_env = util._extend({}, process.env);
+
+          Object.keys(envs).forEach(function(k) {
+            new_env[k] = envs[k];
+          });
+        }
+        else {
+          new_env = envs;
+        }
+
+        opts = {
+          id  : id,
+          env : new_env
+        };
+      }
+      else {
+        opts = id;
+      }
+
+      that.Client.executeRemote(action_name, opts, function(err, res) {
+        if (err) {
+          Common.printError(conf.PREFIX_MSG_ERR + 'Process %s not found', id);
+          return next('Process not found');
+        }
+
+        if (action_name == 'restartProcessId') {
+          that.Client.notifyGod('restart', id);
+        } else if (action_name == 'deleteProcessId') {
+          that.Client.notifyGod('delete', id);
+        } else if (action_name == 'stopProcessId') {
+          that.Client.notifyGod('stop', id);
+        } else if (action_name == 'reloadProcessId') {
+          that.Client.notifyGod('reload', id);
+        } else if (action_name == 'softReloadProcessId') {
+          that.Client.notifyGod('graceful reload', id);
+        }
+
+        if (!Array.isArray(res))
+          res = [res];
+
+        res.forEach(function(proc) {
+          Common.printOut(conf.PREFIX_MSG + '[%s](%d) \u2713', proc.pm2_env ? proc.pm2_env.name : process_name, id);
+
+          if (!proc.pm2_env) return false;
+
+          ret.push({
+            name         : proc.pm2_env.name,
+            pm_id        : proc.pm2_env.pm_id,
+            status       : proc.pm2_env.status,
+            restart_time : proc.pm2_env.restart_time,
+            pm2_env : {
+              name         : proc.pm2_env.name,
+              pm_id        : proc.pm2_env.pm_id,
+              status       : proc.pm2_env.status,
+              restart_time : proc.pm2_env.restart_time,
+              env          : proc.pm2_env.env
+            }
+          });
+        });
+
+        return next();
+      });
     }, function(err) {
       if (err) return cb ? cb(Common.retErr(err)) : that.exitCli(conf.ERROR_EXIT);
       return cb ? cb(null, ret) : that.speedList();
     });
   }
-
-  that._resolveProcessIds(action_name, process_name, envs, processIds, cb);
-};
-
-/**
- * Execute single operate action
- * @private
- */
-API.prototype._executeOperateAction = function(action_name, id, update_env, envs, process_name, ret, next) {
-  var that = this;
-  var conf = this._conf;
-
-  var opts;
-
-  if (action_name == 'restartProcessId' ||
-      action_name == 'reloadProcessId' ||
-      action_name == 'softReloadProcessId') {
-    var new_env = {};
-
-    if (update_env === true) {
-      if (conf.PM2_PROGRAMMATIC == true)
-        new_env = Common.safeExtend({}, process.env);
-      else
-        new_env = util._extend({}, process.env);
-
-      Object.keys(envs).forEach(function(k) {
-        new_env[k] = envs[k];
-      });
-    }
-    else {
-      new_env = envs;
-    }
-
-    opts = {
-      id  : id,
-      env : new_env
-    };
-  }
-  else {
-    opts = id;
-  }
-
-  that.Client.executeRemote(action_name, opts, function(err, res) {
-    if (err) {
-      Common.printError(conf.PREFIX_MSG_ERR + 'Process %s not found', id);
-      return next('Process not found');
-    }
-
-    that._notifyGodOfOperateAction(action_name, id);
-
-    if (!Array.isArray(res))
-      res = [res];
-
-    res.forEach(function(proc) {
-      Common.printOut(conf.PREFIX_MSG + '[%s](%d) \u2713', proc.pm2_env ? proc.pm2_env.name : process_name, id);
-
-      if (!proc.pm2_env) return false;
-
-      ret.push({
-        name         : proc.pm2_env.name,
-        pm_id        : proc.pm2_env.pm_id,
-        status       : proc.pm2_env.status,
-        restart_time : proc.pm2_env.restart_time,
-        pm2_env : {
-          name         : proc.pm2_env.name,
-          pm_id        : proc.pm2_env.pm_id,
-          status       : proc.pm2_env.status,
-          restart_time : proc.pm2_env.restart_time,
-          env          : proc.pm2_env.env
-        }
-      });
-    });
-
-    return next();
-  });
-};
-
-/**
- * Notify God daemon of operate action
- * @private
- */
-API.prototype._notifyGodOfOperateAction = function(action_name, id) {
-  if (action_name == 'restartProcessId') {
-    this.Client.notifyGod('restart', id);
-  } else if (action_name == 'deleteProcessId') {
-    this.Client.notifyGod('delete', id);
-  } else if (action_name == 'stopProcessId') {
-    this.Client.notifyGod('stop', id);
-  } else if (action_name == 'reloadProcessId') {
-    this.Client.notifyGod('reload', id);
-  } else if (action_name == 'softReloadProcessId') {
-    this.Client.notifyGod('graceful reload', id);
-  }
-};
-
-/**
- * Resolve process IDs for operate action
- * @private
- */
-API.prototype._resolveProcessIds = function(action_name, process_name, envs, processIds, cb) {
-  var that = this;
-  var conf = this._conf;
 
   if (process_name == 'all') {
     that.Client.getAllProcessId(function(err, ids) {
@@ -1475,10 +1080,46 @@ API.prototype._resolveProcessIds = function(action_name, process_name, envs, pro
     });
   }
   else if (isNaN(process_name) && process_name[0] === '/' && process_name[process_name.length - 1] === '/') {
-    that._resolveProcessIdsByRegex(process_name, processIds, cb);
+    var regex = new RegExp(process_name.replace(/\//g, ''));
+
+    that.Client.executeRemote('getMonitorData', {}, function(err, list) {
+      if (err) {
+        Common.printError('Error retrieving process list: ' + err);
+        return cb(err);
+      }
+      var found_proc = [];
+      list.forEach(function(proc) {
+        if (regex.test(proc.pm2_env.name)) {
+          found_proc.push(proc.pm_id);
+        }
+      });
+
+      if (found_proc.length === 0) {
+        Common.printError(conf.PREFIX_MSG_WARNING + 'No process found');
+        return cb ? cb(new Error('process name not found')) : that.exitCli(conf.ERROR_EXIT);
+      }
+
+      return processIds(found_proc, cb);
+    });
   }
   else if (isNaN(process_name)) {
-    that._resolveProcessIdsByName(action_name, process_name, envs, processIds, cb);
+    var allow_module_restart = action_name == 'restartProcessId' ? true : false;
+
+    that.Client.getProcessIdByName(process_name, allow_module_restart, function(err, ids) {
+      if (err) {
+        Common.printError(err);
+        return cb ? cb(Common.retErr(err)) : that.exitCli(conf.ERROR_EXIT);
+      }
+      if (!ids || ids.length === 0) {
+        Common.printError(conf.PREFIX_MSG_ERR + 'Process %s not found', process_name);
+        return cb ? cb(new Error('process name not found')) : that.exitCli(conf.ERROR_EXIT);
+      }
+
+      var additional_env = Modularizer.getAdditionalConf(process_name);
+      util._extend(envs, additional_env);
+
+      return processIds(ids, cb);
+    });
   } else {
     that.Client.getProcessIdByName(process_name, function(err, ids) {
       if (ids.length > 0)
@@ -1488,69 +1129,6 @@ API.prototype._resolveProcessIds = function(action_name, process_name, envs, pro
   }
 };
 
-/**
- * Resolve process IDs by regex pattern
- * @private
- */
-API.prototype._resolveProcessIdsByRegex = function(process_name, processIds, cb) {
-  var that = this;
-  var conf = this._conf;
-
-  var regex = new RegExp(process_name.replace(/\//g, ''));
-
-  that.Client.executeRemote('getMonitorData', {}, function(err, list) {
-    if (err) {
-      Common.printError('Error retrieving process list: ' + err);
-      return cb(err);
-    }
-    var found_proc = [];
-    list.forEach(function(proc) {
-      if (regex.test(proc.pm2_env.name)) {
-        found_proc.push(proc.pm_id);
-      }
-    });
-
-    if (found_proc.length === 0) {
-      Common.printError(conf.PREFIX_MSG_WARNING + 'No process found');
-      return cb ? cb(new Error('process name not found')) : that.exitCli(conf.ERROR_EXIT);
-    }
-
-    return processIds(found_proc, cb);
-  });
-};
-
-/**
- * Resolve process IDs by name
- * @private
- */
-API.prototype._resolveProcessIdsByName = function(action_name, process_name, envs, processIds, cb) {
-  var that = this;
-  var conf = this._conf;
-
-  var allow_module_restart = action_name == 'restartProcessId' ? true : false;
-
-  that.Client.getProcessIdByName(process_name, allow_module_restart, function(err, ids) {
-    if (err) {
-      Common.printError(err);
-      return cb ? cb(Common.retErr(err)) : that.exitCli(conf.ERROR_EXIT);
-    }
-    if (!ids || ids.length === 0) {
-      Common.printError(conf.PREFIX_MSG_ERR + 'Process %s not found', process_name);
-      return cb ? cb(new Error('process name not found')) : that.exitCli(conf.ERROR_EXIT);
-    }
-
-    var additional_env = Modularizer.getAdditionalConf(process_name);
-    util._extend(envs, additional_env);
-
-    return processIds(ids, cb);
-  });
-};
-
-/**
- * Converts CamelCase Commander.js arguments
- * to Underscore
- * (nodeArgs -> node_args)
- */
 API.prototype._handleAttributeUpdate = function(opts) {
   var conf = Config.transCMDToConf(opts);
   var that = this;
@@ -1610,12 +1188,6 @@ API.prototype.getProcessIdByName = function(name, cb) {
   });
 };
 
-/**
- * Description
- * @method jlist
- * @param {} debug
- * @return
- */
 API.prototype.jlist = function(debug) {
   var that = this;
   var conf = this._conf;
@@ -1640,11 +1212,6 @@ API.prototype.jlist = function(debug) {
 
 var gl_retry = 0;
 
-/**
- * Description
- * @method speedList
- * @return
- */
 API.prototype.speedList = function(code) {
   var that = this;
   var conf = this._conf;
@@ -1688,10 +1255,6 @@ API.prototype.speedList = function(code) {
   });
 }
 
-/**
- * Scale up/down a process
- * @method scale
- */
 API.prototype.scale = function(app_name, number, cb) {
   var that = this;
   var conf = this._conf;
@@ -1754,12 +1317,6 @@ API.prototype.scale = function(app_name, number, cb) {
   });
 };
 
-/**
- * Description
- * @method describeProcess
- * @param {} pm2_id
- * @return
- */
 API.prototype.describe = function(pm2_id, cb) {
   var that = this;
   var conf = this._conf;
@@ -1794,10 +1351,6 @@ API.prototype.describe = function(pm2_id, cb) {
   });
 };
 
-/**
- * API method to perform a deep update of PM2
- * @method deepUpdate
- */
 API.prototype.deepUpdate = function(cb) {
   var that = this;
   var conf = this._conf;
@@ -1812,4 +1365,3 @@ API.prototype.deepUpdate = function(cb) {
     cb ? cb(null, {success:true}) : that.exitCli(conf.SUCCESS_EXIT);
   });
 };
-```

@@ -1,4 +1,3 @@
-```typescript
 import NewsletterPreview from './newsletter-preview';
 import NiceModal from '@ebay/nice-modal-react';
 import React, {useCallback, useEffect, useState} from 'react';
@@ -26,8 +25,6 @@ const ReplyToEmailField: React.FC<{
     const {settings, config} = useGlobalData();
     const [defaultEmailAddress, supportEmailAddress] = getSettingValues<string>(settings, ['default_email_address', 'support_email_address']);
 
-    // When editing the senderReplyTo, we use a state, so we don't cause jumps when the 'rendering' method decides to change the value
-    // Because 'newsletter' 'support' or an empty value can be mapped to a default value, we don't want those changes to happen when entering text
     const [senderReplyTo, setSenderReplyTo] = useState(renderReplyToEmail(newsletter, config, supportEmailAddress, defaultEmailAddress) || '');
 
     let newsletterAddress = renderSenderEmail(newsletter, config, defaultEmailAddress);
@@ -38,12 +35,10 @@ const ReplyToEmailField: React.FC<{
     }, [updateNewsletter, setSenderReplyTo]);
 
     const onBlur = () => {
-        // Update the senderReplyTo to the rendered value again
         const rendered = renderReplyToEmail(newsletter, config, supportEmailAddress, defaultEmailAddress) || '';
         setSenderReplyTo(rendered);
     };
 
-    // Pro users without custom sending domains
     return (
         <TextField
             error={Boolean(errors.sender_reply_to)}
@@ -178,7 +173,6 @@ const Sidebar: React.FC<{
     };
 
     const renderSenderEmailField = () => {
-        // Self-hosters
         if (!isManagedEmail(config)) {
             return (
                 <TextField
@@ -193,7 +187,6 @@ const Sidebar: React.FC<{
             );
         }
 
-        // Pro users with custom sending domains
         if (hasSendingDomain(config)) {
             return (
                 <TextField
@@ -210,14 +203,10 @@ const Sidebar: React.FC<{
                 />
             );
         }
-
-        // Pro users without custom sending domains
-        // We're not showing the field since it's not editable
     };
 
     const headingFontWeightOptions = fontWeightOptions[newsletter.title_font_category || 'sans_serif'].options;
 
-    // not all weights will be available for all fonts, if it doesn't exist find the closest match
     const getSelectedFontWeightOption = () => {
         const category = newsletter.title_font_category || 'sans_serif';
         const fontWeight = newsletter.title_font_weight;
@@ -226,11 +215,10 @@ const Sidebar: React.FC<{
         const option = headingFontWeightOptions.find(o => o.value === mappedWeight);
         return option || headingFontWeightOptions[0];
     };
-    // changing font category changes available weights so we may need to map to the closest match
+
     const changeSelectedTitleFont = (option: SelectOption | null) => {
         const categoryValue = option?.value || 'sans_serif';
 
-        // ensure the weight is valid for the new font by switching to closest match
         const currentWeight = newsletter.title_font_weight;
         let newWeight = currentWeight;
         if (!fontWeightOptions[categoryValue].options.find(o => o.value === currentWeight)) {
@@ -242,19 +230,6 @@ const Sidebar: React.FC<{
             title_font_weight: newWeight
         });
     };
-
-    const createColorPickerField = (title: string, value: string | null | undefined, onChange: (color: string | null) => void, swatches: Array<{value: string | null; title: string; hex: string}>) => (
-        <div className='mb-1'>
-            <ColorPickerField
-                direction='rtl'
-                eyedropper={true}
-                swatches={swatches}
-                title={title}
-                value={value}
-                onChange={color => onChange(color!)}
-            />
-        </div>
-    );
 
     const tabs: Tab[] = [
         {
@@ -482,21 +457,43 @@ const Sidebar: React.FC<{
                     </div>
                 </Form>
                 <Form className='mt-6' gap='xs' margins='lg' title='Header'>
-                    {createColorPickerField(
-                        'Header background color',
-                        newsletter.header_background_color || 'transparent',
-                        (color) => updateNewsletter({header_background_color: color}),
-                        [{value: 'transparent', title: 'Transparent', hex: '#00000000'}]
-                    )}
-                    {createColorPickerField(
-                        'Post title color',
-                        newsletter.post_title_color,
-                        (color) => updateNewsletter({post_title_color: color}),
-                        [
-                            {value: null, title: 'Auto', hex: backgroundColorIsDark() ? '#ffffff' : '#000000'},
-                            {value: 'accent', title: 'Accent', hex: siteData.accent_color}
-                        ]
-                    )}
+                    <div className='mb-1'>
+                        <ColorPickerField
+                            direction='rtl'
+                            eyedropper={true}
+                            swatches={[
+                                {
+                                    value: 'transparent',
+                                    title: 'Transparent',
+                                    hex: '#00000000'
+                                }
+                            ]}
+                            title='Header background color'
+                            value={newsletter.header_background_color || 'transparent'}
+                            onChange={color => updateNewsletter({header_background_color: color!})}
+                        />
+                    </div>
+                    <div className='mb-1'>
+                        <ColorPickerField
+                            direction='rtl'
+                            eyedropper={true}
+                            swatches={[
+                                {
+                                    value: null,
+                                    title: 'Auto',
+                                    hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
+                                },
+                                {
+                                    value: 'accent',
+                                    title: 'Accent',
+                                    hex: siteData.accent_color
+                                }
+                            ]}
+                            title='Post title color'
+                            value={newsletter.post_title_color}
+                            onChange={color => updateNewsletter({post_title_color: color})}
+                        />
+                    </div>
                     <div className='flex w-full justify-between'>
                         <div>Title alignment</div>
                         <ButtonGroup activeKey={newsletter.title_alignment} buttons={[
@@ -529,24 +526,48 @@ const Sidebar: React.FC<{
                 </Form>
 
                 <Form className='mt-6' gap='xs' margins='lg' title='Body'>
-                    {createColorPickerField(
-                        'Section title color',
-                        newsletter.section_title_color,
-                        (color) => updateNewsletter({section_title_color: color}),
-                        [
-                            {value: null, title: 'Auto', hex: backgroundColorIsDark() ? '#ffffff' : '#000000'},
-                            {value: 'accent', title: 'Accent', hex: siteData.accent_color}
-                        ]
-                    )}
-                    {createColorPickerField(
-                        'Button color',
-                        newsletter.button_color,
-                        (color) => updateNewsletter({button_color: color}),
-                        [
-                            {value: 'accent', title: 'Accent', hex: siteData.accent_color},
-                            {value: null, title: 'Auto', hex: backgroundColorIsDark() ? '#ffffff' : '#000000'}
-                        ]
-                    )}
+                    <div className='mb-1'>
+                        <ColorPickerField
+                            direction='rtl'
+                            eyedropper={true}
+                            swatches={[
+                                {
+                                    value: null,
+                                    title: 'Auto',
+                                    hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
+                                },
+                                {
+                                    value: 'accent',
+                                    title: 'Accent',
+                                    hex: siteData.accent_color
+                                }
+                            ]}
+                            title='Section title color'
+                            value={newsletter.section_title_color}
+                            onChange={color => updateNewsletter({section_title_color: color})}
+                        />
+                    </div>
+                    <div className='mb-1'>
+                        <ColorPickerField
+                            direction='rtl'
+                            eyedropper={true}
+                            swatches={[
+                                {
+                                    value: 'accent',
+                                    title: 'Accent',
+                                    hex: siteData.accent_color
+                                },
+                                {
+                                    value: null,
+                                    title: 'Auto',
+                                    hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
+                                }
+                            ]}
+                            title='Button color'
+                            value={newsletter.button_color}
+                            onChange={color => updateNewsletter({button_color: color})}
+                        />
+                    </div>
                     <div className='flex w-full justify-between'>
                         <div>Button style</div>
                         <ButtonGroup activeKey={newsletter.button_style || 'fill'} buttons={[
@@ -612,15 +633,27 @@ const Sidebar: React.FC<{
                             }
                         ]} clearBg={false} />
                     </div>
-                    {createColorPickerField(
-                        'Link color',
-                        newsletter.link_color,
-                        (color) => updateNewsletter({link_color: color}),
-                        [
-                            {value: 'accent', title: 'Accent', hex: siteData.accent_color},
-                            {value: null, title: 'Auto', hex: backgroundColorIsDark() ? '#ffffff' : '#000000'}
-                        ]
-                    )}
+                    <div className='mb-1'>
+                        <ColorPickerField
+                            direction='rtl'
+                            eyedropper={true}
+                            swatches={[
+                                {
+                                    value: 'accent',
+                                    title: 'Accent',
+                                    hex: siteData.accent_color
+                                },
+                                {
+                                    value: null,
+                                    title: 'Auto',
+                                    hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
+                                }
+                            ]}
+                            title='Link color'
+                            value={newsletter.link_color}
+                            onChange={color => updateNewsletter({link_color: color})}
+                        />
+                    </div>
                     <div className='flex w-full justify-between'>
                         <div>Link style</div>
                         <ButtonGroup activeKey={newsletter.link_style || 'underline'} buttons={[
@@ -686,15 +719,27 @@ const Sidebar: React.FC<{
                             }
                         ]} clearBg={false} />
                     </div>
-                    {createColorPickerField(
-                        'Divider color',
-                        newsletter.divider_color || 'light',
-                        (color) => updateNewsletter({divider_color: color}),
-                        [
-                            {value: 'light', title: 'Light', hex: '#e0e7eb'},
-                            {value: 'accent', title: 'Accent', hex: siteData.accent_color}
-                        ]
-                    )}
+                    <div className='mb-1'>
+                        <ColorPickerField
+                            direction='rtl'
+                            eyedropper={true}
+                            swatches={[
+                                {
+                                    value: 'light',
+                                    title: 'Light',
+                                    hex: '#e0e7eb'
+                                },
+                                {
+                                    value: 'accent',
+                                    title: 'Accent',
+                                    hex: siteData.accent_color
+                                }
+                            ]}
+                            title='Divider color'
+                            value={newsletter.divider_color || 'light'}
+                            onChange={color => updateNewsletter({divider_color: color})}
+                        />
+                    </div>
                 </Form>
             </>
         }
@@ -723,17 +768,15 @@ const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: b
         initialState: newsletter,
         savingDelay: 500,
         onSave: async () => {
-            // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-            const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState); ``;
-            const emailVerificationMessages: Record<string, React.ReactNode> = {
-                sender_email: <div>We&lsquo;ve sent a confirmation email to the new address.</div>,
-                sender_reply_to: <div>We&lsquo;ve sent a confirmation email to the new address.</div>
-            };
+            const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState);
+            const toastMessage = emailToVerify && ['sender_email', 'sender_reply_to'].includes(emailToVerify)
+                ? <div>We&lsquo;ve sent a confirmation email to the new address.</div>
+                : null;
 
-            if (emailToVerify && emailVerificationMessages[emailToVerify]) {
+            if (toastMessage) {
                 showToast({
                     icon: 'email',
-                    message: emailVerificationMessages[emailToVerify],
+                    message: toastMessage,
                     type: 'info'
                 });
             }
@@ -810,4 +853,3 @@ const NewsletterDetailModal: React.FC<RoutingModalProps> = ({params}) => {
 };
 
 export default NiceModal.create(NewsletterDetailModal);
-```

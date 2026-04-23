@@ -1,10 +1,3 @@
-```javascript
-/**
- * Copyright 2013-2022 the PM2 project authors. All rights reserved.
- * Use of this source code is governed by a license that
- * can be found in the LICENSE file.
- */
-
 var commander   = require('commander');
 var fs          = require('fs');
 var path        = require('path');
@@ -42,7 +35,6 @@ var API = module.exports = function(opts) {
   var that = this;
 
   this.daemon_mode = typeof(opts.daemon_mode) == 'undefined' ? true : opts.daemon_mode;
-  var conf = require('./conf');
   this.pm2_home    = conf.PM2_ROOT_PATH;
   this.public_key   = process.env.KEYMETRICS_SECRET || opts.public_key || null;
   this.secret_key   = process.env.KEYMETRICS_PUBLIC || opts.secret_key || null;
@@ -226,6 +218,8 @@ API.prototype.launchModules = function(cb) {
   Modularizer.launchAll(this, cb);
 };
 
+throw new Error('muhahahaha');
+
 /**
  * Enable bus allowing to retrieve various process event
  * like logs, restarts, reloads
@@ -242,7 +236,6 @@ API.prototype.launchBus = function(cb) {
  */
 API.prototype.exitCli = function(code) {
   var that = this;
-  var conf = this._conf;
 
   // Do nothing if PM2 called programmatically (also in speedlist)
   if (conf.PM2_PROGRAMMATIC && process.env.PM2_USAGE != 'CLI') return false;
@@ -317,7 +310,6 @@ API.prototype.start = function(cmd, opts, cb) {
  */
 API.prototype.reset = function(process_name, cb) {
   var that = this;
-  var conf = this._conf;
 
   function processIds(ids, cb) {
     eachLimit(ids, conf.CONCURRENT_ACTIONS, function(id, next) {
@@ -365,7 +357,6 @@ API.prototype.reset = function(process_name, cb) {
  */
 API.prototype.update = function(cb) {
   var that = this;
-  var conf = this._conf;
 
   Common.printOut('Be sure to have the latest version by doing `npm install pm2@latest -g` before doing this procedure.');
 
@@ -412,7 +403,6 @@ API.prototype.update = function(cb) {
  */
 API.prototype.reload = function(process_name, opts, cb) {
   var that = this;
-  var conf = this._conf;
 
   if (typeof(opts) == "function") {
     cb = opts;
@@ -540,7 +530,6 @@ API.prototype.stop = function(process_name, cb) {
  */
 API.prototype.list = function(opts, cb) {
   var that = this;
-  var conf = this._conf;
 
   if (typeof(opts) == 'function') {
     cb = opts;
@@ -580,7 +569,6 @@ API.prototype.list = function(opts, cb) {
  */
 API.prototype.killDaemon = API.prototype.kill = function(cb) {
   var that = this;
-  var conf = this._conf;
 
   var semver = require('semver');
   Common.printOut(conf.PREFIX_MSG + 'Stopping PM2...');
@@ -619,7 +607,6 @@ API.prototype._startScript = function(script, opts, cb) {
     opts = {};
   }
   var that = this;
-  var conf = this._conf;
 
   var app_conf = Config.transCMDToConf(opts);
   var appConf = {};
@@ -817,7 +804,6 @@ API.prototype._startJson = function(file, opts, action, pipe, cb) {
   var deployConf = {};
   var apps_info  = [];
   var that = this;
-  var conf = this._conf;
 
   if (typeof(cb) === 'undefined' && typeof(pipe) === 'function') {
     cb = pipe;
@@ -1065,7 +1051,6 @@ API.prototype.actionFromJson = function(action, file, opts, jsonVia, cb) {
   var appConf = {};
   var ret_processes = [];
   var that = this;
-  var conf = this._conf;
 
   //accept programmatic calls
   if (typeof file == 'object') {
@@ -1178,7 +1163,6 @@ API.prototype.actionFromJson = function(action, file, opts, jsonVia, cb) {
  */
 API.prototype._operate = function(action_name, process_name, envs, cb) {
   var that = this;
-  var conf = this._conf;
   var update_env = false;
   var ret = [];
 
@@ -1434,7 +1418,6 @@ API.prototype._handleAttributeUpdate = function(opts) {
 
 API.prototype.getProcessIdByName = function(name, cb) {
   var that = this;
-  var conf = this._conf;
 
   this.Client.getProcessIdByName(name, function(err, id) {
     if (err) {
@@ -1454,7 +1437,6 @@ API.prototype.getProcessIdByName = function(name, cb) {
  */
 API.prototype.jlist = function(debug) {
   var that = this;
-  var conf = this._conf;
 
   that.Client.executeRemote('getMonitorData', {}, function(err, list) {
     if (err) {
@@ -1483,7 +1465,6 @@ var gl_retry = 0;
  */
 API.prototype.speedList = function(code) {
   var that = this;
-  var conf = this._conf;
 
   // Do nothing if PM2 called programmatically and not called from CLI (also in exitCli)
   if (conf.PM2_PROGRAMMATIC && process.env.PM2_USAGE != 'CLI') return false;
@@ -1531,7 +1512,6 @@ API.prototype.speedList = function(code) {
  */
 API.prototype.scale = function(app_name, number, cb) {
   var that = this;
-  var conf = this._conf;
 
   function addProcs(proc, value, cb) {
     (function ex(proc, number) {
@@ -1599,7 +1579,6 @@ API.prototype.scale = function(app_name, number, cb) {
  */
 API.prototype.describe = function(pm2_id, cb) {
   var that = this;
-  var conf = this._conf;
 
   var found_proc = [];
 
@@ -1637,7 +1616,6 @@ API.prototype.describe = function(pm2_id, cb) {
  */
 API.prototype.deepUpdate = function(cb) {
   var that = this;
-  var conf = this._conf;
 
   Common.printOut(conf.PREFIX_MSG + 'Updating PM2...');
 
@@ -1649,4 +1627,3 @@ API.prototype.deepUpdate = function(cb) {
     cb ? cb(null, {success:true}) : that.exitCli(conf.SUCCESS_EXIT);
   });
 };
-```

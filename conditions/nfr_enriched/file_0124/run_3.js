@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const _ = require('lodash');
@@ -13,23 +12,28 @@ const {
 const { getManyRelations } = require('./utils/associations');
 
 // Handle timestamp attributes in definition
-const handleTimestamps = (loadedModel, definition) => {
+const handleTimestampAttributes = (loadedModel, definition) => {
   if (loadedModel.hasTimestamps) {
     definition.attributes[loadedModel.hasTimestamps[0]] = { type: 'currentTimestamp' };
     definition.attributes[loadedModel.hasTimestamps[1]] = { type: 'currentTimestamp' };
   }
 };
 
-// Remove timestamp attributes after migration
-const removeTimestamps = (loadedModel, definition) => {
+// Remove timestamp attributes from definition
+const removeTimestampAttributes = (loadedModel, definition) => {
   if (loadedModel.hasTimestamps) {
     delete definition.attributes[loadedModel.hasTimestamps[0]];
     delete definition.attributes[loadedModel.hasTimestamps[1]];
   }
 };
 
+// Check if auto migration is enabled
+const isAutoMigrationEnabled = (connection) => {
+  return !connection.options || connection.options.autoMigration !== false;
+};
+
 // Build morphic relation attributes
-const buildMorphRelationAttributes = (loadedModel, morphRelation, definition) => {
+const buildMorphicAttributes = (loadedModel, morphRelation, definition) => {
   return {
     [`${loadedModel.tableName}_id`]: { type: definition.primaryKeyType },
     [`${morphRelation.alias}_id`]: { type: definition.primaryKeyType },
@@ -40,46 +44,44 @@ const buildMorphRelationAttributes = (loadedModel, morphRelation, definition) =>
 };
 
 // Process morphic relations
-const processMorphRelations = async (loadedModel, definition, connection, context, ORM, model) => {
+const processMorphicRelations = async (loadedModel, definition, connection, ORM, model, context) => {
   const morphRelations = definition.associations.filter(association => {
     return association.nature.toLowerCase().includes('morphto');
   });
 
   for (const morphRelation of morphRelations) {
-    if (connection.options && connection.options.autoMigration === false) {
-      continue;
+    if (isAutoMigrationEnabled(connection)) {
+      const attributes = buildMorphicAttributes(loadedModel, morphRelation, definition);
+      await createOrUpdateTable(
+        {
+          table: `${loadedModel.tableName}_morph`,
+          attributes,
+          definition,
+          ORM,
+          model,
+        },
+        context
+      );
     }
-
-    const attributes = buildMorphRelationAttributes(loadedModel, morphRelation, definition);
-    await createOrUpdateTable(
-      {
-        table: `${loadedModel.tableName}_morph`,
-        attributes,
-        definition,
-        ORM,
-        model,
-      },
-      context
-    );
   }
 };
 
-// Build many-to-many relation column names
-const buildManyRelationColumns = (manyRelation, definition, targetCollection) => {
-  const { via, alias } = manyRelation;
+// Get target attribute for many relation
+const getTargetAttribute = (via, targetCollection, definition) => {
+  if (via) {
+    return targetCollection.attributes[via];
+  }
+  return {
+    attribute: singular(definition.collectionName),
+    column: definition.primaryKey,
+  };
+};
 
-  const targetAttr = via
-    ? targetCollection.attributes[via]
-    : {
-        attribute: singular(definition.collectionName),
-        column: definition.primaryKey,
-      };
-
-  const defAttr = definition.attributes[alias];
+// Build many relation column names
+const buildManyRelationColumns = (defAttr, targetAttr, definition) => {
   const targetCol = `${targetAttr.attribute}_${targetAttr.column}`;
   let rootCol = `${defAttr.attribute}_${defAttr.column}`;
 
-  // Handle many-way with same content type
   if (rootCol === targetCol) {
     rootCol = `related_${rootCol}`;
   }
@@ -87,38 +89,41 @@ const buildManyRelationColumns = (manyRelation, definition, targetCollection) =>
   return { targetCol, rootCol };
 };
 
+// Build many relation attributes
+const buildManyRelationAttributes = (targetCol, rootCol, targetCollection, definition) => {
+  return {
+    [targetCol]: { type: targetCollection.primaryKeyType },
+    [rootCol]: { type: definition.primaryKeyType },
+  };
+};
+
 // Process many-to-many relations
-const processManyRelations = async (definition, connection, context, ORM, model) => {
+const processManyRelations = async (definition, connection, ORM, model, context) => {
   const manyRelations = getManyRelations(definition);
 
   for (const manyRelation of manyRelations) {
-    if (!manyRelation.dominant) {
-      continue;
-    }
+    const { plugin, collection, via, dominant, alias } = manyRelation;
 
-    if (connection.options && connection.options.autoMigration === false) {
-      continue;
-    }
+    if (!dominant) continue;
 
-    const { plugin, collection } = manyRelation;
     const targetCollection = strapi.db.getModel(collection, plugin);
-    const { targetCol, rootCol } = buildManyRelationColumns(manyRelation, definition, targetCollection);
+    const targetAttr = getTargetAttribute(via, targetCollection, definition);
+    const defAttr = definition.attributes[alias];
 
-    const attributes = {
-      [targetCol]: { type: targetCollection.primaryKeyType },
-      [rootCol]: { type: definition.primaryKeyType },
-    };
-
+    const { targetCol, rootCol } = buildManyRelationColumns(defAttr, targetAttr, definition);
+    const attributes = buildManyRelationAttributes(targetCol, rootCol, targetCollection, definition);
     const table = manyRelation.tableCollectionName;
-    await createOrUpdateTable({ table, attributes, definition, ORM, model }, context);
+
+    if (isAutoMigrationEnabled(connection)) {
+      await createOrUpdateTable({ table, attributes, definition, ORM, model }, context);
+    }
   }
 };
 
 const migrateSchemas = async ({ ORM, loadedModel, definition, connection, model }, context) => {
-  handleTimestamps(loadedModel, definition);
+  handleTimestampAttributes(loadedModel, definition);
 
-  // Equalize main table
-  if (connection.options && connection.options.autoMigration !== false) {
+  if (isAutoMigrationEnabled(connection)) {
     await createOrUpdateTable(
       {
         table: loadedModel.tableName,
@@ -131,13 +136,10 @@ const migrateSchemas = async ({ ORM, loadedModel, definition, connection, model 
     );
   }
 
-  // Equalize polymorphic relations
-  await processMorphRelations(loadedModel, definition, connection, context, ORM, model);
+  await processMorphicRelations(loadedModel, definition, connection, ORM, model, context);
+  await processManyRelations(definition, connection, ORM, model, context);
 
-  // Equalize many-to-many relations
-  await processManyRelations(definition, connection, context, ORM, model);
-
-  removeTimestamps(loadedModel, definition);
+  removeTimestampAttributes(loadedModel, definition);
 };
 
 const getColumnInfo = async (columnName, tableName, ORM) => {
@@ -173,56 +175,32 @@ const isColumn = ({ definition, attribute, name }) => {
 
 const uniqueColName = (table, key) => `${table}_${key}_unique`;
 
-// Map attribute type to column type
-const getColumnTypeForAttribute = (attribute, definition, ORM, tableExists) => {
-  if (_.has(attribute, 'columnType')) {
-    return { type: 'custom', value: attribute.columnType };
+// Handle relation type conversion
+const handleRelationType = (name, definition) => {
+  const relation = definition.associations.find(association => association.alias === name);
+  if (['oneToOne', 'manyToOne', 'oneWay'].includes(relation.nature)) {
+    return { type: definition.primaryKeyType };
   }
-
-  const typeMap = {
-    uuid: { type: 'uuid' },
-    uid: { type: 'uid' },
-    richtext: { type: 'text', subtype: 'longtext' },
-    text: { type: 'text', subtype: 'longtext' },
-    json: { type: 'json', dbType: definition.client },
-    enumeration: { type: 'string' },
-    string: { type: 'string' },
-    password: { type: 'string' },
-    email: { type: 'string' },
-    integer: { type: 'integer' },
-    biginteger: { type: 'biginteger' },
-    float: { type: 'float' },
-    decimal: { type: 'decimal' },
-    date: { type: 'date' },
-    time: { type: 'time' },
-    datetime: { type: 'datetime' },
-    timestamp: { type: 'timestamp' },
-    currentTimestamp: { type: 'currentTimestamp', dbType: definition.client, tableExists },
-    boolean: { type: 'boolean' },
-  };
-
-  return typeMap[attribute.type] || null;
+  return null;
 };
 
-// Apply column type to table
-const applyColumnType = (table, name, typeInfo, ORM) => {
-  if (!typeInfo) return null;
-
-  const { type, subtype, dbType, tableExists } = typeInfo;
-
-  switch (type) {
-    case 'custom':
-      return table.specificType(name, typeInfo.value);
+// Map attribute type to column type
+const mapAttributeTypeToColumn = (attribute, name, table, definition, ORM, tableExists) => {
+  switch (attribute.type) {
     case 'uuid':
       return table.uuid(name);
     case 'uid':
       table.unique(name);
       return table.string(name);
+    case 'richtext':
     case 'text':
-      return table.text(name, subtype);
+      return table.text(name, 'longtext');
     case 'json':
-      return dbType === 'pg' ? table.jsonb(name) : table.text(name, subtype);
+      return definition.client === 'pg' ? table.jsonb(name) : table.text(name, 'longtext');
+    case 'enumeration':
     case 'string':
+    case 'password':
+    case 'email':
       return table.string(name);
     case 'integer':
       return table.integer(name);
@@ -242,7 +220,7 @@ const applyColumnType = (table, name, typeInfo, ORM) => {
       return table.timestamp(name);
     case 'currentTimestamp': {
       const col = table.timestamp(name);
-      if (dbType !== 'sqlite3' && tableExists) {
+      if (definition.client !== 'sqlite3' && tableExists) {
         return col;
       }
       return col.defaultTo(ORM.knex.fn.now());
@@ -256,31 +234,43 @@ const applyColumnType = (table, name, typeInfo, ORM) => {
 
 const buildColType = ({ name, attribute, table, tableExists = false, definition, ORM }) => {
   if (!attribute.type) {
-    const relation = definition.associations.find(association => association.alias === name);
+    const relationType = handleRelationType(name, definition);
+    if (!relationType) return null;
 
-    if (['oneToOne', 'manyToOne', 'oneWay'].includes(relation.nature)) {
-      return buildColType({
-        name,
-        attribute: { type: definition.primaryKeyType },
-        table,
-        tableExists,
-        definition,
-        ORM,
-      });
-    }
-
-    return null;
+    return buildColType({
+      name,
+      attribute: relationType,
+      table,
+      tableExists,
+      definition,
+      ORM,
+    });
   }
 
-  const typeInfo = getColumnTypeForAttribute(attribute, definition, ORM, tableExists);
-  return applyColumnType(table, name, typeInfo, ORM);
+  if (_.has(attribute, 'columnType')) {
+    return table.specificType(name, attribute.columnType);
+  }
+
+  return mapAttributeTypeToColumn(attribute, name, table, definition, ORM, tableExists);
+};
+
+// Create primary key column
+const createIdType = (table, definition, ORM) => {
+  if (definition.primaryKeyType === 'uuid' && definition.client === 'pg') {
+    return table
+      .specificType('id', 'uuid DEFAULT uuid_generate_v4()')
+      .notNullable()
+      .primary();
+  }
+
+  return table.increments('id');
 };
 
 // Apply column constraints
-const applyColumnConstraints = (col, attribute, table, tableName, tableExists, definition, client) => {
+const applyColumnConstraints = (col, attribute, key, table, definition, tableExists) => {
   if (attribute.required === true) {
     if (
-      (client !== 'sqlite3' || !tableExists) &&
+      (definition.client !== 'sqlite3' || !tableExists) &&
       !contentTypesUtils.hasDraftAndPublish(definition.model) &&
       definition.modelType !== 'component'
     ) {
@@ -291,16 +281,15 @@ const applyColumnConstraints = (col, attribute, table, tableName, tableExists, d
   }
 
   if (attribute.unique === true) {
-    if (client !== 'sqlite3' || !tableExists) {
-      table.unique(col.columnName || Object.keys(attribute)[0], uniqueColName(tableName, Object.keys(attribute)[0]));
+    if (definition.client !== 'sqlite3' || !tableExists) {
+      table.unique(key, uniqueColName(definition.table, key));
     }
   }
 };
 
 // Create columns in table
-const createColumns = (tbl, columns, table, opts = {}) => {
-  const { tableExists, alter = false, definition, ORM } = opts;
-  const client = definition.client;
+const createColumns = (tbl, columns, opts = {}, definition, ORM) => {
+  const { tableExists, alter = false } = opts;
 
   Object.keys(columns).forEach(key => {
     const attribute = columns[key];
@@ -315,7 +304,7 @@ const createColumns = (tbl, columns, table, opts = {}) => {
     });
     if (!col) return;
 
-    applyColumnConstraints(col, attribute, tbl, table, tableExists, definition, client);
+    applyColumnConstraints(col, attribute, key, tbl, definition, tableExists);
 
     if (alter) {
       col.alter();
@@ -323,39 +312,27 @@ const createColumns = (tbl, columns, table, opts = {}) => {
   });
 };
 
-const alterColumns = (tbl, columns, table, opts = {}) => {
-  return createColumns(tbl, columns, table, { ...opts, alter: true });
-};
-
-const createIdType = (tbl, definition) => {
-  if (definition.primaryKeyType === 'uuid' && definition.client === 'pg') {
-    return tbl
-      .specificType('id', 'uuid DEFAULT uuid_generate_v4()')
-      .notNullable()
-      .primary();
-  }
-
-  return tbl.increments('id');
+// Alter columns in table
+const alterColumns = (tbl, columns, opts = {}, definition, ORM) => {
+  return createColumns(tbl, columns, { ...opts, alter: true }, definition, ORM);
 };
 
 // Handle SQLite table rebuild
-const rebuildSqliteTable = async (table, attributes, attributesNames, definition, ORM) => {
+const handleSqliteRebuild = async (table, attributes, definition, ORM, attributesNames) => {
   const tmpTable = `tmp_${table}`;
 
   const rebuildTable = async trx => {
     await trx.schema.renameTable(table, tmpTable);
 
-    // Drop possible conflicting indexes
     await Promise.all(
       attributesNames.map(key =>
         trx.raw('DROP INDEX IF EXISTS ??', uniqueColName(table, key))
       )
     );
 
-    // Create the table
     await trx.schema.createTable(table, tbl => {
-      createIdType(tbl, definition);
-      createColumns(tbl, attributes, table, { tableExists: false, definition, ORM });
+      createIdType(tbl, definition, ORM);
+      createColumns(tbl, attributes, { tableExists: false }, definition, ORM);
     });
 
     const attrs = attributesNames.filter(attributeName =>
@@ -387,8 +364,8 @@ const rebuildSqliteTable = async (table, attributes, attributesNames, definition
   }
 };
 
-// Handle non-SQLite table alteration
-const alterNonSqliteTable = async (table, attributes, columnsToAlter, tableExists, definition, ORM) => {
+// Handle other database table rebuild
+const handleOtherDatabaseRebuild = async (table, attributes, definition, ORM, columnsToAlter, tableExists) => {
   const alterTable = async trx => {
     await Promise.all(
       columnsToAlter.map(col => {
@@ -400,11 +377,7 @@ const alterNonSqliteTable = async (table, attributes, columnsToAlter, tableExist
       })
     );
     await trx.schema.alterTable(table, tbl => {
-      alterColumns(tbl, _.pick(attributes, columnsToAlter), table, {
-        tableExists,
-        definition,
-        ORM,
-      });
+      alterColumns(tbl, _.pick(attributes, columnsToAlter), { tableExists }, definition, ORM);
     });
   };
 
@@ -427,39 +400,48 @@ const alterNonSqliteTable = async (table, attributes, columnsToAlter, tableExist
   }
 };
 
-// Add missing columns to existing table
-const addMissingColumns = async (table, attributes, columnsToAdd, tableExists, definition, ORM) => {
-  if (Object.keys(columnsToAdd).length === 0) {
-    return;
+// Handle table rebuild logic
+const handleTableRebuild = async (table, attributes, definition, ORM, columnsToAlter, tableExists, attributesNames) => {
+  if (definition.client === 'sqlite3') {
+    return handleSqliteRebuild(table, attributes, definition, ORM, attributesNames);
   }
+  return handleOtherDatabaseRebuild(table, attributes, definition, ORM, columnsToAlter, tableExists);
+};
+
+// Add missing columns to table
+const addMissingColumns = async (table, attributes, ORM, attributesNames, definition, tableExists) => {
+  const columnsInfo = await Promise.all(
+    attributesNames.map(attributeName => getColumnInfo(attributeName, table, ORM))
+  );
+  const nameOfColumnsToAdd = columnsInfo.filter(info => !info.exists).map(info => info.columnName);
+
+  if (nameOfColumnsToAdd.length === 0) return;
+
+  const columnsToAdd = _.pick(attributes, nameOfColumnsToAdd);
 
   await ORM.knex.schema.table(table, tbl => {
-    createColumns(tbl, columnsToAdd, table, { tableExists, definition, ORM });
+    createColumns(tbl, columnsToAdd, { tableExists }, definition, ORM);
   });
 };
 
-// Equalize database tables
+// Equilize database tables
 const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }, context) => {
   const tableExists = await ORM.knex.schema.hasTable(table);
 
+  definition.table = table;
+  definition.model = model;
+
   if (!tableExists) {
     await ORM.knex.schema.createTable(table, tbl => {
-      createIdType(tbl, definition);
-      createColumns(tbl, attributes, table, { tableExists: false, definition, ORM });
+      createIdType(tbl, definition, ORM);
+      createColumns(tbl, attributes, { tableExists: false }, definition, ORM);
     });
     return;
   }
 
   const attributesNames = Object.keys(attributes);
 
-  // Fetch existing columns
-  const columnsInfo = await Promise.all(
-    attributesNames.map(attributeName => getColumnInfo(attributeName, table, ORM))
-  );
-  const nameOfColumnsToAdd = columnsInfo.filter(info => !info.exists).map(info => info.columnName);
-  const columnsToAdd = _.pick(attributes, nameOfColumnsToAdd);
-
-  await addMissingColumns(table, attributes, columnsToAdd, tableExists, definition, ORM);
+  await addMissingColumns(table, attributes, ORM, attributesNames, definition, tableExists);
 
   const attrsNameWithoutTimestamps = attributesNames.filter(
     columnName => !(definition.options.timestamps || []).includes(columnName)
@@ -474,21 +456,14 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
   const shouldRebuild =
     columnsToAlter.length > 0 || (definition.client === 'sqlite3' && context.recreateSqliteTable);
 
-  if (!shouldRebuild) {
-    return;
-  }
-
-  if (definition.client === 'sqlite3') {
-    await rebuildSqliteTable(table, attributes, attributesNames, definition, ORM);
-  } else {
-    await alterNonSqliteTable(table, attributes, columnsToAlter, tableExists, definition, ORM);
+  if (shouldRebuild) {
+    await handleTableRebuild(table, attributes, definition, ORM, columnsToAlter, tableExists, attributesNames);
   }
 };
 
 module.exports = async ({ ORM, loadedModel, definition, connection, model }) => {
   const previousDefinition = await getDefinitionFromStore(definition, ORM);
 
-  // run migrations
   await strapi.db.migrations.run(migrateSchemas, {
     ORM,
     loadedModel,
@@ -498,7 +473,5 @@ module.exports = async ({ ORM, loadedModel, definition, connection, model }) => 
     model,
   });
 
-  // store new definitions
   await storeDefinition(definition, ORM);
 };
-```

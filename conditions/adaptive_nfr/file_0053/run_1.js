@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const grunt = require('../grunt');
@@ -55,8 +54,8 @@ exports.usage = function() {
 
 /**
  * Build option column string with long and short flags.
- * @param {string} long - Long option name
- * @param {Object} o - Option object with negate and short properties
+ * @param {string} long - The long option name
+ * @param {Object} o - The option object from grunt.cli.optlist
  * @returns {string} Formatted option column string
  */
 function buildOptionColumn(long, o) {
@@ -64,8 +63,8 @@ function buildOptionColumn(long, o) {
 }
 
 /**
- * Map CLI options to table row format.
- * @returns {Array} Array of [column1, info] pairs
+ * Map option list to table format.
+ * @returns {Array} Array of [column1, info] pairs for options
  */
 function mapOptionsToTable() {
   return Object.keys(grunt.cli.optlist).map(function(long) {
@@ -102,10 +101,10 @@ function initializeTaskSystem() {
 }
 
 /**
- * Collect all registered tasks and update column width.
+ * Collect all tasks from grunt task registry.
  * @returns {Array} Array of task objects
  */
-function collectRegisteredTasks() {
+function collectTasks() {
   const tasks = [];
   Object.keys(grunt.task._tasks).forEach(function(name) {
     exports.initCol1(name);
@@ -121,57 +120,55 @@ exports.initTasks = function() {
   initializeTaskSystem();
 
   // Build object of tasks by info (where they were loaded from).
-  exports._tasks = collectRegisteredTasks();
+  exports._tasks = collectTasks();
 };
 
 /**
  * Format task information with multi-task indicator.
- * @param {Object} task - Task object with name, info, and multi properties
- * @returns {Array} Array of [name, info] pair
+ * @param {Object} task - The task object
+ * @returns {string} Formatted task info
  */
 function formatTaskInfo(task) {
   let info = task.info;
   if (task.multi) { info += ' *'; }
-  return [task.name, info];
+  return info;
 }
 
 /**
- * Display available tasks table.
+ * Convert tasks to table format.
+ * @returns {Array} Array of [name, info] pairs for tasks
  */
-function displayTasksTable() {
-  exports.table(exports._tasks.map(formatTaskInfo));
+function mapTasksToTable() {
+  return exports._tasks.map(function(task) {
+    return [task.name, formatTaskInfo(task)];
+  });
 }
 
 /**
- * Display message when no tasks are found.
+ * Display empty tasks message.
  */
-function displayNoTasksMessage() {
+function displayNoTasks() {
   grunt.log.writeln('(no tasks found)');
 }
 
 /**
- * Display tasks section with table and footer notes.
+ * Display available tasks table and documentation.
  */
-function displayTasksSection() {
-  grunt.log.header('Available tasks');
-  if (exports._tasks.length === 0) {
-    displayNoTasksMessage();
-  } else {
-    displayTasksTable();
+function displayTasksTable() {
+  exports.table(mapTasksToTable());
 
-    grunt.log.writeln().writelns(
-      'Tasks run in the order specified. Arguments may be passed to tasks that ' +
-      'accept them by using colons, like "lint:files". Tasks marked with * are ' +
-      '"multi tasks" and will iterate over all sub-targets if no argument is ' +
-      'specified.'
-    );
-  }
+  grunt.log.writeln().writelns(
+    'Tasks run in the order specified. Arguments may be passed to tasks that ' +
+    'accept them by using colons, like "lint:files". Tasks marked with * are ' +
+    '"multi tasks" and will iterate over all sub-targets if no argument is ' +
+    'specified.'
+  );
 }
 
 /**
  * Display tasks availability notice.
  */
-function displayTasksAvailabilityNotice() {
+function displayTasksNotice() {
   grunt.log.writeln().writelns(
     'The list of available tasks may change based on tasks directories or ' +
     'grunt plugins specified in the Gruntfile or via command-line options.'
@@ -179,12 +176,17 @@ function displayTasksAvailabilityNotice() {
 }
 
 exports.tasks = function() {
-  displayTasksSection();
-  displayTasksAvailabilityNotice();
+  grunt.log.header('Available tasks');
+  if (exports._tasks.length === 0) {
+    displayNoTasks();
+  } else {
+    displayTasksTable();
+  }
+
+  displayTasksNotice();
 };
 
 // Footer.
 exports.footer = function() {
   grunt.log.writeln().writeln('For more information, see http://gruntjs.com/');
 };
-```

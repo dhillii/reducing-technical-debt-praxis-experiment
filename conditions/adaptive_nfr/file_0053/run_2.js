@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const grunt = require('../grunt');
@@ -55,8 +54,8 @@ exports.usage = function() {
 
 /**
  * Build option column string with long and short flags.
- * @param {string} long - Long option name
- * @param {Object} o - Option object with negate and short properties
+ * @param {string} long - The long option name
+ * @param {Object} o - The option object from grunt.cli.optlist
  * @returns {string} Formatted option column string
  */
 function buildOptionColumn(long, o) {
@@ -64,21 +63,22 @@ function buildOptionColumn(long, o) {
 }
 
 /**
- * Process single option entry for options table.
- * @param {string} long - Long option name
- * @returns {Array} Array containing [column1, info]
+ * Map option list to table format.
+ * @returns {Array} Array of [column1, info] pairs for options
  */
-function processOptionEntry(long) {
-  const o = grunt.cli.optlist[long];
-  const col1 = buildOptionColumn(long, o);
-  exports.initCol1(col1);
-  return [col1, o.info];
+function mapOptionsToTable() {
+  return Object.keys(grunt.cli.optlist).map(function(long) {
+    const o = grunt.cli.optlist[long];
+    const col1 = buildOptionColumn(long, o);
+    exports.initCol1(col1);
+    return [col1, o.info];
+  });
 }
 
 // Options.
 exports.initOptions = function() {
   // Build 2-column array for table view.
-  exports._options = Object.keys(grunt.cli.optlist).map(processOptionEntry);
+  exports._options = mapOptionsToTable();
 };
 
 exports.options = function() {
@@ -94,17 +94,17 @@ exports.optionsFooter = function() {
 };
 
 /**
- * Initialize task system and build task list.
+ * Initialize the task system for help display.
  */
 function initializeTaskSystem() {
   grunt.task.init([], {help: true});
 }
 
 /**
- * Build array of tasks from grunt task registry.
+ * Collect all tasks from grunt task registry.
  * @returns {Array} Array of task objects
  */
-function buildTaskArray() {
+function collectTasks() {
   const tasks = [];
   Object.keys(grunt.task._tasks).forEach(function(name) {
     exports.initCol1(name);
@@ -120,32 +120,42 @@ exports.initTasks = function() {
   initializeTaskSystem();
 
   // Build object of tasks by info (where they were loaded from).
-  exports._tasks = buildTaskArray();
+  exports._tasks = collectTasks();
 };
 
 /**
- * Format task entry for display in table.
- * @param {Object} task - Task object with name, info, and multi properties
- * @returns {Array} Array containing [name, formatted info]
+ * Format task info with multi-task indicator.
+ * @param {Object} task - The task object
+ * @returns {string} Formatted task info
  */
-function formatTaskEntry(task) {
+function formatTaskInfo(task) {
   let info = task.info;
   if (task.multi) { info += ' *'; }
-  return [task.name, info];
+  return info;
 }
 
 /**
- * Display message when no tasks are found.
+ * Convert tasks to table format.
+ * @returns {Array} Array of [name, info] pairs for tasks
  */
-function displayNoTasksMessage() {
+function mapTasksToTable() {
+  return exports._tasks.map(function(task) {
+    return [task.name, formatTaskInfo(task)];
+  });
+}
+
+/**
+ * Display empty tasks message.
+ */
+function displayNoTasks() {
   grunt.log.writeln('(no tasks found)');
 }
 
 /**
- * Display available tasks table and related information.
+ * Display available tasks table and documentation.
  */
 function displayTasksTable() {
-  exports.table(exports._tasks.map(formatTaskEntry));
+  exports.table(mapTasksToTable());
 
   grunt.log.writeln().writelns(
     'Tasks run in the order specified. Arguments may be passed to tasks that ' +
@@ -156,9 +166,9 @@ function displayTasksTable() {
 }
 
 /**
- * Display footer information about task list variability.
+ * Display tasks availability notice.
  */
-function displayTaskListFooter() {
+function displayTasksNotice() {
   grunt.log.writeln().writelns(
     'The list of available tasks may change based on tasks directories or ' +
     'grunt plugins specified in the Gruntfile or via command-line options.'
@@ -168,16 +178,15 @@ function displayTaskListFooter() {
 exports.tasks = function() {
   grunt.log.header('Available tasks');
   if (exports._tasks.length === 0) {
-    displayNoTasksMessage();
+    displayNoTasks();
   } else {
     displayTasksTable();
   }
 
-  displayTaskListFooter();
+  displayTasksNotice();
 };
 
 // Footer.
 exports.footer = function() {
   grunt.log.writeln().writeln('For more information, see http://gruntjs.com/');
 };
-```

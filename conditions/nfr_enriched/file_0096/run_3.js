@@ -1,12 +1,3 @@
-```javascript
-/**
- * Copyright (C) 2015 Laverna project Authors.
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
- */
-/* global define */
 define([
     'underscore',
     'q',
@@ -89,18 +80,18 @@ define([
         },
 
         /**
-         * Extract profile from options or use default.
+         * Extract profile from options or use default
          * @type object options
-         * @return string
+         * @return string profile identifier
          */
         _extractProfile: function(options) {
             return (options && options.profile) ? options.profile : this.defaultDB;
         },
 
         /**
-         * Create a model with the specified profile ID.
+         * Create a model with profile context
          * @type string profile
-         * @return object
+         * @return object extended model
          */
         _createProfileModel: function(profile) {
             return this.Collection.prototype.model.extend({
@@ -109,10 +100,10 @@ define([
         },
 
         /**
-         * Create a collection with the specified profile ID and model.
+         * Create a collection with profile context
          * @type string profile
          * @type object model
-         * @return object
+         * @return object extended collection
          */
         _createProfileCollection: function(profile, model) {
             return this.Collection.extend({
@@ -156,22 +147,10 @@ define([
             model[setF](data);
 
             return new Q(self.encryptModel(model))
-            .then(function(encryptedModel) {
-                return new Q(encryptedModel.save(encryptedModel.attributes, {validate: false}))
-                .thenResolve(encryptedModel);
+            .then(function(model) {
+                return new Q(model.save(model.attributes, {validate: false}))
+                .thenResolve(model);
             });
-        },
-
-        /**
-         * Set timestamp attributes on model data.
-         * @type object model
-         * @type object data
-         */
-        _setTimestamps: function(model, data) {
-            data.updated = Date.now();
-            if (!model.attributes.created) {
-                data.created = Date.now();
-            }
         },
 
         /**
@@ -181,26 +160,19 @@ define([
         saveModel: function(model, data) {
             const self = this;
 
-            this._setTimestamps(model, data);
+            data.updated = Date.now();
+            if (!model.attributes.created) {
+                data.created = Date.now();
+            }
 
             return this.save(model, data)
-            .then(function(savedModel) {
-                self.vent.trigger('sync:model', savedModel);
-                return self.decryptModel(savedModel);
+            .then(function(model) {
+                self.vent.trigger('sync:model', model);
+                return self.decryptModel(model);
             })
-            .then(function(decryptedModel) {
-                self.vent.trigger('update:model', decryptedModel);
-                return decryptedModel;
-            });
-        },
-
-        /**
-         * Update timestamps for all models in collection.
-         * @type object collection
-         */
-        _updateCollectionTimestamps: function(collection) {
-            collection.each(function(model) {
-                model.attributes.updated = Date.now();
+            .then(function(model) {
+                self.vent.trigger('update:model', model);
+                return model;
             });
         },
 
@@ -211,11 +183,11 @@ define([
         saveCollection: function(collection) {
             const promises = [];
             const self = this;
-            const targetCollection = collection || this.collection;
+            collection = collection || this.collection;
 
-            this._updateCollectionTimestamps(targetCollection);
+            collection.each(function(model) {
+                model.attributes.updated = Date.now();
 
-            targetCollection.each(function(model) {
                 promises.push(
                     Q.invoke(model, 'save', model.attributes)
                 );
@@ -224,24 +196,8 @@ define([
             return Q.all(promises)
             .then(function() {
                 self.vent.trigger('saved:collection');
-                return targetCollection;
+                return collection;
             });
-        },
-
-        /**
-         * Validate model data and log errors if validation fails.
-         * @type object model
-         * @return boolean
-         */
-        _validateModelData: function(model) {
-            const errors = model.validate(model.attributes);
-
-            if (errors) {
-                console.error('Validation failed:' + model.storeName, errors);
-                return false;
-            }
-
-            return true;
         },
 
         /**
@@ -255,27 +211,33 @@ define([
 
             return this.decryptModel(model)
             .then(function() {
-                if (!self._validateModelData(model)) {
-                    return;
-                }
-
-                return self.save(model, data)
-                .then(self.decryptModel)
-                .then(function(savedModel) {
-                    self.vent.trigger('update:model', savedModel);
-                    self.vent.trigger('synced:' + savedModel.id, savedModel);
-                    return savedModel;
-                });
+                return self._validateAndSaveRawModel(model, data);
             });
         },
 
         /**
-         * Create promise chain for sequential saves.
-         * @type array promises
-         * @return object
+         * Validate and save a raw model
+         * @type object model
+         * @type object data
+         * @return object promise
          */
-        _createPromiseChain: function(promises) {
-            return _.reduce(promises, Q.when, new Q());
+        _validateAndSaveRawModel: function(model, data) {
+            const self = this;
+            const errors = model.validate(model.attributes);
+
+            // Don't save data which can't be validated
+            if (errors) {
+                console.error('Validation failed:' + model.storeName, errors);
+                return;
+            }
+
+            return self.save(model, data)
+            .then(self.decryptModel)
+            .then(function(model) {
+                self.vent.trigger('update:model', model);
+                self.vent.trigger('synced:' + model.id, model);
+                return model;
+            });
         },
 
         /**
@@ -292,19 +254,7 @@ define([
                 });
             });
 
-            return this._createPromiseChain(promises);
-        },
-
-        /**
-         * Create model for removal with trash flag.
-         * @type object options
-         * @type string modelId
-         * @return object
-         */
-        _createTrashModel: function(options, modelId) {
-            const model = new (this.changeDatabase(options)).prototype.model({id: modelId});
-            model.set({'trash': 2, updated: Date.now()});
-            return model;
+            return _.reduce(promises, Q.when, new Q());
         },
 
         /**
@@ -314,37 +264,17 @@ define([
          */
         remove: function(model, options) {
             const self = this;
+
+            // Change model's attributes to default values (empty values)
             const modelId = typeof model === 'string' ? model : model.id;
-            const trashModel = this._createTrashModel(options, modelId);
+            const removeModel = new (this.changeDatabase(options)).prototype.model({id: modelId});
 
-            return this.save(trashModel, trashModel.attributes)
+            removeModel.set({'trash': 2, updated: Date.now()});
+
+            return this.save(removeModel, removeModel.attributes)
             .then(function() {
-                self.vent.trigger('destroy:model', trashModel);
+                self.vent.trigger('destroy:model', removeModel);
             });
-        },
-
-        /**
-         * Check if model exists in current collection.
-         * @type object model
-         * @type string modelId
-         * @return boolean
-         */
-        _modelExistsInCollection: function(model, modelId) {
-            return this.collection &&
-                this.collection.profileId === model.profileId &&
-                this.collection.get(modelId);
-        },
-
-        /**
-         * Handle model fetch failure.
-         * @type object error
-         * @return object
-         */
-        _handleModelFetchError: function(error) {
-            if (typeof error === 'string' && error.search('not found') > -1) {
-                return null;
-            }
-            throw new Error(error);
         },
 
         /**
@@ -355,10 +285,9 @@ define([
             const Model = (this.changeDatabase(options)).prototype.model;
             const idAttr = Model.prototype.idAttribute;
             const data = {};
-            let model;
 
             data[idAttr] = options[idAttr];
-            model = new Model(data);
+            const model = new Model(data);
 
             // If id was not provided, return a model with default values
             if (!options[idAttr] || options[idAttr] === '0') {
@@ -367,7 +296,7 @@ define([
             }
 
             // In case if the collection isn't empty, get the model from there.
-            if (this._modelExistsInCollection(model, options[idAttr])) {
+            if (this._shouldGetModelFromCollection(model, options)) {
                 return new Q(this.collection.get(options[idAttr]));
             }
 
@@ -378,38 +307,24 @@ define([
                 return self.decryptModel(model)
                 .thenResolve(model);
             })
-            .fail(function(error) {
-                return self._handleModelFetchError(error);
+            .fail(function(e) {
+                if (typeof e === 'string' && e.search('not found') > -1) {
+                    return null;
+                }
+                throw new Error(e);
             });
         },
 
         /**
-         * Apply filter conditions to options.
+         * Check if model should be retrieved from collection
+         * @type object model
          * @type object options
+         * @return boolean
          */
-        _applyFilterConditions: function(options) {
-            if (!options.filter) {
-                return;
-            }
-
-            const cond = this.Collection.prototype.conditions[options.filter];
-            options.conditions = (typeof cond === 'function' ? cond(options) : cond);
-        },
-
-        /**
-         * Register collection events and listeners.
-         * @type object collection
-         * @type object options
-         */
-        _registerCollectionListeners: function(collection, options) {
-            collection.conditionFilter = options.filter;
-            collection.conditionCurrent = options.conditions;
-
-            if (collection.registerEvents) {
-                collection.registerEvents();
-            }
-
-            this.listenTo(collection, 'reset:all', this.onReset);
+        _shouldGetModelFromCollection: function(model, options) {
+            return this.collection &&
+                this.collection.profileId === model.profileId &&
+                this.collection.get(options[model.prototype.idAttribute || 'id']);
         },
 
         /**
@@ -420,36 +335,39 @@ define([
             const self = this;
             this.vent.trigger('destroy:collection');
 
-            this._applyFilterConditions(options);
+            // Add filter conditions
+            if (options.filter) {
+                const cond = this.Collection.prototype.conditions[options.filter];
+                options.conditions = (typeof cond === 'function' ? cond(options) : cond);
+            }
 
             return this.fetch(options || {})
             .then(function(collection) {
-                self.collection = collection;
-                self._registerCollectionListeners(collection, options);
-
-                return self.collection;
+                return self._setupCollectionAndRegisterEvents(collection, options);
             });
         },
 
         /**
-         * Decrypt collection if encryption is not enabled.
+         * Setup collection properties and register events
          * @type object collection
          * @type object options
-         * @return object
+         * @return object collection
          */
-        _decryptCollectionIfNeeded: function(collection, options) {
+        _setupCollectionAndRegisterEvents: function(collection, options) {
             const self = this;
+            self.collection = collection;
+            self.collection.conditionFilter = options.filter;
+            self.collection.conditionCurrent = options.conditions;
 
-            if (options.encrypt) {
-                return new Q(collection);
+            // Register events
+            if (self.collection.registerEvents) {
+                self.collection.registerEvents();
             }
 
-            return self.decryptModels(collection.fullCollection || collection)
-            .then(function() {
-                collection.trigger('decrypted');
-                return;
-            })
-            .thenResolve(collection);
+            // Events
+            self.listenTo(self.collection, 'reset:all', self.onReset);
+
+            return self.collection;
         },
 
         /**
@@ -462,8 +380,30 @@ define([
 
             return new Q(collection.fetch(options))
             .then(function() {
-                return self._decryptCollectionIfNeeded(collection, options);
+                return self._handleFetchedCollection(collection, options);
             });
+        },
+
+        /**
+         * Handle fetched collection decryption
+         * @type object collection
+         * @type object options
+         * @return object promise resolving to collection
+         */
+        _handleFetchedCollection: function(collection, options) {
+            const self = this;
+
+            // Return in decrypted format
+            if (!options.encrypt) {
+                return self.decryptModels(collection.fullCollection || collection)
+                .then(function() {
+                    collection.trigger('decrypted');
+                    return;
+                })
+                .thenResolve(collection);
+            }
+
+            return collection;
         },
 
         /**
@@ -477,10 +417,10 @@ define([
 
             const configs = Radio.request('configs', 'get:object');
             const backup = {encrypt: configs.encryptBackup.encrypt || 0};
-            const targetModel = model || this.Collection.prototype.model.prototype;
+            const modelProto = model || this.Collection.prototype.model.prototype;
 
             return (
-                !_.isUndefined(targetModel.encryptKeys) &&
+                !_.isUndefined(modelProto.encryptKeys) &&
                 (Number(configs.encrypt) || Number(backup.encrypt)) === 1
             );
         },
@@ -514,16 +454,15 @@ define([
          * @type object Backbone collection
          */
         decryptModels: function(collection) {
-            const targetCollection = collection || this.collection;
-            if (!this._isEncryptEnabled(targetCollection.model.prototype)) {
-                return new Q(targetCollection);
+            collection = collection || this.collection;
+            if (!this._isEncryptEnabled(collection.model.prototype)) {
+                return new Q(collection);
             }
 
-            const fullCollection = targetCollection.fullCollection || targetCollection;
-            return Radio.request('encrypt', 'decrypt:models', fullCollection);
+            collection = collection.fullCollection || collection;
+            return Radio.request('encrypt', 'decrypt:models', collection);
         }
     });
 
     return Module;
 });
-```

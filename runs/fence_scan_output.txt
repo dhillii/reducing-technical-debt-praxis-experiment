@@ -1,0 +1,43 @@
+=== Fence contamination by conditions folder ===
+
+conditions: 1282 fenced, 32 clean
+  conditions/adaptive_nfr/file_0001/run_1.js
+  conditions/adaptive_nfr/file_0001/run_2.js
+  conditions/adaptive_nfr/file_0001/run_3.js
+  conditions/adaptive_nfr/file_0002/run_1.js
+  conditions/adaptive_nfr/file_0002/run_2.js
+  ... and 1277 more
+
+conditions_qwen_3_5_9b: 886 fenced, 283 clean
+  conditions_qwen_3_5_9b/adaptive_nfr/file_0001/run_1.js
+  conditions_qwen_3_5_9b/adaptive_nfr/file_0001/run_2.js
+  conditions_qwen_3_5_9b/adaptive_nfr/file_0001/run_3.js
+  conditions_qwen_3_5_9b/adaptive_nfr/file_0002/run_1.js
+  conditions_qwen_3_5_9b/adaptive_nfr/file_0002/run_2.js
+  ... and 881 more
+
+conditions_llama_70b: 1116 fenced, 4 clean
+  conditions_llama_70b/adaptive_nfr/file_0001/run_1.js
+  conditions_llama_70b/adaptive_nfr/file_0001/run_2.js
+  conditions_llama_70b/adaptive_nfr/file_0001/run_3.js
+  conditions_llama_70b/adaptive_nfr/file_0002/run_1.js
+  conditions_llama_70b/adaptive_nfr/file_0002/run_2.js
+  ... and 1111 more
+
+conditions_gpt_oss_20b: 72 fenced, 1216 clean
+  conditions_gpt_oss_20b/adaptive_nfr/file_0020/run_2.js
+  conditions_gpt_oss_20b/adaptive_nfr/file_0032/run_2.js
+  conditions_gpt_oss_20b/adaptive_nfr/file_0036/run_1.js
+  conditions_gpt_oss_20b/adaptive_nfr/file_0036/run_2.js
+  conditions_gpt_oss_20b/adaptive_nfr/file_0046/run_1.js
+  ... and 67 more
+
+conditions_gpt_oss_120b: 290 fenced, 922 clean
+  conditions_gpt_oss_120b/adaptive_nfr/file_0020/run_3.js
+  conditions_gpt_oss_120b/adaptive_nfr/file_0036/run_1.js
+  conditions_gpt_oss_120b/adaptive_nfr/file_0036/run_2.js
+  conditions_gpt_oss_120b/adaptive_nfr/file_0036/run_3.js
+  conditions_gpt_oss_120b/adaptive_nfr/file_0037/run_1.js
+  ... and 285 more
+
+GRAND TOTAL fenced files: 3646

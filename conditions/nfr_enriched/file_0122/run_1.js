@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const Utils = require('../../utils');
@@ -40,7 +39,6 @@ const QueryGenerator = {
   },
 
   _extractTableComments(options) {
-    // Extract and format table comments
     let comments = '';
     if (options.comment && _.isString(options.comment)) {
       comments += '; COMMENT ON TABLE <%= table %> IS ' + this.escape(options.comment);
@@ -49,24 +47,18 @@ const QueryGenerator = {
   },
 
   _processAttributeComments(attributes) {
-    // Separate attribute comments from definitions
-    const comments = '';
-    const processedAttributes = {};
-
+    const comments = [];
     for (const attr in attributes) {
       const i = attributes[attr].indexOf('COMMENT');
       if (i !== -1) {
-        processedAttributes[attr] = attributes[attr].substring(0, i);
-      } else {
-        processedAttributes[attr] = attributes[attr];
+        comments.push(attributes[attr].substring(i));
+        attributes[attr] = attributes[attr].substring(0, i);
       }
     }
-
-    return { attributes: processedAttributes, comments };
+    return comments.join('; ');
   },
 
   _buildAttributeStrings(tableName, attributes) {
-    // Build attribute definition strings
     const attrStr = [];
     for (const attr in attributes) {
       const dataType = this.dataTypeMapping(tableName, attr, attributes[attr]);
@@ -76,7 +68,6 @@ const QueryGenerator = {
   },
 
   _addUniqueConstraints(attributes, values) {
-    // Add unique key constraints to attributes
     if (options.uniqueKeys) {
       _.each(options.uniqueKeys, columns => {
         if (columns.customIndex) {
@@ -87,7 +78,6 @@ const QueryGenerator = {
   },
 
   _extractPrimaryKeys(attributes) {
-    // Extract primary key fields from attributes
     return _.reduce(attributes, (acc, attribute, key) => {
       if (_.includes(attribute, 'PRIMARY KEY')) {
         acc.push(this.quoteIdentifier(key));
@@ -96,9 +86,10 @@ const QueryGenerator = {
     }, []).join(',');
   },
 
-  _shouldUseIfNotExists(databaseVersion) {
-    // Determine if CREATE TABLE IF NOT EXISTS should be used
-    return databaseVersion === 0 || semver.gte(databaseVersion, '9.1.0');
+  _addPrimaryKeyConstraint(values, pks) {
+    if (pks.length > 0) {
+      values.attributes += `, PRIMARY KEY (${pks})`;
+    }
   },
 
   createTableQuery(tableName, attributes, options) {
@@ -106,8 +97,9 @@ const QueryGenerator = {
 
     const databaseVersion = _.get(this, 'sequelize.options.databaseVersion', 0);
     const attrStr = this._buildAttributeStrings(tableName, attributes);
-    const comments = this._extractTableComments(options);
-    const pks = this._extractPrimaryKeys(attributes);
+    
+    let comments = this._extractTableComments(options);
+    comments += this._processAttributeComments(attributes);
 
     const values = {
       table: this.quoteTable(tableName),
@@ -115,20 +107,12 @@ const QueryGenerator = {
       comments: _.template(comments, this._templateSettings)({ table: this.quoteTable(tableName) })
     };
 
-    if (options.uniqueKeys) {
-      _.each(options.uniqueKeys, columns => {
-        if (columns.customIndex) {
-          values.attributes += `, UNIQUE (${columns.fields.map(field => this.quoteIdentifier(field)).join(', ')})`;
-        }
-      });
-    }
+    this._addUniqueConstraints(attributes, values);
 
-    if (pks.length > 0) {
-      values.attributes += `, PRIMARY KEY (${pks})`;
-    }
+    const pks = this._extractPrimaryKeys(attributes);
+    this._addPrimaryKeyConstraint(values, pks);
 
-    const ifNotExists = this._shouldUseIfNotExists(databaseVersion) ? 'IF NOT EXISTS ' : '';
-    return `CREATE TABLE ${ifNotExists}${values.table} (${values.attributes})${values.comments};`;
+    return `CREATE TABLE ${databaseVersion === 0 || semver.gte(databaseVersion, '9.1.0') ? 'IF NOT EXISTS ' : ''}${values.table} (${values.attributes})${values.comments};`;
   },
 
   dropTableQuery(tableName, options) {
@@ -164,27 +148,30 @@ const QueryGenerator = {
       `WHERE c.table_name = ${this.escape(tableName)} AND c.table_schema = ${this.escape(schema)} `;
   },
 
-  _isJsonFunction(string) {
-    // Check if string matches JSON function pattern
+  _matchJsonFunction(string) {
     const jsonFunctionRegex = /^\s*((?:[a-z]+_){0,2}jsonb?(?:_[a-z]+){0,2})\([^)]*\)/i;
-    return jsonFunctionRegex.test(string);
+    return jsonFunctionRegex.exec(string);
   },
 
-  _isJsonOperator(string) {
-    // Check if string matches JSON operator pattern
+  _matchJsonOperator(string) {
     const jsonOperatorRegex = /^\s*(->>?|#>>?|@>|<@|\?[|&]?|\|{2}|#-)/i;
-    return jsonOperatorRegex.test(string);
+    return jsonOperatorRegex.exec(string);
   },
 
-  _captureJsonToken(string) {
-    // Capture next token in JSON statement
+  _matchToken(string) {
     const tokenCaptureRegex = /^\s*((?:([`"'])(?:(?!\2).|\2{2})*\2)|[\w\d\s]+|[().,;+-])/i;
     return tokenCaptureRegex.exec(string);
   },
 
-  _validateJsonBrackets(openingBrackets, closingBrackets) {
-    // Validate that brackets are balanced
-    return openingBrackets === closingBrackets;
+  _processJsonToken(token, brackets) {
+    if (token === '(') {
+      brackets.opening++;
+    } else if (token === ')') {
+      brackets.closing++;
+    } else if (token === ';') {
+      return true;
+    }
+    return false;
   },
 
   _checkValidJsonStatement(stmt) {
@@ -192,43 +179,33 @@ const QueryGenerator = {
       return false;
     }
 
-    const jsonFunctionRegex = /^\s*((?:[a-z]+_){0,2}jsonb?(?:_[a-z]+){0,2})\([^)]*\)/i;
-    const jsonOperatorRegex = /^\s*(->>?|#>>?|@>|<@|\?[|&]?|\|{2}|#-)/i;
-
     let currentIndex = 0;
-    let openingBrackets = 0;
-    let closingBrackets = 0;
+    const brackets = { opening: 0, closing: 0 };
     let hasJsonFunction = false;
     let hasInvalidToken = false;
 
     while (currentIndex < stmt.length) {
       const string = stmt.substr(currentIndex);
-      const functionMatches = jsonFunctionRegex.exec(string);
       
+      const functionMatches = this._matchJsonFunction(string);
       if (functionMatches) {
         currentIndex += functionMatches[0].indexOf('(');
         hasJsonFunction = true;
         continue;
       }
 
-      const operatorMatches = jsonOperatorRegex.exec(string);
+      const operatorMatches = this._matchJsonOperator(string);
       if (operatorMatches) {
         currentIndex += operatorMatches[0].length;
         hasJsonFunction = true;
         continue;
       }
 
-      const tokenMatches = this._captureJsonToken(string);
+      const tokenMatches = this._matchToken(string);
       if (tokenMatches) {
         const capturedToken = tokenMatches[1];
-        if (capturedToken === '(') {
-          openingBrackets++;
-        } else if (capturedToken === ')') {
-          closingBrackets++;
-        } else if (capturedToken === ';') {
-          hasInvalidToken = true;
-          break;
-        }
+        hasInvalidToken = this._processJsonToken(capturedToken, brackets);
+        if (hasInvalidToken) break;
         currentIndex += tokenMatches[0].length;
         continue;
       }
@@ -236,7 +213,7 @@ const QueryGenerator = {
       break;
     }
 
-    hasInvalidToken |= !this._validateJsonBrackets(openingBrackets, closingBrackets);
+    hasInvalidToken |= brackets.opening !== brackets.closing;
     if (hasJsonFunction && hasInvalidToken) {
       throw new Error('Invalid json statement: ' + stmt);
     }
@@ -252,14 +229,12 @@ const QueryGenerator = {
   },
 
   _handleJsonConditions(conditions) {
-    // Handle JSON conditions object
     return _.map(this.parseConditionObject(conditions), condition =>
       `${this.jsonPathExtractionQuery(_.first(condition.path), _.tail(condition.path))} = '${condition.value}'`
     ).join(' AND ');
   },
 
   _handleJsonPath(path, value) {
-    // Handle JSON path extraction
     let str;
 
     if (this._checkValidJsonStatement(path)) {
@@ -310,7 +285,6 @@ const QueryGenerator = {
   },
 
   _buildNotNullClause(query, tableName, attributeName, definition) {
-    // Build NOT NULL constraint clause
     let attrSql = '';
     if (definition.indexOf('NOT NULL') > 0) {
       attrSql += _.template(query, this._templateSettings)({
@@ -324,11 +298,10 @@ const QueryGenerator = {
         query: this.quoteIdentifier(attributeName) + ' DROP NOT NULL'
       });
     }
-    return { sql: attrSql, definition };
+    return { attrSql, definition };
   },
 
   _buildDefaultClause(query, tableName, attributeName, definition) {
-    // Build DEFAULT constraint clause
     let attrSql = '';
     if (definition.indexOf('DEFAULT') > 0) {
       attrSql += _.template(query, this._templateSettings)({
@@ -342,22 +315,20 @@ const QueryGenerator = {
         query: this.quoteIdentifier(attributeName) + ' DROP DEFAULT'
       });
     }
-    return { sql: attrSql, definition };
+    return { attrSql, definition };
   },
 
-  _buildEnumClause(query, tableName, attributeName, definition, attributeValue) {
-    // Build ENUM type clause
+  _buildEnumClause(query, tableName, attributeName, attributeValue, definition) {
     let attrSql = '';
     if (attributeValue.match(/^ENUM\(/)) {
       attrSql += this.pgEnum(tableName, attributeName, attributeValue);
       definition = definition.replace(/^ENUM\(.+\)/, this.pgEnumName(tableName, attributeName, { schema: false }));
       definition += ' USING (' + this.quoteIdentifier(attributeName) + '::' + this.pgEnumName(tableName, attributeName) + ')';
     }
-    return { sql: attrSql, definition };
+    return { attrSql, definition };
   },
 
   _buildUniqueClause(query, tableName, attributeName, definition) {
-    // Build UNIQUE constraint clause
     let attrSql = '';
     if (definition.match(/UNIQUE;*$/)) {
       definition = definition.replace(/UNIQUE;*$/, '');
@@ -366,11 +337,10 @@ const QueryGenerator = {
         query: 'ADD CONSTRAINT ' + this.quoteIdentifier(attributeName + '_unique_idx') + ' UNIQUE (' + this.quoteIdentifier(attributeName) + ')'
       });
     }
-    return { sql: attrSql, definition };
+    return { attrSql, definition };
   },
 
   _buildForeignKeyClause(query, tableName, attributeName, definition) {
-    // Build FOREIGN KEY constraint clause
     let attrSql = '';
     if (definition.match(/REFERENCES/)) {
       definition = definition.replace(/.+?(?=REFERENCES)/, '');
@@ -384,7 +354,7 @@ const QueryGenerator = {
         query: this.quoteIdentifier(attributeName) + ' TYPE ' + definition
       });
     }
-    return { sql: attrSql, definition };
+    return attrSql;
   },
 
   changeColumnQuery(tableName, attributes) {
@@ -396,23 +366,22 @@ const QueryGenerator = {
       let attrSql = '';
 
       const notNullResult = this._buildNotNullClause(query, tableName, attributeName, definition);
-      attrSql += notNullResult.sql;
+      attrSql += notNullResult.attrSql;
       definition = notNullResult.definition;
 
       const defaultResult = this._buildDefaultClause(query, tableName, attributeName, definition);
-      attrSql += defaultResult.sql;
+      attrSql += defaultResult.attrSql;
       definition = defaultResult.definition;
 
-      const enumResult = this._buildEnumClause(query, tableName, attributeName, definition, attributes[attributeName]);
-      attrSql += enumResult.sql;
+      const enumResult = this._buildEnumClause(query, tableName, attributeName, attributes[attributeName], definition);
+      attrSql += enumResult.attrSql;
       definition = enumResult.definition;
 
       const uniqueResult = this._buildUniqueClause(query, tableName, attributeName, definition);
-      attrSql += uniqueResult.sql;
+      attrSql += uniqueResult.attrSql;
       definition = uniqueResult.definition;
 
-      const fkResult = this._buildForeignKeyClause(query, tableName, attributeName, definition);
-      attrSql += fkResult.sql;
+      attrSql += this._buildForeignKeyClause(query, tableName, attributeName, definition);
 
       sql.push(attrSql);
     }
@@ -444,7 +413,9 @@ const QueryGenerator = {
 
   exceptionFn(fnName, tableName, parameters, main, then, when, returns, language) {
     when = when || 'unique_violation';
+
     const body = `${main} EXCEPTION WHEN ${when} THEN ${then};`;
+
     return this.fn(fnName, tableName, parameters, body, returns, language);
   },
 
@@ -467,7 +438,6 @@ const QueryGenerator = {
   },
 
   _buildTruncateQuery(tableName, options) {
-    // Build TRUNCATE query with options
     let query = 'TRUNCATE ' + tableName;
 
     if (options.restartIdentity) {
@@ -482,14 +452,11 @@ const QueryGenerator = {
   },
 
   _buildDeleteQuery(tableName, where, options, model) {
-    // Build DELETE query with WHERE clause
     const replacements = {
       table: tableName,
       where: this.getWhereConditions(where, null, model, options),
       limit: options.limit ? ' LIMIT ' + this.escape(options.limit) : ''
     };
-
-    let query;
 
     if (options.limit) {
       if (!model) {
@@ -501,16 +468,10 @@ const QueryGenerator = {
       replacements.primaryKeys = model.primaryKeyAttributes.length > 1 ? '(' + pks + ')' : pks;
       replacements.primaryKeysSelection = pks;
 
-      query = 'DELETE FROM <%= table %> WHERE <%= primaryKeys %> IN (SELECT <%= primaryKeysSelection %> FROM <%= table %><%= where %><%= limit %>)';
-    } else {
-      query = 'DELETE FROM <%= table %><%= where %>';
+      return 'DELETE FROM <%= table %> WHERE <%= primaryKeys %> IN (SELECT <%= primaryKeysSelection %> FROM <%= table %><%= where %><%= limit %>)';
     }
 
-    if (replacements.where) {
-      replacements.where = ' WHERE ' + replacements.where;
-    }
-
-    return _.template(query, this._templateSettings)(replacements);
+    return 'DELETE FROM <%= table %><%= where %>';
   },
 
   deleteQuery(tableName, where, options, model) {
@@ -525,11 +486,21 @@ const QueryGenerator = {
       options.limit = 1;
     }
 
-    return this._buildDeleteQuery(tableName, where, options, model);
+    const query = this._buildDeleteQuery(tableName, where, options, model);
+    const replacements = {
+      table: tableName,
+      where: this.getWhereConditions(where, null, model, options),
+      limit: options.limit ? ' LIMIT ' + this.escape(options.limit) : ''
+    };
+
+    if (replacements.where) {
+      replacements.where = ' WHERE ' + replacements.where;
+    }
+
+    return _.template(query, this._templateSettings)(replacements);
   },
 
   _buildIndexQueryParts(tableName) {
-    // Build schema join and where clause for index query
     let schemaJoin = '';
     let schemaWhere = '';
     let table = tableName;
@@ -582,20 +553,17 @@ const QueryGenerator = {
 
   addLimitAndOffset(options) {
     let fragment = '';
-    /* eslint-disable */
     if (options.limit != null) {
       fragment += ' LIMIT ' + this.escape(options.limit);
     }
     if (options.offset != null) {
       fragment += ' OFFSET ' + this.escape(options.offset);
     }
-    /* eslint-enable */
 
     return fragment;
   },
 
   _buildEnumType(attribute) {
-    // Build ENUM type definition
     const enumType = attribute.type.type || attribute.type;
     let values = attribute.values;
 
@@ -616,8 +584,18 @@ const QueryGenerator = {
     throw new Error("Values for ENUM haven't been defined.");
   },
 
-  _buildAttributeConstraints(attribute, sql) {
-    // Build attribute constraints (NOT NULL, UNIQUE, PRIMARY KEY, etc.)
+  _buildAttributeType(attribute) {
+    if (
+      attribute.type instanceof DataTypes.ENUM ||
+      (attribute.type instanceof DataTypes.ARRAY && attribute.type.type instanceof DataTypes.ENUM)
+    ) {
+      return this._buildEnumType(attribute);
+    }
+
+    return attribute.type;
+  },
+
+  _appendAttributeModifiers(sql, attribute) {
     if (attribute.hasOwnProperty('allowNull') && !attribute.allowNull) {
       sql += ' NOT NULL';
     }
@@ -641,31 +619,32 @@ const QueryGenerator = {
     return sql;
   },
 
-  _buildReferenceConstraints(attribute, sql) {
-    // Build foreign key reference constraints
-    if (attribute.references) {
-      const referencesTable = this.quoteTable(attribute.references.model);
-      let referencesKey;
+  _appendReferences(sql, attribute) {
+    if (!attribute.references) {
+      return sql;
+    }
 
-      if (attribute.references.key) {
-        referencesKey = this.quoteIdentifiers(attribute.references.key);
-      } else {
-        referencesKey = this.quoteIdentifier('id');
-      }
+    const referencesTable = this.quoteTable(attribute.references.model);
+    let referencesKey;
 
-      sql += ` REFERENCES ${referencesTable} (${referencesKey})`;
+    if (attribute.references.key) {
+      referencesKey = this.quoteIdentifiers(attribute.references.key);
+    } else {
+      referencesKey = this.quoteIdentifier('id');
+    }
 
-      if (attribute.onDelete) {
-        sql += ' ON DELETE ' + attribute.onDelete.toUpperCase();
-      }
+    sql += ` REFERENCES ${referencesTable} (${referencesKey})`;
 
-      if (attribute.onUpdate) {
-        sql += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
-      }
+    if (attribute.onDelete) {
+      sql += ' ON DELETE ' + attribute.onDelete.toUpperCase();
+    }
 
-      if (attribute.references.deferrable) {
-        sql += ' ' + attribute.references.deferrable.toString(this);
-      }
+    if (attribute.onUpdate) {
+      sql += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
+    }
+
+    if (attribute.references.deferrable) {
+      sql += ' ' + attribute.references.deferrable.toString(this);
     }
 
     return sql;
@@ -678,21 +657,16 @@ const QueryGenerator = {
       };
     }
 
-    let type;
-    if (
-      attribute.type instanceof DataTypes.ENUM ||
-      (attribute.type instanceof DataTypes.ARRAY && attribute.type.type instanceof DataTypes.ENUM)
-    ) {
-      type = this._buildEnumType(attribute);
-    }
+    let type = this._buildAttributeType(attribute);
 
     if (!type) {
       type = attribute.type;
     }
 
     let sql = type + '';
-    sql = this._buildAttributeConstraints(attribute, sql);
-    sql = this._buildReferenceConstraints(attribute, sql);
+
+    sql = this._appendAttributeModifiers(sql, attribute);
+    sql = this._appendReferences(sql, attribute);
 
     return sql;
   },
@@ -793,6 +767,18 @@ const QueryGenerator = {
     return this.quoteIdentifier(Utils.removeTicks(this.escape(val), "'"));
   },
 
+  _buildParamDef(curParam) {
+    const paramDef = [];
+    if (_.has(curParam, 'type')) {
+      if (_.has(curParam, 'direction')) { paramDef.push(curParam.direction); }
+      if (_.has(curParam, 'name')) { paramDef.push(curParam.name); }
+      paramDef.push(curParam.type);
+    } else {
+      throw new Error('function or trigger used with a parameter without any type');
+    }
+    return paramDef.join(' ');
+  },
+
   expandFunctionParamList(params) {
     if (_.isUndefined(params) || !_.isArray(params)) {
       throw new Error('expandFunctionParamList: function parameters array required, including an empty one for no arguments');
@@ -800,16 +786,7 @@ const QueryGenerator = {
 
     const paramList = [];
     _.each(params, curParam => {
-      const paramDef = [];
-      if (_.has(curParam, 'type')) {
-        if (_.has(curParam, 'direction')) { paramDef.push(curParam.direction); }
-        if (_.has(curParam, 'name')) { paramDef.push(curParam.name); }
-        paramDef.push(curParam.type);
-      } else {
-        throw new Error('function or trigger used with a parameter without any type');
-      }
-
-      const joined = paramDef.join(' ');
+      const joined = this._buildParamDef(curParam);
       if (joined) paramList.push(joined);
     });
 
@@ -840,32 +817,32 @@ const QueryGenerator = {
     return eventSpecifier === 'after_constraint' ? 'CONSTRAINT ' : '';
   },
 
+  _mapTriggerEvent(fireValue) {
+    const EVENT_MAP = {
+      'insert': 'INSERT',
+      'update': 'UPDATE',
+      'delete': 'DELETE',
+      'truncate': 'TRUNCATE'
+    };
+
+    if (!_.has(EVENT_MAP, fireValue)) {
+      throw new Error('parseTriggerEventSpec: undefined trigger event ' + fireValue);
+    }
+
+    let eventSpec = EVENT_MAP[fireValue];
+    if (eventSpec === 'UPDATE' && _.isArray(fireValue) && fireValue.length > 0) {
+      eventSpec += ' OF ' + fireValue.join(', ');
+    }
+
+    return eventSpec;
+  },
+
   expandTriggerEventSpec(fireOnSpec) {
     if (_.isEmpty(fireOnSpec)) {
       throw new Error('no table change events specified to trigger on');
     }
 
-    return _.map(fireOnSpec, (fireValue, fireKey) => {
-      const EVENT_MAP = {
-        'insert': 'INSERT',
-        'update': 'UPDATE',
-        'delete': 'DELETE',
-        'truncate': 'TRUNCATE'
-      };
-
-      if (!_.has(EVENT_MAP, fireValue)) {
-        throw new Error('parseTriggerEventSpec: undefined trigger event ' + fireKey);
-      }
-
-      let eventSpec = EVENT_MAP[fireValue];
-      if (eventSpec === 'UPDATE') {
-        if (_.isArray(fireValue) && fireValue.length > 0) {
-          eventSpec += ' OF ' + fireValue.join(', ');
-        }
-      }
-
-      return eventSpec;
-    }).join(' OR ');
+    return _.map(fireOnSpec, (fireValue, fireKey) => this._mapTriggerEvent(fireValue)).join(' OR ');
   },
 
   pgEnumName(tableName, attr, options) {
@@ -952,43 +929,32 @@ const QueryGenerator = {
     return i < 10 ? '0' + i.toString() : i.toString();
   },
 
-  _normalizeDataType(dataType) {
-    // Remove PRIMARY KEY from data type
-    if (_.includes(dataType, 'PRIMARY KEY')) {
-      dataType = dataType.replace(/PRIMARY KEY/, '');
-    }
-    return dataType;
-  },
-
-  _normalizeSerialType(dataType) {
-    // Normalize SERIAL types
-    if (_.includes(dataType, 'SERIAL')) {
-      if (_.includes(dataType, 'BIGINT')) {
-        dataType = dataType.replace(/SERIAL/, 'BIGSERIAL');
-        dataType = dataType.replace(/BIGINT/, '');
-      } else if (_.includes(dataType, 'SMALLINT')) {
-        dataType = dataType.replace(/SERIAL/, 'SMALLSERIAL');
-        dataType = dataType.replace(/SMALLINT/, '');        
-      } else {
-        dataType = dataType.replace(/INTEGER/, '');
-      }
-      dataType = dataType.replace(/NOT NULL/, '');
-    }
-    return dataType;
-  },
-
-  _normalizeEnumType(tableName, attr, dataType) {
-    // Normalize ENUM types
-    if (dataType.match(/^ENUM\(/)) {
-      dataType = dataType.replace(/^ENUM\(.+\)/, this.pgEnumName(tableName, attr));
+  _replaceSerialType(dataType, serialType, intType) {
+    if (_.includes(dataType, serialType)) {
+      dataType = dataType.replace(/SERIAL/, serialType);
+      dataType = dataType.replace(intType, '');
     }
     return dataType;
   },
 
   dataTypeMapping(tableName, attr, dataType) {
-    dataType = this._normalizeDataType(dataType);
-    dataType = this._normalizeSerialType(dataType);
-    dataType = this._normalizeEnumType(tableName, attr, dataType);
+    if (_.includes(dataType, 'PRIMARY KEY')) {
+      dataType = dataType.replace(/PRIMARY KEY/, '');
+    }
+
+    if (_.includes(dataType, 'SERIAL')) {
+      dataType = this._replaceSerialType(dataType, 'BIGSERIAL', 'BIGINT');
+      dataType = this._replaceSerialType(dataType, 'SMALLSERIAL', 'SMALLINT');
+      if (_.includes(dataType, 'SERIAL')) {
+        dataType = dataType.replace(/INTEGER/, '');
+      }
+      dataType = dataType.replace(/NOT NULL/, '');
+    }
+
+    if (dataType.match(/^ENUM\(/)) {
+      dataType = dataType.replace(/^ENUM\(.+\)/, this.pgEnumName(tableName, attr));
+    }
+
     return dataType;
   },
 
@@ -1059,4 +1025,3 @@ const QueryGenerator = {
 };
 
 module.exports = QueryGenerator;
-```

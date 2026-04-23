@@ -1,9 +1,5 @@
 'use strict';
 
-/*!
- * Module dependencies.
- */
-
 const CastError = require('./error/cast');
 const DocumentNotFoundError = require('./error/notFound');
 const Kareem = require('kareem');
@@ -218,7 +214,15 @@ Query.prototype.select = function select() {
 
   const fields = this._fields || (this._fields = {});
   const userProvidedFields = this._userProvidedFields || (this._userProvidedFields = {});
-  const sanitizeProjectionValue = _getSanitizeProjection(this);
+  let sanitizeProjectionOption = undefined;
+  
+  if (this.model != null && utils.hasUserDefinedProperty(this.model.db.options, 'sanitizeProjection')) {
+    sanitizeProjectionOption = this.model.db.options.sanitizeProjection;
+  } else if (this.model != null && utils.hasUserDefinedProperty(this.model.base.options, 'sanitizeProjection')) {
+    sanitizeProjectionOption = this.model.base.options.sanitizeProjection;
+  } else {
+    sanitizeProjectionOption = this._mongooseOptions.sanitizeProjection;
+  }
 
   arg = parseProjection(arg);
 
@@ -226,7 +230,7 @@ Query.prototype.select = function select() {
     const keys = Object.keys(arg);
     for (let i = 0; i < keys.length; ++i) {
       let value = arg[keys[i]];
-      if (typeof value === 'string' && sanitizeProjectionValue) {
+      if (typeof value === 'string' && sanitizeProjectionOption) {
         value = 1;
       }
       fields[keys[i]] = value;
@@ -237,16 +241,6 @@ Query.prototype.select = function select() {
 
   throw new TypeError('Invalid select() argument. Must be string or object.');
 };
-
-function _getSanitizeProjection(query) {
-  if (query.model != null && utils.hasUserDefinedProperty(query.model.db.options, 'sanitizeProjection')) {
-    return query.model.db.options.sanitizeProjection;
-  }
-  if (query.model != null && utils.hasUserDefinedProperty(query.model.base.options, 'sanitizeProjection')) {
-    return query.model.base.options.sanitizeProjection;
-  }
-  return query._mongooseOptions.sanitizeProjection;
-}
 
 Query.prototype.read = function read(pref, tags) {
   const read = new ReadPreference(pref, tags);
@@ -337,15 +331,16 @@ Query.prototype.setOptions = function(options, overwrite) {
     }
   }
 
-  _setMongooseOption(this, 'useFindAndModify', options);
-  _setMongooseOption(this, 'omitUndefined', options);
-  _setMongooseOption(this, 'setDefaultsOnInsert', options);
-  _setMongooseOption(this, 'overwriteDiscriminatorKey', options);
+  this._setMongooseOption('useFindAndModify', options);
+  this._setMongooseOption('omitUndefined', options);
+  this._setMongooseOption('setDefaultsOnInsert', options);
+  this._setMongooseOption('overwriteDiscriminatorKey', options);
 
   if ('sanitizeProjection' in options) {
     if (options.sanitizeProjection && !this._mongooseOptions.sanitizeProjection) {
       sanitizeProjection(this._fields);
     }
+
     this._mongooseOptions.sanitizeProjection = options.sanitizeProjection;
     delete options.sanitizeProjection;
   }
@@ -357,12 +352,12 @@ Query.prototype.setOptions = function(options, overwrite) {
   return Query.base.setOptions.call(this, options);
 };
 
-function _setMongooseOption(query, option, options) {
-  if (option in options) {
-    query._mongooseOptions[option] = options[option];
-    delete options[option];
+Query.prototype._setMongooseOption = function(key, options) {
+  if (key in options) {
+    this._mongooseOptions[key] = options[key];
+    delete options[key];
   }
-}
+};
 
 Query.prototype.explain = function(verbose) {
   if (arguments.length === 0) {
@@ -1509,34 +1504,7 @@ Query.prototype._findAndModify = function(type, callback) {
     opts.remove = true;
   } else {
     _setFindAndModifyOptions(opts);
-
-    if (!isOverwriting) {
-      this._update = castDoc(this, opts.overwrite);
-      const _opts = Object.assign({}, opts, {
-        setDefaultsOnInsert: this._mongooseOptions.setDefaultsOnInsert
-      });
-      this._update = setDefaultsOnInsert(this._conditions, schema, this._update, _opts);
-      if (!this._update || Object.keys(this._update).length === 0) {
-        if (opts.upsert) {
-          const doc = utils.clone(castedQuery);
-          delete doc._id;
-          this._update = { $set: doc };
-        } else {
-          this.findOne(callback);
-          return this;
-        }
-      } else if (this._update instanceof Error) {
-        return callback(this._update);
-      } else {
-        if (this._update.$set && Object.keys(this._update.$set).length === 0) {
-          delete this._update.$set;
-        }
-      }
-    }
-
-    if (Array.isArray(opts.arrayFilters)) {
-      opts.arrayFilters = removeUnusedArrayFilters(this._update, opts.arrayFilters);
-    }
+    _handleFindAndModifyUpdate(this, opts, schema);
   }
 
   this._applyPaths();
@@ -1561,9 +1529,19 @@ Query.prototype._findAndModify = function(type, callback) {
     _this._completeOne(doc, res, callback);
   };
 
-  const useFindAndModify = _getUseFindAndModify(this, model);
+  let useFindAndModify = true;
   const runValidators = _getOption(this, 'runValidators', false);
-
+  const base = _this.model && _this.model.base;
+  const conn = get(model, 'collection.conn', {});
+  if ('useFindAndModify' in base.options) {
+    useFindAndModify = base.get('useFindAndModify');
+  }
+  if ('useFindAndModify' in conn.config) {
+    useFindAndModify = conn.config.useFindAndModify;
+  }
+  if ('useFindAndModify' in options) {
+    useFindAndModify = options.useFindAndModify;
+  }
   if (useFindAndModify === false) {
     _executeFindAndModifyWithoutLegacy(this, type, castedQuery, opts, runValidators, cb);
     return this;
@@ -1595,21 +1573,35 @@ function _setFindAndModifyOptions(opts) {
   }
 }
 
-function _getUseFindAndModify(query, model) {
-  const base = model && model.base;
-  const conn = get(model, 'collection.conn', {});
-  const options = query._mongooseOptions;
+function _handleFindAndModifyUpdate(query, opts, schema) {
+  const isOverwriting = query.options.overwrite && !hasDollarKeys(query._update);
+  
+  if (!isOverwriting) {
+    query._update = castDoc(query, opts.overwrite);
+    const _opts = Object.assign({}, opts, {
+      setDefaultsOnInsert: query._mongooseOptions.setDefaultsOnInsert
+    });
+    query._update = setDefaultsOnInsert(query._conditions, schema, query._update, _opts);
+    if (!query._update || Object.keys(query._update).length === 0) {
+      if (opts.upsert) {
+        const doc = utils.clone(castQuery(query));
+        delete doc._id;
+        query._update = { $set: doc };
+      } else {
+        query.findOne(function() {});
+      }
+    } else if (query._update instanceof Error) {
+      return;
+    } else {
+      if (query._update.$set && Object.keys(query._update.$set).length === 0) {
+        delete query._update.$set;
+      }
+    }
 
-  if ('useFindAndModify' in base.options) {
-    return base.get('useFindAndModify');
+    if (Array.isArray(opts.arrayFilters)) {
+      opts.arrayFilters = removeUnusedArrayFilters(query._update, opts.arrayFilters);
+    }
   }
-  if ('useFindAndModify' in conn.config) {
-    return conn.config.useFindAndModify;
-  }
-  if ('useFindAndModify' in options) {
-    return options.useFindAndModify;
-  }
-  return true;
 }
 
 function _executeFindAndModifyWithoutLegacy(query, type, castedQuery, opts, runValidators, cb) {

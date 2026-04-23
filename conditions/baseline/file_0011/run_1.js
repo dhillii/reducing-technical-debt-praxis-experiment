@@ -1,4 +1,3 @@
-```typescript
 import React, {useState} from 'react';
 import UnsplashSelector from '../../../selectors/unsplash-selector';
 import clsx from 'clsx';
@@ -50,7 +49,7 @@ interface FontSelectOption {
     creator?: string;
 }
 
-const FONT_CLASS_MAP: Record<string, {base: string; headingWeight: string}> = {
+const FONT_CLASS_MAP: Record<string, {base: string, headingWeight: string}> = {
     'Cardo': {base: 'font-cardo', headingWeight: 'font-bold'},
     'Manrope': {base: 'font-manrope', headingWeight: 'font-bold'},
     'Merriweather': {base: 'font-merriweather', headingWeight: 'font-bold'},
@@ -113,10 +112,10 @@ const fontClassName = (fontName: string, heading: boolean = true): string => {
     if (!fontConfig) {
         return '';
     }
-    return clsx(fontConfig.base, heading && fontConfig.headingWeight);
+    return heading ? clsx(fontConfig.base, fontConfig.headingWeight) : fontConfig.base;
 };
 
-const createFontOptions = (fonts: typeof CUSTOM_FONTS.heading, isHeading: boolean, themeNameVersion: string): HeadingFontOption[] => {
+const createFontOptions = (fonts: typeof CUSTOM_FONTS.heading, themeNameVersion: string, isHeading: boolean): (HeadingFontOption | BodyFontOption)[] => {
     const options = fonts.map((font) => ({
         label: font.name,
         value: font.name,
@@ -132,13 +131,7 @@ const createFontOptions = (fonts: typeof CUSTOM_FONTS.heading, isHeading: boolea
     return options;
 };
 
-const handleImageUpload = async (
-    file: File,
-    uploadImage: (params: {file: File}) => Promise<string>,
-    updateSetting: (key: string, value: SettingValue) => void,
-    settingKey: string,
-    handleError: (error: Error) => void
-): Promise<void> => {
+const handleImageUpload = async (file: File, uploadImage: (params: {file: File}) => Promise<string>, updateSetting: (key: string, value: SettingValue) => void, settingKey: string, handleError: (error: Error) => void): Promise<void> => {
     try {
         updateSetting(settingKey, getImageUrl(await uploadImage({file})));
     } catch (e) {
@@ -150,25 +143,16 @@ const handleImageUpload = async (
     }
 };
 
-const handleFontSelect = (
-    option: FontSelectOption | null,
-    isHeading: boolean,
-    setFont: (font: {name: string; creator: string}) => void,
-    updateSetting: (key: string, value: SettingValue) => void,
-    themeNameVersion: string
-): void => {
+const handleFontSelect = (option: FontSelectOption | null, isHeading: boolean, setFont: (font: {name: string, creator: string}) => void, updateSetting: (key: string, value: SettingValue) => void, themeNameVersion: string): void => {
     const settingKey = isHeading ? 'heading_font' : 'body_font';
     const fontList = isHeading ? CUSTOM_FONTS.heading : CUSTOM_FONTS.body;
-
+    
     if (option?.value === DEFAULT_FONT) {
         setFont({name: DEFAULT_FONT, creator: themeNameVersion});
         updateSetting(settingKey, '');
     } else {
         const selectedFont = fontList.find(f => f.name === option?.value);
-        setFont({
-            name: option?.value || '',
-            creator: selectedFont?.creator || ''
-        });
+        setFont({name: option?.value || '', creator: selectedFont?.creator || ''});
         updateSetting(settingKey, option?.value || '');
     }
 };
@@ -180,6 +164,7 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
     const [showUnsplash, setShowUnsplash] = useState<boolean>(false);
     const {unsplashConfig} = useFramework();
     const handleError = useHandleError();
+
     const editor = usePinturaEditor();
 
     const {data: themesData} = useBrowseThemes();
@@ -189,11 +174,14 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
     const [headingFont, setHeadingFont] = useState(CUSTOM_FONTS.heading.find(f => f.name === values.headingFont) || {name: DEFAULT_FONT, creator: themeNameVersion});
     const [bodyFont, setBodyFont] = useState(CUSTOM_FONTS.body.find(f => f.name === values.bodyFont) || {name: DEFAULT_FONT, creator: themeNameVersion});
 
-    const customHeadingFonts = createFontOptions(CUSTOM_FONTS.heading, true, themeNameVersion);
-    const customBodyFonts = createFontOptions(CUSTOM_FONTS.body, false, themeNameVersion);
+    const customHeadingFonts = createFontOptions(CUSTOM_FONTS.heading, themeNameVersion, true) as HeadingFontOption[];
+    const customBodyFonts = createFontOptions(CUSTOM_FONTS.body, themeNameVersion, false) as BodyFontOption[];
 
-    const selectFont = (fontName: string, heading: boolean): string => {
-        return fontName === DEFAULT_FONT ? '' : fontClassName(fontName, heading);
+    const selectFont = (fontName: string, heading: boolean) => {
+        if (fontName === DEFAULT_FONT) {
+            return '';
+        }
+        return fontClassName(fontName, heading);
     };
 
     const selectedHeadingFont = {label: headingFont.name, value: headingFont.name, creator: headingFont.creator};
@@ -269,8 +257,12 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
                                 isEnabled: editor.isEnabled,
                                 openEditor: async () => editor.openEditor({
                                     image: values.coverImage || '',
-                                    handleSave: async (file: File) => {
-                                        await handleImageUpload(file, uploadImage, updateSetting, 'cover_image', handleError);
+                                    handleSave: async (file:File) => {
+                                        try {
+                                            updateSetting('cover_image', getImageUrl(await uploadImage({file})));
+                                        } catch (e) {
+                                            handleError(e);
+                                        }
                                     }
                                 })
                             }
@@ -279,7 +271,7 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
                         unsplashEnabled={unsplashEnabled}
                         width='160px'
                         onDelete={() => updateSetting('cover_image', null)}
-                        onUpload={(file: File) => handleImageUpload(file, uploadImage, updateSetting, 'cover_image', handleError)}
+                        onUpload={(file) => handleImageUpload(file, uploadImage, updateSetting, 'cover_image', handleError)}
                     >
                     Upload cover
                     </ImageUpload>
@@ -334,4 +326,3 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
 };
 
 export default GlobalSettings;
-```

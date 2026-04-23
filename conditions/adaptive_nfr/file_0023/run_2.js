@@ -1,4 +1,3 @@
-```javascript
 import AppContext from '../app-context';
 import Frame from './frame';
 import React, {useContext, useEffect, useMemo, useRef, useState} from 'react';
@@ -44,11 +43,11 @@ class PopupContent extends React.Component {
     static contextType = AppContext;
 
     componentDidMount() {
-        // Container height change event handling is managed by parent Frame component
+        // Container height change event handling is managed by parent component
     }
 
     componentDidUpdate() {
-        // Container height change event handling is managed by parent Frame component
+        // Container height change event handling is managed by parent component
     }
 
     handlePopupClose(e) {
@@ -178,7 +177,7 @@ function isResultSelected(itemId, selectedResult) {
 }
 
 /**
- * Builds className for a result item with optional selection styling
+ * Builds className for a result item with optional selected state
  * @param {string} baseClass - The base className
  * @param {boolean} isSelected - Whether the item is selected
  * @param {string} selectedClass - The className to append when selected
@@ -200,10 +199,9 @@ function navigateToUrl(url) {
 
 function TagListItem({tag, selectedResult, setSelectedResult}) {
     const {name, url, id} = tag;
-    const isSelected = isResultSelected(id, selectedResult);
     const baseClass = 'flex items-center py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
-    const className = buildResultItemClass(baseClass, isSelected);
-
+    const className = buildResultItemClass(baseClass, isResultSelected(id, selectedResult));
+    
     return (
         <div
             className={className}
@@ -245,10 +243,9 @@ function TagResults({tags, selectedResult, setSelectedResult}) {
 function PostListItem({post, selectedResult, setSelectedResult}) {
     const {searchValue} = useContext(AppContext);
     const {title, excerpt, url, id} = post;
-    const isSelected = isResultSelected(id, selectedResult);
     const baseClass = 'py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
-    const className = buildResultItemClass(baseClass, isSelected);
-
+    const className = buildResultItemClass(baseClass, isResultSelected(id, selectedResult));
+    
     return (
         <div
             className={className}
@@ -372,22 +369,22 @@ function HighlightedSection({text = '', highlight = '', isExcerpt}) {
 }
 
 /**
- * Highlight word renderer with context-aware styling
+ * Renders highlight styling based on context
+ * @param {string} word - The word to highlight
+ * @param {boolean} isExcerpt - Whether this is in an excerpt context
+ * @returns {JSX.Element} The styled highlight element
  */
-const highlightWordRenderers = {
-    excerpt: (word) => (
-        <span className='font-bold'>{word}</span>
-    ),
-    default: (word) => (
-        <span className='font-bold text-neutral-900'>{word}</span>
-    )
-};
+function getHighlightWordStyle(word, isExcerpt) {
+    if (isExcerpt) {
+        return <span className='font-bold'>{word}</span>;
+    }
+    return <span className='font-bold text-neutral-900'>{word}</span>;
+}
 
 function HighlightWord({word, isExcerpt}) {
-    const renderer = isExcerpt ? highlightWordRenderers.excerpt : highlightWordRenderers.default;
     return (
         <>
-            {renderer(word)}
+            {getHighlightWordStyle(word, isExcerpt)}
         </>
     );
 }
@@ -444,10 +441,9 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
 
 function AuthorListItem({author, selectedResult, setSelectedResult}) {
     const {name, profile_image: profileImage, url, id} = author;
-    const isSelected = isResultSelected(id, selectedResult);
     const baseClass = 'py-[1rem] -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer flex items-center';
-    const className = buildResultItemClass(baseClass, isSelected);
-
+    const className = buildResultItemClass(baseClass, isResultSelected(id, selectedResult));
+    
     return (
         <div
             className={className}
@@ -463,23 +459,34 @@ function AuthorListItem({author, selectedResult, setSelectedResult}) {
 }
 
 /**
- * Avatar renderers for different avatar types
+ * Determines if an avatar image should be displayed
+ * @param {string} avatar - The avatar URL or data
+ * @returns {boolean} True if avatar exists and should be displayed
  */
-const avatarRenderers = {
-    image: (avatar, name) => (
-        <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name}/>
-    ),
-    initial: (name) => (
-        <div className='rounded-full bg-neutral-200 w-7 h-7 me-2 flex items-center justify-center font-bold'>
-            <span className="text-neutral-400">{name.charAt(0)}</span>
-        </div>
-    )
-};
+function hasAvatarImage(avatar) {
+    return avatar?.length > 0;
+}
+
+/**
+ * Renders avatar element based on availability
+ * @param {string} name - The author name
+ * @param {string} avatar - The avatar URL
+ * @returns {JSX.Element} The avatar element
+ */
+function getAvatarElement(name, avatar) {
+    if (hasAvatarImage(avatar)) {
+        return (
+            <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name}/>
+        );
+    }
+    const character = name.charAt(0);
+    return (
+        <div className='rounded-full bg-neutral-200 w-7 h-7 me-2 flex items-center justify-center font-bold'><span className="text-neutral-400">{character}</span></div>
+    );
+}
 
 function AuthorAvatar({name, avatar}) {
-    const hasAvatar = avatar?.length;
-    const renderer = hasAvatar ? avatarRenderers.image : avatarRenderers.initial;
-    return hasAvatar ? renderer(avatar, name) : renderer(name);
+    return getAvatarElement(name, avatar);
 }
 
 function AuthorResults({authors, selectedResult, setSelectedResult}) {
@@ -508,15 +515,26 @@ function AuthorResults({authors, selectedResult, setSelectedResult}) {
 }
 
 /**
- * Filters out results with invalid URLs (404 paths)
- * @param {Array} items - Array of items to filter
- * @returns {Array} Filtered items
+ * Filters out results with invalid URLs
+ * @param {Array} items - The items to filter
+ * @returns {Array} Filtered items without invalid URLs
  */
 function filterInvalidUrls(items) {
     const invalidUrlRegex = /\/404\/$/;
     return items.filter((item) => {
         return !(item?.url && invalidUrlRegex.test(item?.url));
     });
+}
+
+/**
+ * Determines if search results exist
+ * @param {Array} posts - Posts array
+ * @param {Array} authors - Authors array
+ * @param {Array} tags - Tags array
+ * @returns {boolean} True if any results exist
+ */
+function hasSearchResults(posts, authors, tags) {
+    return posts?.length > 0 || authors?.length > 0 || tags?.length > 0;
 }
 
 function SearchResultBox() {
@@ -528,17 +546,12 @@ function SearchResultBox() {
 
     if (indexComplete && searchValue) {
         searchResults = searchIndex?.search(searchValue);
-        filteredPosts = searchResults?.posts || [];
-        filteredAuthors = searchResults?.authors || [];
-        filteredTags = searchResults?.tags || [];
+        filteredPosts = filterInvalidUrls(searchResults?.posts || []);
+        filteredAuthors = filterInvalidUrls(searchResults?.authors || []);
+        filteredTags = filterInvalidUrls(searchResults?.tags || []);
     }
 
-    filteredAuthors = filterInvalidUrls(filteredAuthors);
-    filteredTags = filterInvalidUrls(filteredTags);
-
-    const hasResults = filteredPosts?.length || filteredAuthors?.length || filteredTags?.length;
-
-    if (hasResults) {
+    if (hasSearchResults(filteredPosts, filteredAuthors, filteredTags)) {
         return (
             <Results posts={filteredPosts} authors={filteredAuthors} tags={filteredTags} />
         );
@@ -556,13 +569,13 @@ function SearchResultBox() {
  * @param {KeyboardEvent} event - The keyboard event
  * @param {Array} allResults - All available results
  * @param {string} selectedResult - Currently selected result ID
- * @param {Function} setSelectedResult - Setter for selected result
+ * @param {Function} setSelectedResult - Function to update selected result
  */
 function handleResultNavigation(event, allResults, selectedResult, setSelectedResult) {
     const selectedResultIdx = allResults.findIndex((d) => d.id === selectedResult);
     const nextResult = allResults[selectedResultIdx + 1];
     const prevResult = allResults[selectedResultIdx - 1];
-
+    
     if (event.key === 'ArrowUp' && prevResult) {
         setSelectedResult(prevResult?.id);
     } else if (event.key === 'ArrowDown' && nextResult) {
@@ -742,4 +755,3 @@ export default class PopupModal extends React.Component {
         return null;
     }
 }
-```

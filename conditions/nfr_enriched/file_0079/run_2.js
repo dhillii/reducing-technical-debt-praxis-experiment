@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const Catbox = require('catbox');
@@ -49,14 +48,17 @@ exports = module.exports = internals.Plugin = function (server, connections, env
 
     // Decorations
 
-    internals.applyDecorations(this);
+    const methods = Object.keys(this.root._decorations);
+    for (let i = 0; i < methods.length; ++i) {
+        const method = methods[i];
+        this[method] = this.root._decorations[method];
+    }
 };
 
 Hoek.inherits(internals.Plugin, Podium);
 
 
-// Create realm object with extensions and settings
-internals.createRealm = (env) => {
+internals.createRealm = function (env) {
 
     if (typeof env !== 'string') {
         return env;
@@ -83,17 +85,6 @@ internals.createRealm = (env) => {
             }
         }
     };
-};
-
-
-// Apply server decorations to plugin instance
-internals.applyDecorations = (plugin) => {
-
-    const methods = Object.keys(plugin.root._decorations);
-    for (let i = 0; i < methods.length; ++i) {
-        const method = methods[i];
-        plugin[method] = plugin.root._decorations[method];
-    }
 };
 
 
@@ -151,8 +142,7 @@ internals.Plugin.prototype._select = function (labels, plugin) {
 };
 
 
-// Filter connections that match the provided labels
-internals.filterConnectionsByLabels = (connections, labels) => {
+internals.filterConnectionsByLabels = function (connections, labels) {
 
     const filtered = [];
     for (let i = 0; i < connections.length; ++i) {
@@ -181,16 +171,18 @@ internals.Plugin.prototype.register = function (plugins /*, [options], callback 
         return Promises.wrap(this, this.register, [plugins, options]);
     }
 
-    options = internals.mergeRouteModifiers(this.realm, options);
+    options = internals.applyRouteModifiers(this.realm, options);
     options = Schema.apply('register', options);
 
-    const registrations = internals.buildRegistrations(plugins, options);
+    const registrations = internals.normalizePlugins(plugins, options);
 
     this.root._registring = true;
 
-    Items.serial(registrations, (item, next) => {
+    const each = (item, next) => {
         internals.registerPlugin(this, item, next);
-    }, (err) => {
+    };
+
+    Items.serial(registrations, each, (err) => {
 
         this.root._registring = false;
         return Hoek.nextTick(callback)(err);
@@ -198,8 +190,7 @@ internals.Plugin.prototype.register = function (plugins /*, [options], callback 
 };
 
 
-// Merge route modifiers from realm into options
-internals.mergeRouteModifiers = (realm, options) => {
+internals.applyRouteModifiers = function (realm, options) {
 
     if (!realm.modifiers.route.prefix &&
         !realm.modifiers.route.vhost) {
@@ -217,8 +208,7 @@ internals.mergeRouteModifiers = (realm, options) => {
 };
 
 
-// Build registration objects from plugin specifications
-internals.buildRegistrations = (plugins, options) => {
+internals.normalizePlugins = function (plugins, options) {
 
     const registrations = [];
     plugins = [].concat(plugins);
@@ -232,8 +222,7 @@ internals.buildRegistrations = (plugins, options) => {
 };
 
 
-// Normalize plugin to standard registration format
-internals.normalizePlugin = (plugin, options) => {
+internals.normalizePlugin = function (plugin, options) {
 
     if (typeof plugin === 'function') {
         if (!plugin.register) {
@@ -272,8 +261,7 @@ internals.normalizePlugin = (plugin, options) => {
 };
 
 
-// Register a single plugin with validation and tracking
-internals.registerPlugin = (plugin, item, next) => {
+internals.registerPlugin = function (plugin, item, next) {
 
     const selection = plugin._select(item.options.select, item.name);
     selection.realm.modifiers.route.prefix = item.options.routes.prefix;
@@ -287,16 +275,12 @@ internals.registerPlugin = (plugin, item, next) => {
         attributes: item.register.attributes
     };
 
-    internals.validatePluginRequirements(item, plugin.version);
+    internals.validateRequirements(item, plugin);
 
     const connectionless = internals.isConnectionless(item, selection);
-    const shouldSkip = internals.checkDuplicateRegistration(plugin.root, item, connectionless);
+    internals.checkMultipleRegistration(plugin.root, item, connectionless);
 
-    if (shouldSkip) {
-        return next();
-    }
-
-    const connections = internals.getRegistrationConnections(selection, item, connectionless, registrationData);
+    const connections = internals.getRegisteredConnections(selection, item);
 
     if (item.options.once &&
         !connectionless &&
@@ -320,39 +304,28 @@ internals.registerPlugin = (plugin, item, next) => {
 };
 
 
-// Validate plugin version requirements
-internals.validatePluginRequirements = (item, hapi_version) => {
+internals.validateRequirements = function (item, plugin) {
 
     const requirements = item.requirements;
     Hoek.assert(!requirements.node || Somever.match(process.version, requirements.node), 'Plugin', item.name, 'requires node version', requirements.node, 'but found', process.version);
-    Hoek.assert(!requirements.hapi || Somever.match(hapi_version, requirements.hapi), 'Plugin', item.name, 'requires hapi version', requirements.hapi, 'but found', hapi_version);
+    Hoek.assert(!requirements.hapi || Somever.match(plugin.version, requirements.hapi), 'Plugin', item.name, 'requires hapi version', requirements.hapi, 'but found', plugin.version);
 };
 
 
-// Determine if plugin is connectionless
-internals.isConnectionless = (item, selection) => {
+internals.isConnectionless = function (item, selection) {
 
-    if (item.connections === 'conditional') {
-        return selection.connections.length === 0;
-    }
-
-    return !item.connections;
+    return (item.connections === 'conditional' ? selection.connections.length === 0 : !item.connections);
 };
 
 
-// Check for duplicate registration and update tracking
-internals.checkDuplicateRegistration = (root, item, connectionless) => {
+internals.checkMultipleRegistration = function (root, item, connectionless) {
 
     if (!connectionless) {
-        return false;
+        return;
     }
 
     if (root._registrations[item.name]) {
-        if (item.options.once) {
-            return true;
-        }
-
-        Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered');
+        Hoek.assert(item.options.once || item.multiple, 'Plugin', item.name, 'already registered');
     }
     else {
         root._registrations[item.name] = {
@@ -362,13 +335,10 @@ internals.checkDuplicateRegistration = (root, item, connectionless) => {
             attributes: item.register.attributes
         };
     }
-
-    return false;
 };
 
 
-// Get connections for plugin registration
-internals.getRegistrationConnections = (selection, item, connectionless, registrationData) => {
+internals.getRegisteredConnections = function (selection, item) {
 
     const connections = [];
 
@@ -380,15 +350,18 @@ internals.getRegistrationConnections = (selection, item, connectionless, registr
         const connection = selection.connections[i];
 
         if (connection.registrations[item.name]) {
-            if (item.options.once) {
-                continue;
+            if (!item.options.once) {
+                Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered in:', connection.info.uri);
             }
+            continue;
+        }
 
-            Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered in:', connection.info.uri);
-        }
-        else {
-            connection.registrations[item.name] = registrationData;
-        }
+        connection.registrations[item.name] = {
+            version: item.version,
+            name: item.name,
+            options: item.pluginOptions,
+            attributes: item.register.attributes
+        };
 
         connections.push(connection);
     }
@@ -464,24 +437,21 @@ internals.Plugin.prototype.decorate = function (type, property, method, options)
 };
 
 
-// Apply request decoration
-internals.decorateRequest = (root, property, method, options) => {
+internals.decorateRequest = function (root, property, method, options) {
 
     root._requestor.decorate(property, method, options);
     root.decorations.request.push(property);
 };
 
 
-// Apply reply decoration
-internals.decorateReply = (root, property, method) => {
+internals.decorateReply = function (root, property, method) {
 
     root._replier.decorate(property, method);
     root.decorations.reply.push(property);
 };
 
 
-// Apply server decoration
-internals.decorateServer = (plugin, property, method) => {
+internals.decorateServer = function (plugin, property, method) {
 
     Hoek.assert(!plugin.root._decorations[property], 'Server decoration already defined:', property);
     Hoek.assert(plugin[property] === undefined && plugin.root[property] === undefined, 'Cannot override the built-in server interface method:', property);
@@ -513,8 +483,7 @@ internals.Plugin.prototype.dependency = function (dependencies, after) {
 };
 
 
-// Normalize dependencies to { plugin: version } format
-internals.normalizeDependencies = (dependencies) => {
+internals.normalizeDependencies = function (dependencies) {
 
     if (typeof dependencies === 'string') {
         return { [dependencies]: '*' };
@@ -719,4 +688,3 @@ internals.Plugin.prototype._applyChild = function (type, child, func, args) {
         obj[func].apply(obj, args);
     }
 };
-```

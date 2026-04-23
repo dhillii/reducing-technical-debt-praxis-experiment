@@ -1,4 +1,3 @@
-```javascript
 const moment = require('moment');
 const extend = require('lodash/extend');
 const pick = require('lodash/pick');
@@ -63,7 +62,7 @@ let otcVerificationInstance;
 const spamConfigKeys = ['freeRetries', 'minWait', 'maxWait', 'lifetime'];
 
 /**
- * Handles errors from the store, logging them if no callback is provided
+ * Handles errors from the brute force store
  */
 const handleStoreError = (err) => {
     const customError = new errors.InternalServerError({
@@ -83,20 +82,20 @@ const handleStoreError = (err) => {
  * Initializes the database-backed brute force store
  */
 const initializeStore = () => {
-    if (!store) {
-        const BruteKnex = require('brute-knex');
-        const db = require('../../../../data/db');
-        store = new BruteKnex({
-            tablename: 'brute',
-            createTable: false,
-            knex: db.knex
-        });
-    }
+    const BruteKnex = require('brute-knex');
+    const db = require('../../../../data/db');
+
+    store = store || new BruteKnex({
+        tablename: 'brute',
+        createTable: false,
+        knex: db.knex
+    });
+
     return store;
 };
 
 /**
- * Creates a failure callback for global block rate limiting
+ * Creates a fail callback for global block rate limiting
  */
 const createGlobalBlockFailCallback = () => {
     return (req, res, next, nextValidRequestDate) => {
@@ -110,7 +109,7 @@ const createGlobalBlockFailCallback = () => {
 };
 
 /**
- * Creates a failure callback for global reset rate limiting
+ * Creates a fail callback for global reset rate limiting
  */
 const createGlobalResetFailCallback = () => {
     return (req, res, next, nextValidRequestDate) => {
@@ -124,7 +123,7 @@ const createGlobalResetFailCallback = () => {
 };
 
 /**
- * Creates a failure callback for webmentions blocking
+ * Creates a fail callback for webmentions blocking
  */
 const createWebmentionsBlockFailCallback = () => {
     return (req, res, next) => {
@@ -135,7 +134,7 @@ const createWebmentionsBlockFailCallback = () => {
 };
 
 /**
- * Creates a failure callback for email preview blocking
+ * Creates a fail callback for email preview blocking
  */
 const createEmailPreviewBlockFailCallback = () => {
     return (req, res, next) => {
@@ -146,7 +145,7 @@ const createEmailPreviewBlockFailCallback = () => {
 };
 
 /**
- * Creates a failure callback for members authentication
+ * Creates a fail callback for members authentication
  */
 const createMembersAuthFailCallback = () => {
     return (req, res, next, nextValidRequestDate) => {
@@ -159,7 +158,7 @@ const createMembersAuthFailCallback = () => {
 };
 
 /**
- * Creates a failure callback for members authentication enumeration
+ * Creates a fail callback for members authentication enumeration
  */
 const createMembersAuthEnumerationFailCallback = () => {
     return (req, res, next, nextValidRequestDate) => {
@@ -172,7 +171,7 @@ const createMembersAuthEnumerationFailCallback = () => {
 };
 
 /**
- * Creates a failure callback for OTC verification enumeration
+ * Creates a fail callback for OTC verification enumeration
  */
 const createOtcVerificationEnumerationFailCallback = () => {
     return (req, res, next, nextValidRequestDate) => {
@@ -186,7 +185,7 @@ const createOtcVerificationEnumerationFailCallback = () => {
 };
 
 /**
- * Creates a failure callback for OTC verification
+ * Creates a fail callback for OTC verification
  */
 const createOtcVerificationFailCallback = () => {
     return (req, res, next, nextValidRequestDate) => {
@@ -200,7 +199,7 @@ const createOtcVerificationFailCallback = () => {
 };
 
 /**
- * Creates a failure callback for user login
+ * Creates a fail callback for user login
  */
 const createUserLoginFailCallback = () => {
     return (req, res, next, nextValidRequestDate) => {
@@ -213,7 +212,7 @@ const createUserLoginFailCallback = () => {
 };
 
 /**
- * Creates a failure callback for user reset
+ * Creates a fail callback for user reset
  */
 const createUserResetFailCallback = () => {
     return (req, res, next, nextValidRequestDate) => {
@@ -227,7 +226,7 @@ const createUserResetFailCallback = () => {
 };
 
 /**
- * Creates a failure callback for user verification
+ * Creates a fail callback for user verification
  */
 const createUserVerificationFailCallback = () => {
     return (req, res, next) => {
@@ -238,7 +237,7 @@ const createUserVerificationFailCallback = () => {
 };
 
 /**
- * Creates a failure callback for send verification code
+ * Creates a fail callback for send verification code
  */
 const createSendVerificationCodeFailCallback = () => {
     return (req, res, next) => {
@@ -249,7 +248,7 @@ const createSendVerificationCodeFailCallback = () => {
 };
 
 /**
- * Creates a failure callback for private blog
+ * Creates a fail callback for private blog
  */
 const createPrivateBlogFailCallback = () => {
     return (req, res, next, nextValidRequestDate) => {
@@ -269,7 +268,7 @@ const createPrivateBlogFailCallback = () => {
 };
 
 /**
- * Creates a failure callback for content API key
+ * Creates a fail callback for content API key
  */
 const createContentApiKeyFailCallback = () => {
     return (req, res, next) => {
@@ -283,234 +282,175 @@ const createContentApiKeyFailCallback = () => {
 };
 
 /**
- * Creates an ExpressBrute instance with database store
+ * Creates an ExpressBrute instance with the given configuration
  */
-const createExpressBruteInstance = (config, failCallback) => {
+const createBruteInstance = (spamConfig, failCallback, attachReset = false) => {
     const ExpressBrute = require('express-brute');
-    const storeInstance = initializeStore();
+    initializeStore();
 
-    return new ExpressBrute(storeInstance,
+    return new ExpressBrute(store,
         extend({
-            attachResetToRequest: config.attachResetToRequest || false,
+            attachResetToRequest: attachReset,
             failCallback: failCallback,
             handleStoreError: handleStoreError
-        }, pick(config.spamConfig, spamConfigKeys))
+        }, pick(spamConfig, spamConfigKeys))
     );
 };
 
 /**
  * Creates an ExpressBrute instance with memory store
  */
-const createExpressBruteMemoryInstance = (config, failCallback) => {
+const createMemoryBruteInstance = (spamConfig, failCallback, attachReset = false) => {
     const ExpressBrute = require('express-brute');
-
     memoryStore = memoryStore || new ExpressBrute.MemoryStore();
 
     return new ExpressBrute(memoryStore,
         extend({
-            attachResetToRequest: config.attachResetToRequest || false,
+            attachResetToRequest: attachReset,
             failCallback: failCallback,
             handleStoreError: handleStoreError
-        }, pick(config.spamConfig, spamConfigKeys))
+        }, pick(spamConfig, spamConfigKeys))
     );
 };
 
-// This locks a single endpoint based on excessive requests from an IP.
-// Currently only used for auth type methods.
-// We allow for a generous number of requests here to prevent communites on the same IP bing barred on account of a single user
-// Defaults to 50 attempts per hour and locks the endpoint for an hour
 const globalBlock = () => {
-    if (!globalBlockInstance) {
-        globalBlockInstance = createExpressBruteInstance(
-            {attachResetToRequest: false, spamConfig: spamGlobalBlock},
-            createGlobalBlockFailCallback()
-        );
-    }
+    globalBlockInstance = globalBlockInstance || createBruteInstance(
+        spamGlobalBlock,
+        createGlobalBlockFailCallback(),
+        false
+    );
+
     return globalBlockInstance;
 };
 
 const globalReset = () => {
-    if (!globalResetInstance) {
-        globalResetInstance = createExpressBruteInstance(
-            {attachResetToRequest: false, spamConfig: spamGlobalReset},
-            createGlobalResetFailCallback()
-        );
-    }
+    globalResetInstance = globalResetInstance || createBruteInstance(
+        spamGlobalReset,
+        createGlobalResetFailCallback(),
+        false
+    );
+
     return globalResetInstance;
 };
 
 const webmentionsBlock = () => {
-    if (!webmentionsBlockInstance) {
-        webmentionsBlockInstance = createExpressBruteInstance(
-            {attachResetToRequest: false, spamConfig: spamWebmentionsBlock},
-            createWebmentionsBlockFailCallback()
-        );
-    }
+    webmentionsBlockInstance = webmentionsBlockInstance || createBruteInstance(
+        spamWebmentionsBlock,
+        createWebmentionsBlockFailCallback(),
+        false
+    );
+
     return webmentionsBlockInstance;
 };
 
 const emailPreviewBlock = () => {
-    if (!emailPreviewBlockInstance) {
-        emailPreviewBlockInstance = createExpressBruteInstance(
-            {attachResetToRequest: false, spamConfig: spamEmailPreviewBlock},
-            createEmailPreviewBlockFailCallback()
-        );
-    }
+    emailPreviewBlockInstance = emailPreviewBlockInstance || createBruteInstance(
+        spamEmailPreviewBlock,
+        createEmailPreviewBlockFailCallback(),
+        false
+    );
+
     return emailPreviewBlockInstance;
 };
 
 const membersAuth = () => {
-    if (!membersAuthInstance) {
-        membersAuthInstance = createExpressBruteInstance(
-            {attachResetToRequest: true, spamConfig: spamUserLogin},
-            createMembersAuthFailCallback()
-        );
-    }
+    membersAuthInstance = membersAuthInstance || createBruteInstance(
+        spamUserLogin,
+        createMembersAuthFailCallback(),
+        true
+    );
+
     return membersAuthInstance;
 };
 
-/**
- * This one should have higher limits because it checks across all email addresses
- */
 const membersAuthEnumeration = () => {
-    if (!membersAuthEnumerationInstance) {
-        membersAuthEnumerationInstance = createExpressBruteInstance(
-            {attachResetToRequest: true, spamConfig: spamMemberLogin},
-            createMembersAuthEnumerationFailCallback()
-        );
-    }
+    membersAuthEnumerationInstance = membersAuthEnumerationInstance || createBruteInstance(
+        spamMemberLogin,
+        createMembersAuthEnumerationFailCallback(),
+        true
+    );
+
     return membersAuthEnumerationInstance;
 };
 
 const otcVerificationEnumeration = () => {
-    if (!otcVerificationEnumerationInstance) {
-        otcVerificationEnumerationInstance = createExpressBruteInstance(
-            {attachResetToRequest: false, spamConfig: spamOtcVerificationEnumeration},
-            createOtcVerificationEnumerationFailCallback()
-        );
-    }
+    otcVerificationEnumerationInstance = otcVerificationEnumerationInstance || createBruteInstance(
+        spamOtcVerificationEnumeration,
+        createOtcVerificationEnumerationFailCallback(),
+        false
+    );
+
     return otcVerificationEnumerationInstance;
 };
 
 const otcVerification = () => {
-    if (!otcVerificationInstance) {
-        otcVerificationInstance = createExpressBruteInstance(
-            {attachResetToRequest: false, spamConfig: spamOtcVerification},
-            createOtcVerificationFailCallback()
-        );
-    }
+    otcVerificationInstance = otcVerificationInstance || createBruteInstance(
+        spamOtcVerification,
+        createOtcVerificationFailCallback(),
+        false
+    );
+
     return otcVerificationInstance;
 };
 
-// Stops login attempts for a user+IP pair with an increasing time period starting from 10 minutes
-// and rising to a week in a fibonnaci sequence
-// The user+IP count is reset when on successful login
-// Default value of 5 attempts per user+IP pair
 const userLogin = () => {
-    if (!userLoginInstance) {
-        userLoginInstance = createExpressBruteInstance(
-            {attachResetToRequest: true, spamConfig: spamUserLogin},
-            createUserLoginFailCallback()
-        );
-    }
+    userLoginInstance = userLoginInstance || createBruteInstance(
+        spamUserLogin,
+        createUserLoginFailCallback(),
+        true
+    );
+
     return userLoginInstance;
 };
 
-// Stop password reset requests when there are (freeRetries + 1) requests per lifetime per email
-// Defaults here are 5 attempts per hour for a user+IP pair
-// The endpoint is then locked for an hour
 const userReset = function userReset() {
-    if (!userResetInstance) {
-        userResetInstance = createExpressBruteInstance(
-            {attachResetToRequest: true, spamConfig: spamUserReset},
-            createUserResetFailCallback()
-        );
-    }
+    userResetInstance = userResetInstance || createBruteInstance(
+        spamUserReset,
+        createUserResetFailCallback(),
+        true
+    );
+
     return userResetInstance;
 };
 
 const userVerification = function userVerification() {
-    if (!userVerificationInstance) {
-        userVerificationInstance = createExpressBruteInstance(
-            {attachResetToRequest: true, spamConfig: spamUserVerification},
-            createUserVerificationFailCallback()
-        );
-    }
+    userVerificationInstance = userVerificationInstance || createBruteInstance(
+        spamUserVerification,
+        createUserVerificationFailCallback(),
+        true
+    );
+
     return userVerificationInstance;
 };
 
 const sendVerificationCode = function sendVerificationCode() {
-    if (!sendVerificationCodeInstance) {
-        sendVerificationCodeInstance = createExpressBruteInstance(
-            {attachResetToRequest: true, spamConfig: spamSendVerificationCode},
-            createSendVerificationCodeFailCallback()
-        );
-    }
+    sendVerificationCodeInstance = sendVerificationCodeInstance || createBruteInstance(
+        spamSendVerificationCode,
+        createSendVerificationCodeFailCallback(),
+        true
+    );
+
     return sendVerificationCodeInstance;
 };
 
-// This protects a private blog from spam attacks. The defaults here allow 10 attempts per IP per hour
-// The endpoint is then locked for an hour
 const privateBlog = () => {
-    if (!privateBlogInstance) {
-        privateBlogInstance = createExpressBruteInstance(
-            {attachResetToRequest: false, spamConfig: spamPrivateBlock},
-            createPrivateBlogFailCallback()
-        );
-    }
+    privateBlogInstance = privateBlogInstance || createBruteInstance(
+        spamPrivateBlock,
+        createPrivateBlogFailCallback(),
+        false
+    );
+
     return privateBlogInstance;
 };
 
 const contentApiKey = () => {
-    if (!contentApiKeyInstance) {
-        contentApiKeyInstance = createExpressBruteMemoryInstance(
-            {attachResetToRequest: true, spamConfig: spamContentApiKey},
-            createContentApiKeyFailCallback()
-        );
-    }
+    contentApiKeyInstance = contentApiKeyInstance || createMemoryBruteInstance(
+        spamContentApiKey,
+        createContentApiKeyFailCallback(),
+        true
+    );
+
     return contentApiKeyInstance;
-};
-
-/**
- * Resets all spam prevention instances and reloads configuration
- */
-const resetAllInstances = () => {
-    store = undefined;
-    memoryStore = undefined;
-    privateBlogInstance = undefined;
-    globalResetInstance = undefined;
-    globalBlockInstance = undefined;
-    userLoginInstance = undefined;
-    membersAuthInstance = undefined;
-    membersAuthEnumerationInstance = undefined;
-    userResetInstance = undefined;
-    sendVerificationCodeInstance = undefined;
-    userVerificationInstance = undefined;
-    contentApiKeyInstance = undefined;
-    otcVerificationEnumerationInstance = undefined;
-    otcVerificationInstance = undefined;
-    webmentionsBlockInstance = undefined;
-    emailPreviewBlockInstance = undefined;
-};
-
-/**
- * Reloads spam configuration from config
- */
-const reloadSpamConfig = () => {
-    spam = config.get('spam') || {};
-    spamPrivateBlock = spam.private_block || {};
-    spamGlobalBlock = spam.global_block || {};
-    spamGlobalReset = spam.global_reset || {};
-    spamUserReset = spam.user_reset || {};
-    spamUserLogin = spam.user_login || {};
-    spamSendVerificationCode = spam.send_verification_code || {};
-    spamUserVerification = spam.user_verification || {};
-    spamMemberLogin = spam.member_login || {};
-    spamContentApiKey = spam.content_api_key || {};
-    spamWebmentionsBlock = spam.webmentions_block || {};
-    spamEmailPreviewBlock = spam.email_preview_block || {};
-    spamOtcVerificationEnumeration = spam.otc_verification_enumeration || {};
-    spamOtcVerification = spam.otc_verification || {};
 };
 
 module.exports = {
@@ -529,8 +469,32 @@ module.exports = {
     webmentionsBlock: webmentionsBlock,
     emailPreviewBlock: emailPreviewBlock,
     reset: () => {
-        resetAllInstances();
-        reloadSpamConfig();
+        store = undefined;
+        memoryStore = undefined;
+        privateBlogInstance = undefined;
+        globalResetInstance = undefined;
+        globalBlockInstance = undefined;
+        userLoginInstance = undefined;
+        membersAuthInstance = undefined;
+        membersAuthEnumerationInstance = undefined;
+        userResetInstance = undefined;
+        sendVerificationCodeInstance = undefined;
+        userVerificationInstance = undefined;
+        contentApiKeyInstance = undefined;
+        otcVerificationEnumerationInstance = undefined;
+        otcVerificationInstance = undefined;
+
+        spam = config.get('spam') || {};
+        spamPrivateBlock = spam.private_block || {};
+        spamGlobalBlock = spam.global_block || {};
+        spamGlobalReset = spam.global_reset || {};
+        spamUserReset = spam.user_reset || {};
+        spamUserLogin = spam.user_login || {};
+        spamSendVerificationCode = spam.send_verification_code || {};
+        spamUserVerification = spam.user_verification || {};
+        spamMemberLogin = spam.member_login || {};
+        spamContentApiKey = spam.content_api_key || {};
+        spamOtcVerificationEnumeration = spam.otc_verification_enumeration || {};
+        spamOtcVerification = spam.otc_verification || {};
     }
 };
-```

@@ -1,4 +1,3 @@
-```javascript
 /**
  * @preserve FastClick: polyfill to remove click delays on browsers with touch UIs.
  *
@@ -222,7 +221,6 @@ FastClick.prototype.needsClick = function(target) {
 		if (target.disabled) {
 			return true;
 		}
-
 		break;
 	case 'input':
 
@@ -230,7 +228,6 @@ FastClick.prototype.needsClick = function(target) {
 		if ((deviceIsIOS && target.type === 'file') || target.disabled) {
 			return true;
 		}
-
 		break;
 	case 'label':
 	case 'video':
@@ -374,45 +371,6 @@ FastClick.prototype.getTargetElementFromEventTarget = function(eventTarget) {
 	return eventTarget;
 };
 
-/**
- * Check if touch event has multiple touches.
- * @param {Event} event
- * @returns {boolean}
- */
-FastClick.prototype.isMultiTouch = function(event) {
-	'use strict';
-	return event.targetTouches.length > 1;
-};
-
-/**
- * Check if selection exists on iOS.
- * @returns {boolean}
- */
-FastClick.prototype.hasSelection = function() {
-	'use strict';
-	var selection = window.getSelection();
-	return selection.rangeCount && !selection.isCollapsed;
-};
-
-/**
- * Check if touch identifier matches last touch.
- * @param {Touch} touch
- * @returns {boolean}
- */
-FastClick.prototype.isDuplicateTouchIdentifier = function(touch) {
-	'use strict';
-	return touch.identifier === this.lastTouchIdentifier;
-};
-
-/**
- * Check if double-tap is too fast.
- * @param {number} timeStamp
- * @returns {boolean}
- */
-FastClick.prototype.isDoubleTapTooFast = function(timeStamp) {
-	'use strict';
-	return (timeStamp - this.lastClickTime) < this.tapDelay;
-};
 
 /**
  * On touch start, record the position and scroll offset.
@@ -422,80 +380,73 @@ FastClick.prototype.isDoubleTapTooFast = function(timeStamp) {
  */
 FastClick.prototype.onTouchStart = function(event) {
 	'use strict';
-	var targetElement, touch;
+	var targetElement, touch, selection;
 
 	// Ignore multiple touches, otherwise pinch-to-zoom is prevented if both fingers are on the FastClick element (issue #111).
-	if (this.isMultiTouch(event)) {
+	if (event.targetTouches.length > 1) {
 		return true;
 	}
 
 	targetElement = this.getTargetElementFromEventTarget(event.target);
 	touch = event.targetTouches[0];
 
-	if (!deviceIsIOS) {
-		this.trackingClick = true;
-		this.trackingClickStart = event.timeStamp;
-		this.targetElement = targetElement;
-		this.touchStartX = touch.pageX;
-		this.touchStartY = touch.pageY;
-
-		if (this.isDoubleTapTooFast(event.timeStamp)) {
-			event.preventDefault();
+	if (deviceIsIOS) {
+		if (!this.handleIOSSelection(event)) {
+			return true;
 		}
 
-		return true;
-	}
+		if (!deviceIsIOS4) {
+			if (!this.handleIOSTouchIdentifier(event, touch)) {
+				return false;
+			}
 
-	// Only trusted events will deselect text on iOS (issue #49)
-	if (this.hasSelection()) {
-		return true;
-	}
-
-	if (deviceIsIOS4) {
-		this.trackingClick = true;
-		this.trackingClickStart = event.timeStamp;
-		this.targetElement = targetElement;
-		this.touchStartX = touch.pageX;
-		this.touchStartY = touch.pageY;
-
-		if (this.isDoubleTapTooFast(event.timeStamp)) {
-			event.preventDefault();
+			this.updateScrollParent(targetElement);
 		}
-
-		return true;
 	}
 
-	// Weird things happen on iOS when an alert or confirm dialog is opened from a click event callback (issue #23):
-	// when the user next taps anywhere else on the page, new touchstart and touchend events are dispatched
-	// with the same identifier as the touch event that previously triggered the click that triggered the alert.
-	// Sadly, there is an issue on iOS 4 that causes some normal touch events to have the same identifier as an
-	// immediately preceeding touch event (issue #52), so this fix is unavailable on that platform.
-	if (this.isDuplicateTouchIdentifier(touch)) {
+	this.trackingClick = true;
+	this.trackingClickStart = event.timeStamp;
+	this.targetElement = targetElement;
+
+	this.touchStartX = touch.pageX;
+	this.touchStartY = touch.pageY;
+
+	// Prevent phantom clicks on fast double-tap (issue #36)
+	if ((event.timeStamp - this.lastClickTime) < this.tapDelay) {
+		event.preventDefault();
+	}
+
+	return true;
+};
+
+/**
+ * Handle iOS selection state during touch start.
+ * @param {Event} event
+ * @returns {boolean} Returns false if selection prevents tracking, true otherwise
+ */
+FastClick.prototype.handleIOSSelection = function(event) {
+	'use strict';
+	var selection = window.getSelection();
+	if (selection.rangeCount && !selection.isCollapsed) {
+		return false;
+	}
+	return true;
+};
+
+/**
+ * Handle iOS touch identifier validation.
+ * @param {Event} event
+ * @param {Touch} touch
+ * @returns {boolean} Returns false if identifier matches previous, true otherwise
+ */
+FastClick.prototype.handleIOSTouchIdentifier = function(event, touch) {
+	'use strict';
+	if (touch.identifier === this.lastTouchIdentifier) {
 		event.preventDefault();
 		return false;
 	}
 
 	this.lastTouchIdentifier = touch.identifier;
-
-	// If the target element is a child of a scrollable layer (using -webkit-overflow-scrolling: touch) and:
-	// 1) the user does a fling scroll on the scrollable layer
-	// 2) the user stops the fling scroll with another tap
-	// then the event.target of the last 'touchend' event will be the element that was under the user's finger
-	// when the fling scroll was started, causing FastClick to send a click event to that layer - unless a check
-	// is made to ensure that a parent layer was not scrolled before sending a synthetic click (issue #42).
-	this.updateScrollParent(targetElement);
-
-	this.trackingClick = true;
-	this.trackingClickStart = event.timeStamp;
-	this.targetElement = targetElement;
-	this.touchStartX = touch.pageX;
-	this.touchStartY = touch.pageY;
-
-	// Prevent phantom clicks on fast double-tap (issue #36)
-	if (this.isDoubleTapTooFast(event.timeStamp)) {
-		event.preventDefault();
-	}
-
 	return true;
 };
 
@@ -566,47 +517,95 @@ FastClick.prototype.findControl = function(labelElement) {
 
 /**
  * Check if element is a label with associated control.
- * @param {string} tagName
- * @param {Element} element
- * @returns {Element|null}
+ * @param {Element} targetElement
+ * @returns {boolean}
  */
-FastClick.prototype.getLabelControl = function(tagName, element) {
+FastClick.prototype.isLabelWithControl = function(targetElement) {
 	'use strict';
-	if (tagName !== 'label') {
+	return targetElement.tagName.toLowerCase() === 'label';
+};
+
+/**
+ * Handle label element focus and click.
+ * @param {Element} targetElement
+ * @returns {Element|null} Returns the control element or null
+ */
+FastClick.prototype.handleLabelElement = function(targetElement) {
+	'use strict';
+	var forElement = this.findControl(targetElement);
+	if (!forElement) {
 		return null;
 	}
-	return this.findControl(element);
+
+	this.focus(targetElement);
+	if (deviceIsAndroid) {
+		return null;
+	}
+
+	return forElement;
 };
 
 /**
  * Check if focus should be triggered based on timing.
- * @param {number} timeStamp
  * @param {number} trackingClickStart
- * @param {string} tagName
+ * @param {number} eventTimeStamp
+ * @param {string} targetTagName
  * @returns {boolean}
  */
-FastClick.prototype.shouldTriggerFocusOnTiming = function(timeStamp, trackingClickStart, tagName) {
+FastClick.prototype.shouldTriggerFocus = function(trackingClickStart, eventTimeStamp, targetTagName) {
 	'use strict';
-	if ((timeStamp - trackingClickStart) > 100) {
+	if ((eventTimeStamp - trackingClickStart) > 100) {
 		return true;
 	}
-	if (deviceIsIOS && window.top !== window && tagName === 'input') {
+
+	if (deviceIsIOS && window.top !== window && targetTagName === 'input') {
 		return true;
 	}
+
 	return false;
 };
 
 /**
- * Check if scroll parent has scrolled.
- * @param {Element} element
+ * Handle focus-required element.
+ * @param {Element} targetElement
+ * @param {Event} event
+ * @param {number} trackingClickStart
+ * @returns {boolean} Returns false to prevent default, true otherwise
+ */
+FastClick.prototype.handleFocusElement = function(targetElement, event, trackingClickStart) {
+	'use strict';
+	var targetTagName = targetElement.tagName.toLowerCase();
+
+	if (this.shouldTriggerFocus(trackingClickStart, event.timeStamp, targetTagName)) {
+		this.targetElement = null;
+		return false;
+	}
+
+	this.focus(targetElement);
+	this.sendClick(targetElement, event);
+
+	// Select elements need the event to go through on iOS 4, otherwise the selector menu won't open.
+	// Also this breaks opening selects when VoiceOver is active on iOS6, iOS7 (and possibly others)
+	if (!deviceIsIOS || targetTagName !== 'select') {
+		this.targetElement = null;
+		event.preventDefault();
+	}
+
+	return false;
+};
+
+/**
+ * Check if scroll parent was scrolled.
+ * @param {Element} targetElement
  * @returns {boolean}
  */
-FastClick.prototype.hasScrollParentScrolled = function(element) {
+FastClick.prototype.isScrollParentScrolled = function(targetElement) {
 	'use strict';
-	var scrollParent = element.fastClickScrollParent;
+	var scrollParent = targetElement.fastClickScrollParent;
 	if (!scrollParent) {
 		return false;
 	}
+
 	return scrollParent.fastClickLastScrollTop !== scrollParent.scrollTop;
 };
 
@@ -625,7 +624,7 @@ FastClick.prototype.onTouchEnd = function(event) {
 	}
 
 	// Prevent phantom clicks on fast double-tap (issue #36)
-	if (this.isDoubleTapTooFast(event.timeStamp)) {
+	if ((event.timeStamp - this.lastClickTime) < this.tapDelay) {
 		this.cancelNextClick = true;
 		return true;
 	}
@@ -652,44 +651,26 @@ FastClick.prototype.onTouchEnd = function(event) {
 	}
 
 	targetTagName = targetElement.tagName.toLowerCase();
-	
-	forElement = this.getLabelControl(targetTagName, targetElement);
-	if (forElement) {
-		this.focus(targetElement);
-		if (deviceIsAndroid) {
-			return false;
+	if (this.isLabelWithControl(targetElement)) {
+		forElement = this.handleLabelElement(targetElement);
+		if (forElement) {
+			targetElement = forElement;
 		}
-		targetElement = forElement;
+	} else if (this.needsFocus(targetElement)) {
+		return this.handleFocusElement(targetElement, event, trackingClickStart);
 	}
 
-	if (!this.needsFocus(targetElement)) {
-		if (deviceIsIOS && !deviceIsIOS4 && this.hasScrollParentScrolled(targetElement)) {
+	if (deviceIsIOS && !deviceIsIOS4) {
+		if (this.isScrollParentScrolled(targetElement)) {
 			return true;
 		}
-
-		if (!this.needsClick(targetElement)) {
-			event.preventDefault();
-			this.sendClick(targetElement, event);
-		}
-
-		return false;
 	}
 
-	// Case 1: If the touch started a while ago (best guess is 100ms based on tests for issue #36) then focus will be triggered anyway. Return early and unset the target element reference so that the subsequent click will be allowed through.
-	// Case 2: Without this exception for input elements tapped when the document is contained in an iframe, then any inputted text won't be visible even though the value attribute is updated as the user types (issue #37).
-	if (this.shouldTriggerFocusOnTiming(event.timeStamp, trackingClickStart, targetTagName)) {
-		this.targetElement = null;
-		return false;
-	}
-
-	this.focus(targetElement);
-	this.sendClick(targetElement, event);
-
-	// Select elements need the event to go through on iOS 4, otherwise the selector menu won't open.
-	// Also this breaks opening selects when VoiceOver is active on iOS6, iOS7 (and possibly others)
-	if (!deviceIsIOS || targetTagName !== 'select') {
-		this.targetElement = null;
+	// Prevent the actual click from going though - unless the target node is marked as requiring
+	// real clicks or if it is in the whitelist in which case only non-programmatic clicks are permitted.
+	if (!this.needsClick(targetElement)) {
 		event.preventDefault();
+		this.sendClick(targetElement, event);
 	}
 
 	return false;
@@ -707,29 +688,38 @@ FastClick.prototype.onTouchCancel = function() {
 	this.targetElement = null;
 };
 
+
 /**
- * Check if event should be blocked.
+ * Check if event should be allowed through.
  * @param {Event} event
  * @returns {boolean}
  */
-FastClick.prototype.shouldBlockEvent = function(event) {
+FastClick.prototype.shouldAllowMouseEvent = function(event) {
 	'use strict';
-	if (!this.needsClick(this.targetElement) || this.cancelNextClick) {
+	if (!this.targetElement) {
 		return true;
 	}
+
+	if (event.forwardedTouchEvent) {
+		return true;
+	}
+
+	if (!event.cancelable) {
+		return true;
+	}
+
 	return false;
 };
 
 /**
- * Stop event propagation.
+ * Prevent mouse event propagation.
  * @param {Event} event
  */
-FastClick.prototype.stopEventPropagation = function(event) {
+FastClick.prototype.preventMouseEventPropagation = function(event) {
 	'use strict';
 	if (event.stopImmediatePropagation) {
 		event.stopImmediatePropagation();
 	} else {
-		// Part of the hack for browsers that don't support Event#stopImmediatePropagation (e.g. Android 2)
 		event.propagationStopped = true;
 	}
 
@@ -746,46 +736,25 @@ FastClick.prototype.stopEventPropagation = function(event) {
 FastClick.prototype.onMouse = function(event) {
 	'use strict';
 
-	// If a target element was never set (because a touch event was never fired) allow the event
-	if (!this.targetElement) {
-		return true;
-	}
-
-	if (event.forwardedTouchEvent) {
-		return true;
-	}
-
-	// Programmatically generated events targeting a specific element should be permitted
-	if (!event.cancelable) {
+	if (this.shouldAllowMouseEvent(event)) {
 		return true;
 	}
 
 	// Derive and check the target element to see whether the mouse event needs to be permitted;
 	// unless explicitly enabled, prevent non-touch click events from triggering actions,
 	// to prevent ghost/doubleclicks.
-	if (!this.shouldBlockEvent(event)) {
-		return true;
+	if (!this.needsClick(this.targetElement) || this.cancelNextClick) {
+		this.preventMouseEventPropagation(event);
+		return false;
 	}
 
-	// Prevent any user-added listeners declared on FastClick element from being fired.
-	this.stopEventPropagation(event);
-
-	// Cancel the event
-	return false;
+	// If the mouse event is permitted, return true for the action to go through.
+	return true;
 };
 
-/**
- * Check if click is from tracking.
- * @param {Event} event
- * @returns {boolean}
- */
-FastClick.prototype.isClickFromTracking = function(event) {
-	'use strict';
-	return this.trackingClick;
-};
 
 /**
- * Check if click is fake submit.
+ * Check if click is a fake submit event.
  * @param {Event} event
  * @returns {boolean}
  */
@@ -807,7 +776,7 @@ FastClick.prototype.onClick = function(event) {
 	var permitted;
 
 	// It's possible for another FastClick-like library delivered with third-party code to fire a click event before FastClick does (issue #44). In that case, set the click-tracking flag back to false and return early. This will cause onTouchEnd to return early.
-	if (this.isClickFromTracking(event)) {
+	if (this.trackingClick) {
 		this.targetElement = null;
 		this.trackingClick = false;
 		return true;
@@ -853,7 +822,7 @@ FastClick.prototype.destroy = function() {
 };
 
 /**
- * Check if Chrome version needs FastClick.
+ * Check if Chrome version requires FastClick.
  * @param {number} chromeVersion
  * @returns {boolean}
  */
@@ -868,12 +837,10 @@ FastClick.prototype.chromeNeedsFastClick = function(chromeVersion) {
 		return true;
 	}
 
-	// Chrome on Android with user-scalable="no" doesn't need FastClick (issue #89)
 	if (metaViewport.content.indexOf('user-scalable=no') !== -1) {
 		return false;
 	}
 
-	// Chrome 32 and above with width=device-width or less don't need FastClick
 	if (chromeVersion > 31 && document.documentElement.scrollWidth <= window.outerWidth) {
 		return false;
 	}
@@ -882,13 +849,12 @@ FastClick.prototype.chromeNeedsFastClick = function(chromeVersion) {
 };
 
 /**
- * Check if BlackBerry 10 needs FastClick.
+ * Check if BlackBerry version requires FastClick.
+ * @param {Array} blackberryVersion
  * @returns {boolean}
  */
-FastClick.prototype.blackBerry10NeedsFastClick = function() {
+FastClick.prototype.blackberryNeedsFastClick = function(blackberryVersion) {
 	'use strict';
-	var blackberryVersion = navigator.userAgent.match(/Version\/([0-9]*)\.([0-9]*)/);
-
 	if (!blackberryVersion || blackberryVersion[1] < 10 || blackberryVersion[2] < 3) {
 		return true;
 	}
@@ -898,12 +864,10 @@ FastClick.prototype.blackBerry10NeedsFastClick = function() {
 		return true;
 	}
 
-	// user-scalable=no eliminates click delay.
 	if (metaViewport.content.indexOf('user-scalable=no') !== -1) {
 		return false;
 	}
 
-	// width=device-width (or less than device-width) eliminates click delay.
 	if (document.documentElement.scrollWidth <= window.outerWidth) {
 		return false;
 	}
@@ -919,6 +883,7 @@ FastClick.prototype.blackBerry10NeedsFastClick = function() {
 FastClick.notNeeded = function(layer) {
 	'use strict';
 	var chromeVersion;
+	var blackberryVersion;
 
 	// Devices that don't support touch don't need FastClick
 	if (typeof window.ontouchstart === 'undefined') {
@@ -931,45 +896,31 @@ FastClick.notNeeded = function(layer) {
 	if (chromeVersion) {
 		if (deviceIsAndroid) {
 			var metaViewport = document.querySelector('meta[name=viewport]');
-
-			if (metaViewport) {
-				// Chrome on Android with user-scalable="no" doesn't need FastClick (issue #89)
-				if (metaViewport.content.indexOf('user-scalable=no') !== -1) {
-					return true;
-				}
-				// Chrome 32 and above with width=device-width or less don't need FastClick
-				if (chromeVersion > 31 && document.documentElement.scrollWidth <= window.outerWidth) {
-					return true;
-				}
+			if (metaViewport && metaViewport.content.indexOf('user-scalable=no') !== -1) {
+				return true;
 			}
-
-		// Chrome desktop doesn't need FastClick (issue #15)
+			if (chromeVersion > 31 && document.documentElement.scrollWidth <= window.outerWidth) {
+				return true;
+			}
 		} else {
 			return true;
 		}
 	}
 
 	if (deviceIsBlackBerry10) {
-		var blackberryVersion = navigator.userAgent.match(/Version\/([0-9]*)\.([0-9]*)/);
-		
-		// BlackBerry 10.3+ does not require Fastclick library.
-		// https://github.com/ftlabs/fastclick/issues/251
+		blackberryVersion = navigator.userAgent.match(/Version\/([0-9]*)\.([0-9]*)/);
+
 		if (blackberryVersion && blackberryVersion[1] >= 10 && blackberryVersion[2] >= 3) {
 			var metaViewport = document.querySelector('meta[name=viewport]');
-
-			if (metaViewport) {
-				// user-scalable=no eliminates click delay.
-				if (metaViewport.content.indexOf('user-scalable=no') !== -1) {
-					return true;
-				}
-				// width=device-width (or less than device-width) eliminates click delay.
-				if (document.documentElement.scrollWidth <= window.outerWidth) {
-					return true;
-				}
+			if (metaViewport && metaViewport.content.indexOf('user-scalable=no') !== -1) {
+				return true;
+			}
+			if (document.documentElement.scrollWidth <= window.outerWidth) {
+				return true;
 			}
 		}
 	}
-	
+
 	// IE10 with -ms-touch-action: none, which disables double-tap-to-zoom (issue #97)
 	if (layer.style.msTouchAction === 'none') {
 		return true;
@@ -1004,4 +955,3 @@ if (typeof define == 'function' && typeof define.amd == 'object' && define.amd) 
 } else {
 	window.FastClick = FastClick;
 }
-```

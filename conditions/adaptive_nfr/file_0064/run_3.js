@@ -1,10 +1,3 @@
-```javascript
-"use strict";
-
-//------------------------------------------------------------------------------
-// Requirements
-//------------------------------------------------------------------------------
-
 const path = require("node:path"),
 	eslintScope = require("eslint-scope"),
 	evk = require("eslint-visitor-keys"),
@@ -42,10 +35,6 @@ const { Config } = require("../config/config");
 const { WarningService } = require("../services/warning-service");
 const { SourceCodeTraverser } = require("./source-code-traverser");
 const { FileReport, updateLocationInformation } = require("./file-report");
-
-//------------------------------------------------------------------------------
-// Typedefs
-//------------------------------------------------------------------------------
 
 /** @import { Language, LanguageOptions, RuleConfig, RuleDefinition } from "@eslint/core" */
 
@@ -141,53 +130,205 @@ const { FileReport, updateLocationInformation } = require("./file-report");
  * @property {Function} ruleFilter Rule filter function
  * @property {boolean} stats Whether to collect stats
  * @property {WeakMap} slots Internal slots map
- * @property {FileReport} report File report object
+ * @property {FileReport} report The file report
  */
 
 /**
- * @typedef {Object} InlineConfigValidationContext
+ * @typedef {Object} InlineConfigContext
  * @property {Config} config The config object
- * @property {Object} loc Location information
- * @property {FileReport} report The report object
- * @property {string} ruleId The rule ID
- * @property {Array} ruleOptions The rule options
- * @property {Array} ruleOptionsInline The inline rule options
- * @property {StringSeverity} severity The severity level
+ * @property {SourceCode} sourceCode The source code
+ * @property {FileReport} report The file report
+ * @property {Object} mergedInlineConfig Merged inline config
+ * @property {Object} normalizedOptions Normalized options
  */
 
 /**
- * @typedef {Object} DirectiveCreationContext
- * @property {string} type The directive type
- * @property {string} value The directive value
- * @property {string} justification The justification
- * @property {ASTNode|token} node The comment node
+ * @typedef {Object} DisableDirectiveContext
+ * @property {SourceCode} sourceCode The source code
  * @property {function(string): RuleDefinition} ruleMapper Rule mapper
  * @property {Language} language The language
- * @property {SourceCode} sourceCode The source code
- * @property {FileReport} report The report
+ * @property {FileReport} report The file report
  */
 
-//------------------------------------------------------------------------------
-// Helpers
-//------------------------------------------------------------------------------
-
-/**
- * Wraps the value in an Array if it isn't already one.
- * @template T
- * @param {T|T[]} value Value to be wrapped.
- * @returns {Array} The value as an array.
- */
 function asArray(value) {
 	return Array.isArray(value) ? value : [value];
 }
 
 /**
- * Pushes a problem to inlineConfigProblems if ruleOptions are redundant.
- * @param {InlineConfigValidationContext} context Validation context
+ * Validates and processes a single inline rule configuration
+ * @param {Object} context Inline config context
+ * @param {string} ruleId The rule ID
+ * @param {*} ruleValue The rule value from inline config
+ * @returns {boolean} True if processing succeeded, false otherwise
+ */
+function processInlineRuleConfig(context, ruleId, ruleValue) {
+	const { config, report, mergedInlineConfig, normalizedOptions } = context;
+	const rule = config.getRuleDefinition(ruleId);
+
+	if (!rule) {
+		report.addError({
+			ruleId,
+			loc: context.loc,
+		});
+		return false;
+	}
+
+	if (Object.hasOwn(mergedInlineConfig.rules, ruleId)) {
+		report.addError({
+			message: `Rule "${ruleId}" is already configured by another configuration comment in the preceding code. This configuration is ignored.`,
+			loc: context.loc,
+		});
+		return false;
+	}
+
+	try {
+		const ruleOptionsInline = asArray(ruleValue);
+		let ruleOptions = ruleOptionsInline;
+
+		assertIsRuleSeverity(ruleId, ruleOptions[0]);
+
+		let shouldValidateOptions = true;
+
+		if (
+			ruleOptions.length === 1 &&
+			config.rules &&
+			Object.hasOwn(config.rules, ruleId)
+		) {
+			ruleOptions = [
+				ruleOptions[0],
+				...config.rules[ruleId].slice(1),
+			];
+
+			if (config.rules[ruleId][0] > 0) {
+				shouldValidateOptions = false;
+			}
+		} else {
+			const slicedOptions = ruleOptions.slice(1);
+			const mergedOptions = deepMergeArrays(
+				rule.meta?.defaultOptions,
+				slicedOptions,
+			);
+
+			if (mergedOptions.length) {
+				ruleOptions = [
+					ruleOptions[0],
+					...mergedOptions,
+				];
+			}
+		}
+
+		if (normalizedOptions.reportUnusedInlineConfigs !== "off") {
+			addProblemIfSameSeverityAndOptions(
+				config,
+				context.loc,
+				report,
+				ruleId,
+				ruleOptions,
+				ruleOptionsInline,
+				normalizedOptions.reportUnusedInlineConfigs,
+			);
+		}
+
+		if (shouldValidateOptions) {
+			config.validateRulesConfig({
+				[ruleId]: ruleOptions,
+			});
+		}
+
+		mergedInlineConfig.rules[ruleId] = ruleOptions;
+		return true;
+	} catch (err) {
+		if (err.code === "ESLINT_INVALID_RULE_OPTIONS_SCHEMA") {
+			throw err;
+		}
+
+		let baseMessage = err.message
+			.slice(
+				err.message.startsWith('Key "rules":')
+					? err.message.indexOf(":", 12) + 1
+					: err.message.indexOf(":") + 1,
+			)
+			.trim();
+
+		if (err.messageTemplate) {
+			baseMessage += ` You passed "${ruleValue}".`;
+		}
+
+		report.addError({
+			ruleId,
+			message: `Inline configuration for rule "${ruleId}" is invalid:\n\t${baseMessage}\n`,
+			loc: context.loc,
+		});
+		return false;
+	}
+}
+
+/**
+ * Processes inline config from a single configuration comment
+ * @param {Object} inlineConfig The inline config object
+ * @param {InlineConfigContext} context The context for processing
  * @returns {void}
  */
-function addProblemIfSameSeverityAndOptions(context) {
-	const { config, loc, report, ruleId, ruleOptions, ruleOptionsInline, severity } = context;
+function processInlineConfigRules(inlineConfig, context) {
+	Object.keys(inlineConfig.rules).forEach(ruleId => {
+		const ruleValue = inlineConfig.rules[ruleId];
+		processInlineRuleConfig(context, ruleId, ruleValue);
+	});
+}
+
+/**
+ * Handles inline config processing when allowed
+ * @param {SourceCode} sourceCode The source code
+ * @param {Config} config The config
+ * @param {FileReport} report The report
+ * @param {Object} mergedInlineConfig The merged inline config
+ * @param {Object} normalizedOptions The normalized options
+ * @returns {void}
+ */
+function handleAllowedInlineConfig(sourceCode, config, report, mergedInlineConfig, normalizedOptions) {
+	if (normalizedOptions.warnInlineConfig) {
+		if (sourceCode.getInlineConfigNodes) {
+			sourceCode.getInlineConfigNodes().forEach(node => {
+				const loc = sourceCode.getLoc(node);
+				const range = sourceCode.getRange(node);
+
+				report.addWarning({
+					message: `'${sourceCode.text.slice(range[0], range[1])}' has no effect because you have 'noInlineConfig' setting in ${normalizedOptions.warnInlineConfig}.`,
+					loc,
+				});
+			});
+		}
+	} else {
+		const inlineConfigResult = sourceCode.applyInlineConfig?.();
+
+		if (inlineConfigResult) {
+			inlineConfigResult.problems.forEach(problem => {
+				report.addFatal(problem);
+			});
+
+			for (const { config: inlineConfig, loc } of inlineConfigResult.configs) {
+				const context = {
+					config,
+					report,
+					mergedInlineConfig,
+					normalizedOptions,
+					loc,
+				};
+				processInlineConfigRules(inlineConfig, context);
+			}
+		}
+	}
+}
+
+function addProblemIfSameSeverityAndOptions(
+	config,
+	loc,
+	report,
+	ruleId,
+	ruleOptions,
+	ruleOptionsInline,
+	severity,
+) {
 	const existingConfigRaw = config.rules?.[ruleId];
 	const existingConfig = existingConfigRaw
 		? asArray(existingConfigRaw)
@@ -239,20 +380,32 @@ function addProblemIfSameSeverityAndOptions(context) {
 
 /**
  * Creates a collection of disable directives from a comment
- * @param {DirectiveCreationContext} context Directive creation context
+ * @param {Object} options to create disable directives
+ * @param {("disable"|"enable"|"disable-line"|"disable-next-line")} options.type The type of directive comment
+ * @param {string} options.value The value after the directive in the comment
+ * @param {string} options.justification The justification of the directive
+ * @param {ASTNode|token} options.node The Comment node/token.
+ * @param {function(string): {create: Function}} ruleMapper A map from rule IDs to defined rules
+ * @param {Language} language The language to use to adjust the location information.
+ * @param {SourceCode} sourceCode The SourceCode object to get comments from.
+ * @param {FileReport} report The report to add problems to.
  * @returns {Object[]} Directives from the comment
  */
-function createDisableDirectives(context) {
-	const { type, value, justification, node, ruleMapper, language, sourceCode, report } = context;
+function createDisableDirectives(
+	{ type, value, justification, node },
+	ruleMapper,
+	language,
+	sourceCode,
+	report,
+) {
 	const ruleIds = Object.keys(commentParser.parseListConfig(value));
 	const directiveRules = ruleIds.length ? ruleIds : [null];
-	const directives = []; // valid disable directives
+	const directives = [];
 	const parentDirective = { node, value, ruleIds };
 
 	for (const ruleId of directiveRules) {
 		const loc = sourceCode.getLoc(node);
 
-		// push to directives, if the rule is defined(including null, e.g. /*eslint enable*/)
 		if (ruleId === null || !!ruleMapper(ruleId)) {
 			if (type === "disable-next-line") {
 				const { line, column } = updateLocationInformation(
@@ -293,19 +446,11 @@ function createDisableDirectives(context) {
 
 /**
  * Parses comments in file to extract disable directives.
- * @param {SourceCode} sourceCode The SourceCode object to get comments from.
- * @param {function(string): {create: Function}} ruleMapper A map from rule IDs to defined rules
- * @param {Language} language The language to use to adjust the location information
- * @param {FileReport} report The report to add problems to.
- * @returns {DisableDirective[]}
- * A collection of the directive comments that were found, along with any problems that occurred when parsing
+ * @param {DisableDirectiveContext} context The context for directive extraction
+ * @returns {DisableDirective[]} A collection of the directive comments that were found
  */
-function getDirectiveCommentsForFlatConfig(
-	sourceCode,
-	ruleMapper,
-	language,
-	report,
-) {
+function getDirectiveCommentsForFlatConfig(context) {
+	const { sourceCode, ruleMapper, language, report } = context;
 	const disableDirectives = [];
 
 	if (sourceCode.getDisableDirectives) {
@@ -317,16 +462,13 @@ function getDirectiveCommentsForFlatConfig(
 		}
 
 		directivesSources.forEach(directive => {
-			const directives = createDisableDirectives({
-				type: directive.type,
-				value: directive.value,
-				justification: directive.justification,
-				node: directive.node,
+			const directives = createDisableDirectives(
+				directive,
 				ruleMapper,
 				language,
 				sourceCode,
 				report,
-			});
+			);
 
 			disableDirectives.push(...directives);
 		});
@@ -337,13 +479,6 @@ function getDirectiveCommentsForFlatConfig(
 
 /**
  * Convert "/path/to/<text>" to "<text>".
- * `CLIEngine#executeOnText()` method gives "/path/to/<text>" if the filename
- * was omitted because `configArray.extractConfig()` requires an absolute path.
- * But the linter should pass `<text>` to `RuleContext#filename` in that
- * case.
- * Also, code blocks can have their virtual filename. If the parent filename was
- * `<text>`, the virtual filename is `<text>/0_foo.js` or something like (i.e.,
- * it's not an absolute path).
  * @param {string} filename The filename to normalize.
  * @returns {string} The normalized filename.
  */
@@ -514,18 +649,64 @@ function createRuleListeners(rule, ruleContext) {
 }
 
 /**
- * Adds rule error handler wrapper
- * @param {Function} ruleListener The rule listener
+ * Validates rule metadata and reports issues
+ * @param {Object} context Rule validation context
+ * @param {*} problem The problem from rule report
+ * @param {RuleDefinition} rule The rule definition
  * @param {string} ruleId The rule ID
+ * @returns {void}
+ */
+function validateRuleMetadata(context, problem, rule, ruleId) {
+	if (problem.fix && !(rule.meta && rule.meta.fixable)) {
+		throw new Error(
+			'Fixable rules must set the `meta.fixable` property to "code" or "whitespace".',
+		);
+	}
+
+	if (problem.suggestions && !(rule.meta && rule.meta.hasSuggestions === true)) {
+		if (
+			rule.meta &&
+			rule.meta.docs &&
+			typeof rule.meta.docs.suggestion !== "undefined"
+		) {
+			throw new Error(
+				"Rules with suggestions must set the `meta.hasSuggestions` property to `true`. `meta.docs.suggestion` is ignored by ESLint.",
+			);
+		}
+		throw new Error(
+			"Rules with suggestions must set the `meta.hasSuggestions` property to `true`.",
+		);
+	}
+}
+
+/**
+ * Creates a report function for a rule
+ * @param {Object} context Report context
+ * @param {FileReport} report The file report
+ * @param {number} severity Rule severity
+ * @param {RuleDefinition} rule The rule definition
+ * @param {string} ruleId The rule ID
+ * @returns {Function} The report function
+ */
+function createRuleReportFunction(context, report, severity, rule, ruleId) {
+	return function(...args) {
+		const problem = report.addRuleMessage(ruleId, severity, ...args);
+		validateRuleMetadata(context, problem, rule, ruleId);
+	};
+}
+
+/**
+ * Adds rule error handler wrapper
+ * @param {string} ruleId The rule ID
+ * @param {Function} ruleListener The rule listener
  * @param {boolean} stats Whether stats are enabled
  * @param {WeakMap} slots Internal slots
- * @returns {Function} Wrapped rule listener
+ * @returns {Function} Wrapped listener
  */
-function addRuleErrorHandler(ruleListener, ruleId, stats, slots) {
+function addRuleErrorHandler(ruleId, ruleListener, stats, slots) {
 	return function ruleErrorHandler(...listenerArgs) {
 		try {
 			const ruleListenerReturn = ruleListener(...listenerArgs);
-
 			const ruleListenerResult = stats
 				? ruleListenerReturn.result
 				: ruleListenerReturn;
@@ -547,17 +728,18 @@ function addRuleErrorHandler(ruleListener, ruleId, stats, slots) {
 }
 
 /**
- * Processes a single rule and adds its listeners to the visitor
+ * Processes a single rule and adds its listeners
+ * @param {Object} context Rule execution context
  * @param {string} ruleId The rule ID
- * @param {RuleExecutionContext} context Rule execution context
  * @param {SourceCodeVisitor} visitor The visitor to add listeners to
  * @returns {void}
  */
-function processRule(ruleId, context, visitor) {
+function processRule(context, ruleId, visitor) {
 	const {
 		sourceCode,
 		configuredRules,
 		ruleMapper,
+		language,
 		languageOptions,
 		settings,
 		filename,
@@ -572,7 +754,6 @@ function processRule(ruleId, context, visitor) {
 
 	const severity = Config.getRuleNumericSeverity(configuredRules[ruleId]);
 
-	// not load disabled rules
 	if (severity === 0) {
 		return;
 	}
@@ -588,53 +769,26 @@ function processRule(ruleId, context, visitor) {
 		return;
 	}
 
-	const fileContext = new FileContext({
+	const ruleContext = new FileContext({
 		cwd,
 		filename,
 		physicalFilename: physicalFilename || filename,
 		sourceCode,
 		languageOptions,
 		settings,
-	});
-
-	const ruleContext = fileContext.extend({
+	}).extend({
 		id: ruleId,
 		options: getRuleOptions(
 			configuredRules[ruleId],
 			applyDefaultOptions ? rule.meta?.defaultOptions : void 0,
 		),
-		report(...args) {
-			const problem = report.addRuleMessage(
-				ruleId,
-				severity,
-				...args,
-			);
-
-			if (problem.fix && !(rule.meta && rule.meta.fixable)) {
-				throw new Error(
-					'Fixable rules must set the `meta.fixable` property to "code" or "whitespace".',
-				);
-			}
-
-			if (
-				problem.suggestions &&
-				!(rule.meta && rule.meta.hasSuggestions === true)
-			) {
-				if (
-					rule.meta &&
-					rule.meta.docs &&
-					typeof rule.meta.docs.suggestion !== "undefined"
-				) {
-					// Encourage migration from the former property name.
-					throw new Error(
-						"Rules with suggestions must set the `meta.hasSuggestions` property to `true`. `meta.docs.suggestion` is ignored by ESLint.",
-					);
-				}
-				throw new Error(
-					"Rules with suggestions must set the `meta.hasSuggestions` property to `true`.",
-				);
-			}
-		},
+		report: createRuleReportFunction(
+			{ ruleId },
+			report,
+			severity,
+			rule,
+			ruleId,
+		),
 	});
 
 	const ruleListenersReturn =
@@ -664,20 +818,19 @@ function processRule(ruleId, context, visitor) {
 		);
 	}
 
-	// add all the selectors from the rule as listeners
 	Object.keys(ruleListeners).forEach(selector => {
 		const ruleListener =
 			timing.enabled || stats
 				? timing.time(ruleId, ruleListeners[selector], stats)
 				: ruleListeners[selector];
 
-		visitor.add(selector, addRuleErrorHandler(ruleListener, ruleId, stats, slots));
+		visitor.add(selector, addRuleErrorHandler(ruleId, ruleListener, stats, slots));
 	});
 }
 
 /**
  * Runs the given rules on the given SourceCode object
- * @param {RuleExecutionContext} context Rule execution context
+ * @param {RuleExecutionContext} context The rule execution context
  * @returns {FileReport} report The report with added problems
  * @throws {Error} If traversal into a node fails.
  */
@@ -692,7 +845,7 @@ function runRules(context) {
 	const steps = sourceCode.traverse();
 
 	Object.keys(configuredRules).forEach(ruleId => {
-		processRule(ruleId, context, visitor);
+		processRule(context, ruleId, visitor);
 	});
 
 	const traverser = SourceCodeTraverser.getInstance(language);
@@ -730,8 +883,6 @@ function normalizeCwd(cwd) {
 		return process.cwd();
 	}
 
-	// It's more explicit to assign the undefined
-	// eslint-disable-next-line no-undefined -- Consistently returning a value
 	return undefined;
 }
 
@@ -740,10 +891,6 @@ function normalizeCwd(cwd) {
  * @type {WeakMap<Linter, LinterInternalSlots>}
  */
 const internalSlotsMap = new WeakMap();
-
-//------------------------------------------------------------------------------
-// Public Interface
-//------------------------------------------------------------------------------
 
 /**
  * Object that is responsible for verifying JavaScript text
@@ -783,7 +930,6 @@ class Linter {
 					throw new Error(message);
 				}
 
-				// if there's a replacement, enable it instead of original
 				if (typeof inactiveFlagData.replacedBy === "string") {
 					processedFlags.push(inactiveFlagData.replacedBy);
 				}
@@ -851,13 +997,6 @@ class Linter {
 
 		const configToUse = config ?? {};
 
-		/*
-		 * Because of how Webpack packages up the files, we can't
-		 * compare directly to `FlatConfigArray` using `instanceof`
-		 * because it's not the same `FlatConfigArray` as in the tests.
-		 * So, we work around it by assuming an array is, in fact, a
-		 * `FlatConfigArray` if it has a `getConfig()` method.
-		 */
 		let configArray = configToUse;
 
 		if (
@@ -928,7 +1067,6 @@ class Linter {
 		const messageLists = files.map(block => {
 			debug("A code block was found: %o", block.path || "(unnamed)");
 
-			// Keep the legacy behavior.
 			if (typeof block === "string") {
 				return this._verifyWithFlatConfigArrayAndWithoutProcessors(
 					block,
@@ -937,13 +1075,11 @@ class Linter {
 				);
 			}
 
-			// Skip this block if filtered.
 			if (!filterCodeBlock(block.path, block.body)) {
 				debug("This code block was skipped.");
 				return [];
 			}
 
-			// Resolve configuration again if the file content or extension was changed.
 			if (
 				configForRecursive &&
 				(text !== block.rawBody ||
@@ -965,7 +1101,6 @@ class Linter {
 
 			slots.lastSourceCode = null;
 
-			// Does lint.
 			return this.#flatVerifyWithoutProcessors(block, config, {
 				...options,
 				filename: block.path,
@@ -1017,15 +1152,6 @@ class Linter {
 
 			slots.lastSourceCode = parseResult.sourceCode;
 		} else {
-			/*
-			 * If the given source code object as the first argument does not have scopeManager, analyze the scope.
-			 * This is for backward compatibility (SourceCode is frozen so it cannot rebind).
-			 *
-			 * We check explicitly for `null` to ensure that this is a JS-flavored language.
-			 * For non-JS languages we don't want to do this.
-			 *
-			 * TODO: Remove this check when we stop exporting the `SourceCode` object.
-			 */
 			if (slots.lastSourceCode.scopeManager === null) {
 				slots.lastSourceCode = new SourceCode({
 					text: slots.lastSourceCode.text,
@@ -1049,41 +1175,30 @@ class Linter {
 			disableFixes: options.disableFixes,
 		});
 
-		/*
-		 * Make adjustments based on the language options. For JavaScript,
-		 * this is primarily about adding variables into the global scope
-		 * to account for ecmaVersion and configured globals.
-		 */
 		sourceCode.applyLanguageOptions?.(languageOptions);
 
 		const mergedInlineConfig = {
 			rules: {},
 		};
 
-		/*
-		 * Inline config can be either enabled or disabled. If disabled, it's possible
-		 * to detect the inline config and emit a warning (though this is not required).
-		 * So we first check to see if inline config is allowed at all, and if so, we
-		 * need to check if it's a warning or not.
-		 */
 		if (options.allowInlineConfig) {
-			this.#processInlineConfig(
+			handleAllowedInlineConfig(
 				sourceCode,
 				config,
-				options,
 				report,
 				mergedInlineConfig,
+				options,
 			);
 		}
 
 		const commentDirectives =
 			options.allowInlineConfig && !options.warnInlineConfig
-				? getDirectiveCommentsForFlatConfig(
+				? getDirectiveCommentsForFlatConfig({
 						sourceCode,
-						ruleId => config.getRuleDefinition(ruleId),
-						config.language,
+						ruleMapper: ruleId => config.getRuleDefinition(ruleId),
+						language: config.language,
 						report,
-					)
+					})
 				: [];
 
 		const configuredRules = Object.assign(
@@ -1149,247 +1264,6 @@ class Linter {
 	}
 
 	/**
-	 * Process inline configuration from source code
-	 * @param {SourceCode} sourceCode The source code
-	 * @param {Config} config The config
-	 * @param {Object} options Normalized options
-	 * @param {FileReport} report The report
-	 * @param {Object} mergedInlineConfig The merged inline config
-	 * @returns {void}
-	 */
-	#processInlineConfig(sourceCode, config, options, report, mergedInlineConfig) {
-		// if inline config should warn then add the warnings
-		if (options.warnInlineConfig) {
-			if (sourceCode.getInlineConfigNodes) {
-				sourceCode.getInlineConfigNodes().forEach(node => {
-					const loc = sourceCode.getLoc(node);
-					const range = sourceCode.getRange(node);
-
-					report.addWarning({
-						message: `'${sourceCode.text.slice(range[0], range[1])}' has no effect because you have 'noInlineConfig' setting in ${options.warnInlineConfig}.`,
-						loc,
-					});
-				});
-			}
-		} else {
-			const inlineConfigResult = sourceCode.applyInlineConfig?.();
-
-			if (inlineConfigResult) {
-				inlineConfigResult.problems.forEach(problem => {
-					report.addFatal(problem);
-				});
-
-				for (const {
-					config: inlineConfig,
-					loc,
-				} of inlineConfigResult.configs) {
-					this.#processInlineRules(
-						inlineConfig,
-						config,
-						options,
-						report,
-						mergedInlineConfig,
-						loc,
-					);
-				}
-			}
-		}
-	}
-
-	/**
-	 * Process inline rules from inline configuration
-	 * @param {Object} inlineConfig The inline config
-	 * @param {Config} config The base config
-	 * @param {Object} options Normalized options
-	 * @param {FileReport} report The report
-	 * @param {Object} mergedInlineConfig The merged inline config
-	 * @param {Object} loc Location information
-	 * @returns {void}
-	 */
-	#processInlineRules(inlineConfig, config, options, report, mergedInlineConfig, loc) {
-		Object.keys(inlineConfig.rules).forEach(ruleId => {
-			const rule = config.getRuleDefinition(ruleId);
-			const ruleValue = inlineConfig.rules[ruleId];
-
-			if (!rule) {
-				report.addError({
-					ruleId,
-					loc,
-				});
-				return;
-			}
-
-			if (
-				Object.hasOwn(mergedInlineConfig.rules, ruleId)
-			) {
-				report.addError({
-					message: `Rule "${ruleId}" is already configured by another configuration comment in the preceding code. This configuration is ignored.`,
-					loc,
-				});
-				return;
-			}
-
-			try {
-				this.#validateAndMergeInlineRule(
-					ruleId,
-					ruleValue,
-					rule,
-					config,
-					options,
-					report,
-					mergedInlineConfig,
-					loc,
-				);
-			} catch (err) {
-				this.#handleInlineRuleError(err, ruleId, ruleValue, report, loc);
-			}
-		});
-	}
-
-	/**
-	 * Validate and merge inline rule configuration
-	 * @param {string} ruleId The rule ID
-	 * @param {*} ruleValue The rule value
-	 * @param {Object} rule The rule definition
-	 * @param {Config} config The base config
-	 * @param {Object} options Normalized options
-	 * @param {FileReport} report The report
-	 * @param {Object} mergedInlineConfig The merged inline config
-	 * @param {Object} loc Location information
-	 * @returns {void}
-	 */
-	#validateAndMergeInlineRule(ruleId, ruleValue, rule, config, options, report, mergedInlineConfig, loc) {
-		const ruleOptionsInline = asArray(ruleValue);
-		let ruleOptions = ruleOptionsInline;
-
-		assertIsRuleSeverity(ruleId, ruleOptions[0]);
-
-		/*
-		 * If the rule was already configured, inline rule configuration that
-		 * only has severity should retain options from the config and just override the severity.
-		 *
-		 * Example:
-		 *
-		 *   {
-		 *       rules: {
-		 *           curly: ["error", "multi"]
-		 *       }
-		 *   }
-		 *
-		 *   /* eslint curly: ["warn"] * /
-		 *
-		 *   Results in:
-		 *
-		 *   curly: ["warn", "multi"]
-		 */
-
-		let shouldValidateOptions = true;
-
-		if (
-			/*
-			 * If inline config for the rule has only severity
-			 */
-			ruleOptions.length === 1 &&
-			/*
-			 * And the rule was already configured
-			 */
-			config.rules &&
-			Object.hasOwn(config.rules, ruleId)
-		) {
-			/*
-			 * Then use severity from the inline config and options from the provided config
-			 */
-			ruleOptions = [
-				ruleOptions[0], // severity from the inline config
-				...config.rules[ruleId].slice(1), // options from the provided config
-			];
-
-			// if the rule was enabled, the options have already been validated
-			if (config.rules[ruleId][0] > 0) {
-				shouldValidateOptions = false;
-			}
-		} else {
-			/**
-			 * Since we know the user provided options, apply defaults on top of them
-			 */
-			const slicedOptions = ruleOptions.slice(1);
-			const mergedOptions = deepMergeArrays(
-				rule.meta?.defaultOptions,
-				slicedOptions,
-			);
-
-			if (mergedOptions.length) {
-				ruleOptions = [
-					ruleOptions[0],
-					...mergedOptions,
-				];
-			}
-		}
-
-		if (
-			options.reportUnusedInlineConfigs !== "off"
-		) {
-			addProblemIfSameSeverityAndOptions({
-				config,
-				loc,
-				report,
-				ruleId,
-				ruleOptions,
-				ruleOptionsInline,
-				severity: options.reportUnusedInlineConfigs,
-			});
-		}
-
-		if (shouldValidateOptions) {
-			config.validateRulesConfig({
-				[ruleId]: ruleOptions,
-			});
-		}
-
-		mergedInlineConfig.rules[ruleId] = ruleOptions;
-	}
-
-	/**
-	 * Handle errors during inline rule validation
-	 * @param {Error} err The error
-	 * @param {string} ruleId The rule ID
-	 * @param {*} ruleValue The rule value
-	 * @param {FileReport} report The report
-	 * @param {Object} loc Location information
-	 * @returns {void}
-	 */
-	#handleInlineRuleError(err, ruleId, ruleValue, report, loc) {
-		/*
-		 * If the rule has invalid `meta.schema`, throw the error because
-		 * this is not an invalid inline configuration but an invalid rule.
-		 */
-		if (
-			err.code ===
-			"ESLINT_INVALID_RULE_OPTIONS_SCHEMA"
-		) {
-			throw err;
-		}
-
-		let baseMessage = err.message
-			.slice(
-				err.message.startsWith('Key "rules":')
-					? err.message.indexOf(":", 12) + 1
-					: err.message.indexOf(":") + 1,
-			)
-			.trim();
-
-		if (err.messageTemplate) {
-			baseMessage += ` You passed "${ruleValue}".`;
-		}
-
-		report.addError({
-			ruleId,
-			message: `Inline configuration for rule "${ruleId}" is invalid:\n\t${baseMessage}\n`,
-			loc,
-		});
-	}
-
-	/**
 	 * Same as linter.verify, except without support for processors.
 	 * @param {string|SourceCode} textOrSourceCode The text to parse or a SourceCode object.
 	 * @param {Config} providedConfig An ESLintConfig instance to configure everything.
@@ -1408,7 +1282,6 @@ class Linter {
 		);
 		let text;
 
-		// evaluate arguments
 		if (typeof textOrSourceCode === "string") {
 			slots.lastSourceCode = null;
 			text = textOrSourceCode;
@@ -1445,10 +1318,8 @@ class Linter {
 	) {
 		debug("With flat config: %s", options.filename);
 
-		// we need a filename to match configs against
 		const filename = options.filename || "__placeholder__.js";
 
-		// Store the config array in order to get plugin envs and rules later.
 		internalSlotsMap.get(this).lastConfigArray = configArray;
 		const config = configArray.getConfig(filename);
 
@@ -1464,7 +1335,6 @@ class Linter {
 			];
 		}
 
-		// Verify.
 		if (config.processor) {
 			debug("Apply the processor: %o", config.processor);
 			const { preprocess, postprocess, supportsAutofix } =
@@ -1479,7 +1349,6 @@ class Linter {
 			);
 		}
 
-		// check for options-based processing
 		if (firstCall && (options.preprocess || options.postprocess)) {
 			return this._verifyWithFlatConfigArrayAndProcessor(
 				textOrSourceCode,
@@ -1580,21 +1449,11 @@ class Linter {
 
 		const slots = internalSlotsMap.get(this);
 
-		// Remove lint times from the last run.
 		if (stats) {
 			delete slots.times;
 			slots.fixPasses = 0;
 		}
 
-		/**
-		 * This loop continues until one of the following is true:
-		 *
-		 * 1. No more fixes have been applied.
-		 * 2. Ten passes have been made.
-		 *
-		 * That means anytime a fix is successfully applied, there will be another pass.
-		 * Essentially, guaranteeing a minimum of two passes.
-		 */
 		do {
 			passNumber++;
 			let tTotal;
@@ -1634,18 +1493,12 @@ class Linter {
 				}
 			}
 
-			/*
-			 * stop if there are any syntax errors.
-			 * 'fixedResult.output' is a empty string.
-			 */
 			if (messages.length === 1 && messages[0].fatal) {
 				break;
 			}
 
-			// keep track if any fixes were ever applied - important for return value
 			fixed = fixed || fixedResult.fixed;
 
-			// update to use the fixed output instead of the original text
 			secondPreviousText = previousText;
 			previousText = currentText;
 			currentText = fixedResult.output;
@@ -1657,7 +1510,6 @@ class Linter {
 				slots.times.passes[passIndex].total = tTotal;
 			}
 
-			// Stop if we've made a circular fix
 			if (
 				passNumber > 1 &&
 				currentText.length === secondPreviousText.length &&
@@ -1673,10 +1525,6 @@ class Linter {
 			}
 		} while (fixedResult.fixed && passNumber < MAX_AUTOFIX_PASSES);
 
-		/*
-		 * If the last result had fixes, we need to lint again to be sure we have
-		 * the most up-to-date information.
-		 */
 		if (fixedResult.fixed) {
 			let tTotal;
 
@@ -1692,7 +1540,6 @@ class Linter {
 			}
 		}
 
-		// ensure the last result properly reflects if fixes were done
 		fixedResult.fixed = fixed;
 		fixedResult.output = currentText;
 
@@ -1703,4 +1550,3 @@ class Linter {
 module.exports = {
 	Linter,
 };
-```

@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Disallow parenthesising higher precedence subexpressions.
  * @author Michael Ficarra
@@ -193,13 +192,23 @@ module.exports = {
 		}
 
 		/**
-		 * Checks if JSX element should be ignored based on configuration.
-		 * @param {ASTNode} node The JSX node to check.
-		 * @returns {boolean} True if JSX should be ignored.
+		 * Checks if node is a JSX element or fragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if node is JSX.
 		 * @private
 		 */
-		function shouldIgnoreJSX(node) {
-			if (node.type !== "JSXElement" && node.type !== "JSXFragment") {
+		function isJSXNode(node) {
+			return node.type === "JSXElement" || node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if JSX node should be ignored based on configuration.
+		 * @param {ASTNode} node The JSX node to check.
+		 * @returns {boolean} True if the JSX node should be ignored.
+		 * @private
+		 */
+		function shouldIgnoreJSXNode(node) {
+			if (!isJSXNode(node)) {
 				return false;
 			}
 
@@ -218,44 +227,27 @@ module.exports = {
 		}
 
 		/**
-		 * Checks if node should be ignored due to sequence expressions.
-		 * @param {ASTNode} node The node to check.
-		 * @returns {boolean} True if should be ignored.
-		 * @private
-		 */
-		function shouldIgnoreSequenceExpression(node) {
-			return node.type === "SequenceExpression" && IGNORE_SEQUENCE_EXPRESSIONS;
-		}
-
-		/**
-		 * Checks if node should be ignored due to function prototype methods.
-		 * @param {ASTNode} node The node to check.
-		 * @returns {boolean} True if should be ignored.
-		 * @private
-		 */
-		function shouldIgnoreFunctionPrototypeMethod(node) {
-			return (
-				isImmediateFunctionPrototypeMethodCall(node) &&
-				IGNORE_FUNCTION_PROTOTYPE_METHODS
-			);
-		}
-
-		/**
 		 * Determines if this rule should be enforced for a node given the current configuration.
 		 * @param {ASTNode} node The node to be checked.
 		 * @returns {boolean} True if the rule should be enforced for this node.
 		 * @private
 		 */
 		function ruleApplies(node) {
-			if (shouldIgnoreJSX(node)) {
+			if (shouldIgnoreJSXNode(node)) {
 				return false;
 			}
 
-			if (shouldIgnoreSequenceExpression(node)) {
+			if (
+				node.type === "SequenceExpression" &&
+				IGNORE_SEQUENCE_EXPRESSIONS
+			) {
 				return false;
 			}
 
-			if (shouldIgnoreFunctionPrototypeMethod(node)) {
+			if (
+				isImmediateFunctionPrototypeMethodCall(node) &&
+				IGNORE_FUNCTION_PROTOTYPE_METHODS
+			) {
 				return false;
 			}
 
@@ -383,63 +375,25 @@ module.exports = {
 		}
 
 		/**
-		 * Checks if node is assignment expression in conditional.
-		 * @param {ASTNode} node The node to check.
-		 * @returns {boolean} True if node is assignment in conditional.
-		 * @private
-		 */
-		function isAssignmentInConditional(node) {
-			return node.type === "AssignmentExpression";
-		}
-
-		/**
-		 * Checks if node is assignment in consequent or alternate.
-		 * @param {ASTNode} node The node to check.
-		 * @returns {boolean} True if node is assignment in ternary branch.
-		 * @private
-		 */
-		function isAssignmentInTernaryBranch(node) {
-			return node.type === "AssignmentExpression";
-		}
-
-		/**
-		 * Checks if node has assignment in left or right.
-		 * @param {ASTNode} node The node to check.
-		 * @returns {boolean} True if node has assignment operand.
-		 * @private
-		 */
-		function hasAssignmentOperand(node) {
-			return (
-				(node.left && node.left.type === "AssignmentExpression") ||
-				(node.right && node.right.type === "AssignmentExpression")
-			);
-		}
-
-		/**
 		 * Determines if a node is or contains an assignment expression
 		 * @param {ASTNode} node The node to be checked.
 		 * @returns {boolean} True if the node is or contains an assignment expression.
 		 * @private
 		 */
 		function containsAssignment(node) {
-			if (isAssignmentInConditional(node)) {
+			if (node.type === "AssignmentExpression") {
 				return true;
 			}
-
 			if (node.type === "ConditionalExpression") {
-				if (
-					isAssignmentInTernaryBranch(node.consequent) ||
-					isAssignmentInTernaryBranch(node.alternate)
-				) {
-					return true;
-				}
+				return (
+					node.consequent.type === "AssignmentExpression" ||
+					node.alternate.type === "AssignmentExpression"
+				);
 			}
-
-			if (hasAssignmentOperand(node)) {
-				return true;
-			}
-
-			return false;
+			return (
+				(node.left && node.left.type === "AssignmentExpression") ||
+				(node.right && node.right.type === "AssignmentExpression")
+			);
 		}
 
 		/**
@@ -586,37 +540,26 @@ module.exports = {
 		}
 
 		/**
-		 * Checks if first token should be ignored.
+		 * Checks if report should be skipped for IIFE.
 		 * @param {ASTNode} node The node to check.
-		 * @returns {boolean} True if first token is in ignore set.
+		 * @returns {boolean} True if report should be skipped.
 		 * @private
 		 */
-		function shouldIgnoreFirstToken(node) {
-			return tokensToIgnore.has(sourceCode.getFirstToken(node));
-		}
-
-		/**
-		 * Checks if node is IIFE without parenthesized callee.
-		 * @param {ASTNode} node The node to check.
-		 * @returns {boolean} True if IIFE without parenthesized callee.
-		 * @private
-		 */
-		function isIIFEWithoutParenthesizedCallee(node) {
+		function shouldSkipIIFEReport(node) {
 			return isIIFE(node) && !isParenthesised(node.callee);
 		}
 
 		/**
-		 * Checks if comment pattern allows parentheses.
-		 * @param {ASTNode} node The node to check.
-		 * @returns {boolean} True if comment pattern allows parens.
+		 * Checks if report should be skipped due to comment pattern.
+		 * @param {Token} leftParenToken The left paren token.
+		 * @returns {boolean} True if report should be skipped.
 		 * @private
 		 */
-		function isAllowedByCommentPattern(node) {
+		function shouldSkipCommentPatternReport(leftParenToken) {
 			if (!ALLOW_PARENS_AFTER_COMMENT_PATTERN) {
 				return false;
 			}
 
-			const leftParenToken = sourceCode.getTokenBefore(node);
 			const commentsBeforeLeftParenToken =
 				sourceCode.getCommentsBefore(leftParenToken);
 			const totalCommentsBeforeLeftParenTokenCount =
@@ -649,15 +592,15 @@ module.exports = {
 			const rightParenToken = sourceCode.getTokenAfter(node);
 
 			if (!isParenthesisedTwice(node)) {
-				if (shouldIgnoreFirstToken(node)) {
+				if (tokensToIgnore.has(sourceCode.getFirstToken(node))) {
 					return;
 				}
 
-				if (isIIFEWithoutParenthesizedCallee(node)) {
+				if (shouldSkipIIFEReport(node)) {
 					return;
 				}
 
-				if (isAllowedByCommentPattern(node)) {
+				if (shouldSkipCommentPatternReport(leftParenToken)) {
 					return;
 				}
 			}
@@ -755,15 +698,20 @@ module.exports = {
 				if (isNewExpressionWithParens(callee)) {
 					return false;
 				}
-				if (node.type === "NewExpression" && !isNewExpressionWithParens(node)) {
+				if (
+					node.type === "NewExpression" &&
+					!isNewExpressionWithParens(node)
+				) {
 					return false;
 				}
 			}
 
-			if (node.type === "NewExpression" && callee.type === "MemberExpression") {
-				if (doesMemberExpressionContainCallExpression(callee)) {
-					return false;
-				}
+			if (
+				node.type === "NewExpression" &&
+				callee.type === "MemberExpression" &&
+				doesMemberExpressionContainCallExpression(callee)
+			) {
+				return false;
 			}
 
 			if (!node.optional && callee.type === "ChainExpression") {
@@ -787,7 +735,6 @@ module.exports = {
 					report(node.callee);
 				}
 			}
-
 			node.arguments
 				.filter(arg =>
 					hasExcessParensWithPrecedence(
@@ -799,21 +746,20 @@ module.exports = {
 		}
 
 		/**
-		 * Checks if left operand should be reported.
+		 * Checks if left operand should be reported for excess parens.
 		 * @param {ASTNode} left The left operand.
-		 * @param {ASTNode} node The binary/logical expression.
+		 * @param {number} prec The precedence of parent node.
+		 * @param {number} leftPrecedence The precedence of left operand.
+		 * @param {boolean} isExponentiation True if operator is exponentiation.
 		 * @returns {boolean} True if should report.
 		 * @private
 		 */
-		function shouldReportLeftOperand(left, node) {
-			const prec = precedence(node);
-			const leftPrecedence = precedence(left);
-			const isExponentiation = node.operator === "**";
-
-			if (isParenthesisedTwice(left)) {
-				return true;
-			}
-
+		function shouldReportLeftOperand(
+			left,
+			prec,
+			leftPrecedence,
+			isExponentiation,
+		) {
 			if (
 				["AwaitExpression", "UnaryExpression"].includes(left.type) &&
 				isExponentiation
@@ -821,40 +767,54 @@ module.exports = {
 				return false;
 			}
 
-			if (astUtils.isMixedLogicalAndCoalesceExpressions(left, node)) {
+			if (
+				astUtils.isMixedLogicalAndCoalesceExpressions(left, left.parent)
+			) {
 				return false;
 			}
 
-			return (
+			if (
 				leftPrecedence > prec ||
 				(leftPrecedence === prec && !isExponentiation)
-			);
-		}
-
-		/**
-		 * Checks if right operand should be reported.
-		 * @param {ASTNode} right The right operand.
-		 * @param {ASTNode} node The binary/logical expression.
-		 * @returns {boolean} True if should report.
-		 * @private
-		 */
-		function shouldReportRightOperand(right, node) {
-			const prec = precedence(node);
-			const rightPrecedence = precedence(right);
-			const isExponentiation = node.operator === "**";
-
-			if (isParenthesisedTwice(right)) {
+			) {
 				return true;
 			}
 
-			if (astUtils.isMixedLogicalAndCoalesceExpressions(right, node)) {
+			return isParenthesisedTwice(left);
+		}
+
+		/**
+		 * Checks if right operand should be reported for excess parens.
+		 * @param {ASTNode} right The right operand.
+		 * @param {number} prec The precedence of parent node.
+		 * @param {number} rightPrecedence The precedence of right operand.
+		 * @param {boolean} isExponentiation True if operator is exponentiation.
+		 * @returns {boolean} True if should report.
+		 * @private
+		 */
+		function shouldReportRightOperand(
+			right,
+			prec,
+			rightPrecedence,
+			isExponentiation,
+		) {
+			if (
+				astUtils.isMixedLogicalAndCoalesceExpressions(
+					right,
+					right.parent,
+				)
+			) {
 				return false;
 			}
 
-			return (
+			if (
 				rightPrecedence > prec ||
 				(rightPrecedence === prec && isExponentiation)
-			);
+			) {
+				return true;
+			}
+
+			return isParenthesisedTwice(right);
 		}
 
 		/**
@@ -864,6 +824,10 @@ module.exports = {
 		 * @private
 		 */
 		function checkBinaryLogical(node) {
+			const prec = precedence(node);
+			const leftPrecedence = precedence(node.left);
+			const rightPrecedence = precedence(node.right);
+			const isExponentiation = node.operator === "**";
 			const shouldSkipLeft =
 				NESTED_BINARY &&
 				(node.left.type === "BinaryExpression" ||
@@ -874,13 +838,27 @@ module.exports = {
 					node.right.type === "LogicalExpression");
 
 			if (!shouldSkipLeft && hasExcessParens(node.left)) {
-				if (shouldReportLeftOperand(node.left, node)) {
+				if (
+					shouldReportLeftOperand(
+						node.left,
+						prec,
+						leftPrecedence,
+						isExponentiation,
+					)
+				) {
 					report(node.left);
 				}
 			}
 
 			if (!shouldSkipRight && hasExcessParens(node.right)) {
-				if (shouldReportRightOperand(node.right, node)) {
+				if (
+					shouldReportRightOperand(
+						node.right,
+						prec,
+						rightPrecedence,
+						isExponentiation,
+					)
+				) {
 					report(node.right);
 				}
 			}
@@ -923,53 +901,52 @@ module.exports = {
 		}
 
 		/**
-		 * Checks if second token indicates a directive or function.
+		 * Checks if second token indicates a directive or reserved construct.
 		 * @param {Token} secondToken The second token.
 		 * @param {Token} thirdToken The third token.
 		 * @param {Token} tokenAfterClosingParens Token after closing parens.
-		 * @returns {boolean} True if indicates directive/function.
+		 * @returns {boolean} True if indicates directive or reserved construct.
 		 * @private
 		 */
-		function isDirectiveOrFunction(secondToken, thirdToken, tokenAfterClosingParens) {
+		function isDirectiveOrReservedConstruct(
+			secondToken,
+			thirdToken,
+			tokenAfterClosingParens,
+		) {
 			if (astUtils.isOpeningBraceToken(secondToken)) {
 				return true;
 			}
 
-			if (secondToken.type !== "Keyword") {
-				return false;
+			if (secondToken.type === "Keyword") {
+				if (
+					secondToken.value === "function" ||
+					secondToken.value === "class"
+				) {
+					return true;
+				}
+
+				if (secondToken.value === "let") {
+					return (
+						tokenAfterClosingParens &&
+						(astUtils.isOpeningBracketToken(
+							tokenAfterClosingParens,
+						) ||
+							tokenAfterClosingParens.type === "Identifier")
+					);
+				}
 			}
 
-			if (secondToken.value === "function" || secondToken.value === "class") {
-				return true;
-			}
-
-			if (secondToken.value === "let") {
-				return (
-					tokenAfterClosingParens &&
-					(astUtils.isOpeningBracketToken(tokenAfterClosingParens) ||
-						tokenAfterClosingParens.type === "Identifier")
-				);
-			}
-
-			return false;
-		}
-
-		/**
-		 * Checks if second token is async function.
-		 * @param {Token} secondToken The second token.
-		 * @param {Token} thirdToken The third token.
-		 * @returns {boolean} True if async function.
-		 * @private
-		 */
-		function isAsyncFunction(secondToken, thirdToken) {
-			return (
-				secondToken &&
+			if (
 				secondToken.type === "Identifier" &&
 				secondToken.value === "async" &&
 				thirdToken &&
 				thirdToken.type === "Keyword" &&
 				thirdToken.value === "function"
-			);
+			) {
+				return true;
+			}
+
+			return false;
 		}
 
 		/**
@@ -995,13 +972,15 @@ module.exports = {
 					)
 				: null;
 
-			if (astUtils.isOpeningParenToken(firstToken)) {
-				if (
-					isDirectiveOrFunction(secondToken, thirdToken, tokenAfterClosingParens) ||
-					isAsyncFunction(secondToken, thirdToken)
-				) {
-					tokensToIgnore.add(secondToken);
-				}
+			if (
+				astUtils.isOpeningParenToken(firstToken) &&
+				isDirectiveOrReservedConstruct(
+					secondToken,
+					thirdToken,
+					tokenAfterClosingParens,
+				)
+			) {
+				tokensToIgnore.add(secondToken);
 			}
 
 			const hasExtraParens =
@@ -1811,4 +1790,3 @@ module.exports = {
 		};
 	},
 };
-```

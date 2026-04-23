@@ -172,6 +172,24 @@ class StateManager:
             self._save_state()
             logger.debug(f"Added run {run.record_id} with status {run.status}")
 
+    def bulk_add_runs(self, runs: list) -> None:
+        """
+        Add multiple runs at once with a single disk write.
+
+        Prefer over repeated add_run() calls when initializing state from CSV
+        to avoid thousands of slow filesystem writes (especially on network
+        filesystems like iCloudDrive accessed via WSL).
+
+        Args:
+            runs: List of ExperimentRun objects
+        """
+        with self._lock:
+            for run in runs:
+                self._state["runs"][run.record_id] = self._serialize_run(run)
+            self._update_metadata()
+            self._save_state()
+            logger.info(f"Bulk-added {len(runs)} runs to state")
+
     def update_run_status(self, record_id: str, status: str, stage: Optional[str] = None) -> None:
         """
         Update run status and optionally current stage.

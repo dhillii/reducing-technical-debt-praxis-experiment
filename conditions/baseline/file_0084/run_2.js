@@ -1,4 +1,3 @@
-```typescript
 import { useState } from 'react'
 
 import { ContextualHelp } from '@keystar/ui/contextual-help'
@@ -30,8 +29,8 @@ type Value =
   | { kind: 'update'; initial: number | null; value: number | null }
 
 type Validation = {
-  readonly min: number
-  readonly max: number
+  min: number
+  max: number
 }
 
 function validate_(
@@ -55,10 +54,10 @@ function validate_(
 }
 
 export function controller(
-  config: FieldControllerConfig<{
+  config: Readonly<FieldControllerConfig<{
     validation: Validation
     defaultValue: number | null | 'autoincrement'
-  }>
+  }>>
 ): FieldController<Value, number | null, SimpleFieldTypeInfo<'Int'>['inputs']['where']> & {
   validation: Validation
   hasAutoIncrementDefault: boolean
@@ -254,4 +253,3 @@ export function Field({
     />
   )
 }
-```

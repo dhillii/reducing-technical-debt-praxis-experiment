@@ -1,4 +1,3 @@
-```javascript
 const path = require("path");
 const fs = require("fs");
 fs.existsSync = fs.existsSync || path.existsSync;
@@ -546,4 +545,3 @@ module.exports = function(yargs, argv, convertOptions) {
 		}
 	}
 };
-```

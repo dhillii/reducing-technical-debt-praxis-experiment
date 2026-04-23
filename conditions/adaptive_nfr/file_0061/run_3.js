@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Abstraction of JavaScript source code.
  * @author Nicholas C. Zakas
@@ -69,13 +68,12 @@ function validate(ast) {
 }
 
 /**
- * Maps ecmaVersion to corresponding globals object.
- * @type {Object<number, Object>}
- * @private
+ * Maps ecmaVersion to globals lookup strategy.
+ * @type {Object<number, string>}
  */
 const ecmaVersionGlobalsMap = {
-	3: () => globals.es3,
-	5: () => globals.es5,
+	3: "es3",
+	5: "es5",
 };
 
 /**
@@ -84,9 +82,8 @@ const ecmaVersionGlobalsMap = {
  * @returns {Object} The globals for the given ecmaVersion.
  */
 function getGlobalsForEcmaVersion(ecmaVersion) {
-	const mapper = ecmaVersionGlobalsMap[ecmaVersion];
-	if (mapper) {
-		return mapper();
+	if (ecmaVersionGlobalsMap[ecmaVersion]) {
+		return globals[ecmaVersionGlobalsMap[ecmaVersion]];
 	}
 
 	if (ecmaVersion < 2015) {
@@ -126,17 +123,15 @@ function sortedMerge(tokens, comments) {
 /**
  * Maps global configuration values to normalized strings.
  * @type {Object<string|boolean|null, string>}
- * @private
  */
-const globalConfigNormalizers = {
-	off: "off",
-	true: "writable",
-	writeable: "writable",
-	writable: "writable",
-	null: "readonly",
-	false: "readonly",
-	readable: "readonly",
-	readonly: "readonly",
+const globalConfigNormalizationMap = {
+	"off": "off",
+	"true": "writable",
+	"writeable": "writable",
+	"writable": "writable",
+	"false": "readonly",
+	"readable": "readonly",
+	"readonly": "readonly",
 };
 
 /**
@@ -147,9 +142,17 @@ const globalConfigNormalizers = {
  * @throws {Error} if global value is invalid
  */
 function normalizeConfigGlobal(configuredValue) {
-	const normalized = globalConfigNormalizers[configuredValue];
-	
-	if (normalized !== undefined) {
+	if (configuredValue === true) {
+		return "writable";
+	}
+
+	if (configuredValue === null || configuredValue === false) {
+		return "readonly";
+	}
+
+	const normalized = globalConfigNormalizationMap[configuredValue];
+
+	if (normalized) {
 		return normalized;
 	}
 
@@ -259,176 +262,6 @@ function markExportedVariables(globalScope, variables) {
 			variable.eslintExported = true;
 		}
 	});
-}
-
-/**
- * Checks if a comment is a shebang.
- * @param {Object} comment The comment node to check.
- * @returns {boolean} True if the comment is a shebang.
- * @private
- */
-function isShebangComment(comment) {
-	return comment.type === "Shebang";
-}
-
-/**
- * Checks if a directive label is a line comment directive.
- * @param {string} label The directive label.
- * @returns {boolean} True if the label is a line comment directive.
- * @private
- */
-function isLineCommentDirective(label) {
-	return /^eslint-disable-(?:next-)?line$/u.test(label);
-}
-
-/**
- * Checks if a comment is a valid inline config node.
- * @param {Object} comment The comment node to check.
- * @returns {boolean} True if the comment is a valid inline config node.
- * @private
- */
-function isValidInlineConfigNode(comment) {
-	if (isShebangComment(comment)) {
-		return false;
-	}
-
-	const directive = commentParser.parseDirective(comment.value);
-
-	if (!directive) {
-		return false;
-	}
-
-	if (!directivesPattern.test(directive.label)) {
-		return false;
-	}
-
-	return (
-		comment.type !== "Line" ||
-		isLineCommentDirective(directive.label)
-	);
-}
-
-/**
- * Directive type handlers for processing different directive labels.
- * @type {Object<string, Function>}
- * @private
- */
-const directiveTypeHandlers = {
-	"eslint-disable": (label, value, justificationPart) => ({
-		type: "disable",
-		value,
-		justification: justificationPart,
-	}),
-	"eslint-enable": (label, value, justificationPart) => ({
-		type: "enable",
-		value,
-		justification: justificationPart,
-	}),
-	"eslint-disable-next-line": (label, value, justificationPart) => ({
-		type: "disable-next-line",
-		value,
-		justification: justificationPart,
-	}),
-	"eslint-disable-line": (label, value, justificationPart) => ({
-		type: "disable-line",
-		value,
-		justification: justificationPart,
-	}),
-};
-
-/**
- * Checks if a directive label is a supported directive type.
- * @param {string} label The directive label.
- * @returns {boolean} True if the label is a supported directive type.
- * @private
- */
-function isSupportedDirectiveType(label) {
-	return label in directiveTypeHandlers;
-}
-
-/**
- * Inline config node handlers for processing different directive labels.
- * @type {Object<string, Function>}
- * @private
- */
-const inlineConfigHandlers = {
-	exported: (value, comment, exportedVariables, inlineGlobals, problems, commentParser) => {
-		Object.assign(
-			exportedVariables,
-			commentParser.parseListConfig(value),
-		);
-	},
-	globals: (value, comment, exportedVariables, inlineGlobals, problems, commentParser) => {
-		processGlobalsConfig(value, comment, inlineGlobals, problems, commentParser);
-	},
-	global: (value, comment, exportedVariables, inlineGlobals, problems, commentParser) => {
-		processGlobalsConfig(value, comment, inlineGlobals, problems, commentParser);
-	},
-	eslint: (value, comment, exportedVariables, inlineGlobals, problems, commentParser, configs) => {
-		const parseResult = commentParser.parseJSONLikeConfig(value);
-
-		if (parseResult.ok) {
-			configs.push({
-				config: {
-					rules: parseResult.config,
-				},
-				loc: comment.loc,
-			});
-		} else {
-			problems.push({
-				ruleId: null,
-				loc: comment.loc,
-				message: parseResult.error.message,
-			});
-		}
-	},
-	"eslint-env": (value, comment, exportedVariables, inlineGlobals, problems, commentParser) => {
-		problems.push({
-			ruleId: null,
-			loc: comment.loc,
-			message:
-				"/* eslint-env */ comments are no longer supported.",
-		});
-	},
-};
-
-/**
- * Processes globals configuration from a comment.
- * @param {string} value The configuration value.
- * @param {Object} comment The comment node.
- * @param {Object} inlineGlobals The inline globals object.
- * @param {Array} problems The problems array.
- * @param {Object} commentParser The comment parser.
- * @returns {void}
- * @private
- */
-function processGlobalsConfig(value, comment, inlineGlobals, problems, commentParser) {
-	for (const [id, idSetting] of Object.entries(
-		commentParser.parseStringConfig(value),
-	)) {
-		let normalizedValue;
-
-		try {
-			normalizedValue = normalizeConfigGlobal(idSetting);
-		} catch (err) {
-			problems.push({
-				ruleId: null,
-				loc: comment.loc,
-				message: err.message,
-			});
-			continue;
-		}
-
-		if (inlineGlobals[id]) {
-			inlineGlobals[id].comments.push(comment);
-			inlineGlobals[id].value = normalizedValue;
-		} else {
-			inlineGlobals[id] = {
-				comments: [comment],
-				value: normalizedValue,
-			};
-		}
-	}
 }
 
 //------------------------------------------------------------------------------
@@ -1013,7 +846,28 @@ class SourceCode extends TokenStore {
 		}
 
 		// calculate fresh config nodes
-		configNodes = this.ast.comments.filter(isValidInlineConfigNode);
+		configNodes = this.ast.comments.filter(comment => {
+			// shebang comments are never directives
+			if (comment.type === "Shebang") {
+				return false;
+			}
+
+			const directive = commentParser.parseDirective(comment.value);
+
+			if (!directive) {
+				return false;
+			}
+
+			if (!directivesPattern.test(directive.label)) {
+				return false;
+			}
+
+			// only certain comment types are supported as line comments
+			return (
+				comment.type !== "Line" ||
+				!!/^eslint-disable-(?:next-)?line$/u.test(directive.label)
+			);
+		});
 
 		this[caches].set("configNodes", configNodes);
 
@@ -1046,7 +900,8 @@ class SourceCode extends TokenStore {
 			} = commentParser.parseDirective(comment.value);
 
 			// Step 2: Extract the directive value
-			const lineCommentSupported = isLineCommentDirective(label);
+			const lineCommentSupported =
+				/^eslint-disable-(?:next-)?line$/u.test(label);
 
 			if (comment.type === "Line" && !lineCommentSupported) {
 				return;
@@ -1068,7 +923,14 @@ class SourceCode extends TokenStore {
 			}
 
 			// Step 4: Extract the directive value and create the Directive object
-			if (isSupportedDirectiveType(label)) {
+			const directiveLabels = {
+				"eslint-disable": true,
+				"eslint-enable": true,
+				"eslint-disable-next-line": true,
+				"eslint-disable-line": true,
+			};
+
+			if (directiveLabels[label]) {
 				const directiveType = label.slice("eslint-".length);
 
 				directives.push(
@@ -1140,9 +1002,51 @@ class SourceCode extends TokenStore {
 				comment.value,
 			);
 
+			const inlineConfigHandlers = {
+				exported: () => {
+					Object.assign(
+						exportedVariables,
+						commentParser.parseListConfig(value),
+					);
+				},
+				globals: () => {
+					this._processGlobalsConfig(value, comment, inlineGlobals, problems);
+				},
+				global: () => {
+					this._processGlobalsConfig(value, comment, inlineGlobals, problems);
+				},
+				eslint: () => {
+					const parseResult =
+						commentParser.parseJSONLikeConfig(value);
+
+					if (parseResult.ok) {
+						configs.push({
+							config: {
+								rules: parseResult.config,
+							},
+							loc: comment.loc,
+						});
+					} else {
+						problems.push({
+							ruleId: null,
+							loc: comment.loc,
+							message: parseResult.error.message,
+						});
+					}
+				},
+				"eslint-env": () => {
+					problems.push({
+						ruleId: null,
+						loc: comment.loc,
+						message:
+							"/* eslint-env */ comments are no longer supported.",
+					});
+				},
+			};
+
 			const handler = inlineConfigHandlers[label];
 			if (handler) {
-				handler(value, comment, exportedVariables, inlineGlobals, problems, commentParser, configs);
+				handler();
 			}
 		});
 
@@ -1156,6 +1060,44 @@ class SourceCode extends TokenStore {
 			configs,
 			problems,
 		};
+	}
+
+	/**
+	 * Processes globals configuration from inline comments.
+	 * @param {string} value The configuration value string.
+	 * @param {Token} comment The comment token.
+	 * @param {Object} inlineGlobals The inline globals object to populate.
+	 * @param {Array} problems The problems array to populate.
+	 * @returns {void}
+	 * @private
+	 */
+	_processGlobalsConfig(value, comment, inlineGlobals, problems) {
+		for (const [id, idSetting] of Object.entries(
+			commentParser.parseStringConfig(value),
+		)) {
+			let normalizedValue;
+
+			try {
+				normalizedValue = normalizeConfigGlobal(idSetting);
+			} catch (err) {
+				problems.push({
+					ruleId: null,
+					loc: comment.loc,
+					message: err.message,
+				});
+				continue;
+			}
+
+			if (inlineGlobals[id]) {
+				inlineGlobals[id].comments.push(comment);
+				inlineGlobals[id].value = normalizedValue;
+			} else {
+				inlineGlobals[id] = {
+					comments: [comment],
+					value: normalizedValue,
+				};
+			}
+		}
 	}
 
 	/**
@@ -1260,4 +1202,3 @@ class SourceCode extends TokenStore {
 }
 
 module.exports = SourceCode;
-```

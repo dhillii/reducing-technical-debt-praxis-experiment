@@ -1,9 +1,3 @@
-```javascript
-/**
- * Copyright 2013-2022 the PM2 project authors. All rights reserved.
- * Use of this source code is governed by a license that
- * can be found in the LICENSE file.
- */
 'use strict';
 
 /**
@@ -85,7 +79,7 @@ module.exports = function(God) {
         }))
       }
 
-      const updatedProcesses = processes.map(function(pro) {
+      const processesWithMonit = processes.map(function(pro) {
         if (filterBadProcess(pro) === false) {
           pro['monit'] = {
             memory : 0,
@@ -115,7 +109,7 @@ module.exports = function(God) {
         return pro;
       });
 
-      cb(null, updatedProcesses);
+      cb(null, processesWithMonit);
     });
   };
 
@@ -908,4 +902,3 @@ function getProcessId(pro) {
 
   return pid
 }
-```

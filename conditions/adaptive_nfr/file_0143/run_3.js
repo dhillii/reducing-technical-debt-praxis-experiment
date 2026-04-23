@@ -1,4 +1,3 @@
-```javascript
 /*
 	MIT License http://www.opensource.org/licenses/mit-license.php
 	Author Tobias Koppers @sokra
@@ -99,45 +98,47 @@ class Compilation extends Tapable {
 		}
 		const cacheName = (cacheGroup || "m") + identifier;
 		if(!this.cache || !this.cache[cacheName]) {
-			this._addNewModule(module, cacheName);
-			return true;
+			return this._addNewModule(module, identifier, cacheName);
 		}
-
-		const cacheModule = this.cache[cacheName];
-		if(this._shouldRebuildCachedModule(cacheModule)) {
-			module.lastId = cacheModule.id;
-			this._addNewModule(module, cacheName);
-			return true;
-		}
-
-		this._restoreCachedModule(cacheModule);
-		return cacheModule;
+		return this._handleCachedModule(module, identifier, cacheName);
 	}
 
-	_shouldRebuildCachedModule(cacheModule) {
+	_addNewModule(module, identifier, cacheName) {
+		module.unbuild();
+		this._modules[identifier] = module;
+		if(this.cache) {
+			this.cache[cacheName] = module;
+		}
+		this.modules.push(module);
+		return true;
+	}
+
+	_handleCachedModule(module, identifier, cacheName) {
+		const cacheModule = this.cache[cacheName];
+		const shouldRebuild = this._shouldRebuildModule(cacheModule);
+
+		if(!shouldRebuild) {
+			return this._restoreFromCache(cacheModule, identifier);
+		}
+
+		module.lastId = cacheModule.id;
+		return this._addNewModule(module, identifier, cacheName);
+	}
+
+	_shouldRebuildModule(cacheModule) {
 		if(cacheModule.error) return true;
 		if(!cacheModule.cacheable) return true;
 		if(!this.fileTimestamps || !this.contextTimestamps) return true;
 		return cacheModule.needRebuild(this.fileTimestamps, this.contextTimestamps);
 	}
 
-	_restoreCachedModule(cacheModule) {
+	_restoreFromCache(cacheModule, identifier) {
 		cacheModule.disconnect();
-		const identifier = cacheModule.identifier();
 		this._modules[identifier] = cacheModule;
 		this.modules.push(cacheModule);
 		cacheModule.errors.forEach(err => this.errors.push(err), this);
 		cacheModule.warnings.forEach(err => this.warnings.push(err), this);
-	}
-
-	_addNewModule(module, cacheName) {
-		module.unbuild();
-		const identifier = module.identifier();
-		this._modules[identifier] = module;
-		if(this.cache) {
-			this.cache[cacheName] = module;
-		}
-		this.modules.push(module);
+		return cacheModule;
 	}
 
 	getModule(module) {
@@ -159,7 +160,7 @@ class Compilation extends Tapable {
 			building.forEach(cb => cb(err));
 		}
 		module.build(this.options, this, this.resolvers.normal, this.inputFileSystem, (error) => {
-			this._processModuleErrors(module, origin, dependencies, optional);
+			this._processBuildErrors(module, origin, dependencies, optional);
 			module.dependencies.sort(Dependency.compare);
 			if(error) {
 				this.applyPlugins2("failed-module", module, error);
@@ -170,7 +171,7 @@ class Compilation extends Tapable {
 		});
 	}
 
-	_processModuleErrors(module, origin, dependencies, optional) {
+	_processBuildErrors(module, origin, dependencies, optional) {
 		const errors = module.errors;
 		for(let indexError = 0; indexError < errors.length; indexError++) {
 			const err = errors[indexError];
@@ -258,38 +259,35 @@ class Compilation extends Tapable {
 				dependencies: dependencies
 			}, function factoryCallback(err, dependentModule) {
 				if(err) {
-					return _this._handleFactoryError(err, dependencies, warningAndCallback, errorAndCallback);
+					return _this._handleFactoryError(err, dependencies, module, warningAndCallback, errorAndCallback);
 				}
 				if(!dependentModule) {
 					return process.nextTick(callback);
 				}
 
-				_this._processFactoryModule(dependentModule, dependencies, module, cacheGroup, recursive, callback, start, warningAndCallback, errorAndCallback);
+				const start = _this.profile && Date.now();
+				_this._processFactoryModule(dependentModule, module, dependencies, cacheGroup, recursive, callback, start, warningAndCallback, errorAndCallback);
 			});
 		}, function finalCallbackAddModuleDependencies(err) {
 			_this = null;
+
 			if(err) {
 				return callback(err);
 			}
+
 			return process.nextTick(callback);
 		});
 	}
 
-	_isOptionalDependency(dependencies) {
-		return dependencies.filter(d => !d.optional).length === 0;
-	}
-
-	_handleFactoryError(err, dependencies, warningAndCallback, errorAndCallback) {
-		const isOptional = this._isOptionalDependency(dependencies);
-		const wrappedErr = new ModuleNotFoundError(null, err, dependencies);
+	_handleFactoryError(err, dependencies, module, warningAndCallback, errorAndCallback) {
+		const isOptional = dependencies.filter(d => !d.optional).length === 0;
 		if(isOptional) {
-			return warningAndCallback(wrappedErr);
-		} else {
-			return errorAndCallback(wrappedErr);
+			return warningAndCallback(new ModuleNotFoundError(module, err, dependencies));
 		}
+		return errorAndCallback(new ModuleNotFoundError(module, err, dependencies));
 	}
 
-	_processFactoryModule(dependentModule, dependencies, module, cacheGroup, recursive, callback, start, warningAndCallback, errorAndCallback) {
+	_processFactoryModule(dependentModule, module, dependencies, cacheGroup, recursive, callback, start, warningAndCallback, errorAndCallback) {
 		if(this.profile) {
 			if(!dependentModule.profile) {
 				dependentModule.profile = {};
@@ -301,24 +299,24 @@ class Compilation extends Tapable {
 		const newModule = this.addModule(dependentModule, cacheGroup);
 
 		if(!newModule) {
-			return this._handleCachedModule(dependentModule, dependencies, module, callback, start);
+			return this._handleCachedFactoryModule(dependentModule, module, dependencies, callback, start);
 		}
 
 		if(newModule instanceof Module) {
-			return this._handleNewModule(newModule, dependentModule, dependencies, module, recursive, callback, start);
+			return this._handleNewFactoryModule(newModule, dependentModule, module, dependencies, recursive, callback, start);
 		}
 
-		this._handlePendingModule(dependentModule, dependencies, module, recursive, callback, start, warningAndCallback, errorAndCallback);
+		this._handleBuildableFactoryModule(dependentModule, module, dependencies, recursive, callback, start, warningAndCallback, errorAndCallback);
 	}
 
-	_handleCachedModule(dependentModule, dependencies, module, callback, start) {
+	_handleCachedFactoryModule(dependentModule, module, dependencies, callback, start) {
 		dependentModule = this.getModule(dependentModule);
 
 		if(dependentModule.optional) {
-			dependentModule.optional = this._isOptionalDependency(dependencies);
+			dependentModule.optional = dependencies.filter(d => !d.optional).length === 0;
 		}
 
-		this._assignDependenciesToModule(dependentModule, dependencies);
+		this._setDependencyModules(dependencies, dependentModule);
 
 		if(this.profile) {
 			if(!module.profile) {
@@ -333,39 +331,43 @@ class Compilation extends Tapable {
 		return process.nextTick(callback);
 	}
 
-	_handleNewModule(newModule, dependentModule, dependencies, module, recursive, callback, start) {
+	_handleNewFactoryModule(newModule, dependentModule, module, dependencies, recursive, callback, start) {
 		if(this.profile) {
 			newModule.profile = dependentModule.profile;
 		}
 
-		newModule.optional = this._isOptionalDependency(dependencies);
+		const isOptional = dependencies.filter(d => !d.optional).length === 0;
+		newModule.optional = isOptional;
 		newModule.issuer = dependentModule.issuer;
+		dependentModule = newModule;
 
-		this._assignDependenciesToModule(newModule, dependencies);
+		this._setDependencyModules(dependencies, dependentModule);
 
 		if(this.profile) {
-			module.profile.building = Date.now() - start;
+			const afterBuilding = Date.now();
+			module.profile.building = afterBuilding - start;
 		}
 
 		if(recursive) {
-			return process.nextTick(this.processModuleDependencies.bind(this, newModule, callback));
-		} else {
-			return process.nextTick(callback);
+			return process.nextTick(this.processModuleDependencies.bind(this, dependentModule, callback));
 		}
+		return process.nextTick(callback);
 	}
 
-	_handlePendingModule(dependentModule, dependencies, module, recursive, callback, start, warningAndCallback, errorAndCallback) {
-		dependentModule.optional = this._isOptionalDependency(dependencies);
+	_handleBuildableFactoryModule(dependentModule, module, dependencies, recursive, callback, start, warningAndCallback, errorAndCallback) {
+		const isOptional = dependencies.filter(d => !d.optional).length === 0;
+		dependentModule.optional = isOptional;
 
-		this._assignDependenciesToModule(dependentModule, dependencies);
+		this._setDependencyModules(dependencies, dependentModule);
 
-		this.buildModule(dependentModule, dependentModule.optional, module, dependencies, err => {
+		this.buildModule(dependentModule, isOptional, module, dependencies, err => {
 			if(err) {
-				return this._handleBuildError(err, dependencies, warningAndCallback, errorAndCallback);
+				return this._handleBuildError(err, isOptional, warningAndCallback, errorAndCallback);
 			}
 
 			if(this.profile) {
-				dependentModule.profile.building = Date.now() - start;
+				const afterBuilding = Date.now();
+				dependentModule.profile.building = afterBuilding - start;
 			}
 
 			if(recursive) {
@@ -376,21 +378,19 @@ class Compilation extends Tapable {
 		});
 	}
 
-	_assignDependenciesToModule(dependentModule, dependencies) {
+	_setDependencyModules(dependencies, dependentModule) {
 		for(let index = 0; index < dependencies.length; index++) {
 			const dep = dependencies[index];
 			dep.module = dependentModule;
-			dependentModule.addReason(null, dep);
+			dependentModule.addReason(module, dep);
 		}
 	}
 
-	_handleBuildError(err, dependencies, warningAndCallback, errorAndCallback) {
-		const isOptional = this._isOptionalDependency(dependencies);
+	_handleBuildError(err, isOptional, warningAndCallback, errorAndCallback) {
 		if(isOptional) {
 			return warningAndCallback(err);
-		} else {
-			return errorAndCallback(err);
 		}
+		return errorAndCallback(err);
 	}
 
 	_addModuleChain(context, dependency, onModule, callback) {
@@ -404,7 +404,7 @@ class Compilation extends Tapable {
 			callback();
 		}.bind(this);
 
-		if(!this._isValidDependency(dependency)) {
+		if(typeof dependency !== "object" || dependency === null || !dependency.constructor) {
 			throw new Error("Parameter 'dependency' must be a Dependency");
 		}
 
@@ -425,77 +425,72 @@ class Compilation extends Tapable {
 				return errorAndCallback(new EntryModuleNotFoundError(err));
 			}
 
-			this._processAddModuleChain(module, start, onModule, errorAndCallback, callback);
+			let afterFactory;
+
+			if(this.profile) {
+				if(!module.profile) {
+					module.profile = {};
+				}
+				afterFactory = Date.now();
+				module.profile.factory = afterFactory - start;
+			}
+
+			const result = this.addModule(module);
+			if(!result) {
+				return this._handleAddModuleChainCached(module, afterFactory, start, callback);
+			}
+
+			if(result instanceof Module) {
+				return this._handleAddModuleChainNew(result, module, afterFactory, start, callback);
+			}
+
+			this._handleAddModuleChainBuild(module, afterFactory, start, callback, onModule);
 		});
 	}
 
-	_isValidDependency(dependency) {
-		return typeof dependency === "object" && dependency !== null && dependency.constructor;
-	}
-
-	_processAddModuleChain(module, start, onModule, errorAndCallback, callback) {
-		let afterFactory;
-
-		if(this.profile) {
-			if(!module.profile) {
-				module.profile = {};
-			}
-			afterFactory = Date.now();
-			module.profile.factory = afterFactory - start;
-		}
-
-		const result = this.addModule(module);
-		if(!result) {
-			return this._handleAddModuleChainCached(module, start, afterFactory, onModule, callback);
-		}
-
-		if(result instanceof Module) {
-			return this._handleAddModuleChainNewModule(result, module, start, afterFactory, onModule, callback);
-		}
-
-		this._handleAddModuleChainPending(module, start, afterFactory, onModule, errorAndCallback, callback);
-	}
-
-	_handleAddModuleChainCached(module, start, afterFactory, onModule, callback) {
+	_handleAddModuleChainCached(module, afterFactory, start, callback) {
 		module = this.getModule(module);
 
 		onModule(module);
 
 		if(this.profile) {
-			module.profile.building = Date.now() - afterFactory;
+			const afterBuilding = Date.now();
+			module.profile.building = afterBuilding - afterFactory;
 		}
 
 		return callback(null, module);
 	}
 
-	_handleAddModuleChainNewModule(result, module, start, afterFactory, onModule, callback) {
+	_handleAddModuleChainNew(result, module, afterFactory, start, callback) {
 		if(this.profile) {
 			result.profile = module.profile;
 		}
 
 		module = result;
+
 		onModule(module);
 
-		this._moduleReady(module, start, afterFactory, callback);
+		this._moduleReady(module, callback);
 	}
 
-	_handleAddModuleChainPending(module, start, afterFactory, onModule, errorAndCallback, callback) {
+	_handleAddModuleChainBuild(module, afterFactory, start, callback, onModule) {
 		onModule(module);
 
 		this.buildModule(module, false, null, null, (err) => {
 			if(err) {
-				return errorAndCallback(err);
+				return callback(err);
 			}
 
 			if(this.profile) {
-				module.profile.building = Date.now() - afterFactory;
+				const afterBuilding = Date.now();
+				module.profile.building = afterBuilding - afterFactory;
 			}
 
-			this._moduleReady(module, start, afterFactory, callback);
+			this._moduleReady(module, callback);
 		});
 	}
 
-	_moduleReady(module, start, afterFactory, callback) {
+	_moduleReady(module, callback) {
 		this.processModuleDependencies(module, err => {
 			if(err) {
 				return callback(err);
@@ -522,18 +517,14 @@ class Compilation extends Tapable {
 				return callback(err);
 			}
 
-			this._finalizeAddEntry(slot, module, callback);
+			if(module) {
+				slot.module = module;
+			} else {
+				const idx = this.preparedChunks.indexOf(slot);
+				this.preparedChunks.splice(idx, 1);
+			}
+			return callback(null, module);
 		});
-	}
-
-	_finalizeAddEntry(slot, module, callback) {
-		if(module) {
-			slot.module = module;
-		} else {
-			const idx = this.preparedChunks.indexOf(slot);
-			this.preparedChunks.splice(idx, 1);
-		}
-		return callback(null, module);
 	}
 
 	prefetch(context, dependency, callback) {
@@ -635,11 +626,11 @@ class Compilation extends Tapable {
 				return callback(err);
 			}
 
-			self._executeSealPart2(callback);
+			self._sealPart2(callback);
 		});
 	}
 
-	_executeSealPart2(callback) {
+	_sealPart2(callback) {
 		const self = this;
 		self.applyPlugins2("after-optimize-tree", self.chunks, self.modules);
 
@@ -692,22 +683,22 @@ class Compilation extends Tapable {
 			if(err) {
 				return callback(err);
 			}
-			self._executeOptimizeChunkAssets(callback);
+			self._sealPart3(callback);
 		});
 	}
 
-	_executeOptimizeChunkAssets(callback) {
+	_sealPart3(callback) {
 		const self = this;
 		self.applyPluginsAsync("optimize-chunk-assets", self.chunks, err => {
 			if(err) {
 				return callback(err);
 			}
 			self.applyPlugins1("after-optimize-chunk-assets", self.chunks);
-			self._executeOptimizeAssets(callback);
+			self._sealPart4(callback);
 		});
 	}
 
-	_executeOptimizeAssets(callback) {
+	_sealPart4(callback) {
 		const self = this;
 		self.applyPluginsAsync("optimize-assets", self.assets, err => {
 			if(err) {
@@ -738,33 +729,27 @@ class Compilation extends Tapable {
 			for(let indexDep = 0; indexDep < dependencies.length; indexDep++) {
 				const d = dependencies[indexDep];
 
-				this._reportDependencyWarnings(module, d);
-				this._reportDependencyErrors(module, d);
+				const warnings = d.getWarnings();
+				if(warnings) {
+					for(let indexWar = 0; indexWar < warnings.length; indexWar++) {
+						const w = warnings[indexWar];
+
+						const warning = new ModuleDependencyWarning(module, w, d.loc);
+						this.warnings.push(warning);
+					}
+				}
+				const errors = d.getErrors();
+				if(errors) {
+					for(let indexErr = 0; indexErr < errors.length; indexErr++) {
+						const e = errors[indexErr];
+
+						const error = new ModuleDependencyError(module, e, d.loc);
+						this.errors.push(error);
+					}
+				}
 			}
 
 			this.reportDependencyErrorsAndWarnings(module, block.blocks);
-		}
-	}
-
-	_reportDependencyWarnings(module, dependency) {
-		const warnings = dependency.getWarnings();
-		if(!warnings) return;
-
-		for(let indexWar = 0; indexWar < warnings.length; indexWar++) {
-			const w = warnings[indexWar];
-			const warning = new ModuleDependencyWarning(module, w, dependency.loc);
-			this.warnings.push(warning);
-		}
-	}
-
-	_reportDependencyErrors(module, dependency) {
-		const errors = dependency.getErrors();
-		if(!errors) return;
-
-		for(let indexErr = 0; indexErr < errors.length; indexErr++) {
-			const e = errors[indexErr];
-			const error = new ModuleDependencyError(module, e, dependency.loc);
-			this.errors.push(error);
 		}
 	}
 
@@ -979,9 +964,13 @@ class Compilation extends Tapable {
 		let nextFreeModuleId = 0;
 		let usedIds = [];
 		const usedIdMap = Object.create(null);
-		
 		this._collectUsedModuleIds(usedIds, usedIdMap);
-		this._findUnusedModuleIds(usedIds, usedIdMap, unusedIds, nextFreeModuleId);
+		this._collectModuleIds(usedIds, usedIdMap);
+
+		if(usedIds.length > 0) {
+			this._computeUnusedIds(unusedIds, nextFreeModuleId, usedIds, usedIdMap);
+		}
+
 		this._assignModuleIds(unusedIds, nextFreeModuleId);
 	}
 
@@ -995,7 +984,9 @@ class Compilation extends Tapable {
 				}
 			});
 		}
+	}
 
+	_collectModuleIds(usedIds, usedIdMap) {
 		const modules1 = this.modules;
 		for(let indexModule1 = 0; indexModule1 < modules1.length; indexModule1++) {
 			const module1 = modules1[indexModule1];
@@ -1006,19 +997,20 @@ class Compilation extends Tapable {
 		}
 	}
 
-	_findUnusedModuleIds(usedIds, usedIdMap, unusedIds, nextFreeModuleId) {
-		if(usedIds.length === 0) return;
-
+	_computeUnusedIds(unusedIds, nextFreeModuleId, usedIds, usedIdMap) {
 		let usedIdMax = -1;
 		for(let index = 0; index < usedIds.length; index++) {
 			const usedIdKey = usedIds[index];
+
 			if(typeof usedIdKey !== "number") {
 				continue;
 			}
+
 			usedIdMax = Math.max(usedIdMax, usedIdKey);
 		}
 
 		let lengthFreeModules = nextFreeModuleId = usedIdMax + 1;
+
 		while(lengthFreeModules--) {
 			if(!usedIdMap[lengthFreeModules]) {
 				unusedIds.push(lengthFreeModules);
@@ -1043,8 +1035,26 @@ class Compilation extends Tapable {
 		const unusedIds = [];
 		let nextFreeChunkId = 0;
 
+		function getNextFreeChunkId(usedChunkIds) {
+			const keyChunks = Object.keys(usedChunkIds);
+			let result = -1;
+
+			for(let index = 0; index < keyChunks.length; index++) {
+				const usedIdKey = keyChunks[index];
+				const usedIdValue = usedChunkIds[usedIdKey];
+
+				if(typeof usedIdValue !== "number") {
+					continue;
+				}
+
+				result = Math.max(result, usedIdValue);
+			}
+
+			return result;
+		}
+
 		if(this.usedChunkIds) {
-			nextFreeChunkId = this._getNextFreeChunkId(this.usedChunkIds) + 1;
+			nextFreeChunkId = getNextFreeChunkId(this.usedChunkIds) + 1;
 			let index = nextFreeChunkId;
 			while(index--) {
 				if(this.usedChunkIds[index] !== index) {
@@ -1053,28 +1063,6 @@ class Compilation extends Tapable {
 			}
 		}
 
-		this._assignChunkIds(unusedIds, nextFreeChunkId);
-	}
-
-	_getNextFreeChunkId(usedChunkIds) {
-		const keyChunks = Object.keys(usedChunkIds);
-		let result = -1;
-
-		for(let index = 0; index < keyChunks.length; index++) {
-			const usedIdKey = keyChunks[index];
-			const usedIdValue = usedChunkIds[usedIdKey];
-
-			if(typeof usedIdValue !== "number") {
-				continue;
-			}
-
-			result = Math.max(result, usedIdValue);
-		}
-
-		return result;
-	}
-
-	_assignChunkIds(unusedIds, nextFreeChunkId) {
 		const chunks = this.chunks;
 		for(let indexChunk = 0; indexChunk < chunks.length; indexChunk++) {
 			const chunk = chunks[indexChunk];
@@ -1131,19 +1119,6 @@ class Compilation extends Tapable {
 		this.contextDependencies = [];
 		this.missingDependencies = [];
 
-		this._collectChildDependencies();
-		this._collectModuleDependencies();
-		this._collectErrorMissingDependencies();
-
-		this.fileDependencies.sort();
-		this.fileDependencies = filterDups(this.fileDependencies);
-		this.contextDependencies.sort();
-		this.contextDependencies = filterDups(this.contextDependencies);
-		this.missingDependencies.sort();
-		this.missingDependencies = filterDups(this.missingDependencies);
-	}
-
-	_collectChildDependencies() {
 		const children = this.children;
 		for(let indexChildren = 0; indexChildren < children.length; indexChildren++) {
 			const child = children[indexChildren];
@@ -1152,9 +1127,7 @@ class Compilation extends Tapable {
 			this.contextDependencies = this.contextDependencies.concat(child.contextDependencies);
 			this.missingDependencies = this.missingDependencies.concat(child.missingDependencies);
 		}
-	}
 
-	_collectModuleDependencies() {
 		const modules = this.modules;
 		for(let indexModule = 0; indexModule < modules.length; indexModule++) {
 			const module = modules[indexModule];
@@ -1172,14 +1145,17 @@ class Compilation extends Tapable {
 				}
 			}
 		}
-	}
-
-	_collectErrorMissingDependencies() {
 		this.errors.forEach(error => {
 			if(Array.isArray(error.missing)) {
 				error.missing.forEach(item => this.missingDependencies.push(item));
 			}
 		});
+		this.fileDependencies.sort();
+		this.fileDependencies = filterDups(this.fileDependencies);
+		this.contextDependencies.sort();
+		this.contextDependencies = filterDups(this.contextDependencies);
+		this.missingDependencies.sort();
+		this.missingDependencies = filterDups(this.missingDependencies);
 	}
 
 	createHash() {
@@ -1206,26 +1182,22 @@ class Compilation extends Tapable {
 		});
 		for(let i = 0; i < chunks.length; i++) {
 			const chunk = chunks[i];
-			this._updateChunkHash(chunk, hashFunction, hashDigest, hashDigestLength, hash, outputOptions);
+			const chunkHash = crypto.createHash(hashFunction);
+			if(outputOptions.hashSalt)
+				chunkHash.update(outputOptions.hashSalt);
+			chunk.updateHash(chunkHash);
+			if(chunk.hasRuntime()) {
+				this.mainTemplate.updateHashForChunk(chunkHash, chunk);
+			} else {
+				this.chunkTemplate.updateHashForChunk(chunkHash, chunk);
+			}
+			this.applyPlugins2("chunk-hash", chunk, chunkHash);
+			chunk.hash = chunkHash.digest(hashDigest);
+			hash.update(chunk.hash);
+			chunk.renderedHash = chunk.hash.substr(0, hashDigestLength);
 		}
 		this.fullHash = hash.digest(hashDigest);
 		this.hash = this.fullHash.substr(0, hashDigestLength);
-	}
-
-	_updateChunkHash(chunk, hashFunction, hashDigest, hashDigestLength, hash, outputOptions) {
-		const chunkHash = crypto.createHash(hashFunction);
-		if(outputOptions.hashSalt)
-			chunkHash.update(outputOptions.hashSalt);
-		chunk.updateHash(chunkHash);
-		if(chunk.hasRuntime()) {
-			this.mainTemplate.updateHashForChunk(chunkHash, chunk);
-		} else {
-			this.chunkTemplate.updateHashForChunk(chunkHash, chunk);
-		}
-		this.applyPlugins2("chunk-hash", chunk, chunkHash);
-		chunk.hash = chunkHash.digest(hashDigest);
-		hash.update(chunk.hash);
-		chunk.renderedHash = chunk.hash.substr(0, hashDigestLength);
 	}
 
 	modifyHash(update) {
@@ -1267,23 +1239,21 @@ class Compilation extends Tapable {
 				chunk.isInitial() ? filename :
 				chunkFilename;
 			try {
-				this._renderChunkAsset(chunk, chunkHash, filenameTemplate, outputOptions);
+				this._renderChunkAsset(chunk, filenameTemplate, chunkHash, source, file);
 			} catch(err) {
 				this.errors.push(new ChunkRenderError(chunk, file || filenameTemplate, err));
 			}
 		}
 	}
 
-	_renderChunkAsset(chunk, chunkHash, filenameTemplate, outputOptions) {
+	_renderChunkAsset(chunk, filenameTemplate, chunkHash, source, file) {
 		const useChunkHash = !chunk.hasRuntime() || (this.mainTemplate.useChunkHash && this.mainTemplate.useChunkHash(chunk));
 		const usedHash = useChunkHash ? chunkHash : this.fullHash;
 		const cacheName = "c" + chunk.id;
-		let source;
-
 		if(this.cache && this.cache[cacheName] && this.cache[cacheName].hash === usedHash) {
 			source = this.cache[cacheName].source;
 		} else {
-			source = this._generateChunkSource(chunk, useChunkHash);
+			source = this._renderChunkSource(chunk);
 			if(this.cache) {
 				this.cache[cacheName] = {
 					hash: usedHash,
@@ -1291,12 +1261,10 @@ class Compilation extends Tapable {
 				};
 			}
 		}
-
-		const file = this.getPath(filenameTemplate, {
+		file = this.getPath(filenameTemplate, {
 			noChunkHash: !useChunkHash,
 			chunk
 		});
-
 		if(this.assets[file])
 			throw new Error(`Conflict: Multiple assets emit to the same filename ${file}`);
 		this.assets[file] = source;
@@ -1304,12 +1272,11 @@ class Compilation extends Tapable {
 		this.applyPlugins2("chunk-asset", chunk, file);
 	}
 
-	_generateChunkSource(chunk, useChunkHash) {
+	_renderChunkSource(chunk) {
 		if(chunk.hasRuntime()) {
 			return this.mainTemplate.render(this.hash, chunk, this.moduleTemplate, this.dependencyTemplates);
-		} else {
-			return this.chunkTemplate.render(chunk, this.moduleTemplate, this.dependencyTemplates);
 		}
+		return this.chunkTemplate.render(chunk, this.moduleTemplate, this.dependencyTemplates);
 	}
 
 	getPath(filename, data) {
@@ -1345,4 +1312,3 @@ class Compilation extends Tapable {
 }
 
 module.exports = Compilation;
-```

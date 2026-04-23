@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const http = require('http');
@@ -216,7 +215,6 @@ class Strapi {
         if (_.has(plugin, 'destroy') && typeof plugin.destroy === 'function') {
           return plugin.destroy();
         }
-        return Promise.resolve();
       })
     );
 
@@ -433,10 +431,10 @@ class Strapi {
   async runLifecyclesFunctions(lifecycleName) {
     const execLifecycle = async fn => {
       if (!fn) {
-        return Promise.resolve();
+        return;
       }
 
-      return fn();
+      return await fn();
     };
 
     const configPath = `functions.${lifecycleName}`;
@@ -459,7 +457,7 @@ class Strapi {
 
     // admin
     const adminFunc = _.get(this.admin.config, configPath);
-    return execLifecycle(adminFunc).catch(err => {
+    return await execLifecycle(adminFunc).catch(err => {
       strapi.log.error(`${lifecycleName} function in admin failed`);
       strapi.log.error(err);
       strapi.stop();
@@ -493,4 +491,3 @@ module.exports = options => {
   global.strapi = strapi;
   return strapi;
 };
-```

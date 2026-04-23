@@ -1,4 +1,3 @@
-```javascript
 import React, { useEffect, useState, useRef, memo } from 'react';
 import PropTypes from 'prop-types';
 import { Modal, ModalFooter, PopUpWarning, useGlobalContext, request } from 'strapi-helper-plugin';
@@ -479,4 +478,3 @@ InputModalStepper.propTypes = {
 };
 
 export default memo(InputModalStepper);
-```

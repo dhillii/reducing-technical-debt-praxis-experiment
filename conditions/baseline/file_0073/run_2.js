@@ -1,14 +1,4 @@
-```javascript
-/**
- * @fileoverview Tests for FlatConfigArray
- * @author Nicholas C. Zakas
- */
-
 "use strict";
-
-//-----------------------------------------------------------------------------
-// Requirements
-//-----------------------------------------------------------------------------
 
 const { FlatConfigArray } = require("../../../lib/config/flat-config-array");
 const assert = require("chai").assert;
@@ -16,10 +6,6 @@ const stringify = require("json-stable-stringify-without-jsonify");
 const espree = require("espree");
 const jslang = require("../../../lib/languages/js");
 const { LATEST_ECMA_VERSION } = require("../../../conf/ecma-version");
-
-//-----------------------------------------------------------------------------
-// Helpers
-//-----------------------------------------------------------------------------
 
 const baseConfig = {
 	files: ["**/*.js"],
@@ -128,7 +114,6 @@ const baseConfig = {
 					},
 				},
 
-				// old-style
 				boom() {},
 
 				foo2: {
@@ -158,26 +143,12 @@ const baseConfig = {
 	},
 };
 
-/**
- * Creates a config array with the correct default options.
- * @param {*[]} configs An array of configs to use in the config array.
- * @returns {FlatConfigArray} The config array;
- */
 function createFlatConfigArray(configs) {
 	return new FlatConfigArray(configs, {
 		baseConfig: [baseConfig],
 	});
 }
 
-/**
- * Asserts that a given set of configs will be merged into the given
- * result config.
- * @param {*[]} values An array of configs to use in the config array.
- * @param {Object} result The expected merged result of the configs.
- * @returns {void}
- * @throws {AssertionError} If the actual result doesn't match the
- *      expected result.
- */
 async function assertMergedResult(values, result) {
 	const configs = createFlatConfigArray(values);
 
@@ -198,14 +169,6 @@ async function assertMergedResult(values, result) {
 	assert.deepStrictEqual(config, result);
 }
 
-/**
- * Asserts that a given set of configs results in an invalid config.
- * @param {*[]} values An array of configs to use in the config array.
- * @param {string|RegExp} message The expected error message.
- * @returns {void}
- * @throws {AssertionError} If the config is valid or if the error
- *      has an unexpected message.
- */
 async function assertInvalidConfig(values, message) {
 	const configs = createFlatConfigArray(values);
 
@@ -215,81 +178,82 @@ async function assertInvalidConfig(values, message) {
 	}, message);
 }
 
-//-----------------------------------------------------------------------------
-// Test Suites
-//-----------------------------------------------------------------------------
-
 describe("FlatConfigArray", () => {
-	describe("Base Config Handling", () => {
-		it("should allow noniterable baseConfig objects", () => {
-			const base = {
+	it("should allow noniterable baseConfig objects", () => {
+		const base = {
+			languageOptions: {
+				parserOptions: {
+					foo: true,
+				},
+			},
+		};
+
+		const configs = new FlatConfigArray([], {
+			baseConfig: base,
+		});
+
+		configs.normalizeSync();
+	});
+
+	it("should not reuse languageOptions.parserOptions across configs", () => {
+		const base = [
+			{
+				files: ["**/*.js"],
+				plugins: {
+					"@": {
+						languages: {
+							js: jslang,
+						},
+					},
+				},
+				language: "@/js",
 				languageOptions: {
 					parserOptions: {
 						foo: true,
 					},
 				},
-			};
+			},
+		];
 
-			const configs = new FlatConfigArray([], {
-				baseConfig: base,
-			});
-
-			// should not throw error
-			configs.normalizeSync();
+		const configs = new FlatConfigArray([], {
+			baseConfig: base,
 		});
 
-		it("should not reuse languageOptions.parserOptions across configs", () => {
-			const base = [
-				{
-					files: ["**/*.js"],
-					plugins: {
-						"@": {
-							languages: {
-								js: jslang,
-							},
-						},
-					},
-					language: "@/js",
-					languageOptions: {
-						parserOptions: {
-							foo: true,
-						},
-					},
-				},
-			];
+		configs.normalizeSync();
 
-			const configs = new FlatConfigArray([], {
-				baseConfig: base,
-			});
+		const config = configs.getConfig("foo.js");
 
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
-
-			assert.notStrictEqual(base[0].languageOptions, config.languageOptions);
-			assert.notStrictEqual(
-				base[0].languageOptions.parserOptions,
-				config.languageOptions.parserOptions,
-				"parserOptions should be new object",
-			);
-		});
+		assert.notStrictEqual(base[0].languageOptions, config.languageOptions);
+		assert.notStrictEqual(
+			base[0].languageOptions.parserOptions,
+			config.languageOptions.parserOptions,
+			"parserOptions should be new object",
+		);
 	});
 
 	describe("Serialization of configs", () => {
-		it("should convert config into normalized JSON object", () => {
-			const configs = new FlatConfigArray([
+		const createSerializationTest = (name, configInput, expectedOutput) => {
+			it(name, () => {
+				const configs = new FlatConfigArray(configInput);
+				configs.normalizeSync();
+				const config = configs.getConfig("foo.js");
+				const actual = config.toJSON();
+				assert.deepStrictEqual(actual, expectedOutput);
+				assert.strictEqual(stringify(actual), stringify(expectedOutput));
+			});
+		};
+
+		createSerializationTest(
+			"should convert config into normalized JSON object",
+			[
 				{
 					plugins: {
 						a: {},
 						b: {},
 					},
 				},
-			]);
-
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
-			const expected = {
+			],
+			{
 				plugins: ["@", "a", "b"],
 				language: "@/js",
 				languageOptions: {
@@ -304,16 +268,12 @@ describe("FlatConfigArray", () => {
 					reportUnusedDisableDirectives: 1,
 				},
 				processor: void 0,
-			};
-			const actual = config.toJSON();
+			},
+		);
 
-			assert.deepStrictEqual(actual, expected);
-
-			assert.strictEqual(stringify(actual), stringify(expected));
-		});
-
-		it("should convert config with plugin name/version into normalized JSON object", () => {
-			const configs = new FlatConfigArray([
+		createSerializationTest(
+			"should convert config with plugin name/version into normalized JSON object",
+			[
 				{
 					plugins: {
 						a: {},
@@ -323,12 +283,8 @@ describe("FlatConfigArray", () => {
 						},
 					},
 				},
-			]);
-
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
-			const expected = {
+			],
+			{
 				plugins: ["@", "a", "b:b-plugin@2.3.1"],
 				language: "@/js",
 				languageOptions: {
@@ -343,16 +299,12 @@ describe("FlatConfigArray", () => {
 					reportUnusedDisableDirectives: 1,
 				},
 				processor: void 0,
-			};
-			const actual = config.toJSON();
+			},
+		);
 
-			assert.deepStrictEqual(actual, expected);
-
-			assert.strictEqual(stringify(actual), stringify(expected));
-		});
-
-		it("should convert config with plugin meta into normalized JSON object", () => {
-			const configs = new FlatConfigArray([
+		createSerializationTest(
+			"should convert config with plugin meta into normalized JSON object",
+			[
 				{
 					plugins: {
 						a: {},
@@ -364,12 +316,8 @@ describe("FlatConfigArray", () => {
 						},
 					},
 				},
-			]);
-
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
-			const expected = {
+			],
+			{
 				plugins: ["@", "a", "b:b-plugin@2.3.1"],
 				language: "@/js",
 				languageOptions: {
@@ -384,16 +332,12 @@ describe("FlatConfigArray", () => {
 					reportUnusedDisableDirectives: 1,
 				},
 				processor: void 0,
-			};
-			const actual = config.toJSON();
+			},
+		);
 
-			assert.deepStrictEqual(actual, expected);
-
-			assert.strictEqual(stringify(actual), stringify(expected));
-		});
-
-		it("should convert config with languageOptions.globals.name into normalized JSON object", () => {
-			const configs = new FlatConfigArray([
+		createSerializationTest(
+			"should convert config with languageOptions.globals.name into normalized JSON object",
+			[
 				{
 					languageOptions: {
 						globals: {
@@ -401,12 +345,8 @@ describe("FlatConfigArray", () => {
 						},
 					},
 				},
-			]);
-
-			configs.normalizeSync();
-
-			const config = configs.getConfig("foo.js");
-			const expected = {
+			],
+			{
 				plugins: ["@"],
 				language: "@/js",
 				languageOptions: {
@@ -424,13 +364,8 @@ describe("FlatConfigArray", () => {
 					reportUnusedDisableDirectives: 1,
 				},
 				processor: void 0,
-			};
-			const actual = config.toJSON();
-
-			assert.deepStrictEqual(actual, expected);
-
-			assert.strictEqual(stringify(actual), stringify(expected));
-		});
+			},
+		);
 
 		it("should serialize languageOptions as an empty object if neither configured nor default languageOptions are specified", () => {
 			const configs = new FlatConfigArray([
@@ -469,584 +404,561 @@ describe("FlatConfigArray", () => {
 			assert.strictEqual(stringify(actual), stringify(expected));
 		});
 
-		describe("Parser serialization", () => {
-			it("should throw an error when config with unnamed parser object is normalized", () => {
-				const configs = new FlatConfigArray([
-					{
-						languageOptions: {
-							parser: {
-								parse() {
-									/* empty */
-								},
-							},
-						},
-					},
-				]);
-
+		const createSerializationErrorTest = (name, configInput, errorPattern) => {
+			it(name, () => {
+				const configs = new FlatConfigArray(configInput);
 				configs.normalizeSync();
-
 				const config = configs.getConfig("foo.js");
-
 				assert.throws(() => {
 					config.toJSON();
-				}, /Cannot serialize key "parse"/u);
+				}, errorPattern);
 			});
+		};
 
-			it("should throw an error when config with unnamed parser object with empty meta object is normalized", () => {
-				const configs = new FlatConfigArray([
-					{
-						languageOptions: {
-							parser: {
-								meta: {},
-								parse() {
-									/* empty */
-								},
-							},
-						},
-					},
-				]);
-
-				configs.normalizeSync();
-
-				const config = configs.getConfig("foo.js");
-
-				assert.throws(() => {
-					config.toJSON();
-				}, /Cannot serialize key "parse"/u);
-			});
-
-			it("should throw an error when config with unnamed parser object with only meta version is normalized", () => {
-				const configs = new FlatConfigArray([
-					{
-						languageOptions: {
-							parser: {
-								meta: {
-									version: "0.1.1",
-								},
-								parse() {
-									/* empty */
-								},
-							},
-						},
-					},
-				]);
-
-				configs.normalizeSync();
-
-				const config = configs.getConfig("foo.js");
-
-				assert.throws(() => {
-					config.toJSON();
-				}, /Cannot serialize key "parse"/u);
-			});
-
-			it("should not throw an error when config with named parser object is normalized", () => {
-				const configs = new FlatConfigArray([
-					{
-						languageOptions: {
-							parser: {
-								meta: {
-									name: "custom-parser",
-								},
-								parse() {
-									/* empty */
-								},
-							},
-						},
-					},
-				]);
-
-				configs.normalizeSync();
-
-				const config = configs.getConfig("foo.js");
-
-				assert.deepStrictEqual(config.toJSON(), {
-					language: "@/js",
+		createSerializationErrorTest(
+			"should throw an error when config with unnamed parser object is normalized",
+			[
+				{
 					languageOptions: {
-						ecmaVersion: LATEST_ECMA_VERSION,
-						parser: "custom-parser",
-						parserOptions: {},
-						sourceType: "module",
-					},
-					linterOptions: {
-						reportUnusedDisableDirectives: 1,
-					},
-					plugins: ["@"],
-					processor: void 0,
-				});
-			});
-
-			it("should not throw an error when config with named and versioned parser object is normalized", () => {
-				const configs = new FlatConfigArray([
-					{
-						languageOptions: {
-							parser: {
-								meta: {
-									name: "custom-parser",
-									version: "0.1.0",
-								},
-								parse() {
-									/* empty */
-								},
+						parser: {
+							parse() {
+								/* empty */
 							},
 						},
 					},
-				]);
+				},
+			],
+			/Cannot serialize key "parse"/u,
+		);
 
-				configs.normalizeSync();
-
-				const config = configs.getConfig("foo.js");
-
-				assert.deepStrictEqual(config.toJSON(), {
-					language: "@/js",
+		createSerializationErrorTest(
+			"should throw an error when config with unnamed parser object with empty meta object is normalized",
+			[
+				{
 					languageOptions: {
-						ecmaVersion: LATEST_ECMA_VERSION,
-						parser: "custom-parser@0.1.0",
-						parserOptions: {},
-						sourceType: "module",
-					},
-					linterOptions: {
-						reportUnusedDisableDirectives: 1,
-					},
-					plugins: ["@"],
-					processor: void 0,
-				});
-			});
-
-			it("should not throw an error when config with meta-named and versioned parser object is normalized", () => {
-				const configs = new FlatConfigArray([
-					{
-						languageOptions: {
-							parser: {
-								meta: {
-									name: "custom-parser",
-								},
-								version: "0.1.0",
-								parse() {
-									/* empty */
-								},
+						parser: {
+							meta: {},
+							parse() {
+								/* empty */
 							},
 						},
 					},
-				]);
+				},
+			],
+			/Cannot serialize key "parse"/u,
+		);
 
-				configs.normalizeSync();
-
-				const config = configs.getConfig("foo.js");
-
-				assert.deepStrictEqual(config.toJSON(), {
-					language: "@/js",
+		createSerializationErrorTest(
+			"should throw an error when config with unnamed parser object with only meta version is normalized",
+			[
+				{
 					languageOptions: {
-						ecmaVersion: LATEST_ECMA_VERSION,
-						parser: "custom-parser@0.1.0",
-						parserOptions: {},
-						sourceType: "module",
+						parser: {
+							meta: {
+								version: "0.1.1",
+							},
+							parse() {
+								/* empty */
+							},
+						},
 					},
-					linterOptions: {
-						reportUnusedDisableDirectives: 1,
-					},
-					plugins: ["@"],
-					processor: void 0,
-				});
-			});
+				},
+			],
+			/Cannot serialize key "parse"/u,
+		);
 
-			it("should not throw an error when config with named and versioned parser object outside of meta object is normalized", () => {
-				const configs = new FlatConfigArray([
-					{
-						languageOptions: {
-							parser: {
+		it("should not throw an error when config with named parser object is normalized", () => {
+			const configs = new FlatConfigArray([
+				{
+					languageOptions: {
+						parser: {
+							meta: {
 								name: "custom-parser",
-								version: "0.1.0",
-								parse() {
-									/* empty */
-								},
+							},
+							parse() {
+								/* empty */
 							},
 						},
 					},
-				]);
+				},
+			]);
 
-				configs.normalizeSync();
+			configs.normalizeSync();
 
-				const config = configs.getConfig("foo.js");
+			const config = configs.getConfig("foo.js");
 
-				assert.deepStrictEqual(config.toJSON(), {
-					language: "@/js",
-					languageOptions: {
-						ecmaVersion: LATEST_ECMA_VERSION,
-						parser: "custom-parser@0.1.0",
-						parserOptions: {},
-						sourceType: "module",
-					},
-					linterOptions: {
-						reportUnusedDisableDirectives: 1,
-					},
-					plugins: ["@"],
-					processor: void 0,
-				});
+			assert.deepStrictEqual(config.toJSON(), {
+				language: "@/js",
+				languageOptions: {
+					ecmaVersion: LATEST_ECMA_VERSION,
+					parser: "custom-parser",
+					parserOptions: {},
+					sourceType: "module",
+				},
+				linterOptions: {
+					reportUnusedDisableDirectives: 1,
+				},
+				plugins: ["@"],
+				processor: void 0,
 			});
 		});
 
-		describe("Processor serialization", () => {
-			it("should throw an error when config with unnamed processor object is normalized", () => {
-				const configs = new FlatConfigArray([
-					{
-						processor: {
-							preprocess() {
-								/* empty */
-							},
-							postprocess() {
-								/* empty */
-							},
-						},
-					},
-				]);
-
-				configs.normalizeSync();
-
-				const config = configs.getConfig("foo.js");
-
-				assert.throws(() => {
-					config.toJSON();
-				}, /Could not serialize processor/u);
-			});
-
-			it("should throw an error when config with processor object with empty meta object is normalized", () => {
-				const configs = new FlatConfigArray([
-					{
-						processor: {
-							meta: {},
-							preprocess() {
-								/* empty */
-							},
-							postprocess() {
-								/* empty */
-							},
-						},
-					},
-				]);
-
-				configs.normalizeSync();
-
-				const config = configs.getConfig("foo.js");
-
-				assert.throws(() => {
-					config.toJSON();
-				}, /Could not serialize processor/u);
-			});
-
-			it("should not throw an error when config with named processor object is normalized", () => {
-				const configs = new FlatConfigArray([
-					{
-						processor: {
-							meta: {
-								name: "custom-processor",
-							},
-							preprocess() {
-								/* empty */
-							},
-							postprocess() {
-								/* empty */
-							},
-						},
-					},
-				]);
-
-				configs.normalizeSync();
-
-				const config = configs.getConfig("foo.js");
-
-				assert.deepStrictEqual(config.toJSON(), {
-					language: "@/js",
+		it("should not throw an error when config with named and versioned parser object is normalized", () => {
+			const configs = new FlatConfigArray([
+				{
 					languageOptions: {
-						ecmaVersion: LATEST_ECMA_VERSION,
-						parser: `espree@${espree.version}`,
-						parserOptions: {
-							sourceType: "module",
+						parser: {
+							meta: {
+								name: "custom-parser",
+								version: "0.1.0",
+							},
+							parse() {
+								/* empty */
+							},
 						},
-						sourceType: "module",
 					},
-					linterOptions: {
-						reportUnusedDisableDirectives: 1,
-					},
-					plugins: ["@"],
-					processor: "custom-processor",
-				});
-			});
+				},
+			]);
 
-			it("should not throw an error when config with named processor object without meta is normalized", () => {
-				const configs = new FlatConfigArray([
-					{
-						processor: {
+			configs.normalizeSync();
+
+			const config = configs.getConfig("foo.js");
+
+			assert.deepStrictEqual(config.toJSON(), {
+				language: "@/js",
+				languageOptions: {
+					ecmaVersion: LATEST_ECMA_VERSION,
+					parser: "custom-parser@0.1.0",
+					parserOptions: {},
+					sourceType: "module",
+				},
+				linterOptions: {
+					reportUnusedDisableDirectives: 1,
+				},
+				plugins: ["@"],
+				processor: void 0,
+			});
+		});
+
+		it("should not throw an error when config with meta-named and versioned parser object is normalized", () => {
+			const configs = new FlatConfigArray([
+				{
+					languageOptions: {
+						parser: {
+							meta: {
+								name: "custom-parser",
+							},
+							version: "0.1.0",
+							parse() {
+								/* empty */
+							},
+						},
+					},
+				},
+			]);
+
+			configs.normalizeSync();
+
+			const config = configs.getConfig("foo.js");
+
+			assert.deepStrictEqual(config.toJSON(), {
+				language: "@/js",
+				languageOptions: {
+					ecmaVersion: LATEST_ECMA_VERSION,
+					parser: "custom-parser@0.1.0",
+					parserOptions: {},
+					sourceType: "module",
+				},
+				linterOptions: {
+					reportUnusedDisableDirectives: 1,
+				},
+				plugins: ["@"],
+				processor: void 0,
+			});
+		});
+
+		it("should not throw an error when config with named and versioned parser object outside of meta object is normalized", () => {
+			const configs = new FlatConfigArray([
+				{
+					languageOptions: {
+						parser: {
+							name: "custom-parser",
+							version: "0.1.0",
+							parse() {
+								/* empty */
+							},
+						},
+					},
+				},
+			]);
+
+			configs.normalizeSync();
+
+			const config = configs.getConfig("foo.js");
+
+			assert.deepStrictEqual(config.toJSON(), {
+				language: "@/js",
+				languageOptions: {
+					ecmaVersion: LATEST_ECMA_VERSION,
+					parser: "custom-parser@0.1.0",
+					parserOptions: {},
+					sourceType: "module",
+				},
+				linterOptions: {
+					reportUnusedDisableDirectives: 1,
+				},
+				plugins: ["@"],
+				processor: void 0,
+			});
+		});
+
+		createSerializationErrorTest(
+			"should throw an error when config with unnamed processor object is normalized",
+			[
+				{
+					processor: {
+						preprocess() {
+							/* empty */
+						},
+						postprocess() {
+							/* empty */
+						},
+					},
+				},
+			],
+			/Could not serialize processor/u,
+		);
+
+		createSerializationErrorTest(
+			"should throw an error when config with processor object with empty meta object is normalized",
+			[
+				{
+					processor: {
+						meta: {},
+						preprocess() {
+							/* empty */
+						},
+						postprocess() {
+							/* empty */
+						},
+					},
+				},
+			],
+			/Could not serialize processor/u,
+		);
+
+		it("should not throw an error when config with named processor object is normalized", () => {
+			const configs = new FlatConfigArray([
+				{
+					processor: {
+						meta: {
 							name: "custom-processor",
-							preprocess() {
-								/* empty */
-							},
-							postprocess() {
-								/* empty */
-							},
+						},
+						preprocess() {
+							/* empty */
+						},
+						postprocess() {
+							/* empty */
 						},
 					},
-				]);
+				},
+			]);
 
-				configs.normalizeSync();
+			configs.normalizeSync();
 
-				const config = configs.getConfig("foo.js");
+			const config = configs.getConfig("foo.js");
 
-				assert.deepStrictEqual(config.toJSON(), {
-					language: "@/js",
-					languageOptions: {
-						ecmaVersion: LATEST_ECMA_VERSION,
-						parser: `espree@${espree.version}`,
-						parserOptions: {
-							sourceType: "module",
-						},
+			assert.deepStrictEqual(config.toJSON(), {
+				language: "@/js",
+				languageOptions: {
+					ecmaVersion: LATEST_ECMA_VERSION,
+					parser: `espree@${espree.version}`,
+					parserOptions: {
 						sourceType: "module",
 					},
-					linterOptions: {
-						reportUnusedDisableDirectives: 1,
-					},
-					plugins: ["@"],
-					processor: "custom-processor",
-				});
+					sourceType: "module",
+				},
+				linterOptions: {
+					reportUnusedDisableDirectives: 1,
+				},
+				plugins: ["@"],
+				processor: "custom-processor",
 			});
+		});
 
-			it("should not throw an error when config with named and versioned processor object is normalized", () => {
-				const configs = new FlatConfigArray([
-					{
-						processor: {
-							meta: {
-								name: "custom-processor",
-								version: "1.2.3",
-							},
-							preprocess() {
-								/* empty */
-							},
-							postprocess() {
-								/* empty */
-							},
+		it("should not throw an error when config with named processor object without meta is normalized", () => {
+			const configs = new FlatConfigArray([
+				{
+					processor: {
+						name: "custom-processor",
+						preprocess() {
+							/* empty */
+						},
+						postprocess() {
+							/* empty */
 						},
 					},
-				]);
+				},
+			]);
 
-				configs.normalizeSync();
+			configs.normalizeSync();
 
-				const config = configs.getConfig("foo.js");
+			const config = configs.getConfig("foo.js");
 
-				assert.deepStrictEqual(config.toJSON(), {
-					language: "@/js",
-					languageOptions: {
-						ecmaVersion: LATEST_ECMA_VERSION,
-						parser: `espree@${espree.version}`,
-						parserOptions: {
-							sourceType: "module",
-						},
+			assert.deepStrictEqual(config.toJSON(), {
+				language: "@/js",
+				languageOptions: {
+					ecmaVersion: LATEST_ECMA_VERSION,
+					parser: `espree@${espree.version}`,
+					parserOptions: {
 						sourceType: "module",
 					},
-					linterOptions: {
-						reportUnusedDisableDirectives: 1,
-					},
-					plugins: ["@"],
-					processor: "custom-processor@1.2.3",
-				});
+					sourceType: "module",
+				},
+				linterOptions: {
+					reportUnusedDisableDirectives: 1,
+				},
+				plugins: ["@"],
+				processor: "custom-processor",
 			});
+		});
 
-			it("should not throw an error when config with named and versioned processor object without meta is normalized", () => {
-				const configs = new FlatConfigArray([
-					{
-						processor: {
+		it("should not throw an error when config with named and versioned processor object is normalized", () => {
+			const configs = new FlatConfigArray([
+				{
+					processor: {
+						meta: {
 							name: "custom-processor",
 							version: "1.2.3",
-							preprocess() {
-								/* empty */
-							},
-							postprocess() {
-								/* empty */
-							},
+						},
+						preprocess() {
+							/* empty */
+						},
+						postprocess() {
+							/* empty */
 						},
 					},
-				]);
+				},
+			]);
 
-				configs.normalizeSync();
+			configs.normalizeSync();
 
-				const config = configs.getConfig("foo.js");
+			const config = configs.getConfig("foo.js");
 
-				assert.deepStrictEqual(config.toJSON(), {
-					language: "@/js",
-					languageOptions: {
-						ecmaVersion: LATEST_ECMA_VERSION,
-						parser: `espree@${espree.version}`,
-						parserOptions: {
-							sourceType: "module",
-						},
+			assert.deepStrictEqual(config.toJSON(), {
+				language: "@/js",
+				languageOptions: {
+					ecmaVersion: LATEST_ECMA_VERSION,
+					parser: `espree@${espree.version}`,
+					parserOptions: {
 						sourceType: "module",
 					},
-					linterOptions: {
-						reportUnusedDisableDirectives: 1,
+					sourceType: "module",
+				},
+				linterOptions: {
+					reportUnusedDisableDirectives: 1,
+				},
+				plugins: ["@"],
+				processor: "custom-processor@1.2.3",
+			});
+		});
+
+		it("should not throw an error when config with named and versioned processor object without meta is normalized", () => {
+			const configs = new FlatConfigArray([
+				{
+					processor: {
+						name: "custom-processor",
+						version: "1.2.3",
+						preprocess() {
+							/* empty */
+						},
+						postprocess() {
+							/* empty */
+						},
 					},
-					plugins: ["@"],
-					processor: "custom-processor@1.2.3",
-				});
+				},
+			]);
+
+			configs.normalizeSync();
+
+			const config = configs.getConfig("foo.js");
+
+			assert.deepStrictEqual(config.toJSON(), {
+				language: "@/js",
+				languageOptions: {
+					ecmaVersion: LATEST_ECMA_VERSION,
+					parser: `espree@${espree.version}`,
+					parserOptions: {
+						sourceType: "module",
+					},
+					sourceType: "module",
+				},
+				linterOptions: {
+					reportUnusedDisableDirectives: 1,
+				},
+				plugins: ["@"],
+				processor: "custom-processor@1.2.3",
 			});
 		});
 	});
 
 	describe("Config array elements", () => {
-		it("should error on 'eslint:recommended' string config", async () => {
-			await assertInvalidConfig(
-				["eslint:recommended"],
-				"Config (unnamed): Unexpected non-object config at original index 0.",
-			);
+		const createElementTest = (name, configInput, errorPattern) => {
+			it(name, async () => {
+				await assertInvalidConfig(configInput, errorPattern);
+			});
+		};
+
+		createElementTest(
+			"should error on 'eslint:recommended' string config",
+			["eslint:recommended"],
+			"Config (unnamed): Unexpected non-object config at original index 0.",
+		);
+
+		createElementTest(
+			"should error on 'eslint:all' string config",
+			["eslint:all"],
+			"Config (unnamed): Unexpected non-object config at original index 0.",
+		);
+
+		it("should throw an error when undefined original config is normalized", () => {
+			const configs = new FlatConfigArray([void 0]);
+
+			assert.throws(() => {
+				configs.normalizeSync();
+			}, "Config (unnamed): Unexpected undefined config at original index 0.");
 		});
 
-		it("should error on 'eslint:all' string config", async () => {
-			await assertInvalidConfig(
-				["eslint:all"],
-				"Config (unnamed): Unexpected non-object config at original index 0.",
-			);
+		it("should throw an error when undefined original config is normalized asynchronously", async () => {
+			const configs = new FlatConfigArray([void 0]);
+
+			try {
+				await configs.normalize();
+				assert.fail("Error not thrown");
+			} catch (error) {
+				assert.strictEqual(
+					error.message,
+					"Config (unnamed): Unexpected undefined config at original index 0.",
+				);
+			}
 		});
 
-		describe("Undefined config handling", () => {
-			it("should throw an error when undefined original config is normalized", () => {
-				const configs = new FlatConfigArray([void 0]);
+		it("should throw an error when null original config is normalized", () => {
+			const configs = new FlatConfigArray([null]);
 
-				assert.throws(() => {
-					configs.normalizeSync();
-				}, "Config (unnamed): Unexpected undefined config at original index 0.");
-			});
-
-			it("should throw an error when undefined original config is normalized asynchronously", async () => {
-				const configs = new FlatConfigArray([void 0]);
-
-				try {
-					await configs.normalize();
-					assert.fail("Error not thrown");
-				} catch (error) {
-					assert.strictEqual(
-						error.message,
-						"Config (unnamed): Unexpected undefined config at original index 0.",
-					);
-				}
-			});
-
-			it("should throw an error when undefined base config is normalized", () => {
-				const configs = new FlatConfigArray([], { baseConfig: [void 0] });
-
-				assert.throws(() => {
-					configs.normalizeSync();
-				}, "Config (unnamed): Unexpected undefined config at base index 0.");
-			});
-
-			it("should throw an error when undefined base config is normalized asynchronously", async () => {
-				const configs = new FlatConfigArray([], { baseConfig: [void 0] });
-
-				try {
-					await configs.normalize();
-					assert.fail("Error not thrown");
-				} catch (error) {
-					assert.strictEqual(
-						error.message,
-						"Config (unnamed): Unexpected undefined config at base index 0.",
-					);
-				}
-			});
-
-			it("should throw an error when undefined user-defined config is normalized", () => {
-				const configs = new FlatConfigArray([]);
-
-				configs.push(void 0);
-
-				assert.throws(() => {
-					configs.normalizeSync();
-				}, "Config (unnamed): Unexpected undefined config at user-defined index 0.");
-			});
-
-			it("should throw an error when undefined user-defined config is normalized asynchronously", async () => {
-				const configs = new FlatConfigArray([]);
-
-				configs.push(void 0);
-
-				try {
-					await configs.normalize();
-					assert.fail("Error not thrown");
-				} catch (error) {
-					assert.strictEqual(
-						error.message,
-						"Config (unnamed): Unexpected undefined config at user-defined index 0.",
-					);
-				}
-			});
+			assert.throws(() => {
+				configs.normalizeSync();
+			}, "Config (unnamed): Unexpected null config at original index 0.");
 		});
 
-		describe("Null config handling", () => {
-			it("should throw an error when null original config is normalized", () => {
-				const configs = new FlatConfigArray([null]);
+		it("should throw an error when null original config is normalized asynchronously", async () => {
+			const configs = new FlatConfigArray([null]);
 
-				assert.throws(() => {
-					configs.normalizeSync();
-				}, "Config (unnamed): Unexpected null config at original index 0.");
-			});
+			try {
+				await configs.normalize();
+				assert.fail("Error not thrown");
+			} catch (error) {
+				assert.strictEqual(
+					error.message,
+					"Config (unnamed): Unexpected null config at original index 0.",
+				);
+			}
+		});
 
-			it("should throw an error when null original config is normalized asynchronously", async () => {
-				const configs = new FlatConfigArray([null]);
+		it("should throw an error when undefined base config is normalized", () => {
+			const configs = new FlatConfigArray([], { baseConfig: [void 0] });
 
-				try {
-					await configs.normalize();
-					assert.fail("Error not thrown");
-				} catch (error) {
-					assert.strictEqual(
-						error.message,
-						"Config (unnamed): Unexpected null config at original index 0.",
-					);
-				}
-			});
+			assert.throws(() => {
+				configs.normalizeSync();
+			}, "Config (unnamed): Unexpected undefined config at base index 0.");
+		});
 
-			it("should throw an error when null base config is normalized", () => {
-				const configs = new FlatConfigArray([], { baseConfig: [null] });
+		it("should throw an error when undefined base config is normalized asynchronously", async () => {
+			const configs = new FlatConfigArray([], { baseConfig: [void 0] });
 
-				assert.throws(() => {
-					configs.normalizeSync();
-				}, "Config (unnamed): Unexpected null config at base index 0.");
-			});
+			try {
+				await configs.normalize();
+				assert.fail("Error not thrown");
+			} catch (error) {
+				assert.strictEqual(
+					error.message,
+					"Config (unnamed): Unexpected undefined config at base index 0.",
+				);
+			}
+		});
 
-			it("should throw an error when null base config is normalized asynchronously", async () => {
-				const configs = new FlatConfigArray([], { baseConfig: [null] });
+		it("should throw an error when null base config is normalized", () => {
+			const configs = new FlatConfigArray([], { baseConfig: [null] });
 
-				try {
-					await configs.normalize();
-					assert.fail("Error not thrown");
-				} catch (error) {
-					assert.strictEqual(
-						error.message,
-						"Config (unnamed): Unexpected null config at base index 0.",
-					);
-				}
-			});
+			assert.throws(() => {
+				configs.normalizeSync();
+			}, "Config (unnamed): Unexpected null config at base index 0.");
+		});
 
-			it("should throw an error when null user-defined config is normalized", () => {
-				const configs = new FlatConfigArray([]);
+		it("should throw an error when null base config is normalized asynchronously", async () => {
+			const configs = new FlatConfigArray([], { baseConfig: [null] });
 
-				configs.push(null);
+			try {
+				await configs.normalize();
+				assert.fail("Error not thrown");
+			} catch (error) {
+				assert.strictEqual(
+					error.message,
+					"Config (unnamed): Unexpected null config at base index 0.",
+				);
+			}
+		});
 
-				assert.throws(() => {
-					configs.normalizeSync();
-				}, "Config (unnamed): Unexpected null config at user-defined index 0.");
-			});
+		it("should throw an error when undefined user-defined config is normalized", () => {
+			const configs = new FlatConfigArray([]);
 
-			it("should throw an error when null user-defined config is normalized asynchronously", async () => {
-				const configs = new FlatConfigArray([]);
+			configs.push(void 0);
 
-				configs.push(null);
+			assert.throws(() => {
+				configs.normalizeSync();
+			}, "Config (unnamed): Unexpected undefined config at user-defined index 0.");
+		});
 
-				try {
-					await configs.normalize();
-					assert.fail("Error not thrown");
-				} catch (error) {
-					assert.strictEqual(
-						error.message,
-						"Config (unnamed): Unexpected null config at user-defined index 0.",
-					);
-				}
-			});
+		it("should throw an error when undefined user-defined config is normalized asynchronously", async () => {
+			const configs = new FlatConfigArray([]);
+
+			configs.push(void 0);
+
+			try {
+				await configs.normalize();
+				assert.fail("Error not thrown");
+			} catch (error) {
+				assert.strictEqual(
+					error.message,
+					"Config (unnamed): Unexpected undefined config at user-defined index 0.",
+				);
+			}
+		});
+
+		it("should throw an error when null user-defined config is normalized", () => {
+			const configs = new FlatConfigArray([]);
+
+			configs.push(null);
+
+			assert.throws(() => {
+				configs.normalizeSync();
+			}, "Config (unnamed): Unexpected null config at user-defined index 0.");
+		});
+
+		it("should throw an error when null user-defined config is normalized asynchronously", async () => {
+			const configs = new FlatConfigArray([]);
+
+			configs.push(null);
+
+			try {
+				await configs.normalize();
+				assert.fail("Error not thrown");
+			} catch (error) {
+				assert.strictEqual(
+					error.message,
+					"Config (unnamed): Unexpected null config at user-defined index 0.",
+				);
+			}
 		});
 	});
 
@@ -1471,7 +1383,6 @@ describe("FlatConfigArray", () => {
 						},
 					));
 			});
-
 			describe("reportUnusedDisableDirectives", () => {
 				it("should error when an unexpected value is found", async () => {
 					await assertInvalidConfig(
@@ -2689,7 +2600,6 @@ describe("FlatConfigArray", () => {
 
 				await configs.normalize();
 
-				// does not throw
 				const config = configs.getConfig("foo.js");
 
 				assert.deepStrictEqual(config.rules, {
@@ -2722,7 +2632,6 @@ describe("FlatConfigArray", () => {
 
 				await configs.normalize();
 
-				// does not throw
 				const config = configs.getConfig("foo.js");
 
 				assert.deepStrictEqual(config.rules, {
@@ -2755,7 +2664,6 @@ describe("FlatConfigArray", () => {
 
 				await configs.normalize();
 
-				// does not throw
 				const config = configs.getConfig("foo.js");
 
 				assert.deepStrictEqual(config.rules, {
@@ -3078,7 +2986,6 @@ describe("FlatConfigArray", () => {
 		});
 	});
 
-	// https://github.com/eslint/eslint/issues/12592
 	describe("Shared references between rule configs", () => {
 		it("shared rule config should not cause a rule validation error", () => {
 			const ruleConfig = ["error", {}];
@@ -3136,11 +3043,9 @@ describe("FlatConfigArray", () => {
 
 			configs.normalizeSync();
 
-			// exact error may differ based on structuredClone implementation so just test prefix
 			assert.throws(() => {
 				configs.getConfig("foo.js");
 			}, /Key "rules": Key "camelcase":/u);
 		});
 	});
 });
-```

@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /**
@@ -23,11 +22,11 @@ exports = module.exports = Base;
  */
 
 /* eslint-disable no-unused-vars, no-native-reassign */
-const DateGlobal = global.Date;
-const setTimeoutGlobal = global.setTimeout;
-const setIntervalGlobal = global.setInterval;
-const clearTimeoutGlobal = global.clearTimeout;
-const clearIntervalGlobal = global.clearInterval;
+const Date = global.Date;
+const setTimeout = global.setTimeout;
+const setInterval = global.setInterval;
+const clearTimeout = global.clearTimeout;
+const clearInterval = global.clearInterval;
 /* eslint-enable no-unused-vars, no-native-reassign */
 
 /**
@@ -212,7 +211,7 @@ exports.list = function (failures) {
     // explicitly show diff
     if (!exports.hideDiff && showDiff(err)) {
       stringifyDiffObjs(err);
-      let fmtDiff = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
+      let fmt2 = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
       const match = message.match(/^([^:]+): expected/);
       msg = '\n      ' + color('error message', match ? match[1] : msg);
 
@@ -266,7 +265,7 @@ function Base (runner) {
   runner.stats = stats;
 
   runner.on('start', function () {
-    stats.start = new DateGlobal();
+    stats.start = new Date();
   });
 
   runner.on('suite', function (suite) {
@@ -304,8 +303,8 @@ function Base (runner) {
   });
 
   runner.on('end', function () {
-    stats.end = new DateGlobal();
-    stats.duration = new DateGlobal() - stats.start;
+    stats.end = new Date();
+    stats.duration = new Date() - stats.start;
   });
 
   runner.on('pending', function () {
@@ -486,4 +485,3 @@ const objToString = Object.prototype.toString;
 function sameType (a, b) {
   return objToString.call(a) === objToString.call(b);
 }
-```

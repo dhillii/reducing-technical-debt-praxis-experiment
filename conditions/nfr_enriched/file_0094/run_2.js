@@ -1,12 +1,3 @@
-```javascript
-/**
- * Copyright (C) 2015 Laverna project Authors.
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
- */
-/* global define */
 define([
     'q',
     'underscore',
@@ -85,18 +76,18 @@ define([
         },
 
         /**
-         * Normalizes old password if encryption was previously enabled.
+         * Handles old password fallback when encryption was previously enabled.
          */
-        normalizeOldPassword: function(data) {
+        _handleOldPasswordFallback: function(data) {
             if (Number(this.backup.encrypt) && (!data.old && data.password)) {
                 data.old = data.password;
             }
         },
 
         /**
-         * Builds password validation promises for old and new passwords.
+         * Builds promises for password validation against backup and new configs.
          */
-        buildPasswordValidationPromises: function(data) {
+        _buildPasswordPromises: function(data) {
             const promises = [];
 
             if (data.old) {
@@ -113,29 +104,31 @@ define([
         },
 
         /**
-         * Handles password validation results.
+         * Validates password check results and triggers appropriate events.
          */
-        handlePasswordValidationResults: function(results, data) {
+        _validatePasswordResults: function(results, data) {
             if (!results.length || _.indexOf(results, false) > -1) {
-                return this.view.trigger('password:invalid', results);
+                this.view.trigger('password:invalid', results);
+                return false;
             }
 
             this.passwords = data;
             Radio.trigger('Encryption', 'password:valid');
+            return true;
         },
 
         checkPasswords: function(data) {
-            this.normalizeOldPassword(data);
-            const promises = this.buildPasswordValidationPromises(data);
+            this._handleOldPasswordFallback(data);
+            const promises = this._buildPasswordPromises(data);
 
             return Q.all(promises)
-            .then((results) => this.handlePasswordValidationResults(results, data));
+            .then((results) => this._validatePasswordResults(results, data));
         },
 
         /**
-         * Transforms config object into array of name-value pairs.
+         * Transforms config object into array of name-value pairs for storage.
          */
-        transformConfigsToArray: function() {
+        _transformConfigsToArray: function() {
             return _.map(this.configs, (item, key) => {
                 let transformedItem = item;
 
@@ -152,19 +145,19 @@ define([
         },
 
         /**
-         * Initializes raw data structure with configs.
+         * Initializes raw data structure with configs for the primary profile.
          */
-        initializeRawData: function(profile) {
+        _initializeRawData: function(profile) {
             this.rawData = {};
             this.rawData[profile] = {
-                configs: this.transformConfigsToArray()
+                configs: this._transformConfigsToArray()
             };
         },
 
         /**
-         * Creates encryption promise for a single profile.
+         * Creates a promise chain for re-encrypting a single profile.
          */
-        createProfileEncryptionPromise: function(profile) {
+        _createProfileEncryptionPromise: function(profile) {
             return () => {
                 this.vent.request('change:configs', this.backup);
 
@@ -174,22 +167,15 @@ define([
         },
 
         /**
-         * Builds array of profile encryption promises.
-         */
-        buildProfileEncryptionPromises: function() {
-            return _.map(this.profiles, (profile) => 
-                this.createProfileEncryptionPromise(profile)
-            );
-        },
-
-        /**
          * Initialize encryption.
          */
         initEncrypt: function() {
             const profile = (this.profiles.length === 1 ? this.profiles[0] : 'notes-db');
+            this._initializeRawData(profile);
 
-            this.initializeRawData(profile);
-            const promises = this.buildProfileEncryptionPromises();
+            const promises = _.map(this.profiles, (prof) => 
+                this._createProfileEncryptionPromise(prof)
+            );
 
             return _.reduce(promises, Q.when, new Q())
             .then(() => this.resetBackup())
@@ -201,28 +187,28 @@ define([
         },
 
         /**
-         * Fetches all collections for a profile.
+         * Fetches all collections for a given profile.
          */
-        fetchCollections: function(options) {
+        _fetchCollections: function(options) {
             const promises = [];
 
             _.each(this.collectionNames, (name) => {
-                promises.push(
-                    new Q(Radio.request(name, 'fetch', options))
-                );
+                promises.push(new Q(Radio.request(name, 'fetch', options)));
             });
 
             return Q.all(promises);
         },
 
         /**
-         * Filters and stores non-empty collections.
+         * Filters and stores non-empty collections, initializing raw data storage.
          */
-        filterAndStoreCollections: function(collections, profile) {
+        _processCollections: function(options, collections) {
             this.collections = _.filter(collections, (collection) => {
-                this.rawData[profile][collection.storeName] = collection.toJSON();
+                this.rawData[options.profile][collection.storeName] = collection.toJSON();
                 return collection.length > 0;
             });
+
+            this.view.trigger('encrypt:init', this.collections.length);
         },
 
         /**
@@ -234,19 +220,18 @@ define([
 
             this.rawData[options.profile] = this.rawData[options.profile] || {};
 
-            return this.fetchCollections(options)
-            .then((collections) => {
-                this.filterAndStoreCollections(collections, options.profile);
-                this.view.trigger('encrypt:init', this.collections.length);
+            return this._fetchCollections(options)
+            .spread((...collections) => {
+                this._processCollections(options, collections);
             })
             .then(() => this.encrypt())
             .then(() => this.saveChanges());
         },
 
         /**
-         * Handles encryption when disabled.
+         * Handles encryption when encryption is disabled.
          */
-        disableEncryption: function() {
+        _disableEncryption: function() {
             _.each(this.collections, (collection) => {
                 collection.each((model) => {
                     model.set('encryptedData', null);
@@ -255,37 +240,32 @@ define([
         },
 
         /**
-         * Creates encryption promise for a single collection.
+         * Creates promise chain for encrypting each collection.
          */
-        createCollectionEncryptionPromise: function(collection) {
-            return () => {
-                return this.vent.request('encrypt:models', collection)
-                .then(() => this.checkEncryption(collection));
-            };
-        },
+        _createCollectionEncryptionPromises: function() {
+            const promises = [];
 
-        /**
-         * Builds array of collection encryption promises.
-         */
-        buildCollectionEncryptionPromises: function() {
-            return _.map(this.collections, (collection) =>
-                this.createCollectionEncryptionPromise(collection)
-            );
+            _.each(this.collections, (collection) => {
+                promises.push(() => {
+                    return this.vent.request('encrypt:models', collection)
+                    .then(() => this.checkEncryption(collection));
+                });
+            });
+
+            return promises;
         },
 
         /**
          * Encrypt every collection with new encryption configs.
          */
         encrypt: function() {
-            // Encryption is disabled
             if (Number(this.configs.encrypt) === 0) {
-                this.disableEncryption();
+                this._disableEncryption();
                 return;
             }
 
-            const promises = this.buildCollectionEncryptionPromises();
+            const promises = this._createCollectionEncryptionPromises();
 
-            // Use new encryption configs
             this.vent.request('change:configs', this.configs);
 
             return this.vent.request('save:secureKey', this.passwords.password)
@@ -311,22 +291,25 @@ define([
         },
 
         /**
-         * Creates save promise for a single collection.
+         * Creates promise chain for saving each collection.
          */
-        createCollectionSavePromise: function(collection) {
-            return () => {
-                return new Q(Radio.request(collection.storeName, 'save:collection', collection));
-            };
+        _createCollectionSavePromises: function() {
+            const promises = [];
+
+            _.each(this.collections, (collection) => {
+                promises.push(() => {
+                    return new Q(Radio.request(collection.storeName, 'save:collection', collection));
+                });
+            });
+
+            return promises;
         },
 
         /**
          * Save all changes in every collection.
          */
         saveChanges: function() {
-            const promises = _.map(this.collections, (collection) =>
-                this.createCollectionSavePromise(collection)
-            );
-
+            const promises = this._createCollectionSavePromises();
             return _.reduce(promises, Q.when, new Q());
         },
 
@@ -375,4 +358,3 @@ define([
 
     return Controller;
 });
-```

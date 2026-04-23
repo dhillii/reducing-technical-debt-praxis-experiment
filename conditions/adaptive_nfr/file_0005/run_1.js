@@ -1,4 +1,3 @@
-```typescript
 import NewsletterPreview from './newsletter-preview';
 import NiceModal from '@ebay/nice-modal-react';
 import React, {useCallback, useEffect, useState} from 'react';
@@ -55,23 +54,22 @@ const ReplyToEmailField: React.FC<{
     );
 };
 
-/**
- * Renders the sender email field based on configuration
- */
+/** Renders sender email field based on config and managed email settings */
 const renderSenderEmailField = (
     newsletter: Newsletter,
     config: any,
     defaultEmailAddress: string,
     errors: ErrorMessages,
     updateNewsletter: (fields: Partial<Newsletter>) => void,
-    clearError: (field: string) => void
+    clearError: (field: string) => void,
+    newsletterAddress: string
 ) => {
     if (!isManagedEmail(config)) {
         return (
             <TextField
                 error={Boolean(errors.sender_email)}
                 hint={errors.sender_email}
-                placeholder={renderSenderEmail(newsletter, config, defaultEmailAddress) || ''}
+                placeholder={newsletterAddress || ''}
                 title="Sender email address"
                 value={newsletter.sender_email || ''}
                 onChange={e => updateNewsletter({sender_email: e.target.value})}
@@ -98,9 +96,7 @@ const renderSenderEmailField = (
     }
 };
 
-/**
- * Determines if background color is dark
- */
+/** Determines if background color is dark */
 const backgroundColorIsDark = (newsletter: Newsletter): boolean => {
     if (newsletter.background_color === 'light') {
         return false;
@@ -108,9 +104,42 @@ const backgroundColorIsDark = (newsletter: Newsletter): boolean => {
     return textColorForBackgroundColor(newsletter.background_color).hex().toLowerCase() === '#ffffff';
 };
 
-/**
- * Handles archiving a newsletter
- */
+/** Gets selected font weight option based on category */
+const getSelectedFontWeightOption = (
+    newsletter: Newsletter,
+    fontWeightOptions: Record<string, {options: SelectOption[], map?: Record<string, string>}>
+): SelectOption => {
+    const category = newsletter.title_font_category || 'sans_serif';
+    const fontWeight = newsletter.title_font_weight;
+    const weightMap = fontWeightOptions[category].map;
+    const mappedWeight = weightMap ? (weightMap[fontWeight] || fontWeight) : fontWeight;
+    const headingFontWeightOptions = fontWeightOptions[category].options;
+    const option = headingFontWeightOptions.find(o => o.value === mappedWeight);
+    return option || headingFontWeightOptions[0];
+};
+
+/** Updates title font and maps weight to closest match if needed */
+const changeSelectedTitleFont = (
+    option: SelectOption | null,
+    newsletter: Newsletter,
+    fontWeightOptions: Record<string, {options: SelectOption[], map?: Record<string, string>}>,
+    updateNewsletter: (fields: Partial<Newsletter>) => void
+) => {
+    const categoryValue = option?.value || 'sans_serif';
+    const currentWeight = newsletter.title_font_weight;
+    let newWeight = currentWeight;
+    
+    if (!fontWeightOptions[categoryValue].options.find(o => o.value === currentWeight)) {
+        newWeight = fontWeightOptions[categoryValue].map?.[currentWeight] || 'bold';
+    }
+
+    updateNewsletter({
+        title_font_category: categoryValue,
+        title_font_weight: newWeight
+    });
+};
+
+/** Handles archiving active newsletter */
 const handleArchiveNewsletter = async (
     newsletter: Newsletter,
     editNewsletter: (data: Newsletter) => Promise<any>,
@@ -139,14 +168,13 @@ const handleArchiveNewsletter = async (
     });
 };
 
-/**
- * Handles reactivating a newsletter
- */
+/** Handles reactivating archived newsletter */
 const handleReactivateNewsletter = async (
     newsletter: Newsletter,
     editNewsletter: (data: Newsletter) => Promise<any>,
     limiter: any,
-    updateRoute: (options: any) => void
+    updateRoute: (options: any) => void,
+    handleError: (error: any) => void
 ) => {
     try {
         await limiter?.errorIfWouldGoOverLimit('newsletters');
@@ -179,75 +207,33 @@ const handleReactivateNewsletter = async (
     });
 };
 
-/**
- * Handles status change confirmation
- */
+/** Handles status change confirmation based on current status */
 const confirmStatusChange = async (
     newsletter: Newsletter,
     editNewsletter: (data: Newsletter) => Promise<any>,
-    handleError: (error: any) => void,
     limiter: any,
-    updateRoute: (options: any) => void
+    updateRoute: (options: any) => void,
+    handleError: (error: any) => void
 ) => {
     if (newsletter.status === 'active') {
         await handleArchiveNewsletter(newsletter, editNewsletter, handleError);
     } else {
-        await handleReactivateNewsletter(newsletter, editNewsletter, limiter, updateRoute);
+        await handleReactivateNewsletter(newsletter, editNewsletter, limiter, updateRoute, handleError);
     }
 };
 
-/**
- * Gets the selected font weight option
- */
-const getSelectedFontWeightOption = (
+/** Builds general settings tab content */
+const buildGeneralSettingsTab = (
     newsletter: Newsletter,
-    fontWeightOptions: Record<string, {options: SelectOption[], map?: Record<string, string>}>
-): SelectOption => {
-    const category = newsletter.title_font_category || 'sans_serif';
-    const fontWeight = newsletter.title_font_weight;
-    const weightMap = fontWeightOptions[category].map;
-    const mappedWeight = weightMap ? (weightMap[fontWeight] || fontWeight) : fontWeight;
-    const headingFontWeightOptions = fontWeightOptions[category].options;
-    const option = headingFontWeightOptions.find(o => o.value === mappedWeight);
-    return option || headingFontWeightOptions[0];
-};
-
-/**
- * Changes the selected title font and maps weight accordingly
- */
-const changeSelectedTitleFont = (
-    option: SelectOption | null,
-    newsletter: Newsletter,
-    fontWeightOptions: Record<string, {options: SelectOption[], map?: Record<string, string>}>,
-    updateNewsletter: (fields: Partial<Newsletter>) => void
-) => {
-    const categoryValue = option?.value || 'sans_serif';
-    const currentWeight = newsletter.title_font_weight;
-    let newWeight = currentWeight;
-    
-    if (!fontWeightOptions[categoryValue].options.find(o => o.value === currentWeight)) {
-        newWeight = fontWeightOptions[categoryValue].map?.[currentWeight] || 'bold';
-    }
-
-    updateNewsletter({
-        title_font_category: categoryValue,
-        title_font_weight: newWeight
-    });
-};
-
-/**
- * Renders the general settings tab content
- */
-const renderGeneralSettingsTab = (
-    newsletter: Newsletter,
+    onlyOne: boolean,
+    activeNewsletters: Newsletter[],
     updateNewsletter: (fields: Partial<Newsletter>) => void,
     errors: ErrorMessages,
     clearError: (field: string) => void,
-    siteTitle: string,
-    renderSenderEmailFieldFn: () => React.ReactNode,
-    onlyOne: boolean,
-    activeNewsletters: Newsletter[],
-    confirmStatusChangeFn: () => Promise<void>
+    validate: () => void,
+    renderSenderEmailFieldComponent: React.ReactNode,
+    confirmStatusChangeHandler: () => Promise<void>,
+    siteTitle: string
 ): React.ReactNode => {
     return (
         <>
@@ -266,8 +252,8 @@ const renderGeneralSettingsTab = (
             </Form>
             <Form className='mt-6' gap='sm' margins='lg' title='Email info'>
                 <TextField maxLength={191} placeholder={siteTitle} title="Sender name" value={newsletter.sender_name || ''} onChange={e => updateNewsletter({sender_name: e.target.value})} />
-                {renderSenderEmailFieldFn()}
-                <ReplyToEmailField clearError={clearError} errors={errors} newsletter={newsletter} updateNewsletter={updateNewsletter} validate={() => {}} />
+                {renderSenderEmailFieldComponent}
+                <ReplyToEmailField clearError={clearError} errors={errors} newsletter={newsletter} updateNewsletter={updateNewsletter} validate={validate} />
             </Form>
             <Form className='mt-6' gap='sm' margins='lg' title='Member settings'>
                 <Toggle
@@ -279,16 +265,14 @@ const renderGeneralSettingsTab = (
                 />
             </Form>
             <div className='mb-5 mt-10'>
-                {newsletter.status === 'active' ? (!onlyOne && <Button color='red' disabled={activeNewsletters.length === 1} label='Archive newsletter' link onClick={confirmStatusChangeFn}/>) : <Button color='green' label='Reactivate newsletter' link onClick={confirmStatusChangeFn} />}
+                {newsletter.status === 'active' ? (!onlyOne && <Button color='red' disabled={activeNewsletters.length === 1} label='Archive newsletter' link onClick={confirmStatusChangeHandler}/>) : <Button color='green' label='Reactivate newsletter' link onClick={confirmStatusChangeHandler} />}
             </div>
         </>
     );
 };
 
-/**
- * Renders the content tab
- */
-const renderContentTab = (
+/** Builds content tab with header, title, and footer sections */
+const buildContentTab = (
     newsletter: Newsletter,
     updateNewsletter: (fields: Partial<Newsletter>) => void,
     icon: string | undefined,
@@ -431,10 +415,8 @@ const renderContentTab = (
     );
 };
 
-/**
- * Renders the design tab
- */
-const renderDesignTab = (
+/** Builds design tab with global, header, and body styling options */
+const buildDesignTab = (
     newsletter: Newsletter,
     updateNewsletter: (fields: Partial<Newsletter>) => void,
     fontOptions: SelectOption[],
@@ -802,6 +784,7 @@ const Sidebar: React.FC<{
     const {data: {newsletters: apiNewsletters} = {}} = useBrowseNewsletters();
     const commentsEnabled = ['all', 'paid'].includes(getSettingValue(settings, 'comments_enabled') || '');
 
+    let newsletterAddress = renderSenderEmail(newsletter, config, defaultEmailAddress);
     const [newsletters, setNewsletters] = useState<Newsletter[]>(apiNewsletters || []);
     const activeNewsletters = newsletters.filter(n => n.status === 'active');
 
@@ -835,27 +818,59 @@ const Sidebar: React.FC<{
         }
     };
 
-    const handleStatusChange = async () => {
-        await confirmStatusChange(newsletter, editNewsletter, handleError, limiter, updateRoute);
+    const confirmStatusChangeHandler = async () => {
+        await confirmStatusChange(newsletter, editNewsletter, limiter, updateRoute, handleError);
     };
 
-    const renderSenderEmailFieldFn = () => renderSenderEmailField(newsletter, config, defaultEmailAddress, errors, updateNewsletter, clearError);
+    const renderSenderEmailFieldComponent = renderSenderEmailField(
+        newsletter,
+        config,
+        defaultEmailAddress,
+        errors,
+        updateNewsletter,
+        clearError,
+        newsletterAddress
+    );
 
     const tabs: Tab[] = [
         {
             id: 'generalSettings',
             title: 'General',
-            contents: renderGeneralSettingsTab(newsletter, updateNewsletter, errors, clearError, siteTitle, renderSenderEmailFieldFn, onlyOne, activeNewsletters, handleStatusChange)
+            contents: buildGeneralSettingsTab(
+                newsletter,
+                onlyOne,
+                activeNewsletters,
+                updateNewsletter,
+                errors,
+                clearError,
+                validate,
+                renderSenderEmailFieldComponent,
+                confirmStatusChangeHandler,
+                siteTitle
+            )
         },
         {
             id: 'content',
             title: 'Content',
-            contents: renderContentTab(newsletter, updateNewsletter, icon, commentsEnabled, handleError, uploadImage)
+            contents: buildContentTab(
+                newsletter,
+                updateNewsletter,
+                icon,
+                commentsEnabled,
+                handleError,
+                uploadImage
+            )
         },
         {
             id: 'design',
             title: 'Design',
-            contents: renderDesignTab(newsletter, updateNewsletter, fontOptions, fontWeightOptions, siteData)
+            contents: buildDesignTab(
+                newsletter,
+                updateNewsletter,
+                fontOptions,
+                fontWeightOptions,
+                siteData
+            )
         }
     ];
 
@@ -971,4 +986,3 @@ const NewsletterDetailModal: React.FC<RoutingModalProps> = ({params}) => {
 };
 
 export default NiceModal.create(NewsletterDetailModal);
-```

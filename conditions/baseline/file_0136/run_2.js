@@ -1,4 +1,3 @@
-```javascript
 import React, { useCallback, useEffect, useState, useReducer, useRef } from 'react';
 import axios from 'axios';
 import PropTypes from 'prop-types';
@@ -340,6 +339,7 @@ const ModalStepper = ({
       // Close the modal and refetch data
       toggleRef.current(true);
     } catch (err) {
+      console.error(err);
       const status = get(err, 'response.status', get(err, 'status', null));
       const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
       let errorMessage = get(
@@ -430,6 +430,7 @@ const ModalStepper = ({
             fileIndex: originalIndex,
           });
         } catch (err) {
+          console.error(err);
           const status = get(err, 'response.status', get(err, 'status', null));
           const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
           let errorMessage = get(
@@ -622,4 +623,3 @@ ModalStepper.propTypes = {
 };
 
 export default ModalStepper;
-```

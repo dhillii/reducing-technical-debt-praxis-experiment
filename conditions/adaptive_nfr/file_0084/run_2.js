@@ -1,4 +1,3 @@
-```typescript
 import { useState } from 'react'
 
 import { ContextualHelp } from '@keystar/ui/contextual-help'
@@ -15,7 +14,6 @@ import type {
 } from '../../../../types'
 import { entriesTyped } from '../../../../lib/core/utils'
 
-// TODO: extract
 const TYPE_OPERATOR_MAP = {
   equals: '=',
   not: '≠',
@@ -36,30 +34,25 @@ type Validation = {
 
 /** Check if value should skip validation due to auto-increment default on create */
 function shouldSkipAutoIncrementValidation(
-  kind: string,
-  input: number | null,
+  value: Value,
   hasAutoIncrementDefault: boolean
 ): boolean {
-  return kind === 'create' && hasAutoIncrementDefault && input === null
+  return value.kind === 'create' && hasAutoIncrementDefault && value.value === null
 }
 
-/** Check if value should skip validation due to null initial and current on update */
-function shouldSkipNullUpdateValidation(
-  kind: string,
-  initial: number | null | undefined,
-  input: number | null
-): boolean {
-  return kind === 'update' && initial === null && input === null
+/** Check if value should skip validation due to unchanged null on update */
+function shouldSkipUnchangedNullValidation(value: Value): boolean {
+  return value.kind === 'update' && value.initial === null && value.value === null
 }
 
 /** Check if required field is missing value */
-function isRequiredFieldMissing(isRequired: boolean, input: number | null): boolean {
-  return isRequired && input === null
+function isRequiredFieldMissing(value: number | null, isRequired: boolean): boolean {
+  return isRequired && value === null
 }
 
-/** Check if input is not a valid integer */
-function isInvalidInteger(input: unknown): boolean {
-  return typeof input === 'number' && !Number.isInteger(input)
+/** Check if value is not a valid integer */
+function isInvalidInteger(value: number): boolean {
+  return !Number.isInteger(value)
 }
 
 /** Check if value violates minimum constraint */
@@ -79,22 +72,22 @@ function validate_(
   label: string,
   hasAutoIncrementDefault: boolean
 ): string | undefined {
-  const { value: input, kind } = value
+  const { value: input } = value
 
-  if (shouldSkipAutoIncrementValidation(kind, input, hasAutoIncrementDefault)) {
-    return
+  if (shouldSkipAutoIncrementValidation(value, hasAutoIncrementDefault)) {
+    return undefined
   }
 
-  if (shouldSkipNullUpdateValidation(kind, 'initial' in value ? value.initial : undefined, input)) {
-    return
+  if (shouldSkipUnchangedNullValidation(value)) {
+    return undefined
   }
 
-  if (isRequiredFieldMissing(isRequired, input)) {
+  if (isRequiredFieldMissing(input, isRequired)) {
     return `${label} is required`
   }
 
   if (typeof input !== 'number') {
-    return
+    return undefined
   }
 
   if (isInvalidInteger(input)) {
@@ -108,6 +101,8 @@ function validate_(
   if (violatesMaxConstraint(input, validation.max)) {
     return `${label} must be less than or equal to ${validation.max}`
   }
+
+  return undefined
 }
 
 export function controller(
@@ -119,17 +114,17 @@ export function controller(
   validation: Validation
   hasAutoIncrementDefault: boolean
 } {
-  const hasAutoIncrementDefault = config.fieldMeta.defaultValue === 'autoincrement'
-
   const validate = (value: Value, opts: { isRequired: boolean }) => {
     return validate_(
       value,
       config.fieldMeta.validation,
       opts.isRequired,
       config.label,
-      hasAutoIncrementDefault
+      config.fieldMeta.defaultValue === 'autoincrement'
     )
   }
+
+  const hasAutoIncrementDefault = config.fieldMeta.defaultValue === 'autoincrement'
 
   return {
     fieldKey: config.fieldKey,
@@ -156,8 +151,8 @@ export function controller(
         forceValidation?: boolean
         typeLabel?: string
         onChange?: (value: number | null) => void
-        type?: string
-        value?: number | null
+        type: string
+        value: number | null
         [key: string]: unknown
       }>) {
         const {
@@ -347,4 +342,3 @@ export function Field({
     />
   )
 }
-```

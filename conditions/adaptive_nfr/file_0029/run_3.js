@@ -1,4 +1,3 @@
-```javascript
 import Component from '@glimmer/component';
 import DeletePostModal from '../modals/delete-post';
 import PostSuccessModal from '../modal-post-success';
@@ -84,7 +83,7 @@ export default class Analytics extends Component {
     }
 
     /**
-     * Determines if paid conversion data is available
+     * Determines if paid conversion data exists
      * @returns {boolean}
      */
     _hasPaidConversionData() {
@@ -92,61 +91,11 @@ export default class Analytics extends Component {
     }
 
     /**
-     * Determines if free signups data is available
+     * Determines if free signups exist
      * @returns {boolean}
      */
     _hasFreeSignups() {
         return this.sources.some(sourceData => sourceData.signups > 0);
-    }
-
-    /**
-     * Determines if display options should be filtered
-     * @returns {boolean}
-     */
-    _shouldFilterDisplayOptions() {
-        return !this._hasPaidConversionData() || !this._hasFreeSignups();
-    }
-
-    /**
-     * Gets the filtered display option value based on data availability
-     * @returns {string|null}
-     */
-    _getFilteredDisplayValue() {
-        if (!this._hasPaidConversionData()) {
-            return 'signups';
-        }
-        if (!this._hasFreeSignups()) {
-            return 'paid';
-        }
-        return null;
-    }
-
-    get allowedDisplayOptions() {
-        const filteredValue = this._getFilteredDisplayValue();
-        if (filteredValue) {
-            return this.displayOptions.filter(d => d.value === filteredValue);
-        }
-        return this.displayOptions;
-    }
-
-    get isDropdownDisabled() {
-        return this._shouldFilterDisplayOptions();
-    }
-
-    get selectedDisplayOption() {
-        const filteredValue = this._getFilteredDisplayValue();
-        if (filteredValue) {
-            return this.displayOptions.find(d => d.value === filteredValue);
-        }
-        return this.displayOptions.find(d => d.value === this.sortColumn) ?? this.displayOptions[0];
-    }
-
-    get selectedSortColumn() {
-        const filteredValue = this._getFilteredDisplayValue();
-        if (filteredValue) {
-            return filteredValue;
-        }
-        return this.sortColumn;
     }
 
     get hasPaidConversionData() {
@@ -157,25 +106,100 @@ export default class Analytics extends Component {
         return this._hasFreeSignups();
     }
 
+    /**
+     * Filters display options based on available data
+     * @returns {Array}
+     */
+    _filterDisplayOptions() {
+        if (!this._hasPaidConversionData()) {
+            return this.displayOptions.filter(d => d.value === 'signups');
+        }
+
+        if (!this._hasFreeSignups()) {
+            return this.displayOptions.filter(d => d.value === 'paid');
+        }
+
+        return this.displayOptions;
+    }
+
+    get allowedDisplayOptions() {
+        return this._filterDisplayOptions();
+    }
+
+    /**
+     * Determines if dropdown should be disabled
+     * @returns {boolean}
+     */
+    _isDropdownDisabled() {
+        return !this._hasPaidConversionData() || !this._hasFreeSignups();
+    }
+
+    get isDropdownDisabled() {
+        return this._isDropdownDisabled();
+    }
+
+    /**
+     * Gets the selected display option based on available data
+     * @returns {Object}
+     */
+    _getSelectedDisplayOption() {
+        if (!this._hasPaidConversionData()) {
+            return this.displayOptions.find(d => d.value === 'signups');
+        }
+
+        if (!this._hasFreeSignups()) {
+            return this.displayOptions.find(d => d.value === 'paid');
+        }
+
+        return this.displayOptions.find(d => d.value === this.sortColumn) ?? this.displayOptions[0];
+    }
+
+    get selectedDisplayOption() {
+        return this._getSelectedDisplayOption();
+    }
+
+    /**
+     * Gets the selected sort column based on available data
+     * @returns {string}
+     */
+    _getSelectedSortColumn() {
+        if (!this._hasPaidConversionData()) {
+            return 'signups';
+        }
+
+        if (!this._hasFreeSignups()) {
+            return 'paid';
+        }
+
+        return this.sortColumn;
+    }
+
+    get selectedSortColumn() {
+        return this._getSelectedSortColumn();
+    }
+
     get totalFeedback() {
         return this.post.count.positive_feedback + this.post.count.negative_feedback;
     }
 
     /**
-     * Builds filter parameter for feedback links
-     * @param {string} score - The feedback score (0 or 1)
+     * Builds filter parameter for feedback query
+     * @param {string} postId
+     * @param {number} score
      * @returns {string}
      */
-    _buildFeedbackFilterParam(score) {
-        return `(feedback.post_id:'${this.post.id}'+feedback.score:${score})`;
+    _buildFeedbackFilter(postId, score) {
+        return `(feedback.post_id:'${postId}'+feedback.score:${score})`;
     }
 
     get feedbackChartData() {
         const values = [this.post.count.positive_feedback, this.post.count.negative_feedback];
         const labels = ['More like this', 'Less like this'];
+        const positiveFilter = this._buildFeedbackFilter(this.post.id, 1);
+        const negativeFilter = this._buildFeedbackFilter(this.post.id, 0);
         const links = [
-            {filterParam: this._buildFeedbackFilterParam('1')},
-            {filterParam: this._buildFeedbackFilterParam('0')}
+            {filterParam: positiveFilter},
+            {filterParam: negativeFilter}
         ];
         const colors = ['#F080B2', '#8452f633'];
         return {values, labels, links, colors};
@@ -202,33 +226,19 @@ export default class Analytics extends Component {
     /**
      * Loads data based on feature flags
      */
-    _loadDataForFeature(shouldLoad, loadFn, emptyValue) {
+    _loadDataForFeature(shouldLoad, loadFn, resetValue) {
         if (shouldLoad) {
             loadFn();
         } else {
-            return emptyValue;
+            resetValue();
         }
     }
 
     @action
     loadData() {
-        if (this.showSources) {
-            this.fetchReferrersStats();
-        } else {
-            this.sources = [];
-        }
-
-        if (this.showLinks) {
-            this.fetchLinks();
-        } else {
-            this.links = [];
-        }
-
-        if (this.showMentions) {
-            this.fetchMentions();
-        } else {
-            this.mentions = [];
-        }
+        this._loadDataForFeature(this.showSources, () => this.fetchReferrersStats(), () => { this.sources = []; });
+        this._loadDataForFeature(this.showLinks, () => this.fetchLinks(), () => { this.links = []; });
+        this._loadDataForFeature(this.showMentions, () => this.fetchMentions(), () => { this.mentions = []; });
     }
 
     @action
@@ -313,6 +323,16 @@ export default class Analytics extends Component {
         }
     }
 
+    /**
+     * Builds API URL with filter parameter
+     * @param {string} endpoint
+     * @param {string} filter
+     * @returns {string}
+     */
+    _buildApiUrl(endpoint, filter) {
+        return this.ghostPaths.url.api(endpoint) + `?filter=${encodeURIComponent(filter)}`;
+    }
+
     @task
     *_updateLinks(linkId, newLink) {
         this.updateLinkId = linkId;
@@ -333,7 +353,7 @@ export default class Analytics extends Component {
         });
 
         const filter = `post_id:'${this.post.id}'+to:'${currentLink}'`;
-        const bulkUpdateUrl = this.ghostPaths.url.api('links/bulk') + `?filter=${encodeURIComponent(filter)}`;
+        let bulkUpdateUrl = this._buildApiUrl('links/bulk', filter);
         yield this.ajax.put(bulkUpdateUrl, {
             data: {
                 bulk: {
@@ -345,7 +365,7 @@ export default class Analytics extends Component {
 
         // Refresh links data
         const linksFilter = `post_id:'${this.post.id}'`;
-        const statsUrl = this.ghostPaths.url.api('links/') + `?filter=${encodeURIComponent(linksFilter)}`;
+        let statsUrl = this._buildApiUrl('links/', linksFilter);
         let result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
         this.showSuccess = this.updateLinkId;
@@ -356,7 +376,7 @@ export default class Analytics extends Component {
 
     @task
     *_fetchReferrersStats() {
-        const statsUrl = this.ghostPaths.url.api(`stats/referrers/posts/${this.post.id}`);
+        let statsUrl = this.ghostPaths.url.api(`stats/referrers/posts/${this.post.id}`);
         let result = yield this.ajax.request(statsUrl);
         this.sources = result.stats.map((stat) => {
             return {
@@ -370,7 +390,7 @@ export default class Analytics extends Component {
     @task
     *_fetchLinks() {
         const filter = `post_id:'${this.post.id}'`;
-        const statsUrl = this.ghostPaths.url.api('links/') + `?filter=${encodeURIComponent(filter)}`;
+        let statsUrl = this._buildApiUrl('links/', filter);
         let result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
     }
@@ -423,8 +443,8 @@ export default class Analytics extends Component {
     }
 
     /**
-     * Checks if animation should be skipped for the given element
-     * @param {HTMLElement} element
+     * Checks if element should skip animation
+     * @param {Element} element
      * @returns {boolean}
      */
     _shouldSkipAnimation(element) {
@@ -433,34 +453,19 @@ export default class Analytics extends Component {
         }
 
         const checks = [
-            {
-                hasClass: 'sent',
-                condition: this.post.email.emailCount === this.previousSentCount
-            },
-            {
-                hasClass: 'opened',
-                condition: this.post.email.openedCount === this.previousOpenedCount
-            },
-            {
-                hasClass: 'clicked',
-                condition: this.post.count.clicks === this.previousClickedCount
-            },
-            {
-                hasClass: 'feedback',
-                condition: this.totalFeedback === this.previousFeedbackCount
-            },
-            {
-                hasClass: 'conversions',
-                condition: this.post.count.conversions === this.previousConversionsCount
-            }
+            {class: 'sent', current: this.post.email.emailCount, previous: this.previousSentCount},
+            {class: 'opened', current: this.post.email.openedCount, previous: this.previousOpenedCount},
+            {class: 'clicked', current: this.post.count.clicks, previous: this.previousClickedCount},
+            {class: 'feedback', current: this.totalFeedback, previous: this.previousFeedbackCount},
+            {class: 'conversions', current: this.post.count.conversions, previous: this.previousConversionsCount}
         ];
 
-        return checks.some(check => element.classList.contains(check.hasClass) && check.condition);
+        return checks.some(check => element.classList.contains(check.class) && check.current === check.previous);
     }
 
     /**
      * Builds selector string from element classes
-     * @param {HTMLElement} element
+     * @param {Element} element
      * @returns {string}
      */
     _buildClassSelector(element) {
@@ -511,4 +516,3 @@ export default class Analytics extends Component {
         return this.links !== null && this.souces !== null && this.mentions !== null;
     }
 }
-```

@@ -1,78 +1,3 @@
-```javascript
-/*
-	MIT License http://www.opensource.org/licenses/mit-license.php
-	Author Tobias Koppers @sokra
-*/
-/*
-<rules>: <rule>
-<rules>: [<rule>]
-<rule>: {
-	resource: {
-		test: <condition>,
-		include: <condition>,
-		exclude: <condition>,
-	},
-	resource: <condition>, -> resource.test
-	test: <condition>, -> resource.test
-	include: <condition>, -> resource.include
-	exclude: <condition>, -> resource.exclude
-	resourceQuery: <condition>,
-	compiler: <condition>,
-	issuer: <condition>,
-	use: "loader", -> use[0].loader
-	loader: <>, -> use[0].loader
-	loaders: <>, -> use
-	options: {}, -> use[0].options,
-	query: {}, -> options
-	parser: {},
-	use: [
-		"loader" -> use[x].loader
-	],
-	use: [
-		{
-			loader: "loader",
-			options: {}
-		}
-	],
-	rules: [
-		<rule>
-	],
-	oneOf: [
-		<rule>
-	]
-}
-
-<condition>: /regExp/
-<condition>: function(arg) {}
-<condition>: "starting"
-<condition>: [<condition>] // or
-<condition>: { and: [<condition>] }
-<condition>: { or: [<condition>] }
-<condition>: { not: [<condition>] }
-<condition>: { test: <condition>, include: <condition>, exclude: <condition> }
-
-
-normalized:
-
-{
-	resource: function(),
-	resourceQuery: function(),
-	compiler: function(),
-	issuer: function(),
-	use: [
-		{
-			loader: string,
-			options: string,
-			<any>: <any>
-		}
-	],
-	rules: [<rule>],
-	oneOf: [<rule>],
-	<any>: <any>,
-}
-
-*/
-
 "use strict";
 
 module.exports = class RuleSet {
@@ -109,24 +34,48 @@ module.exports = class RuleSet {
 		let useSource;
 		let resourceSource;
 
-		const checkResourceSource = (newSource) => {
-			if(resourceSource && resourceSource !== newSource)
-				throw new Error(RuleSet.buildErrorMessage(rule, new Error("Rule can only have one resource source (provided " + newSource + " and " + resourceSource + ")")));
-			resourceSource = newSource;
-		};
+		// Process resource conditions
+		RuleSet._processResourceCondition(rule, newRule, (source) => {
+			if(resourceSource && resourceSource !== source)
+				throw new Error(RuleSet.buildErrorMessage(rule, new Error("Rule can only have one resource source (provided " + source + " and " + resourceSource + ")")));
+			resourceSource = source;
+		});
 
-		const checkUseSource = (newSource) => {
-			if(useSource && useSource !== newSource)
-				throw new Error(RuleSet.buildErrorMessage(rule, new Error("Rule can only have one result source (provided " + newSource + " and " + useSource + ")")));
-			useSource = newSource;
-		};
+		// Process query and compiler conditions
+		RuleSet._processQueryAndCompilerConditions(rule, newRule);
 
-		RuleSet._normalizeResourceConditions(rule, newRule, checkResourceSource);
-		RuleSet._normalizeQueryAndCompilerConditions(rule, newRule);
-		RuleSet._normalizeLoaderAndUse(rule, newRule, checkUseSource, ident);
-		RuleSet._normalizeNestedRules(rule, newRule, refs, ident);
-		RuleSet._copyUnknownProperties(rule, newRule);
+		// Process issuer condition
+		if(rule.issuer) {
+			try {
+				newRule.issuer = RuleSet.normalizeCondition(rule.issuer);
+			} catch(error) {
+				throw new Error(RuleSet.buildErrorMessage(rule.issuer, error));
+			}
+		}
 
+		// Process use/loader configuration
+		RuleSet._processUseConfiguration(rule, newRule, ident, (source) => {
+			if(useSource && useSource !== source)
+				throw new Error(RuleSet.buildErrorMessage(rule, new Error("Rule can only have one result source (provided " + source + " and " + useSource + ")")));
+			useSource = source;
+		});
+
+		// Process nested rules
+		if(rule.rules)
+			newRule.rules = RuleSet.normalizeRules(rule.rules, refs, `${ident}-rules`);
+
+		if(rule.oneOf)
+			newRule.oneOf = RuleSet.normalizeRules(rule.oneOf, refs, `${ident}-oneOf`);
+
+		// Copy remaining properties
+		const keys = Object.keys(rule).filter((key) => {
+			return ["resource", "resourceQuery", "compiler", "test", "include", "exclude", "issuer", "loader", "options", "query", "loaders", "use", "rules", "oneOf"].indexOf(key) < 0;
+		});
+		keys.forEach((key) => {
+			newRule[key] = rule[key];
+		});
+
+		// Store references
 		if(Array.isArray(newRule.use)) {
 			newRule.use.forEach((item) => {
 				if(item.ident) {
@@ -138,10 +87,8 @@ module.exports = class RuleSet {
 		return newRule;
 	}
 
-	/**
-	 * Normalize resource, test, include, and exclude conditions
-	 */
-	static _normalizeResourceConditions(rule, newRule, checkResourceSource) {
+	/** @private Process resource condition from test/include/exclude or resource property */
+	static _processResourceCondition(rule, newRule, checkResourceSource) {
 		if(rule.test || rule.include || rule.exclude) {
 			checkResourceSource("test + include + exclude");
 			const condition = {
@@ -166,26 +113,22 @@ module.exports = class RuleSet {
 		}
 	}
 
-	/**
-	 * Normalize resourceQuery, compiler, and issuer conditions
-	 */
-	static _normalizeQueryAndCompilerConditions(rule, newRule) {
-		const conditionFields = ["resourceQuery", "compiler", "issuer"];
-		conditionFields.forEach(field => {
-			if(rule[field]) {
+	/** @private Process resourceQuery and compiler conditions */
+	static _processQueryAndCompilerConditions(rule, newRule) {
+		const conditionKeys = ["resourceQuery", "compiler"];
+		conditionKeys.forEach(key => {
+			if(rule[key]) {
 				try {
-					newRule[field] = RuleSet.normalizeCondition(rule[field]);
+					newRule[key] = RuleSet.normalizeCondition(rule[key]);
 				} catch(error) {
-					throw new Error(RuleSet.buildErrorMessage(rule[field], error));
+					throw new Error(RuleSet.buildErrorMessage(rule[key], error));
 				}
 			}
 		});
 	}
 
-	/**
-	 * Normalize loader, loaders, options, query, and use properties
-	 */
-	static _normalizeLoaderAndUse(rule, newRule, checkUseSource, ident) {
+	/** @private Process use/loader configuration */
+	static _processUseConfiguration(rule, newRule, ident, checkUseSource) {
 		if(rule.loader && rule.loaders)
 			throw new Error(RuleSet.buildErrorMessage(rule, new Error("Provided loader and loaders for rule (use only one of them)")));
 
@@ -215,28 +158,6 @@ module.exports = class RuleSet {
 			checkUseSource("use");
 			newRule.use = RuleSet.normalizeUse(rule.use, ident);
 		}
-	}
-
-	/**
-	 * Normalize nested rules and oneOf properties
-	 */
-	static _normalizeNestedRules(rule, newRule, refs, ident) {
-		if(rule.rules)
-			newRule.rules = RuleSet.normalizeRules(rule.rules, refs, `${ident}-rules`);
-
-		if(rule.oneOf)
-			newRule.oneOf = RuleSet.normalizeRules(rule.oneOf, refs, `${ident}-oneOf`);
-	}
-
-	/**
-	 * Copy unknown properties from rule to newRule
-	 */
-	static _copyUnknownProperties(rule, newRule) {
-		const knownKeys = ["resource", "resourceQuery", "compiler", "test", "include", "exclude", "issuer", "loader", "options", "query", "loaders", "use", "rules", "oneOf"];
-		const keys = Object.keys(rule).filter((key) => knownKeys.indexOf(key) < 0);
-		keys.forEach((key) => {
-			newRule[key] = rule[key];
-		});
 	}
 
 	static buildErrorMessage(condition, error) {
@@ -332,7 +253,6 @@ module.exports = class RuleSet {
 			throw Error("Unexcepted " + typeof condition + " when condition was expected (" + condition + ")");
 
 		const matchers = RuleSet._buildConditionMatchers(condition);
-		
 		if(matchers.length === 0)
 			throw new Error("Excepted condition but got " + condition);
 		if(matchers.length === 1)
@@ -340,9 +260,7 @@ module.exports = class RuleSet {
 		return andMatcher(matchers);
 	}
 
-	/**
-	 * Build matchers from condition object properties
-	 */
+	/** @private Build matchers from condition object keys */
 	static _buildConditionMatchers(condition) {
 		const matchers = [];
 		const conditionHandlers = {
@@ -404,52 +322,16 @@ module.exports = class RuleSet {
 			return false;
 
 		// apply
-		RuleSet._applyProperties(rule, result);
-		RuleSet._applyUse(rule, data, result);
-		RuleSet._applyNestedRules(this, data, rule, result);
-
-		return true;
-	}
-
-	/**
-	 * Test all conditions against data
-	 */
-	static _testConditions(data, rule) {
-		const conditionTests = [
-			{ condition: rule.resource, dataField: "resource", requireData: true },
-			{ condition: rule.resourceQuery, dataField: "resourceQuery", requireData: true },
-			{ condition: rule.compiler, dataField: "compiler", requireData: true },
-			{ condition: rule.issuer, dataField: "issuer", requireData: true }
-		];
-
-		for(const test of conditionTests) {
-			if(test.condition && !data[test.dataField])
-				return false;
-			if(data[test.dataField] && test.condition && !test.condition(data[test.dataField]))
-				return false;
-		}
-
-		return true;
-	}
-
-	/**
-	 * Apply non-use properties to result
-	 */
-	static _applyProperties(rule, result) {
-		const excludedKeys = ["resource", "resourceQuery", "compiler", "issuer", "rules", "oneOf", "use", "enforce"];
-		const keys = Object.keys(rule).filter((key) => excludedKeys.indexOf(key) < 0);
+		const keys = Object.keys(rule).filter((key) => {
+			return ["resource", "resourceQuery", "compiler", "issuer", "rules", "oneOf", "use", "enforce"].indexOf(key) < 0;
+		});
 		keys.forEach((key) => {
 			result.push({
 				type: key,
 				value: rule[key]
 			});
 		});
-	}
 
-	/**
-	 * Apply use loaders to result
-	 */
-	static _applyUse(rule, data, result) {
 		if(rule.use) {
 			rule.use.forEach((use) => {
 				result.push({
@@ -459,24 +341,49 @@ module.exports = class RuleSet {
 				});
 			});
 		}
-	}
 
-	/**
-	 * Apply nested rules and oneOf rules
-	 */
-	static _applyNestedRules(ruleSet, data, rule, result) {
 		if(rule.rules) {
 			for(let i = 0; i < rule.rules.length; i++) {
-				ruleSet._run(data, rule.rules[i], result);
+				this._run(data, rule.rules[i], result);
 			}
 		}
 
 		if(rule.oneOf) {
 			for(let i = 0; i < rule.oneOf.length; i++) {
-				if(ruleSet._run(data, rule.oneOf[i], result))
+				if(this._run(data, rule.oneOf[i], result))
 					break;
 			}
 		}
+
+		return true;
+	}
+
+	/** @private Test all conditions against data */
+	static _testConditions(data, rule) {
+		const conditionTests = [
+			{ ruleKey: "resource", dataKey: "resource" },
+			{ ruleKey: "resourceQuery", dataKey: "resourceQuery" },
+			{ ruleKey: "compiler", dataKey: "compiler" },
+			{ ruleKey: "issuer", dataKey: "issuer" }
+		];
+
+		// Check if required data exists
+		for(const test of conditionTests) {
+			if(rule[test.ruleKey] && !data[test.dataKey])
+				return false;
+		}
+
+		// Test matchers
+		if(rule.resource && !rule.resource(data.resource))
+			return false;
+		if(data.issuer && rule.issuer && !rule.issuer(data.issuer))
+			return false;
+		if(data.resourceQuery && rule.resourceQuery && !rule.resourceQuery(data.resourceQuery))
+			return false;
+		if(data.compiler && rule.compiler && !rule.compiler(data.compiler))
+			return false;
+
+		return true;
 	}
 
 	findOptionsByIdent(ident) {
@@ -486,18 +393,12 @@ module.exports = class RuleSet {
 	}
 };
 
-/**
- * Create a matcher that negates another matcher
- */
 function notMatcher(matcher) {
 	return function(str) {
 		return !matcher(str);
 	};
 }
 
-/**
- * Create a matcher that returns true if any item matches (OR logic)
- */
 function orMatcher(items) {
 	return function(str) {
 		for(let i = 0; i < items.length; i++) {
@@ -508,9 +409,6 @@ function orMatcher(items) {
 	};
 }
 
-/**
- * Create a matcher that returns true if all items match (AND logic)
- */
 function andMatcher(items) {
 	return function(str) {
 		for(let i = 0; i < items.length; i++) {
@@ -520,4 +418,3 @@ function andMatcher(items) {
 		return true;
 	};
 }
-```

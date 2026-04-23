@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const Catbox = require('catbox');
@@ -23,8 +22,6 @@ exports = module.exports = internals.Plugin = function (server, connections, env
 
     this._parent = parent;
 
-    // Public interface
-
     this.root = server;
     this.app = this.root._app;
     this.connections = connections;
@@ -46,8 +43,6 @@ exports = module.exports = internals.Plugin = function (server, connections, env
 
     this.cache = internals.cache(this);
     this._single();
-
-    // Decorations
 
     const methods = Object.keys(this.root._decorations);
     for (let i = 0; i < methods.length; ++i) {
@@ -72,7 +67,7 @@ internals.createRealm = (plugin) => {
         modifiers: {
             route: {}
         },
-        plugin,
+        plugin: plugin,
         pluginOptions: {},
         plugins: {},
         settings: {
@@ -119,7 +114,6 @@ internals.Plugin.prototype._select = function (labels, plugin) {
     let connections = this.connections;
 
     if (labels && labels.length) {
-
         Hoek.assert(this.connections, 'Cannot select inside a connectionless plugin');
 
         connections = [];
@@ -163,7 +157,7 @@ internals.Plugin.prototype.register = function (plugins /*, [options], callback 
 
     this.root._registring = true;
 
-    const each = (item, next) => internals.registerItem(this, item, next);
+    const each = (item, next) => internals.registerPlugin(this, item, next);
 
     Items.serial(registrations, each, (err) => {
         this.root._registring = false;
@@ -230,7 +224,7 @@ internals.buildRegistrations = (plugins, options) => {
 };
 
 
-internals.registerItem = (plugin, item, next) => {
+internals.registerPlugin = (plugin, item, next) => {
 
     const selection = plugin._select(item.options.select, item.name);
     selection.realm.modifiers.route.prefix = item.options.routes.prefix;
@@ -244,16 +238,16 @@ internals.registerItem = (plugin, item, next) => {
         attributes: item.register.attributes
     };
 
-    internals.validateRequirements(item, plugin.version);
+    internals.validateRequirements(item, plugin);
 
-    const connectionless = internals.isConnectionless(item, selection);
-    const shouldSkip = internals.checkMultipleRegistrations(plugin.root, item, selection, connectionless);
+    const connectionless = (item.connections === 'conditional' ? selection.connections.length === 0 : !item.connections);
+    const shouldSkip = internals.checkMultipleRegistrations(plugin.root, item, connectionless, registrationData);
 
     if (shouldSkip) {
         return next();
     }
 
-    const connections = internals.getConnections(selection, item);
+    const connections = internals.getValidConnections(selection, item);
 
     if (item.options.once && !connectionless && !connections.length) {
         return next();
@@ -274,72 +268,55 @@ internals.registerItem = (plugin, item, next) => {
 };
 
 
-internals.validateRequirements = (item, pluginVersion) => {
+internals.validateRequirements = (item, plugin) => {
 
     const requirements = item.requirements;
     Hoek.assert(!requirements.node || Somever.match(process.version, requirements.node), 'Plugin', item.name, 'requires node version', requirements.node, 'but found', process.version);
-    Hoek.assert(!requirements.hapi || Somever.match(pluginVersion, requirements.hapi), 'Plugin', item.name, 'requires hapi version', requirements.hapi, 'but found', pluginVersion);
+    Hoek.assert(!requirements.hapi || Somever.match(plugin.version, requirements.hapi), 'Plugin', item.name, 'requires hapi version', requirements.hapi, 'but found', plugin.version);
 };
 
 
-internals.isConnectionless = (item, selection) => {
-
-    return (item.connections === 'conditional' ? selection.connections.length === 0 : !item.connections);
-};
-
-
-internals.checkMultipleRegistrations = (root, item, selection, connectionless) => {
+internals.checkMultipleRegistrations = (root, item, connectionless, registrationData) => {
 
     if (connectionless) {
         if (root._registrations[item.name]) {
-            if (item.options.once) {
-                return true;
-            }
-            Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered');
+            return item.options.once;
         }
-        else {
-            root._registrations[item.name] = {
-                version: item.version,
-                name: item.name,
-                options: item.pluginOptions,
-                attributes: item.register.attributes
-            };
-        }
+
+        root._registrations[item.name] = registrationData;
     }
 
     return false;
 };
 
 
-internals.getConnections = (selection, item) => {
+internals.getValidConnections = (selection, item) => {
 
     const connections = [];
 
-    if (!selection.connections) {
-        return connections;
-    }
+    if (selection.connections) {
+        for (let i = 0; i < selection.connections.length; ++i) {
+            const connection = selection.connections[i];
 
-    for (let i = 0; i < selection.connections.length; ++i) {
-        const connection = selection.connections[i];
-
-        if (connection.registrations[item.name]) {
-            if (!item.options.once) {
-                Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered in:', connection.info.uri);
+            if (connection.registrations[item.name]) {
+                if (!item.options.once) {
+                    Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered in:', connection.info.uri);
+                }
+                else {
+                    continue;
+                }
             }
             else {
-                continue;
+                connection.registrations[item.name] = {
+                    version: item.version,
+                    name: item.name,
+                    options: item.pluginOptions,
+                    attributes: item.register.attributes
+                };
             }
-        }
-        else {
-            connection.registrations[item.name] = {
-                version: item.version,
-                name: item.name,
-                options: item.pluginOptions,
-                attributes: item.register.attributes
-            };
-        }
 
-        connections.push(connection);
+            connections.push(connection);
+        }
     }
 
     return connections;
@@ -430,31 +407,23 @@ internals.Plugin.prototype.dependency = function (dependencies, after) {
     Hoek.assert(this.realm.plugin, 'Cannot call dependency() outside of a plugin');
     Hoek.assert(!after || typeof after === 'function', 'Invalid after method');
 
-    dependencies = internals.normalizeDependencies(dependencies);
+    if (typeof dependencies === 'string') {
+        dependencies = { [dependencies]: '*' };
+    }
+    else if (Array.isArray(dependencies)) {
+        const map = {};
+        for (const dependency of dependencies) {
+            map[dependency] = '*';
+        }
+
+        dependencies = map;
+    }
 
     this.root._dependencies.push({ plugin: this.realm.plugin, connections: this.connections, deps: dependencies });
 
     if (after) {
         this.ext('onPreStart', after, { after: Object.keys(dependencies) });
     }
-};
-
-
-internals.normalizeDependencies = (dependencies) => {
-
-    if (typeof dependencies === 'string') {
-        return { [dependencies]: '*' };
-    }
-
-    if (Array.isArray(dependencies)) {
-        const map = {};
-        for (const dependency of dependencies) {
-            map[dependency] = '*';
-        }
-        return map;
-    }
-
-    return dependencies;
 };
 
 
@@ -552,6 +521,7 @@ internals.Plugin.prototype.log = function (tags, data, timestamp, _internal) {
     const internal = !!_internal;
 
     const update = (typeof data !== 'function' ? { timestamp, tags, data, internal } : () => {
+
         return { timestamp, tags, data: data(), internal };
     });
 
@@ -644,4 +614,3 @@ internals.Plugin.prototype._applyChild = function (type, child, func, args) {
         obj[func].apply(obj, args);
     }
 };
-```

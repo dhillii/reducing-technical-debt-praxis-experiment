@@ -1,4 +1,3 @@
-```typescript
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 
@@ -362,31 +361,28 @@ function* generateFieldConfigurations() {
 }
 
 // Generates unique field configurations for all access control combinations
-function* generateUniqueFieldConfigurations(baseFields: Field[]) {
-  yield* baseFields
-
+function* generateUniqueFieldConfigurations() {
   for (const read of [false, true]) {
-    for (const update of [false, true]) {
-      for (const filterable of [false, true]) {
-        yield makeFieldEntry({
-          access: {
-            read,
-            create: true,
-            update,
-            filterable,
-          },
-          unique: true,
-        })
+    for (const create of [true]) {
+      for (const update of [false, true]) {
+        for (const filterable of [false, true]) {
+          yield makeFieldEntry({
+            access: {
+              read,
+              create,
+              update,
+              filterable,
+            },
+            unique: true,
+          })
+        }
       }
     }
   }
 }
 
 // Generates list configurations for all access control combinations
-function* generateListConfigurations(
-  fields: Field[],
-  fieldsUnique: Field[]
-) {
+function* generateListConfigurations(fields: Field[], fieldsUnique: Field[]) {
   for (const query of [false, true]) {
     for (const create of [false, true]) {
       for (const update of [false, true]) {
@@ -420,7 +416,7 @@ function* generateListConfigurations(
 export const lists = [
   ...(function* () {
     const fields = [...generateFieldConfigurations()]
-    const fieldsUnique = [...generateUniqueFieldConfigurations(fields)]
+    const fieldsUnique = [...fields, ...generateUniqueFieldConfigurations()]
     yield* generateListConfigurations(fields, fieldsUnique)
   })(),
 ]
@@ -450,4 +446,3 @@ export const config = {
     ),
   },
 }
-```

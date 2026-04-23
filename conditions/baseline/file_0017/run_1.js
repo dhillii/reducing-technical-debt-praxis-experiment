@@ -1,4 +1,3 @@
-```javascript
 import React, {useContext, useState} from 'react';
 import PropTypes from 'prop-types';
 import AppContext from '../../app-context';
@@ -357,6 +356,7 @@ const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineO
             />
         </div>
     );
+    /* eslint-enable i18next/no-literal-string */
 };
 
 RetentionOfferSection.propTypes = {
@@ -366,12 +366,10 @@ RetentionOfferSection.propTypes = {
         duration: PropTypes.string,
         duration_in_months: PropTypes.number,
         amount: PropTypes.number,
-        tier: PropTypes.object
+        id: PropTypes.string.isRequired
     }).isRequired,
     product: PropTypes.shape({
-        name: PropTypes.string.isRequired,
-        monthlyPrice: PropTypes.object,
-        yearlyPrice: PropTypes.object
+        name: PropTypes.string.isRequired
     }).isRequired,
     price: PropTypes.shape({
         amount: PropTypes.number.isRequired,
@@ -385,6 +383,8 @@ RetentionOfferSection.propTypes = {
 const UpgradePlanSection = ({
     plans, selectedPlan, onPlanSelect, onPlanCheckout
 }) => {
+    // const {action, brandColor} = useContext(AppContext);
+    // const isRunning = ['checkoutPlan:running'].includes(action);
     let singlePlanClass = '';
     if (plans.length === 1) {
         singlePlanClass = 'singleplan';
@@ -400,6 +400,14 @@ const UpgradePlanSection = ({
                     onPlanCheckout={onPlanCheckout}
                 />
             </div>
+            {/* <ActionButton
+                onClick={e => onPlanCheckout(e)}
+                isRunning={isRunning}
+                isPrimary={true}
+                brandColor={brandColor}
+                label={'Continue'}
+                style={{height: '40px', width: '100%', marginTop: '24px'}}
+            /> */}
         </section>
     );
 };
@@ -691,4 +699,3 @@ export default class AccountPlanPage extends React.Component {
         );
     }
 }
-```

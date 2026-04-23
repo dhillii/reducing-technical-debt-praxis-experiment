@@ -1,4 +1,3 @@
-```javascript
 import React, { useCallback, useEffect, useState, useReducer, useRef } from 'react';
 import axios from 'axios';
 import PropTypes from 'prop-types';
@@ -624,4 +623,3 @@ ModalStepper.propTypes = {
 };
 
 export default ModalStepper;
-```

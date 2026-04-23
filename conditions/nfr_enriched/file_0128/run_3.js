@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /**
@@ -77,22 +76,27 @@ const removeRelationMorph = async (model, params, { session = null } = {}) => {
   );
 };
 
+// Extracts the association model for a given attribute
+const getAssociationModel = (attribute, details) => {
+  return strapi.db.getModel(details?.model || details?.collection, details?.plugin);
+};
+
 // Handles oneWay and manyToOne association updates
-const handleSimpleAssociation = (acc, attribute, newValue, assocModel) => {
+const handleOneWayOrManyToOne = (acc, attribute, newValue, assocModel) => {
   return _.set(acc, attribute, _.get(newValue, assocModel.primaryKey, newValue));
 };
 
 // Handles oneToOne association updates
-const handleOneToOneAssociation = (
+const handleOneToOne = async (
   acc,
   attribute,
   currentValue,
   newValue,
-  assocModel,
   details,
+  assocModel,
   primaryKeyValue,
-  relationUpdates,
-  session
+  session,
+  relationUpdates
 ) => {
   if (currentValue === newValue) return acc;
 
@@ -128,18 +132,17 @@ const handleOneToOneAssociation = (
 };
 
 // Handles oneToMany association updates
-const handleOneToManyAssociation = (
+const handleOneToMany = (
   acc,
   currentValue,
   newValue,
-  assocModel,
   details,
+  assocModel,
   primaryKeyValue,
-  relationUpdates,
-  session
+  session,
+  relationUpdates
 ) => {
-  const attributeIds = currentValue;
-  const toRemove = _.differenceWith(attributeIds, newValue, (a, b) => {
+  const toRemove = _.differenceWith(currentValue, newValue, (a, b) => {
     return `${a[assocModel.primaryKey] || a}` === `${b[assocModel.primaryKey] || b}`;
   });
 
@@ -174,16 +177,16 @@ const handleOneToManyAssociation = (
 };
 
 // Handles manyToMany and manyWay association updates
-const handleManyToManyAssociation = (
+const handleManyToMany = (
   acc,
   attribute,
   currentValue,
   newValue,
-  assocModel,
   association,
+  assocModel,
   primaryKeyValue,
-  relationUpdates,
-  session
+  session,
+  relationUpdates
 ) => {
   if (association.dominant) {
     return _.set(
@@ -232,7 +235,7 @@ const handleManyToManyAssociation = (
 };
 
 // Handles manyMorphToOne and manyMorphToMany association updates
-const handleManyMorphAssociation = (
+const handleManyMorphToMany = (
   newValue,
   association,
   entry,
@@ -258,9 +261,7 @@ const handleManyMorphAssociation = (
     };
 
     const reverseAssoc = refModel.associations?.find(assoc => assoc.alias === obj.field);
-    const isOneToManyMorph = reverseAssoc?.nature === 'oneToManyMorph';
-
-    if (isOneToManyMorph) {
+    if (reverseAssoc?.nature === 'oneToManyMorph') {
       relationUpdates.push(
         removeRelationMorph(
           this,
@@ -305,7 +306,7 @@ const handleManyMorphAssociation = (
 };
 
 // Handles oneToManyMorph and manyToManyMorph association updates
-const handleMorphToManyAssociation = (
+const handleMorphToMany = (
   acc,
   attribute,
   currentValue,
@@ -322,7 +323,7 @@ const handleMorphToManyAssociation = (
   const toAdd = _.difference(newIds, currentIds);
   const toRemove = _.difference(currentIds, newIds);
 
-  const model = strapi.db.getModel(details.model || details.collection, details.plugin);
+  const model = strapi.db.getModel(details?.model || details?.collection, details?.plugin);
 
   if (!Array.isArray(newValue)) {
     _.set(acc, attribute, newIds[0]);
@@ -369,73 +370,79 @@ const handleMorphToManyAssociation = (
   return acc;
 };
 
-// Processes a single attribute update based on association type
-const processAttributeUpdate = function(
+// Processes a single attribute update based on its association type
+const processAttributeUpdate = (
   acc,
   attribute,
   currentValue,
   newValue,
   association,
   details,
-  primaryKeyValue,
   entry,
+  primaryKeyValue,
   relationUpdates,
   session
-) {
+) => {
   if (!association && _.get(details, 'isVirtual') !== true) {
     return _.set(acc, attribute, newValue);
   }
 
-  const assocModel = strapi.db.getModel(details.model || details.collection, details.plugin);
+  if (!association) {
+    return acc;
+  }
 
-  switch (association?.nature) {
+  const assocModel = getAssociationModel(attribute, details);
+
+  switch (association.nature) {
     case 'oneWay':
-    case 'manyToOne':
-      return handleSimpleAssociation(acc, attribute, newValue, assocModel);
+      return handleOneWayOrManyToOne(acc, attribute, newValue, assocModel);
 
     case 'oneToOne':
-      return handleOneToOneAssociation.call(
+      return handleOneToOne.call(
         this,
         acc,
         attribute,
         currentValue,
         newValue,
-        assocModel,
         details,
+        assocModel,
         primaryKeyValue,
-        relationUpdates,
-        session
+        session,
+        relationUpdates
       );
 
     case 'oneToMany':
-      return handleOneToManyAssociation(
+      return handleOneToMany(
         acc,
         currentValue,
         newValue,
-        assocModel,
         details,
+        assocModel,
         primaryKeyValue,
-        relationUpdates,
-        session
+        session,
+        relationUpdates
       );
+
+    case 'manyToOne':
+      return handleOneWayOrManyToOne(acc, attribute, newValue, assocModel);
 
     case 'manyWay':
     case 'manyToMany':
-      return handleManyToManyAssociation(
+      return handleManyToMany(
         acc,
         attribute,
         currentValue,
         newValue,
-        assocModel,
         association,
+        assocModel,
         primaryKeyValue,
-        relationUpdates,
-        session
+        session,
+        relationUpdates
       );
 
     case 'manyMorphToMany':
     case 'manyMorphToOne':
-      handleManyMorphAssociation.call(
+      handleManyMorphToMany.call(
         this,
         newValue,
         association,
@@ -447,7 +454,7 @@ const processAttributeUpdate = function(
 
     case 'oneToManyMorph':
     case 'manyToManyMorph':
-      return handleMorphToManyAssociation.call(
+      return handleMorphToMany.call(
         this,
         acc,
         attribute,
@@ -462,19 +469,21 @@ const processAttributeUpdate = function(
 
     case 'oneMorphToOne':
     case 'oneMorphToMany':
+      return acc;
+
     default:
       return acc;
   }
 };
 
 // Handles oneWay and manyWay deletion
-const deleteOneWayRelation = () => {
+const deleteOneWayOrManyWay = () => {
   return;
 };
 
 // Handles oneToOne and oneToMany deletion
-const deleteOneToManyRelation = (association, primaryKeyValue, session) => {
-  if (!association.via) {
+const deleteOneToOneOrOneToMany = (via, association, session) => {
+  if (!via) {
     return;
   }
 
@@ -483,12 +492,12 @@ const deleteOneToManyRelation = (association, primaryKeyValue, session) => {
     association.plugin
   );
 
-  return targetModel.updateMany({ [association.via]: primaryKeyValue }, { [association.via]: null }, { session });
+  return targetModel.updateMany({ [via]: via }, { [via]: null }, { session });
 };
 
-// Handles manyToMany and manyToOne deletion
-const deleteManyToManyRelation = (association, primaryKeyValue, session) => {
-  if (!association.via || association.dominant) {
+// Handles manyToOne and manyToMany deletion
+const deleteManyToOneOrManyToMany = (via, dominant, association, primaryKeyValue, session) => {
+  if (!via || dominant) {
     return;
   }
 
@@ -498,14 +507,14 @@ const deleteManyToManyRelation = (association, primaryKeyValue, session) => {
   );
 
   return targetModel.updateMany(
-    { [association.via]: primaryKeyValue },
-    { $pull: { [association.via]: primaryKeyValue } },
+    { [via]: primaryKeyValue },
+    { $pull: { [via]: primaryKeyValue } },
     { session }
   );
 };
 
 // Handles oneToManyMorph and manyToManyMorph deletion
-const deleteMorphRelation = function(association, primaryKeyValue, session) {
+const deleteMorphToMany = (via, association, globalId, filter, alias, session) => {
   const targetModel = strapi.db.getModel(
     association.model || association.collection,
     association.plugin
@@ -514,37 +523,38 @@ const deleteMorphRelation = function(association, primaryKeyValue, session) {
   if (!targetModel) return;
 
   const element = {
-    ref: primaryKeyValue,
-    kind: this.globalId,
-    [association.filter]: association.alias,
+    ref: globalId,
+    kind: globalId,
+    [filter]: alias,
   };
 
   return targetModel.updateMany(
-    { [association.via]: { $elemMatch: element } },
-    { $pull: { [association.via]: element } },
+    { [via]: { $elemMatch: element } },
+    { $pull: { [via]: element } },
     { session }
   );
 };
 
-// Handles manyMorphToMany and manyMorphToOne deletion
-const deleteManyMorphRelation = function(entry, association, primaryKeyValue, session) {
-  const entryAssociation = entry[association.alias];
+// Handles manyMorphToOne and manyMorphToMany deletion
+const deleteManyMorphToMany = (entry, association, primaryKeyValue, session) => {
+  const aliasValue = entry[association.alias];
 
-  if (!Array.isArray(entryAssociation)) {
+  if (!Array.isArray(aliasValue)) {
     return;
   }
 
   return Promise.all(
-    entryAssociation.map(val => {
+    aliasValue.map(val => {
       const targetModel = strapi.db.getModelByGlobalId(val.kind);
 
       if (!targetModel) return;
 
       const field = val[association.filter];
-      const reverseAssoc = targetModel.associations?.find(assoc => assoc.alias === field);
-      const isOneToManyMorph = reverseAssoc?.nature === 'oneToManyMorph';
+      const reverseAssoc = targetModel.associations?.find(
+        assoc => assoc.alias === field
+      );
 
-      if (isOneToManyMorph) {
+      if (reverseAssoc?.nature === 'oneToManyMorph') {
         return targetModel.updateMany(
           {
             [targetModel.primaryKey]: val.ref?._id || val.ref,
@@ -569,34 +579,35 @@ const deleteManyMorphRelation = function(entry, association, primaryKeyValue, se
   );
 };
 
-// Processes deletion of a single association
-const processAssociationDeletion = function(association, entry, session) {
-  const primaryKeyValue = entry[this.primaryKey];
-  const { nature } = association;
+// Processes a single association deletion
+const processAssociationDeletion = (association, entry, primaryKeyValue, session) => {
+  const { nature, via, dominant, filter, alias } = association;
 
   switch (nature) {
     case 'oneWay':
     case 'manyWay':
-      return deleteOneWayRelation();
+      return deleteOneWayOrManyWay();
 
     case 'oneToMany':
     case 'oneToOne':
-      return deleteOneToManyRelation(association, primaryKeyValue, session);
+      return deleteOneToOneOrOneToMany(via, association, session);
 
     case 'manyToMany':
     case 'manyToOne':
-      return deleteManyToManyRelation(association, primaryKeyValue, session);
+      return deleteManyToOneOrManyToMany(via, dominant, association, primaryKeyValue, session);
 
     case 'oneToManyMorph':
     case 'manyToManyMorph':
-      return deleteMorphRelation.call(this, association, primaryKeyValue, session);
+      return deleteMorphToMany(via, association, entry[association.primaryKey], filter, alias, session);
 
     case 'manyMorphToMany':
     case 'manyMorphToOne':
-      return deleteManyMorphRelation.call(this, entry, association, primaryKeyValue, session);
+      return deleteManyMorphToMany(entry, association, primaryKeyValue, session);
 
     case 'oneMorphToOne':
     case 'oneMorphToMany':
+      return;
+
     default:
       return;
   }
@@ -619,16 +630,15 @@ module.exports = {
       const association = this.associations.find(x => x.alias === attribute);
       const details = this._attributes[attribute];
 
-      return processAttributeUpdate.call(
-        this,
+      return processAttributeUpdate(
         acc,
         attribute,
         currentValue,
         newValue,
         association,
         details,
-        primaryKeyValue,
         entry,
+        primaryKeyValue,
         relationUpdates,
         session
       );
@@ -651,11 +661,12 @@ module.exports = {
   },
 
   deleteRelations(entry, { session = null } = {}) {
+    const primaryKeyValue = entry[this.primaryKey];
+
     return Promise.all(
       this.associations.map(association =>
-        processAssociationDeletion.call(this, association, entry, session)
+        processAssociationDeletion(association, entry, primaryKeyValue, session)
       )
     );
   },
 };
-```

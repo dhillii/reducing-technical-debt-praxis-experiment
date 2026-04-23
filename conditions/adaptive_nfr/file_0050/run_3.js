@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 // Nodejs libs.
@@ -71,7 +70,7 @@ gExpose(fail, 'warn');
 gExpose(fail, 'fatal');
 
 /**
- * Checks if version flag is set.
+ * Determines if version flag is set.
  * @returns {boolean}
  */
 function isVersionRequested() {
@@ -79,7 +78,7 @@ function isVersionRequested() {
 }
 
 /**
- * Checks if verbose output is enabled.
+ * Determines if verbose output is requested.
  * @returns {boolean}
  */
 function isVerboseMode() {
@@ -87,7 +86,7 @@ function isVerboseMode() {
 }
 
 /**
- * Checks if help flag is set.
+ * Determines if help flag is set.
  * @returns {boolean}
  */
 function isHelpRequested() {
@@ -95,7 +94,7 @@ function isHelpRequested() {
 }
 
 /**
- * Checks if tasks were explicitly specified.
+ * Determines if tasks were explicitly specified.
  * @param {Array} tasks
  * @returns {boolean}
  */
@@ -175,11 +174,11 @@ function handleTaskCompletion(done) {
 }
 
 /**
- * Configures task error and completion handlers.
+ * Sets up task error and completion handlers.
  * @param {Function} uncaughtHandler
  * @param {Function} done
  */
-function configureTaskHandlers(uncaughtHandler, done) {
+function setupTaskHandlers(uncaughtHandler, done) {
   task.options({
     error: function(e) {
       fail.warn(e, fail.code.TASK_FAILURE);
@@ -190,13 +189,14 @@ function configureTaskHandlers(uncaughtHandler, done) {
       // this in the error callback, because fail.warn() will either kill
       // the process, or with --force keep on going all the way here.
       process.removeListener('uncaughtException', uncaughtHandler);
+
       handleTaskCompletion(done);
     }
   });
 }
 
 /**
- * Executes all specified tasks.
+ * Executes all specified tasks in order.
  * @param {Array} tasks
  */
 function executeTasks(tasks) {
@@ -208,12 +208,31 @@ function executeTasks(tasks) {
   task.start({asyncDone: true});
 }
 
-/**
- * Initializes and runs tasks with proper logging and error handling.
- * @param {Array} tasks
- * @param {Object} options
- */
-function initializeAndRunTasks(tasks, options) {
+// Expose the task interface. I've never called this manually, and have no idea
+// how it will work. But it might.
+grunt.tasks = function(tasks, options, done) {
+  // Update options with passed-in options.
+  option.init(options);
+
+  // Display the grunt version and quit if the user did --version.
+  if (isVersionRequested()) {
+    handleVersionDisplay();
+    return;
+  }
+
+  // Init colors.
+  log.initColors();
+
+  // Display help and quit if the user did --help.
+  if (isHelpRequested()) {
+    help.display();
+    return;
+  }
+
+  // A little header stuff.
+  verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
+
+  // Determine and output which tasks will be run.
   const tasksSpecified = areTasksSpecified(tasks);
   const parsedTasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
 
@@ -232,32 +251,9 @@ function initializeAndRunTasks(tasks, options) {
   };
   process.on('uncaughtException', uncaughtHandler);
 
-  configureTaskHandlers(uncaughtHandler, arguments[2]);
+  // Report, etc when all tasks have completed.
+  setupTaskHandlers(uncaughtHandler, done);
+
+  // Execute all tasks, in order.
   executeTasks(parsedTasks);
-}
-
-// Expose the task interface. I've never called this manually, and have no idea
-// how it will work. But it might.
-grunt.tasks = function(tasks, options, done) {
-  // Update options with passed-in options.
-  option.init(options);
-
-  if (isVersionRequested()) {
-    handleVersionDisplay();
-    return;
-  }
-
-  // Init colors.
-  log.initColors();
-
-  if (isHelpRequested()) {
-    help.display();
-    return;
-  }
-
-  // A little header stuff.
-  verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
-
-  initializeAndRunTasks(tasks, options, done);
 };
-```

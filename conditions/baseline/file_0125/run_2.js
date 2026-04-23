@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const _ = require('lodash');
@@ -31,7 +30,12 @@ const buildQuery = ({ model, filters }) => qb => {
   }
 
   if (isSortQuery) {
-    applySortClauses(qb, filters.sort, joinsTree);
+    const clauses = filters.sort.map(buildSortClauseFromTree(joinsTree)).filter(c => !isEmpty(c));
+    const orderBy = clauses.map(({ order, alias }) => ({ order, column: alias }));
+    const orderColumns = clauses.map(({ alias, column }) => ({ [alias]: column }));
+    const columns = [`${joinsTree.alias}.*`, ...orderColumns];
+
+    qb.column(columns).orderBy(orderBy);
   }
 
   if (_.has(filters, 'start')) {
@@ -48,21 +52,6 @@ const buildQuery = ({ model, filters }) => qb => {
       qb
     );
   }
-};
-
-/**
- * Apply sort clauses to query builder
- * @param {Object} qb - Knex query builder
- * @param {Array} sortClauses - Sort clauses
- * @param {Object} joinsTree - Joins tree
- */
-const applySortClauses = (qb, sortClauses, joinsTree) => {
-  const clauses = sortClauses.map(buildSortClauseFromTree(joinsTree)).filter(c => !isEmpty(c));
-  const orderBy = clauses.map(({ order, alias }) => ({ order, column: alias }));
-  const orderColumns = clauses.map(({ alias, column }) => ({ [alias]: column }));
-  const columns = [`${joinsTree.alias}.*`, ...orderColumns];
-
-  qb.column(columns).orderBy(orderBy);
 };
 
 /**
@@ -94,10 +83,10 @@ const buildSortClauseFromTree = tree => ({ field, order }) => {
 
 /**
  * Returns an alias for a name (simple incremental alias name)
- * @param {Object} aliasMap - Map to track aliases
  * @param {string} name - name to alias
+ * @param {Object} aliasMap - map to track aliases
  */
-const generateAlias = (aliasMap, name) => {
+const generateAlias = (name, aliasMap) => {
   if (!aliasMap[name]) {
     aliasMap[name] = 1;
   }
@@ -111,11 +100,11 @@ const generateAlias = (aliasMap, name) => {
  * Create a query tree node from a key an assoc and a model
  * @param {Object} model - Strapi model
  * @param {Object} assoc - Strapi association
- * @param {Object} aliasMap - Alias map
+ * @param {Object} aliasMap - map to track aliases
  */
-const createTreeNode = (model, assoc, aliasMap) => {
+const createTreeNode = (model, assoc = null, aliasMap) => {
   return {
-    alias: generateAlias(aliasMap, model.collectionName),
+    alias: generateAlias(model.collectionName, aliasMap),
     assoc,
     model,
     joins: {},
@@ -123,16 +112,14 @@ const createTreeNode = (model, assoc, aliasMap) => {
 };
 
 /**
- * Add table joins for many-to-many and many-way associations
+ * Add table joins for manyToMany and manyWay associations
  * @param {Object} qb - Knex query builder
- * @param {Object} assoc - Association info
- * @param {Object} originInfo - Origin info
- * @param {Object} destinationInfo - Destination info
- * @param {Function} generateAliasFn - Function to generate aliases
+ * @param {Object} assoc - Models association info
+ * @param {Object} originInfo - origin from which you are making a join
+ * @param {Object} destinationInfo - destination with which we are making a join
+ * @param {string} joinTableAlias - alias for the join table
  */
-const buildManyToManyJoin = (qb, assoc, originInfo, destinationInfo, generateAliasFn) => {
-  const joinTableAlias = generateAliasFn(assoc.tableCollectionName);
-
+const buildManyToManyJoin = (qb, assoc, originInfo, destinationInfo, joinTableAlias) => {
   let originColumnNameInJoinTable;
   if (assoc.nature === 'manyToMany') {
     originColumnNameInJoinTable = `${joinTableAlias}.${singular(
@@ -162,9 +149,9 @@ const buildManyToManyJoin = (qb, assoc, originInfo, destinationInfo, generateAli
 /**
  * Add table joins for one-to-many and one-to-one associations
  * @param {Object} qb - Knex query builder
- * @param {Object} assoc - Association info
- * @param {Object} originInfo - Origin info
- * @param {Object} destinationInfo - Destination info
+ * @param {Object} assoc - Models association info
+ * @param {Object} originInfo - origin from which you are making a join
+ * @param {Object} destinationInfo - destination with which we are making a join
  */
 const buildSimpleJoin = (qb, assoc, originInfo, destinationInfo) => {
   const externalKey =
@@ -190,38 +177,39 @@ const buildSimpleJoin = (qb, assoc, originInfo, destinationInfo) => {
  * @param {Object} assoc - Models association info
  * @param {Object} originInfo - origin from which you are making a join
  * @param {Object} destinationInfo - destination with which we are making a join
- * @param {Function} generateAliasFn - Function to generate aliases
+ * @param {Object} aliasMap - map to track aliases
  */
-const buildJoin = (qb, assoc, originInfo, destinationInfo, generateAliasFn) => {
+const buildJoin = (qb, assoc, originInfo, destinationInfo, aliasMap) => {
   if (['manyToMany', 'manyWay'].includes(assoc.nature)) {
-    buildManyToManyJoin(qb, assoc, originInfo, destinationInfo, generateAliasFn);
+    const joinTableAlias = generateAlias(assoc.tableCollectionName, aliasMap);
+    buildManyToManyJoin(qb, assoc, originInfo, destinationInfo, joinTableAlias);
   } else {
     buildSimpleJoin(qb, assoc, originInfo, destinationInfo);
   }
 };
 
 /**
- * Build query joins from tree recursively
+ * Build a query joins and where clauses from a query tree
  * @param {Object} qb - Knex query builder
- * @param {Object} queryTree - Query tree
- * @param {Function} generateAliasFn - Function to generate aliases
+ * @param {Object} tree - Query tree
+ * @param {Object} aliasMap - map to track aliases
  */
-const buildJoinsFromTree = (qb, queryTree, generateAliasFn) => {
+const buildJoinsFromTree = (qb, queryTree, aliasMap) => {
   Object.keys(queryTree.joins).forEach(key => {
     const subQueryTree = queryTree.joins[key];
-    buildJoin(qb, subQueryTree.assoc, queryTree, subQueryTree, generateAliasFn);
-    buildJoinsFromTree(qb, subQueryTree, generateAliasFn);
+    buildJoin(qb, subQueryTree.assoc, queryTree, subQueryTree, aliasMap);
+    buildJoinsFromTree(qb, subQueryTree, aliasMap);
   });
 };
 
 /**
  * Returns the SQL path for a query field.
  * Adds table to the joins tree
- * @param {string} field - A field used to filter
- * @param {Object} tree - Joins tree
- * @param {Function} generateAliasFn - Function to generate aliases
+ * @param {string} field a field used to filter
+ * @param {Object} tree joins tree
+ * @param {Object} aliasMap - map to track aliases
  */
-const generateNestedJoins = (field, tree, generateAliasFn) => {
+const generateNestedJoins = (field, tree, aliasMap) => {
   let [key, ...parts] = field.split('.');
 
   const assoc = findAssoc(tree.model, key);
@@ -236,34 +224,30 @@ const generateNestedJoins = (field, tree, generateAliasFn) => {
   }
 
   if (!tree.joins[key]) {
-    tree.joins[key] = createTreeNode(assocModel, assoc, generateAliasFn);
+    tree.joins[key] = createTreeNode(assocModel, assoc, aliasMap);
   }
 
-  return generateNestedJoins(parts.join('.'), tree.joins[key], generateAliasFn);
+  return generateNestedJoins(parts.join('.'), tree.joins[key], aliasMap);
 };
 
 /**
- * Format where clauses with the right table name aliases.
+ * Format every where clauses with the right table name aliases.
  * Add table joins to the joins list
- * @param {Array<{field, operator, value}>} whereClauses - List of where clauses
- * @param {Object} context - Context object
- * @param {Object} context.model - Model on which the query is run
- * @param {Object} context.tree - Joins tree
- * @param {Function} context.generateAliasFn - Function to generate aliases
+ * @param {Array<{field, operator, value}>} whereClauses a list of where clauses
+ * @param {Object} context
+ * @param {Object} context.model model on which the query is run
+ * @param {Object} context.tree joins tree
+ * @param {Object} context.aliasMap alias map
  */
-const buildWhereClauses = (whereClauses, { model, tree, generateAliasFn }) => {
+const buildWhereClauses = (whereClauses, { model, tree, aliasMap }) => {
   return whereClauses.map(whereClause => {
     const { field, operator, value } = whereClause;
 
     if (BOOLEAN_OPERATORS.includes(operator)) {
-      return {
-        field,
-        operator,
-        value: value.map(v => buildWhereClauses(v, { model, tree, generateAliasFn })),
-      };
+      return { field, operator, value: value.map(v => buildWhereClauses(v, { model, tree, aliasMap })) };
     }
 
-    const path = generateNestedJoins(field, tree, generateAliasFn);
+    const path = generateNestedJoins(field, tree, aliasMap);
 
     return {
       field: path,
@@ -274,10 +258,10 @@ const buildWhereClauses = (whereClauses, { model, tree, generateAliasFn }) => {
 };
 
 /**
- * Add queries on tree's joins based on given filters
- * @param {Object} tree - Joins tree
+ * Add queries on tree's joins (deep search, deep sort) based on given filters
+ * @param {Object} tree - joins tree
  * @param {Object} qb - Knex query builder
- * @param {Object} filters - Filters object
+ * @param {Object} filters - The query filters
  */
 const addFiltersQueriesToJoinTree = (tree, qb, filters) => {
   _.each(tree.joins, value => {
@@ -304,8 +288,6 @@ const buildJoinsAndFilter = (qb, model, filters) => {
   const { where: whereClauses = [], sort: sortClauses = [] } = filters;
   const aliasMap = {};
 
-  const generateAliasFn = name => generateAlias(aliasMap, name);
-
   const tree = {
     alias: model.collectionName,
     assoc: null,
@@ -313,18 +295,13 @@ const buildJoinsAndFilter = (qb, model, filters) => {
     joins: {},
   };
 
-  const aliasedWhereClauses = buildWhereClauses(whereClauses, {
-    model,
-    tree,
-    generateAliasFn,
-  });
+  const aliasedWhereClauses = buildWhereClauses(whereClauses, { model, tree, aliasMap });
   aliasedWhereClauses.forEach(w => buildWhereClause({ qb, ...w }));
 
-  sortClauses.forEach(sortClause => {
-    generateNestedJoins(sortClause.field, tree, generateAliasFn);
-  });
+  const generateNestedJoinsFromFields = each(field => generateNestedJoins(field, tree, aliasMap));
+  generateNestedJoinsFromFields(sortClauses.map(prop('field')));
 
-  buildJoinsFromTree(qb, tree, generateAliasFn);
+  buildJoinsFromTree(qb, tree, aliasMap);
   addFiltersQueriesToJoinTree(tree, qb, filters);
 
   return tree;
@@ -332,32 +309,40 @@ const buildJoinsAndFilter = (qb, model, filters) => {
 
 /**
  * Process and clause value
- * @param {Object} qb - Query builder
- * @param {Array} andClause - And clause
+ * @param {Array} value - and clause values
+ * @param {Object} qb - query builder
  */
-const processAndClause = (qb, andClause) => {
-  if (Array.isArray(andClause)) {
-    andClause.forEach(clause =>
-      qb.where(andQb => buildWhereClause({ qb: andQb, ...clause }))
-    );
-  } else {
-    buildWhereClause({ qb, ...andClause });
-  }
+const processAndClause = (value, qb) => {
+  value.forEach(andClause => {
+    qb.where(subQb => {
+      if (Array.isArray(andClause)) {
+        andClause.forEach(clause =>
+          subQb.where(andQb => buildWhereClause({ qb: andQb, ...clause }))
+        );
+      } else {
+        buildWhereClause({ qb: subQb, ...andClause });
+      }
+    });
+  });
 };
 
 /**
  * Process or clause value
- * @param {Object} qb - Query builder
- * @param {Array} orClause - Or clause
+ * @param {Array} value - or clause values
+ * @param {Object} qb - query builder
  */
-const processOrClause = (qb, orClause) => {
-  if (Array.isArray(orClause)) {
-    orClause.forEach(clause =>
-      qb.where(andQb => buildWhereClause({ qb: andQb, ...clause }))
-    );
-  } else {
-    buildWhereClause({ qb, ...orClause });
-  }
+const processOrClause = (value, qb) => {
+  value.forEach(orClause => {
+    qb.orWhere(subQb => {
+      if (Array.isArray(orClause)) {
+        orClause.forEach(orClause =>
+          subQb.where(andQb => buildWhereClause({ qb: andQb, ...orClause }))
+        );
+      } else {
+        buildWhereClause({ qb: subQb, ...orClause });
+      }
+    });
+  });
 };
 
 /**
@@ -379,17 +364,9 @@ const buildWhereClause = ({ qb, field, operator, value }) => {
 
   switch (operator) {
     case 'and':
-      return qb.where(andQb => {
-        value.forEach(andClause => {
-          andQb.where(subQb => processAndClause(subQb, andClause));
-        });
-      });
+      return qb.where(andQb => processAndClause(value, andQb));
     case 'or':
-      return qb.where(orQb => {
-        value.forEach(orClause => {
-          orQb.orWhere(subQb => processOrClause(subQb, orClause));
-        });
-      });
+      return qb.where(orQb => processOrClause(value, orQb));
     case 'eq':
       return qb.where(field, value);
     case 'ne':
@@ -433,4 +410,3 @@ const fieldLowerFn = qb => {
 const findAssoc = (model, key) => model.associations.find(assoc => assoc.alias === key);
 
 module.exports = buildQuery;
-```

@@ -1,4 +1,3 @@
-```typescript
 import router, { useRouter } from 'next/router'
 import {
   type FormEvent,
@@ -78,29 +77,29 @@ function DeleteButton({
     { variables: { id: itemId } }
   )
 
-  const handleDeleteSuccess = () => {
+  const handleDeleteSuccess = useCallback(() => {
     toastQueue.neutral(`${list.singular} deleted.`, {
       timeout: 5000,
     })
     router.push(list.isSingleton ? '/' : `/${list.path}`)
-  }
+  }, [list, router])
 
-  const handleDeleteError = (err: any) => {
+  const handleDeleteError = useCallback((err: any) => {
     toastQueue.critical('Unable to delete item', {
       actionLabel: 'Details',
       onAction: () => setErrorDialogValue(err),
       shouldCloseOnAction: true,
     })
-  }
+  }, [])
 
-  const handlePrimaryAction = async () => {
+  const handlePrimaryAction = useCallback(async () => {
     try {
       await deleteItem()
       handleDeleteSuccess()
     } catch (err: any) {
       handleDeleteError(err)
     }
-  }
+  }, [deleteItem, handleDeleteSuccess, handleDeleteError])
 
   return (
     <Fragment>
@@ -169,14 +168,75 @@ function ResetButton(props: { onReset: () => void; hasChanges?: boolean }) {
   )
 }
 
-type ItemFormProps = {
-  listKey: string
-  initialValue: Record<string, unknown>
-  itemLabel: string
-  onSaveSuccess: () => void
-  fieldModes: Record<string, ConditionalFilter<'edit' | 'read' | 'hidden', BaseListTypeInfo>>
-  isRequireds: Record<string, ConditionalFilterCase<BaseListTypeInfo>>
-  fieldPositions: Record<string, 'form' | 'sidebar'>
+function buildFieldModes(
+  list: ReturnType<typeof useList>,
+  adminMetaFields: any[]
+): Record<string, ConditionalFilter<'edit' | 'read' | 'hidden', BaseListTypeInfo>> {
+  const fieldModes = Object.fromEntries(
+    Object.entries(list.fields).map(([k, v]) => [k, v.itemView.fieldMode])
+  )
+  for (const field of adminMetaFields ?? []) {
+    if (!field?.itemView || !field.key || !field.itemView.fieldMode) continue
+    fieldModes[field.key] = field.itemView.fieldMode
+  }
+  return fieldModes
+}
+
+function buildFieldPositions(
+  list: ReturnType<typeof useList>,
+  adminMetaFields: any[]
+): Record<string, 'form' | 'sidebar'> {
+  const fieldPositions = Object.fromEntries(
+    Object.entries(list.fields).map(([k, v]) => [k, v.itemView.fieldPosition])
+  )
+  for (const field of adminMetaFields ?? []) {
+    if (!field?.itemView || !field.key || !field.itemView.fieldPosition) continue
+    fieldPositions[field.key] = field.itemView.fieldPosition
+  }
+  return fieldPositions
+}
+
+function buildIsRequireds(
+  list: ReturnType<typeof useList>,
+  adminMetaFields: any[]
+): Record<string, ConditionalFilterCase<BaseListTypeInfo>> {
+  const isRequireds = Object.fromEntries(
+    Object.entries(list.fields).map(([k, v]) => [k, v.itemView.isRequired])
+  )
+  for (const field of adminMetaFields ?? []) {
+    if (!field?.itemView || !field.key || !field.itemView.isRequired) continue
+    isRequireds[field.key] = field.itemView.isRequired
+  }
+  return isRequireds
+}
+
+function buildActionModes(
+  list: ReturnType<typeof useList>,
+  adminMetaActions: any[]
+): Record<string, string> {
+  const actionModes = Object.fromEntries(
+    Object.entries(list.actions).map(([k, v]) => [k, v.itemView.actionMode])
+  )
+  for (const action of adminMetaActions ?? []) {
+    if (!action?.itemView?.actionMode || !action.key) continue
+    actionModes[action.key] = action.itemView.actionMode
+  }
+  return actionModes
+}
+
+function buildActionsInContext(
+  list: ReturnType<typeof useList>,
+  actionModes: Record<string, string>
+) {
+  return list.actions
+    .map(action => ({
+      ...action,
+      itemView: {
+        ...action.itemView,
+        actionMode: actionModes[action.key],
+      },
+    }))
+    .filter(action => action.itemView.actionMode !== 'hidden')
 }
 
 function ItemForm({
@@ -187,7 +247,15 @@ function ItemForm({
   fieldModes,
   fieldPositions,
   isRequireds,
-}: ItemFormProps) {
+}: {
+  listKey: string
+  initialValue: Record<string, unknown>
+  itemLabel: string
+  onSaveSuccess: () => void
+  fieldModes: Record<string, ConditionalFilter<'edit' | 'read' | 'hidden', BaseListTypeInfo>>
+  isRequireds: Record<string, ConditionalFilterCase<BaseListTypeInfo>>
+  fieldPositions: Record<string, 'form' | 'sidebar'>
+}) {
   const list = useList(listKey)
   const itemId = initialValue.id as string
   const [updateError, setUpdateError] = useState<Error | null>(null)
@@ -201,38 +269,26 @@ function ItemForm({
   )
 
   const [value, setValue] = useState(() => initialValue)
-
-  const resetValueState = useCallback(() => {
-    setValue(initialValue)
-  }, [initialValue])
-
-  useEffect(() => {
-    resetValueState()
-  }, [initialValue, resetValueState])
+  function resetValueState() {
+    setValue(() => initialValue)
+  }
+  useEffect(() => resetValueState(), [initialValue])
 
   const invalidFields = useInvalidFields(list.fields, value, isRequireds)
   const [forceValidation, setForceValidation] = useState(false)
 
-  const handleUpdateError = useCallback(
-    (updateError: any) => {
-      const error = CombinedGraphQLErrors.is(updateError)
-        ? updateError.errors.find(x => x.path === undefined || x.path?.length === 1)
-        : updateError
-
-      if (error) {
-        toastQueue.critical('Unable to save item', {
-          actionLabel: 'Details',
-          onAction: () => setUpdateError(new Error(error.message)),
-          shouldCloseOnAction: true,
-        })
-        return true
-      }
-      return false
+  const handleSaveError = useCallback(
+    (error: any) => {
+      toastQueue.critical('Unable to save item', {
+        actionLabel: 'Details',
+        onAction: () => setUpdateError(new Error(error.message)),
+        shouldCloseOnAction: true,
+      })
     },
     []
   )
 
-  const handleUpdateSuccess = useCallback(() => {
+  const handleSaveSuccess = useCallback(() => {
     toastQueue.positive(`Saved changes to ${list.singular.toLocaleLowerCase()}.`, {
       timeout: 5000,
     })
@@ -242,42 +298,47 @@ function ItemForm({
   const onSave = useEventCallback(async (e: FormEvent<HTMLFormElement>) => {
     if (e.target !== e.currentTarget) return
     e.preventDefault()
+    const newForceValidation = invalidFields.size !== 0
+    setForceValidation(newForceValidation)
+    if (newForceValidation) return
 
-    const hasInvalidFields = invalidFields.size !== 0
-    setForceValidation(hasInvalidFields)
-    if (hasInvalidFields) return
-
-    const { error: updateErrorResult } = await update({
+    const { error: _error } = await update({
       variables: {
         id: itemId,
         data: serializeValueToOperationItem('update', list.fields, value, initialValue),
       },
     })
 
-    if (handleUpdateError(updateErrorResult)) {
+    const error = CombinedGraphQLErrors.is(_error)
+      ? _error.errors.find(x => x.path === undefined || x.path?.length === 1)
+      : _error
+    if (error) {
+      handleSaveError(error)
       return
     }
 
-    handleUpdateSuccess()
+    handleSaveSuccess()
   })
 
   const hasChangedFields = useHasChanges('update', list.fields, value, initialValue)
 
-  const handleFieldChange = useCallback((newValue: any) => {
-    setValue(newValue)
-  }, [])
-
-  const graphQLErrors = CombinedGraphQLErrors.is(error)
-    ? error.errors.filter(x => x.path === undefined || x.path?.length === 1)
-    : [error]
-
   return (
     <Fragment>
       <form onSubmit={onSave} style={{ display: 'contents' }}>
-        {/* Workaround for react-aria "bug" where pressing enter in a form field moves focus to the submit button. See: https://github.com/adobe/react-spectrum/issues/5940 */}
+        {/*
+          Workaround for react-aria "bug" where pressing enter in a form field
+          moves focus to the submit button.
+          See: https://github.com/adobe/react-spectrum/issues/5940
+        */}
         <button type="submit" style={{ display: 'none' }} />
         <VStack gap="large" gridArea="main" marginTop="xlarge" minWidth={0}>
-          <GraphQLErrorNotice errors={graphQLErrors} />
+          <GraphQLErrorNotice
+            errors={
+              CombinedGraphQLErrors.is(error)
+                ? error.errors.filter(x => x.path === undefined || x.path?.length === 1)
+                : [error]
+            }
+          />
           <Fields
             view="itemView"
             position="form"
@@ -287,7 +348,7 @@ function ItemForm({
             invalidFields={invalidFields}
             fieldModes={fieldModes}
             fieldPositions={fieldPositions}
-            onChange={handleFieldChange}
+            onChange={useCallback(value => setValue(value), [setValue])}
             value={value}
             isRequireds={isRequireds}
           />
@@ -301,7 +362,7 @@ function ItemForm({
             groups={list.groups}
             forceValidation={forceValidation}
             invalidFields={invalidFields}
-            onChange={handleFieldChange}
+            onChange={useCallback(value => setValue(value), [setValue])}
             value={value}
             fieldModes={fieldModes}
             fieldPositions={fieldPositions}
@@ -335,93 +396,28 @@ function ItemForm({
 
 export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
 
-type ItemPageContextData = {
-  actionsInContext: ActionMeta[]
-  fieldModes: Record<string, ConditionalFilter<'edit' | 'read' | 'hidden', BaseListTypeInfo>>
-  fieldPositions: Record<string, 'form' | 'sidebar'>
-  isRequireds: Record<string, ConditionalFilterCase<BaseListTypeInfo>>
-}
-
-/** Builds context data for item page including actions and field configurations */
-function buildItemPageContextData(
-  list: ListMeta,
-  adminMeta: any
-): ItemPageContextData {
-  const actionModes = Object.fromEntries(
-    Object.entries(list.actions).map(([k, v]) => [k, v.itemView.actionMode])
-  )
-  const fieldModes = Object.fromEntries(
-    Object.entries(list.fields).map(([k, v]) => [k, v.itemView.fieldMode])
-  )
-  const fieldPositions = Object.fromEntries(
-    Object.entries(list.fields).map(([k, v]) => [k, v.itemView.fieldPosition])
-  )
-  const isRequireds = Object.fromEntries(
-    Object.entries(list.fields).map(([k, v]) => [k, v.itemView.isRequired])
-  )
-
-  // Override with admin metadata if available
-  for (const field of adminMeta?.list?.fields ?? []) {
-    if (
-      !field?.itemView ||
-      !field.key ||
-      !field.itemView.fieldMode ||
-      !field.itemView.fieldPosition ||
-      !field.itemView.isRequired
-    )
-      continue
-    fieldModes[field.key] = field.itemView.fieldMode
-    fieldPositions[field.key] = field.itemView.fieldPosition
-    isRequireds[field.key] = field.itemView.isRequired
-  }
-
-  for (const action of adminMeta?.list?.actions ?? []) {
-    if (!action?.itemView?.actionMode || !action.key) continue
-    actionModes[action.key] = action.itemView.actionMode
-  }
-
-  // Filter actions to only those visible in item context
-  const actionsInContext = list.actions
-    .map(action => ({
-      ...action,
-      itemView: {
-        ...action.itemView,
-        actionMode: actionModes[action.key],
-      },
-    }))
-    .filter(action => action.itemView.actionMode !== 'hidden')
-
-  return {
-    actionsInContext,
-    fieldModes,
-    fieldPositions,
-    isRequireds,
-  }
-}
-
-/** Renders appropriate not found message based on list type and item ID */
-function renderItemNotFoundContent(
-  list: ListMeta,
+function renderItemNotFoundSingleton(
+  list: ReturnType<typeof useList>,
   itemId: string | undefined
-): React.ReactNode {
-  if (list.isSingleton) {
-    if (itemId === '1') {
-      return (
-        <ItemNotFound>
-          <Text>"{list.label}" doesn't exist, or you don't have access to it.</Text>
-          {!list.hideCreate && <CreateButtonLink list={list} />}
-        </ItemNotFound>
-      )
-    }
+) {
+  if (itemId === '1') {
     return (
       <ItemNotFound>
-        <Text>
-          An item with ID <strong>"{itemId}"</strong> does not exist.
-        </Text>
+        <Text>"{list.label}" doesn't exist, or you don't have access to it.</Text>
+        {!list.hideCreate && <CreateButtonLink list={list} />}
       </ItemNotFound>
     )
   }
+  return (
+    <ItemNotFound>
+      <Text>
+        An item with ID <strong>"{itemId}"</strong> does not exist.
+      </Text>
+    </ItemNotFound>
+  )
+}
 
+function renderItemNotFoundNonSingleton(itemId: string | undefined) {
   return (
     <ItemNotFound>
       <Text>
@@ -430,25 +426,6 @@ function renderItemNotFoundContent(
       </Text>
     </ItemNotFound>
   )
-}
-
-/** Handles item action navigation and refetch logic */
-function handleItemAction(
-  action: ActionMeta,
-  resultId: string | null,
-  itemId: string | undefined,
-  list: ListMeta,
-  refetch: () => void
-): void {
-  const { navigation } = action.itemView
-
-  if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
-    refetch()
-  } else if (navigation === 'follow' && resultId) {
-    router.push(`/${list.path}/${resultId}`)
-  } else {
-    router.push(list.isSingleton ? '/' : `/${list.path}`)
-  }
 }
 
 function ItemPage({ listKey }: ItemPageProps) {
@@ -463,22 +440,40 @@ function ItemPage({ listKey }: ItemPageProps) {
   const pageLoading = loading || itemId === undefined
   const pageLabel = itemLabel || itemId
   const pageTitle = list.isSingleton || typeof pageLabel !== 'string' ? list.label : pageLabel
-
   const initialValue = useMemo(() => {
     if (!item) return null
     return deserializeItemToValue(list.fields, item)
   }, [list.fields, data?.item])
 
   const { actionsInContext, fieldModes, fieldPositions, isRequireds } = useMemo(() => {
-    return buildItemPageContextData(list, data?.keystone?.adminMeta)
-  }, [data?.keystone?.adminMeta, list])
+    const adminMetaFields = data?.keystone?.adminMeta?.list?.fields ?? []
+    const adminMetaActions = data?.keystone?.adminMeta?.list?.actions ?? []
 
-  const onAction = useCallback(
-    (action: ActionMeta, resultId: string | null) => {
-      handleItemAction(action, resultId, itemId, list, refetch)
-    },
-    [itemId, list, refetch]
-  )
+    const fieldModes = buildFieldModes(list, adminMetaFields)
+    const fieldPositions = buildFieldPositions(list, adminMetaFields)
+    const isRequireds = buildIsRequireds(list, adminMetaFields)
+    const actionModes = buildActionModes(list, adminMetaActions)
+    const actionsInContext = buildActionsInContext(list, actionModes)
+
+    return {
+      actionsInContext,
+      fieldModes,
+      fieldPositions,
+      isRequireds,
+    }
+  }, [data?.keystone?.adminMeta, list.fields, list.actions])
+
+  function onAction(action: ActionMeta, resultId: string | null) {
+    const { navigation } = action.itemView
+
+    if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
+      refetch()
+    } else if (navigation === 'follow' && resultId) {
+      router.push(`/${list.path}/${resultId}`)
+    } else {
+      router.push(list.isSingleton ? '/' : `/${list.path}`)
+    }
+  }
 
   return (
     <PageContainer
@@ -502,7 +497,10 @@ function ItemPage({ listKey }: ItemPageProps) {
         <ColumnLayout>
           <Box marginY="xlarge">
             <GraphQLErrorNotice errors={[error]} />
-            {item == null && renderItemNotFoundContent(list, itemId)}
+            {item == null &&
+              (list.isSingleton
+                ? renderItemNotFoundSingleton(list, itemId)
+                : renderItemNotFoundNonSingleton(itemId))}
           </Box>
           {initialValue && (
             <ItemForm
@@ -520,4 +518,3 @@ function ItemPage({ listKey }: ItemPageProps) {
     </PageContainer>
   )
 }
-```

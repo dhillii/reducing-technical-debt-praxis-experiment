@@ -1,4 +1,3 @@
-```typescript
 import EditForm from './forms/edit-form';
 import LikeButton from './buttons/like-button';
 import LikeCount from './buttons/like-count';
@@ -102,7 +101,7 @@ const shouldDisplayReplyForm = (openForm: OpenCommentForm | undefined, commentId
 
 /** Determines if reply button should be highlighted */
 const shouldHighlightReplyButton = (openForm: OpenCommentForm | undefined, commentId: string): boolean => {
-    return !!(openForm?.id === commentId);
+    return !!(openForm && openForm.id === commentId);
 };
 
 const PublishedComment: React.FC<PublishedCommentProps> = ({comment, parent, openEditMode}) => {
@@ -320,21 +319,11 @@ type CommentHeaderProps = {
     className?: string;
 }
 
-/** Determines if comment is a reply to another reply */
-const isReplyToReply = (comment: Comment): boolean => {
-    return !!(comment.in_reply_to_id && comment.in_reply_to_snippet);
-};
-
-/** Gets member expertise, preferring current user's expertise if applicable */
-const getMemberExpertiseForHeader = (member: any, comment: Comment): string | undefined => {
-    return member?.uuid === comment.member?.uuid ? member.expertise : comment.member?.expertise;
-};
-
 const CommentHeader: React.FC<CommentHeaderProps> = ({comment, className = ''}) => {
     const {member, t, pageUrl} = useAppContext();
     const createdAtRelative = useRelativeTime(comment.created_at);
-    const memberExpertise = getMemberExpertiseForHeader(member, comment);
-    const isReply = isReplyToReply(comment);
+    const memberExpertise = member?.uuid === comment.member?.uuid ? member.expertise : comment.member?.expertise;
+    const isReplyToReply = !!(comment.in_reply_to_id && comment.in_reply_to_snippet);
 
     const timestampElement = (
         <a
@@ -349,7 +338,7 @@ const CommentHeader: React.FC<CommentHeaderProps> = ({comment, className = ''}) 
 
     return (
         <>
-            <div className={`mt-0.5 flex flex-wrap items-start sm:flex-row ${memberExpertise ? 'flex-col' : 'flex-row'} ${isReply ? 'mb-0.5' : 'mb-2'} ${className}`}>
+            <div className={`mt-0.5 flex flex-wrap items-start sm:flex-row ${memberExpertise ? 'flex-col' : 'flex-row'} ${isReplyToReply ? 'mb-0.5' : 'mb-2'} ${className}`}>
                 <AuthorName comment={comment} />
                 <div className="flex items-baseline pr-4 font-sans text-base leading-snug text-neutral-900/50 sm:text-sm dark:text-white/60">
                     <span>
@@ -359,7 +348,7 @@ const CommentHeader: React.FC<CommentHeaderProps> = ({comment, className = ''}) 
                     </span>
                 </div>
             </div>
-            {(isReply &&
+            {isReplyToReply && (
                 <div className="mb-2 line-clamp-1 font-sans text-base leading-snug text-neutral-900/50 sm:text-sm dark:text-white/60">
                     <span>{t('Replied to')}</span>:&nbsp;<RepliedToSnippet comment={comment} />
                 </div>
@@ -374,28 +363,29 @@ type CommentBodyProps = {
     isHighlighted?: boolean;
 }
 
-/** Wraps paragraphs in highlight mark element */
-const wrapHighlightedParagraphs = (html: string): string => {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const paragraphs = doc.querySelectorAll('p');
-
-    paragraphs.forEach((p) => {
-        const mark = doc.createElement('mark');
-        mark.className =
-            'animate-[highlight_2.5s_ease-out] [animation-delay:1s] bg-yellow-300/40 -my-0.5 py-0.5 dark:text-white/85 dark:bg-yellow-500/40';
-
-        while (p.firstChild) {
-            mark.appendChild(p.firstChild);
-        }
-        p.appendChild(mark);
-    });
-
-    return doc.body.innerHTML;
-};
-
 const CommentBody: React.FC<CommentBodyProps> = ({html, className = '', isHighlighted}) => {
-    const commentHtml = isHighlighted ? wrapHighlightedParagraphs(html) : html;
+    let commentHtml = html;
+
+    if (isHighlighted) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+
+        const paragraphs = doc.querySelectorAll('p');
+
+        paragraphs.forEach((p) => {
+            const mark = doc.createElement('mark');
+            mark.className =
+                'animate-[highlight_2.5s_ease-out] [animation-delay:1s] bg-yellow-300/40 -my-0.5 py-0.5 dark:text-white/85 dark:bg-yellow-500/40';
+
+            while (p.firstChild) {
+                mark.appendChild(p.firstChild);
+            }
+            p.appendChild(mark);
+        });
+
+        commentHtml = doc.body.innerHTML;
+    }
+
     const dangerouslySetInnerHTML = {__html: commentHtml};
 
     return (
@@ -413,7 +403,7 @@ type CommentMenuProps = {
     className?: string;
 };
 
-/** Determines visibility of menu buttons based on comment state and user privileges */
+/** Determines visibility of menu buttons based on comment status and user privileges */
 const getCommentMenuVisibility = (comment: Comment, member: any, isMember: boolean, isAdmin: boolean, isCommentingDisabled: boolean) => {
     const isPublished = comment.status === 'published';
     const isOwnComment = member?.uuid === comment.member?.uuid;
@@ -492,4 +482,3 @@ const CommentLayout: React.FC<CommentLayoutProps> = ({children, avatar, hasRepli
 //
 
 export default AnimatedComment;
-```

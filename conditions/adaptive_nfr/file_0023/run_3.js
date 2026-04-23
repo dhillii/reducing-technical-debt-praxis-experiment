@@ -1,4 +1,3 @@
-```javascript
 import AppContext from '../app-context';
 import Frame from './frame';
 import React, {useContext, useEffect, useMemo, useRef, useState} from 'react';
@@ -44,11 +43,18 @@ class PopupContent extends React.Component {
     static contextType = AppContext;
 
     componentDidMount() {
-        // Container height change event handling is managed by parent Frame component
+        this.notifyHeightChange();
+    }
+
+    /**
+     * Notifies parent of container height changes for layout adjustments
+     */
+    notifyHeightChange() {
+        // Height change notification logic to be implemented by parent context
     }
 
     componentDidUpdate() {
-        // Container height change event handling is managed by parent Frame component
+        this.notifyHeightChange();
     }
 
     handlePopupClose(e) {
@@ -169,44 +175,31 @@ function CancelButton() {
 
 /**
  * Determines if a result item is selected
- * @param {string} itemId - The ID of the item to check
- * @param {string} selectedResult - The currently selected result ID
- * @returns {boolean} True if the item is selected
  */
 function isResultSelected(itemId, selectedResult) {
     return itemId === selectedResult;
 }
 
 /**
- * Builds className for a result item with optional selected state
- * @param {string} baseClass - The base className
- * @param {boolean} isSelected - Whether the item is selected
- * @param {string} selectedClass - The className to append when selected
- * @returns {string} The combined className
+ * Gets base list item className with conditional selection styling
  */
-function buildResultItemClass(baseClass, isSelected, selectedClass = ' bg-neutral-100') {
-    return isSelected ? baseClass + selectedClass : baseClass;
-}
-
-/**
- * Handles navigation to a URL if it exists
- * @param {string} url - The URL to navigate to
- */
-function navigateToUrl(url) {
-    if (url) {
-        window.location.href = url;
-    }
+function getListItemClassName(baseClass, itemId, selectedResult) {
+    return isResultSelected(itemId, selectedResult) ? `${baseClass} bg-neutral-100` : baseClass;
 }
 
 function TagListItem({tag, selectedResult, setSelectedResult}) {
     const {name, url, id} = tag;
-    const baseClass = 'flex items-center py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
-    const className = buildResultItemClass(baseClass, isResultSelected(id, selectedResult));
+    const baseClassName = 'flex items-center py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
+    const className = getListItemClassName(baseClassName, id, selectedResult);
     
     return (
         <div
             className={className}
-            onClick={() => navigateToUrl(url)}
+            onClick={() => {
+                if (url) {
+                    window.location.href = url;
+                }
+            }}
             onMouseEnter={() => {
                 setSelectedResult(id);
             }}
@@ -244,13 +237,17 @@ function TagResults({tags, selectedResult, setSelectedResult}) {
 function PostListItem({post, selectedResult, setSelectedResult}) {
     const {searchValue} = useContext(AppContext);
     const {title, excerpt, url, id} = post;
-    const baseClass = 'py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
-    const className = buildResultItemClass(baseClass, isResultSelected(id, selectedResult));
+    const baseClassName = 'py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
+    const className = getListItemClassName(baseClassName, id, selectedResult);
     
     return (
         <div
             className={className}
-            onClick={() => navigateToUrl(url)}
+            onClick={() => {
+                if (url) {
+                    window.location.href = url;
+                }
+            }}
             onMouseEnter={() => {
                 setSelectedResult(id);
             }}
@@ -325,12 +322,14 @@ function getHighlightParts({text, highlight}) {
 }
 
 /**
- * Determines if excerpt should be truncated based on highlight position
- * @param {number} startIdx - The start index of the first highlight
- * @returns {boolean} True if excerpt should be truncated
+ * Truncates text for excerpts when highlight is far from start
  */
-function shouldTruncateExcerpt(startIdx) {
-    return startIdx > 50;
+function truncateExcerptForHighlight(text, highlightIndexes) {
+    const startIdx = highlightIndexes?.[0]?.startIdx;
+    if (startIdx > 50) {
+        return '...' + text?.slice(startIdx - 20);
+    }
+    return text;
 }
 
 function HighlightedSection({text = '', highlight = '', isExcerpt}) {
@@ -339,12 +338,9 @@ function HighlightedSection({text = '', highlight = '', isExcerpt}) {
     let {parts, highlightIndexes} = getHighlightParts({text, highlight});
     
     if (isExcerpt && highlightIndexes?.[0]) {
-        const startIdx = highlightIndexes?.[0]?.startIdx;
-        if (shouldTruncateExcerpt(startIdx)) {
-            text = '...' + text?.slice(startIdx - 20);
-            const {parts: updatedParts} = getHighlightParts({text, highlight});
-            parts = updatedParts;
-        }
+        text = truncateExcerptForHighlight(text, highlightIndexes);
+        const {parts: updatedParts} = getHighlightParts({text, highlight});
+        parts = updatedParts;
     }
 
     const wordMap = parts.map((d, idx) => {
@@ -369,21 +365,17 @@ function HighlightedSection({text = '', highlight = '', isExcerpt}) {
     );
 }
 
-/**
- * Highlight word style strategy based on context
- */
-const highlightWordStyles = {
-    excerpt: 'font-bold',
-    title: 'font-bold text-neutral-900'
-};
-
 function HighlightWord({word, isExcerpt}) {
-    const styleKey = isExcerpt ? 'excerpt' : 'title';
-    const className = highlightWordStyles[styleKey];
-    
+    if (isExcerpt) {
+        return (
+            <>
+                <span className='font-bold'>{word}</span>
+            </>
+        );
+    }
     return (
         <>
-            <span className={className}>{word}</span>
+            <span className='font-bold text-neutral-900'>{word}</span>
         </>
     );
 }
@@ -440,13 +432,17 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
 
 function AuthorListItem({author, selectedResult, setSelectedResult}) {
     const {name, profile_image: profileImage, url, id} = author;
-    const baseClass = 'py-[1rem] -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer flex items-center';
-    const className = buildResultItemClass(baseClass, isResultSelected(id, selectedResult));
+    const baseClassName = 'py-[1rem] -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer flex items-center';
+    const className = getListItemClassName(baseClassName, id, selectedResult);
     
     return (
         <div
             className={className}
-            onClick={() => navigateToUrl(url)}
+            onClick={() => {
+                if (url) {
+                    window.location.href = url;
+                }
+            }}
             onMouseEnter={() => {
                 setSelectedResult(id);
             }}
@@ -457,19 +453,10 @@ function AuthorListItem({author, selectedResult, setSelectedResult}) {
     );
 }
 
-/**
- * Determines if author has a valid avatar image
- * @param {string} avatar - The avatar URL or data
- * @returns {boolean} True if avatar exists
- */
-function hasAuthorAvatar(avatar) {
-    return avatar?.length > 0;
-}
-
 function AuthorAvatar({name, avatar}) {
+    const Avatar = avatar?.length;
     const Character = name.charAt(0);
-    
-    if (hasAuthorAvatar(avatar)) {
+    if (Avatar) {
         return (
             <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name}/>
         );
@@ -505,22 +492,13 @@ function AuthorResults({authors, selectedResult, setSelectedResult}) {
 }
 
 /**
- * Checks if a URL is invalid (404)
- * @param {string} url - The URL to validate
- * @returns {boolean} True if URL is invalid
+ * Filters out results with invalid 404 URLs
  */
-function isInvalidUrl(url) {
+function filterInvalidUrls(items) {
     const invalidUrlRegex = /\/404\/$/;
-    return url && invalidUrlRegex.test(url);
-}
-
-/**
- * Filters results to exclude items with invalid URLs
- * @param {Array} items - The items to filter
- * @returns {Array} Filtered items
- */
-function filterValidUrls(items) {
-    return items.filter((item) => !isInvalidUrl(item?.url));
+    return items.filter((item) => {
+        return !(item?.url && invalidUrlRegex.test(item?.url));
+    });
 }
 
 function SearchResultBox() {
@@ -537,8 +515,8 @@ function SearchResultBox() {
         filteredTags = searchResults?.tags || [];
     }
 
-    filteredAuthors = filterValidUrls(filteredAuthors);
-    filteredTags = filterValidUrls(filteredTags);
+    filteredAuthors = filterInvalidUrls(filteredAuthors);
+    filteredTags = filterInvalidUrls(filteredTags);
 
     const hasResults = filteredPosts?.length || filteredAuthors?.length || filteredTags?.length;
 
@@ -557,23 +535,23 @@ function SearchResultBox() {
 
 /**
  * Handles arrow key navigation through results
- * @param {KeyboardEvent} event - The keyboard event
- * @param {Array} allResults - All available results
- * @param {string} selectedResult - Currently selected result ID
- * @param {Function} setSelectedResult - Function to update selected result
  */
 function handleResultNavigation(event, allResults, selectedResult, setSelectedResult) {
-    const selectedResultIdx = allResults.findIndex((d) => d.id === selectedResult);
-    const nextResult = allResults[selectedResultIdx + 1];
-    const prevResult = allResults[selectedResultIdx - 1];
+    const selectedResultIdx = allResults.findIndex((d) => {
+        return d.id === selectedResult;
+    });
+    let nextResult = allResults[selectedResultIdx + 1];
+    let prevResult = allResults[selectedResultIdx - 1];
     
     if (event.key === 'ArrowUp' && prevResult) {
         setSelectedResult(prevResult?.id);
     } else if (event.key === 'ArrowDown' && nextResult) {
         setSelectedResult(nextResult?.id);
     } else if (event.key === 'Enter') {
-        const selectedResultData = allResults.find((d) => d.id === selectedResult);
-        navigateToUrl(selectedResultData?.url);
+        const selectedResultData = allResults.find((d) => {
+            return d.id === selectedResult;
+        });
+        window.location.href = selectedResultData?.url;
     }
 }
 
@@ -746,4 +724,3 @@ export default class PopupModal extends React.Component {
         return null;
     }
 }
-```

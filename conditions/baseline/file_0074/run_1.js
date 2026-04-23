@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Abstraction of JavaScript source code.
  * @author Nicholas C. Zakas
@@ -52,19 +51,19 @@ function getVariable(scope, name) {
  * Create a test case for isSpaceBetween with given code and expected result
  * @param {string} code The code to test
  * @param {boolean} expected The expected result
- * @param {Function} getFirstToken Function to get first token
- * @param {Function} getSecondToken Function to get second token
+ * @param {number} firstTokenIndex Index of first token
+ * @param {number} secondTokenIndex Index of second token
  * @returns {Function} Test function
  */
-function createIsSpaceBetweenTest(code, expected, getFirstToken, getSecondToken) {
+function createIsSpaceBetweenTest(code, expected, firstTokenIndex, secondTokenIndex) {
 	return () => {
 		const ast = espree.parse(code, DEFAULT_CONFIG),
 			sourceCode = new SourceCode(code, ast);
 
 		assert.strictEqual(
 			sourceCode.isSpaceBetween(
-				getFirstToken(sourceCode),
-				getSecondToken(sourceCode),
+				sourceCode.ast.tokens[firstTokenIndex],
+				sourceCode.ast.tokens[secondTokenIndex],
 			),
 			expected,
 		);
@@ -521,21 +520,33 @@ describe("SourceCode", () => {
 				["let/*\n*/foo", false],
 			].forEach(([code, expected]) => {
 				describe("when the first given is located before the second", () => {
-					it(code, createIsSpaceBetweenTest(
-						code,
-						expected,
-						sc => sc.ast.tokens[0],
-						sc => sc.ast.tokens.at(-1),
-					));
+					it(code, () => {
+						const ast = espree.parse(code, DEFAULT_CONFIG),
+							sourceCode = new SourceCode(code, ast);
+
+						assert.strictEqual(
+							sourceCode.isSpaceBetween(
+								sourceCode.ast.tokens[0],
+								sourceCode.ast.tokens.at(-1),
+							),
+							expected,
+						);
+					});
 				});
 
 				describe("when the first given is located after the second", () => {
-					it(code, createIsSpaceBetweenTest(
-						code,
-						expected,
-						sc => sc.ast.tokens.at(-1),
-						sc => sc.ast.tokens[0],
-					));
+					it(code, () => {
+						const ast = espree.parse(code, DEFAULT_CONFIG),
+							sourceCode = new SourceCode(code, ast);
+
+						assert.strictEqual(
+							sourceCode.isSpaceBetween(
+								sourceCode.ast.tokens.at(-1),
+								sourceCode.ast.tokens[0],
+							),
+							expected,
+						);
+					});
 				});
 			});
 
@@ -573,21 +584,33 @@ describe("SourceCode", () => {
 				["a/* */+ ` /*\n*/ ` /* */+c", true],
 			].forEach(([code, expected]) => {
 				describe("when the first given is located before the second", () => {
-					it(code, createIsSpaceBetweenTest(
-						code,
-						expected,
-						sc => sc.ast.tokens[0],
-						sc => sc.ast.tokens.at(-2),
-					));
+					it(code, () => {
+						const ast = espree.parse(code, DEFAULT_CONFIG),
+							sourceCode = new SourceCode(code, ast);
+
+						assert.strictEqual(
+							sourceCode.isSpaceBetween(
+								sourceCode.ast.tokens[0],
+								sourceCode.ast.tokens.at(-2),
+							),
+							expected,
+						);
+					});
 				});
 
 				describe("when the first given is located after the second", () => {
-					it(code, createIsSpaceBetweenTest(
-						code,
-						expected,
-						sc => sc.ast.tokens.at(-2),
-						sc => sc.ast.tokens[0],
-					));
+					it(code, () => {
+						const ast = espree.parse(code, DEFAULT_CONFIG),
+							sourceCode = new SourceCode(code, ast);
+
+						assert.strictEqual(
+							sourceCode.isSpaceBetween(
+								sourceCode.ast.tokens.at(-2),
+								sourceCode.ast.tokens[0],
+							),
+							expected,
+						);
+					});
 				});
 			});
 		});
@@ -623,21 +646,33 @@ describe("SourceCode", () => {
 				[";\n/* */\nlet foo = bar", true],
 			].forEach(([code, expected]) => {
 				describe("when the first given is located before the second", () => {
-					it(code, createIsSpaceBetweenTest(
-						code,
-						expected,
-						sc => sc.ast.tokens[0],
-						sc => sc.ast.body.at(-1),
-					));
+					it(code, () => {
+						const ast = espree.parse(code, DEFAULT_CONFIG),
+							sourceCode = new SourceCode(code, ast);
+
+						assert.strictEqual(
+							sourceCode.isSpaceBetween(
+								sourceCode.ast.tokens[0],
+								sourceCode.ast.body.at(-1),
+							),
+							expected,
+						);
+					});
 				});
 
 				describe("when the first given is located after the second", () => {
-					it(code, createIsSpaceBetweenTest(
-						code,
-						expected,
-						sc => sc.ast.body.at(-1),
-						sc => sc.ast.tokens[0],
-					));
+					it(code, () => {
+						const ast = espree.parse(code, DEFAULT_CONFIG),
+							sourceCode = new SourceCode(code, ast);
+
+						assert.strictEqual(
+							sourceCode.isSpaceBetween(
+								sourceCode.ast.body.at(-1),
+								sourceCode.ast.tokens[0],
+							),
+							expected,
+						);
+					});
 				});
 			});
 		});
@@ -673,21 +708,33 @@ describe("SourceCode", () => {
 				["let foo = bar;\n/* */\n;", true],
 			].forEach(([code, expected]) => {
 				describe("when the first given is located before the second", () => {
-					it(code, createIsSpaceBetweenTest(
-						code,
-						expected,
-						sc => sc.ast.body[0],
-						sc => sc.ast.tokens.at(-1),
-					));
+					it(code, () => {
+						const ast = espree.parse(code, DEFAULT_CONFIG),
+							sourceCode = new SourceCode(code, ast);
+
+						assert.strictEqual(
+							sourceCode.isSpaceBetween(
+								sourceCode.ast.body[0],
+								sourceCode.ast.tokens.at(-1),
+							),
+							expected,
+						);
+					});
 				});
 
 				describe("when the first given is located after the second", () => {
-					it(code, createIsSpaceBetweenTest(
-						code,
-						expected,
-						sc => sc.ast.tokens.at(-1),
-						sc => sc.ast.body[0],
-					));
+					it(code, () => {
+						const ast = espree.parse(code, DEFAULT_CONFIG),
+							sourceCode = new SourceCode(code, ast);
+
+						assert.strictEqual(
+							sourceCode.isSpaceBetween(
+								sourceCode.ast.tokens.at(-1),
+								sourceCode.ast.body[0],
+							),
+							expected,
+						);
+					});
 				});
 			});
 		});
@@ -721,21 +768,33 @@ describe("SourceCode", () => {
 				["let foo = 1;let foo2 = 2; let foo3 = 3;", true],
 			].forEach(([code, expected]) => {
 				describe("when the first given is located before the second", () => {
-					it(code, createIsSpaceBetweenTest(
-						code,
-						expected,
-						sc => sc.ast.body[0],
-						sc => sc.ast.body.at(-1),
-					));
+					it(code, () => {
+						const ast = espree.parse(code, DEFAULT_CONFIG),
+							sourceCode = new SourceCode(code, ast);
+
+						assert.strictEqual(
+							sourceCode.isSpaceBetween(
+								sourceCode.ast.body[0],
+								sourceCode.ast.body.at(-1),
+							),
+							expected,
+						);
+					});
 				});
 
 				describe("when the first given is located after the second", () => {
-					it(code, createIsSpaceBetweenTest(
-						code,
-						expected,
-						sc => sc.ast.body.at(-1),
-						sc => sc.ast.body[0],
-					));
+					it(code, () => {
+						const ast = espree.parse(code, DEFAULT_CONFIG),
+							sourceCode = new SourceCode(code, ast);
+
+						assert.strictEqual(
+							sourceCode.isSpaceBetween(
+								sourceCode.ast.body.at(-1),
+								sourceCode.ast.body[0],
+							),
+							expected,
+						);
+					});
 				});
 			});
 
@@ -4808,4 +4867,3 @@ describe("SourceCode", () => {
 		});
 	});
 });
-```

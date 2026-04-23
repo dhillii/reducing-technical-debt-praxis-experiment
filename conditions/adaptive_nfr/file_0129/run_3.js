@@ -1,4 +1,3 @@
-```javascript
 import {
   get,
   isBoolean,
@@ -58,29 +57,36 @@ yup.addMethod(yup.string, 'isSuperior', function(message, min) {
 
 const getAttributes = data => get(data, ['attributes'], {});
 
-/** @returns {boolean} True if attribute is a simple type requiring schema generation */
-const isSimpleAttribute = attribute =>
-  attribute.type !== 'relation' &&
-  attribute.type !== 'component' &&
-  attribute.type !== 'dynamiczone';
+/** @returns {boolean} True if attribute is a simple field type */
+const isSimpleFieldType = (type) => {
+  return type !== 'relation' && type !== 'component' && type !== 'dynamiczone';
+};
 
 /** @returns {boolean} True if relation type is single-valued */
-const isSingleValuedRelation = relationType =>
-  ['oneWay', 'oneToOne', 'manyToOne', 'oneToManyMorph', 'oneToOneMorph'].includes(relationType);
+const isSingleValuedRelation = (relationType) => {
+  return ['oneWay', 'oneToOne', 'manyToOne', 'oneToManyMorph', 'oneToOneMorph'].includes(relationType);
+};
 
 /** @returns {yup.Schema} Schema for relation attributes */
-const createRelationSchema = relationType =>
-  isSingleValuedRelation(relationType) ? yup.object().nullable() : yup.array().nullable();
+const createRelationSchema = (relationType) => {
+  return isSingleValuedRelation(relationType) ? yup.object().nullable() : yup.array().nullable();
+};
 
-/** @returns {yup.Schema} Schema for repeatable component attributes */
+/** @returns {yup.Schema} Schema for repeatable component */
 const createRepeatableComponentSchema = (componentFieldSchema, attribute, options) => {
   const { min, max, required } = attribute;
-
+  
   return yup.lazy(value => {
     let baseSchema = yup.array().of(componentFieldSchema);
 
     if (min && !options.isDraft) {
-      baseSchema = applyMinConstraint(baseSchema, required, value);
+      if (required) {
+        baseSchema = baseSchema.min(min, errorsTrads.min);
+      } else if (!required && isEmpty(value)) {
+        baseSchema = baseSchema.nullable();
+      } else {
+        baseSchema = baseSchema.min(min, errorsTrads.min);
+      }
     }
 
     if (max) {
@@ -91,21 +97,8 @@ const createRepeatableComponentSchema = (componentFieldSchema, attribute, option
   });
 };
 
-/** @returns {yup.Schema} Apply minimum constraint based on required flag */
-const applyMinConstraint = (schema, required, value) => {
-  if (required) {
-    return schema.min(min, errorsTrads.min);
-  }
-
-  if (required !== true && isEmpty(value)) {
-    return schema.nullable();
-  }
-
-  return schema.min(min, errorsTrads.min);
-};
-
-/** @returns {yup.Schema} Schema for non-repeatable component attributes */
-const createNonRepeatableComponentSchema = (componentFieldSchema, attribute, options) => {
+/** @returns {yup.Schema} Schema for single component */
+const createSingleComponentSchema = (componentFieldSchema, attribute, options) => {
   return yup.lazy(obj => {
     if (obj !== undefined) {
       return attribute.required === true && !options.isDraft
@@ -117,89 +110,122 @@ const createNonRepeatableComponentSchema = (componentFieldSchema, attribute, opt
   });
 };
 
-/** @returns {boolean} True if dynamic zone value is valid for creation */
-const isDynamicZoneValidForCreation = value =>
-  value !== null || value !== undefined;
-
-/** @returns {boolean} True if dynamic zone value is valid for update */
-const isDynamicZoneValidForUpdate = value => {
-  if (value === undefined) {
-    return true;
-  }
-
-  return value !== null;
-};
-
-/** @returns {boolean} True if dynamic zone has minimum items for creation */
-const hasDynamicZoneMinItemsForCreation = value =>
-  value && value.length > 0;
-
-/** @returns {boolean} True if dynamic zone has minimum items for update */
-const hasDynamicZoneMinItemsForUpdate = value => {
-  if (value === undefined) {
-    return true;
-  }
-
-  return value !== null && value.length > 0;
-};
-
-/** @returns {yup.Schema} Add required validation to dynamic zone schema */
-const addDynamicZoneRequiredValidation = (schema, options) => {
+/** @returns {yup.Schema} Schema for dynamic zone with required validation */
+const applyDynamicZoneRequiredValidation = (schema, options) => {
   return schema.test('required', errorsTrads.required, value => {
     if (options.isCreatingEntry) {
-      return isDynamicZoneValidForCreation(value);
+      return value !== null && value !== undefined;
     }
 
-    return isDynamicZoneValidForUpdate(value);
+    if (value === undefined) {
+      return true;
+    }
+
+    return value !== null;
   });
 };
 
-/** @returns {yup.Schema} Add minimum validation to dynamic zone schema */
-const addDynamicZoneMinValidation = (schema, options) => {
+/** @returns {yup.Schema} Schema for dynamic zone with min validation */
+const applyDynamicZoneMinValidation = (schema, options) => {
   return schema.test('min', errorsTrads.min, value => {
     if (options.isCreatingEntry) {
-      return hasDynamicZoneMinItemsForCreation(value);
+      return value && value.length > 0;
     }
 
-    return hasDynamicZoneMinItemsForUpdate(value);
+    if (value === undefined) {
+      return true;
+    }
+
+    return value !== null && value.length > 0;
   });
 };
 
-/** @returns {yup.Schema} Build dynamic zone schema with required and min constraints */
-const buildDynamicZoneRequiredSchema = (schema, attribute, options) => {
-  let result = addDynamicZoneRequiredValidation(schema, options);
+/** @returns {yup.Schema} Schema for dynamic zone with all constraints */
+const createDynamicZoneSchema = (componentSchema, attribute, options) => {
+  let schema = yup.array().of(componentSchema);
+  const { max, min, required } = attribute;
 
-  if (attribute.min) {
-    result = addDynamicZoneMinValidation(result, options);
-    result = addDynamicZoneRequiredValidation(result, options);
+  if (required && !options.isDraft) {
+    schema = applyDynamicZoneRequiredValidation(schema, options);
+
+    if (min) {
+      schema = applyDynamicZoneMinValidation(schema, options);
+      schema = applyDynamicZoneRequiredValidation(schema, options);
+    }
+  } else if (min) {
+    schema = schema.notEmptyMin(min);
   }
 
-  return result;
+  if (max) {
+    schema = schema.max(max, errorsTrads.max);
+  }
+
+  return schema;
 };
 
-/** @returns {yup.Schema} Create schema for dynamic zone attribute */
-const createDynamicZoneSchema = (attribute, components, options) => {
-  let dynamicZoneSchema = yup.array().of(
-    yup.lazy(({ __component }) => {
-      return createYupSchema(
-        components[__component],
-        { components },
-        { ...options, isFromComponent: true }
-      );
-    })
-  );
+/** @returns {boolean} True if validation value should be applied */
+const shouldApplyValidation = (validationValue) => {
+  if (!!validationValue) {
+    return true;
+  }
+  if (!isBoolean(validationValue) && Number.isInteger(Math.floor(validationValue))) {
+    return true;
+  }
+  return validationValue === 0;
+};
 
-  if (attribute.required && !options.isDraft) {
-    dynamicZoneSchema = buildDynamicZoneRequiredSchema(dynamicZoneSchema, attribute, options);
-  } else if (attribute.min) {
-    dynamicZoneSchema = dynamicZoneSchema.notEmptyMin(attribute.min);
+/** @returns {boolean} True if field is numeric type */
+const isNumericType = (type) => {
+  return ['number', 'integer', 'biginteger', 'float', 'decimal'].includes(type);
+};
+
+/** @returns {boolean} True if field is date type */
+const isDateType = (type) => {
+  return ['date', 'datetime'].includes(type);
+};
+
+/** @returns {boolean} True if field is text-like type */
+const isTextLikeType = (type) => {
+  return ['text', 'textarea', 'email', 'string'].includes(type);
+};
+
+/** @returns {yup.Schema} Schema for required validation */
+const applyRequiredValidation = (schema, type, options) => {
+  if (options.isDraft) {
+    return schema;
   }
 
-  if (attribute.max) {
-    dynamicZoneSchema = dynamicZoneSchema.max(attribute.max, errorsTrads.max);
+  if (type === 'password' && options.isCreatingEntry) {
+    return schema.required(errorsTrads.required);
   }
 
-  return dynamicZoneSchema;
+  if (type === 'password') {
+    return schema;
+  }
+
+  if (options.isCreatingEntry) {
+    return schema.required(errorsTrads.required);
+  }
+
+  return schema.test('required', errorsTrads.required, value => {
+    if (value === undefined && !options.isFromComponent) {
+      return true;
+    }
+
+    if (isNumericType(type)) {
+      return value === 0 ? true : !!value;
+    }
+
+    if (isDateType(type)) {
+      return moment(value)._isValid === true;
+    }
+
+    if (type === 'boolean') {
+      return value !== null;
+    }
+
+    return !isEmpty(value);
+  });
 };
 
 const createYupSchema = (
@@ -213,7 +239,7 @@ const createYupSchema = (
     Object.keys(attributes).reduce((acc, current) => {
       const attribute = attributes[current];
 
-      if (isSimpleAttribute(attribute)) {
+      if (isSimpleFieldType(attribute.type)) {
         const formatted = createYupSchemaAttribute(attribute.type, attribute, options);
         acc[current] = formatted;
         return acc;
@@ -236,129 +262,25 @@ const createYupSchema = (
           return acc;
         }
 
-        acc[current] = createNonRepeatableComponentSchema(componentFieldSchema, attribute, options);
+        acc[current] = createSingleComponentSchema(componentFieldSchema, attribute, options);
         return acc;
       }
 
       if (attribute.type === 'dynamiczone') {
-        acc[current] = createDynamicZoneSchema(attribute, components, options);
-        return acc;
+        const componentSchema = yup.lazy(({ __component }) => {
+          return createYupSchema(
+            components[__component],
+            { components },
+            { ...options, isFromComponent: true }
+          );
+        });
+
+        acc[current] = createDynamicZoneSchema(componentSchema, attribute, options);
       }
 
       return acc;
     }, {})
   );
-};
-
-/** @returns {boolean} True if validation value should be applied */
-const shouldApplyValidation = validationValue =>
-  !!validationValue ||
-  (!isBoolean(validationValue) && Number.isInteger(Math.floor(validationValue))) ||
-  validationValue === 0;
-
-/** @returns {boolean} True if required validation applies for password field */
-const shouldRequirePassword = (type, options) =>
-  type === 'password' && options.isCreatingEntry;
-
-/** @returns {boolean} True if required validation applies for non-password field */
-const shouldRequireNonPassword = (type, options) =>
-  type !== 'password';
-
-/** @returns {boolean} True if field is untouched during edit */
-const isUntouchedField = (value, options) =>
-  value === undefined && !options.isFromComponent;
-
-/** @returns {boolean} True if numeric value is valid */
-const isValidNumericValue = (value, type) => {
-  if (value === 0) {
-    return true;
-  }
-
-  return !!value;
-};
-
-/** @returns {boolean} True if date value is valid */
-const isValidDateValue = value =>
-  moment(value)._isValid === true;
-
-/** @returns {yup.Schema} Apply required validation for non-password field during edit */
-const applyEditModeRequiredValidation = (schema, type) => {
-  return schema.test('required', errorsTrads.required, value => {
-    if (isUntouchedField(value, { isFromComponent: false })) {
-      return true;
-    }
-
-    if (['number', 'integer', 'biginteger', 'float', 'decimal'].includes(type)) {
-      return isValidNumericValue(value, type);
-    }
-
-    if (['date', 'datetime'].includes(type)) {
-      return isValidDateValue(value);
-    }
-
-    if (type === 'boolean') {
-      return value !== null;
-    }
-
-    return !isEmpty(value);
-  });
-};
-
-/** @returns {yup.Schema} Apply required validation based on mode and type */
-const applyRequiredValidation = (schema, type, options) => {
-  if (!options.isDraft) {
-    if (shouldRequirePassword(type, options)) {
-      return schema.required(errorsTrads.required);
-    }
-
-    if (shouldRequireNonPassword(type, options)) {
-      if (options.isCreatingEntry) {
-        return schema.required(errorsTrads.required);
-      }
-
-      return applyEditModeRequiredValidation(schema, type);
-    }
-  }
-
-  return schema;
-};
-
-/** @returns {yup.Schema} Apply max validation based on type */
-const applyMaxValidation = (schema, type, validationValue) => {
-  if (type === 'biginteger') {
-    return schema.isInferior(errorsTrads.max, validationValue);
-  }
-
-  return schema.max(validationValue, errorsTrads.max);
-};
-
-/** @returns {yup.Schema} Apply min validation based on type */
-const applyMinValidation = (schema, type, validationValue) => {
-  if (type === 'biginteger') {
-    return schema.isSuperior(errorsTrads.min, validationValue);
-  }
-
-  return schema.min(validationValue, errorsTrads.min);
-};
-
-/** @returns {yup.Schema} Apply case transformation based on type */
-const applyCaseTransformation = (schema, type, transformation) => {
-  if (['text', 'textarea', 'email', 'string'].includes(type)) {
-    return transformation === 'lowercase'
-      ? schema.strict().lowercase()
-      : schema.strict().uppercase();
-  }
-
-  return schema;
-};
-
-/** @returns {yup.Schema} Apply sign constraint based on type */
-const applySignConstraint = (schema, type, isPositive) => {
-  if (['number', 'integer', 'bigint', 'float', 'decimal'].includes(type)) {
-    return isPositive ? schema.positive() : schema.negative();
-  }
-
-  return schema;
 };
 
 const createYupSchemaAttribute = (type, validations, options) => {
@@ -394,14 +316,14 @@ const createYupSchemaAttribute = (type, validations, options) => {
     schema = schema.email(errorsTrads.email);
   }
 
-  if (['number', 'integer', 'biginteger', 'float', 'decimal'].includes(type)) {
+  if (isNumericType(type)) {
     schema = yup
       .number()
       .transform(cv => (isNaN(cv) ? undefined : cv))
       .typeError();
   }
 
-  if (['date', 'datetime'].includes(type)) {
+  if (isDateType(type)) {
     schema = yup.date();
   }
 
@@ -420,35 +342,57 @@ const createYupSchemaAttribute = (type, validations, options) => {
       case 'required':
         schema = applyRequiredValidation(schema, type, options);
         break;
+
       case 'max':
-        schema = applyMaxValidation(schema, type, validationValue);
+        schema = type === 'biginteger'
+          ? schema.isInferior(errorsTrads.max, validationValue)
+          : schema.max(validationValue, errorsTrads.max);
         break;
+
       case 'maxLength':
         schema = schema.max(validationValue, errorsTrads.maxLength);
         break;
+
       case 'min':
-        schema = applyMinValidation(schema, type, validationValue);
+        schema = type === 'biginteger'
+          ? schema.isSuperior(errorsTrads.min, validationValue)
+          : schema.min(validationValue, errorsTrads.min);
         break;
+
       case 'minLength':
         if (!options.isDraft) {
           schema = schema.min(validationValue, errorsTrads.minLength);
         }
         break;
+
       case 'regex':
         schema = schema.matches(new RegExp(validationValue), errorsTrads.regex);
         break;
+
       case 'lowercase':
-        schema = applyCaseTransformation(schema, type, 'lowercase');
+        if (isTextLikeType(type)) {
+          schema = schema.strict().lowercase();
+        }
         break;
+
       case 'uppercase':
-        schema = applyCaseTransformation(schema, type, 'uppercase');
+        if (isTextLikeType(type)) {
+          schema = schema.strict().uppercase();
+        }
         break;
+
       case 'positive':
-        schema = applySignConstraint(schema, type, true);
+        if (isNumericType(type)) {
+          schema = schema.positive();
+        }
         break;
+
       case 'negative':
-        schema = applySignConstraint(schema, type, false);
+        if (isNumericType(type)) {
+          schema = schema.negative();
+        }
         break;
+
       default:
         schema = schema.nullable();
     }
@@ -458,4 +402,3 @@ const createYupSchemaAttribute = (type, validations, options) => {
 };
 
 export default createYupSchema;
-```

@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const grunt = require('../grunt');
@@ -119,4 +118,3 @@ exports.tasks = function() {
 exports.footer = function() {
   grunt.log.writeln().writeln('For more information, see http://gruntjs.com/');
 };
-```

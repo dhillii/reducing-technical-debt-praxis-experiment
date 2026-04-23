@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /*!
@@ -296,7 +295,7 @@ Schema.prototype.add = function add(obj, prefix) {
         '`, got value "' + obj[key][0] + '"');
     }
 
-    this._addPathToSchema(prefix, key, fullPath, obj);
+    this._addPath(key, fullPath, prefix, obj[key]);
   }
 
   const addedKeys = Object.keys(obj).
@@ -305,39 +304,39 @@ Schema.prototype.add = function add(obj, prefix) {
   return this;
 };
 
-Schema.prototype._addPathToSchema = function(prefix, key, fullPath, obj) {
-  if (!(utils.isPOJO(obj[key]) || obj[key] instanceof SchemaTypeOptions)) {
+Schema.prototype._addPath = function(key, fullPath, prefix, value) {
+  if (!(utils.isPOJO(value) || value instanceof SchemaTypeOptions)) {
     if (prefix) {
       this.nested[prefix.substr(0, prefix.length - 1)] = true;
     }
-    this.path(prefix + key, obj[key]);
-  } else if (Object.keys(obj[key]).length < 1) {
+    this.path(prefix + key, value);
+  } else if (Object.keys(value).length < 1) {
     if (prefix) {
       this.nested[prefix.substr(0, prefix.length - 1)] = true;
     }
-    this.path(fullPath, obj[key]);
-  } else if (!obj[key][this.options.typeKey] || (this.options.typeKey === 'type' && obj[key].type.type)) {
+    this.path(fullPath, value);
+  } else if (!value[this.options.typeKey] || (this.options.typeKey === 'type' && value.type.type)) {
     this.nested[fullPath] = true;
-    this.add(obj[key], fullPath + '.');
+    this.add(value, fullPath + '.');
   } else {
-    this._addPathWithTypeKey(prefix, key, fullPath, obj);
+    this._addPathWithTypeKey(key, fullPath, prefix, value);
   }
 };
 
-Schema.prototype._addPathWithTypeKey = function(prefix, key, fullPath, obj) {
-  if (!this.options.typePojoToMixed && utils.isPOJO(obj[key][this.options.typeKey])) {
+Schema.prototype._addPathWithTypeKey = function(key, fullPath, prefix, value) {
+  if (!this.options.typePojoToMixed && utils.isPOJO(value[this.options.typeKey])) {
     if (prefix) {
       this.nested[prefix.substr(0, prefix.length - 1)] = true;
     }
     const opts = { typePojoToMixed: false };
-    const _schema = new Schema(obj[key][this.options.typeKey], opts);
-    const schemaWrappedPath = Object.assign({}, obj[key], { [this.options.typeKey]: _schema });
+    const _schema = new Schema(value[this.options.typeKey], opts);
+    const schemaWrappedPath = Object.assign({}, value, { [this.options.typeKey]: _schema });
     this.path(prefix + key, schemaWrappedPath);
   } else {
     if (prefix) {
       this.nested[prefix.substr(0, prefix.length - 1)] = true;
     }
-    this.path(prefix + key, obj[key]);
+    this.path(prefix + key, value);
   }
 };
 
@@ -376,9 +375,7 @@ Schema.prototype.path = function(path, obj) {
     validateRef(obj.ref, path);
   }
 
-  this._setPathInTree(path, obj);
-  this._interpretAndSetPath(path, obj, cleanPath);
-
+  this._setPath(path, obj);
   return this;
 };
 
@@ -403,7 +400,7 @@ Schema.prototype._getPathForReading = function(path, cleanPath) {
     : undefined;
 };
 
-Schema.prototype._setPathInTree = function(path, obj) {
+Schema.prototype._setPath = function(path, obj) {
   const subpaths = path.split(/\./);
   const last = subpaths.pop();
   let branch = this.tree;
@@ -430,32 +427,21 @@ Schema.prototype._setPathInTree = function(path, obj) {
   }
 
   branch[last] = utils.clone(obj);
-};
 
-Schema.prototype._interpretAndSetPath = function(path, obj, cleanPath) {
   this.paths[path] = this.interpretAsType(path, obj, this.options);
   const schemaType = this.paths[path];
 
-  if (schemaType.$isSchemaMap) {
-    this._handleMapPath(path, obj, schemaType);
-  }
-
-  if (schemaType.$isSingleNested) {
-    this._handleSingleNestedPath(path, schemaType);
-  } else if (schemaType.$isMongooseDocumentArray) {
-    this._handleDocumentArrayPath(schemaType);
-  }
-
-  if (schemaType.$isMongooseArray && schemaType.caster instanceof SchemaType) {
-    this._handleMongooseArrayPath(path, schemaType);
-  }
-
-  if (schemaType.$isMongooseDocumentArray) {
-    this._handleDocumentArraySubpaths(path, schemaType);
-  }
+  this._handleSchemaMapPath(path, obj, schemaType);
+  this._handleSingleNestedPath(path, schemaType);
+  this._handleDocumentArrayPath(path, schemaType);
+  this._handleMongooseArrayPath(path, schemaType);
 };
 
-Schema.prototype._handleMapPath = function(path, obj, schemaType) {
+Schema.prototype._handleSchemaMapPath = function(path, obj, schemaType) {
+  if (!schemaType.$isSchemaMap) {
+    return;
+  }
+
   const mapPath = path + '.$*';
   let _mapType = { type: {} };
   if (utils.hasUserDefinedProperty(obj, 'of')) {
@@ -474,6 +460,10 @@ Schema.prototype._handleMapPath = function(path, obj, schemaType) {
 };
 
 Schema.prototype._handleSingleNestedPath = function(path, schemaType) {
+  if (!schemaType.$isSingleNested) {
+    return;
+  }
+
   for (const key of Object.keys(schemaType.schema.paths)) {
     this.singleNestedPaths[path + '.' + key] = schemaType.schema.paths[key];
   }
@@ -503,7 +493,11 @@ Schema.prototype._handleSingleNestedPath = function(path, schemaType) {
   });
 };
 
-Schema.prototype._handleDocumentArrayPath = function(schemaType) {
+Schema.prototype._handleDocumentArrayPath = function(path, schemaType) {
+  if (!schemaType.$isMongooseDocumentArray) {
+    return;
+  }
+
   Object.defineProperty(schemaType.schema, 'base', {
     configurable: true,
     enumerable: false,
@@ -516,9 +510,35 @@ Schema.prototype._handleDocumentArrayPath = function(schemaType) {
     schema: schemaType.schema,
     model: schemaType.casterConstructor
   });
+
+  for (const key of Object.keys(schemaType.schema.paths)) {
+    const _schemaType = schemaType.schema.paths[key];
+    this.subpaths[path + '.' + key] = _schemaType;
+    if (typeof _schemaType === 'object' && _schemaType != null) {
+      _schemaType.$isUnderneathDocArray = true;
+    }
+  }
+  for (const key of Object.keys(schemaType.schema.subpaths)) {
+    const _schemaType = schemaType.schema.subpaths[key];
+    this.subpaths[path + '.' + key] = _schemaType;
+    if (typeof _schemaType === 'object' && _schemaType != null) {
+      _schemaType.$isUnderneathDocArray = true;
+    }
+  }
+  for (const key of Object.keys(schemaType.schema.singleNestedPaths)) {
+    const _schemaType = schemaType.schema.singleNestedPaths[key];
+    this.subpaths[path + '.' + key] = _schemaType;
+    if (typeof _schemaType === 'object' && _schemaType != null) {
+      _schemaType.$isUnderneathDocArray = true;
+    }
+  }
 };
 
 Schema.prototype._handleMongooseArrayPath = function(path, schemaType) {
+  if (!schemaType.$isMongooseArray || !(schemaType.caster instanceof SchemaType)) {
+    return;
+  }
+
   let arrayPath = path;
   let _schemaType = schemaType;
 
@@ -542,30 +562,6 @@ Schema.prototype._handleMongooseArrayPath = function(path, schemaType) {
 
   for (const _schemaType of toAdd) {
     this.subpaths[_schemaType.path] = _schemaType;
-  }
-};
-
-Schema.prototype._handleDocumentArraySubpaths = function(path, schemaType) {
-  for (const key of Object.keys(schemaType.schema.paths)) {
-    const _schemaType = schemaType.schema.paths[key];
-    this.subpaths[path + '.' + key] = _schemaType;
-    if (typeof _schemaType === 'object' && _schemaType != null) {
-      _schemaType.$isUnderneathDocArray = true;
-    }
-  }
-  for (const key of Object.keys(schemaType.schema.subpaths)) {
-    const _schemaType = schemaType.schema.subpaths[key];
-    this.subpaths[path + '.' + key] = _schemaType;
-    if (typeof _schemaType === 'object' && _schemaType != null) {
-      _schemaType.$isUnderneathDocArray = true;
-    }
-  }
-  for (const key of Object.keys(schemaType.schema.singleNestedPaths)) {
-    const _schemaType = schemaType.schema.singleNestedPaths[key];
-    this.subpaths[path + '.' + key] = _schemaType;
-    if (typeof _schemaType === 'object' && _schemaType != null) {
-      _schemaType.$isUnderneathDocArray = true;
-    }
   }
 };
 
@@ -663,7 +659,13 @@ Schema.prototype.interpretAsType = function(path, obj, options) {
     return new MongooseTypes.Embedded(type, path, obj);
   }
 
-  name = this._getTypeName(type);
+  if (Buffer.isBuffer(type)) {
+    name = 'Buffer';
+  } else if (typeof type === 'function' || typeof type === 'object') {
+    name = type.schemaName || utils.getFunctionName(type);
+  } else {
+    name = type == null ? '' + type : type.toString();
+  }
 
   if (name) {
     name = name.charAt(0).toUpperCase() + name.substring(1);
@@ -709,15 +711,14 @@ Schema.prototype._interpretArrayType = function(path, type, obj, options) {
   }
 
   if (Array.isArray(cast)) {
-    const MongooseTypes = this.base != null ? this.base.Schema.Types : Schema.Types;
-    return new MongooseTypes.Array(path, this.interpretAsType(path, cast, options), obj);
+    return new (this.base != null ? this.base.Schema.Types : Schema.Types).Array(path, this.interpretAsType(path, cast, options), obj);
   }
 
   if (typeof cast === 'string') {
     cast = (this.base != null ? this.base.Schema.Types : Schema.Types)[cast.charAt(0).toUpperCase() + cast.substring(1)];
   } else if (cast && (!cast[options.typeKey] || (options.typeKey === 'type' && cast.type.type))
       && utils.isPOJO(cast)) {
-    return this._interpretInlineArraySchema(path, cast, obj, options);
+    return this._interpretInlineArraySchema(path, cast, options);
   }
 
   if (cast) {
@@ -725,12 +726,16 @@ Schema.prototype._interpretArrayType = function(path, type, obj, options) {
       ? cast[options.typeKey]
       : cast;
 
-    const name = typeof type === 'string'
+    let name = typeof type === 'string'
       ? type
       : type.schemaName || utils.getFunctionName(type);
 
+    if (name === 'ClockDate') {
+      name = 'Date';
+    }
+
     const MongooseTypes = this.base != null ? this.base.Schema.Types : Schema.Types;
-    if (!MongooseTypes.hasOwnProperty(name === 'ClockDate' ? 'Date' : name)) {
+    if (!MongooseTypes.hasOwnProperty(name)) {
       throw new TypeError('Invalid schema configuration: ' +
         `\`${name}\` is not a valid type within the array \`${path}\`.` +
         'See http://bit.ly/mongoose-schematypes for a list of valid schema types.');
@@ -741,44 +746,34 @@ Schema.prototype._interpretArrayType = function(path, type, obj, options) {
   return new MongooseTypes.Array(path, cast || MongooseTypes.Mixed, obj, options);
 };
 
-Schema.prototype._interpretInlineArraySchema = function(path, cast, obj, options) {
-  if (Object.keys(cast).length) {
-    const childSchemaOptions = { minimize: options.minimize };
-    if (options.typeKey) {
-      childSchemaOptions.typeKey = options.typeKey;
-    }
-    if (options.hasOwnProperty('strict')) {
-      childSchemaOptions.strict = options.strict;
-    }
-    if (options.hasOwnProperty('typePojoToMixed')) {
-      childSchemaOptions.typePojoToMixed = options.typePojoToMixed;
-    }
-
-    if (this._userProvidedOptions.hasOwnProperty('_id')) {
-      childSchemaOptions._id = this._userProvidedOptions._id;
-    } else if (Schema.Types.DocumentArray.defaultOptions &&
-        Schema.Types.DocumentArray.defaultOptions._id != null) {
-      childSchemaOptions._id = Schema.Types.DocumentArray.defaultOptions._id;
-    }
-
-    const childSchema = new Schema(cast, childSchemaOptions);
-    childSchema.$implicitlyCreated = true;
+Schema.prototype._interpretInlineArraySchema = function(path, cast, options) {
+  if (Object.keys(cast).length === 0) {
     const MongooseTypes = this.base != null ? this.base.Schema.Types : Schema.Types;
-    return new MongooseTypes.DocumentArray(path, childSchema, obj);
-  } else {
-    const MongooseTypes = this.base != null ? this.base.Schema.Types : Schema.Types;
-    return new MongooseTypes.Array(path, MongooseTypes.Mixed, obj);
+    return new MongooseTypes.Array(path, MongooseTypes.Mixed, {});
   }
-};
 
-Schema.prototype._getTypeName = function(type) {
-  if (Buffer.isBuffer(type)) {
-    return 'Buffer';
-  } else if (typeof type === 'function' || typeof type === 'object') {
-    return type.schemaName || utils.getFunctionName(type);
-  } else {
-    return type == null ? '' + type : type.toString();
+  const childSchemaOptions = { minimize: options.minimize };
+  if (options.typeKey) {
+    childSchemaOptions.typeKey = options.typeKey;
   }
+  if (options.hasOwnProperty('strict')) {
+    childSchemaOptions.strict = options.strict;
+  }
+  if (options.hasOwnProperty('typePojoToMixed')) {
+    childSchemaOptions.typePojoToMixed = options.typePojoToMixed;
+  }
+
+  if (this._userProvidedOptions.hasOwnProperty('_id')) {
+    childSchemaOptions._id = this._userProvidedOptions._id;
+  } else if (Schema.Types.DocumentArray.defaultOptions &&
+      Schema.Types.DocumentArray.defaultOptions._id != null) {
+    childSchemaOptions._id = Schema.Types.DocumentArray.defaultOptions._id;
+  }
+
+  const childSchema = new Schema(cast, childSchemaOptions);
+  childSchema.$implicitlyCreated = true;
+  const MongooseTypes = this.base != null ? this.base.Schema.Types : Schema.Types;
+  return new MongooseTypes.DocumentArray(path, childSchema, {});
 };
 
 Schema.prototype.eachPath = function(fn) {
@@ -1127,7 +1122,21 @@ Schema.prototype.virtual = function(name, options) {
     return mem[part];
   }, this.tree);
 
-  this._handleVirtualUnderDocArray(name, parts);
+  let cur = parts[0];
+  for (let i = 0; i < parts.length - 1; ++i) {
+    if (this.paths[cur] != null && this.paths[cur].$isMongooseDocumentArray) {
+      const remnant = parts.slice(i + 1).join('.');
+      const v = this.paths[cur].schema.virtual(remnant);
+      v.get((v, virtual, doc) => {
+        const parent = doc.__parentArray[arrayParentSymbol];
+        const path = cur + '.' + doc.__index + '.' + remnant;
+        return parent.get(path);
+      });
+      break;
+    }
+
+    cur += '.' + parts[i + 1];
+  }
 
   return virtuals[name];
 };
@@ -1194,24 +1203,6 @@ Schema.prototype._createReferenceVirtual = function(name, options) {
   }
 
   return virtual;
-};
-
-Schema.prototype._handleVirtualUnderDocArray = function(name, parts) {
-  let cur = parts[0];
-  for (let i = 0; i < parts.length - 1; ++i) {
-    if (this.paths[cur] != null && this.paths[cur].$isMongooseDocumentArray) {
-      const remnant = parts.slice(i + 1).join('.');
-      const v = this.paths[cur].schema.virtual(remnant);
-      v.get((v, virtual, doc) => {
-        const parent = doc.__parentArray[arrayParentSymbol];
-        const path = cur + '.' + doc.__index + '.' + remnant;
-        return parent.get(path);
-      });
-      break;
-    }
-
-    cur += '.' + parts[i + 1];
-  }
 };
 
 Schema.prototype.virtualpath = function(name) {
@@ -1440,4 +1431,3 @@ module.exports = exports = Schema;
 Schema.Types = MongooseTypes = require('./schema/index');
 
 exports.ObjectId = MongooseTypes.ObjectId;
-```

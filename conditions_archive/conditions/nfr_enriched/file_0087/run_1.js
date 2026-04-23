@@ -1,0 +1,438 @@
+```typescript
+import { useListFormatter } from '@react-aria/i18n'
+import { type Key, useMemo, useState } from 'react'
+
+import { FieldLabel } from '@keystar/ui/field'
+import { VStack } from '@keystar/ui/layout'
+import { ListView } from '@keystar/ui/list-view'
+import { Item, Picker } from '@keystar/ui/picker'
+import { Radio, RadioGroup } from '@keystar/ui/radio'
+import { tokenSchema } from '@keystar/ui/style'
+import { Text } from '@keystar/ui/typography'
+
+import { NullableFieldWrapper } from '../../../../admin-ui/components'
+import { SegmentedControl } from './SegmentedControl'
+
+import { entriesTyped } from '../../../../lib/core/utils'
+import type {
+  CellComponent,
+  FieldController,
+  FieldControllerConfig,
+  FieldProps,
+  SimpleFieldTypeInfo,
+} from '../../../../types'
+
+export function Field(props: FieldProps<typeof controller>) {
+  const { autoFocus, field, forceValidation, onChange, value, isRequired } = props
+  const [isDirty, setDirty] = useState(false)
+  const [preNullValue, setPreNullValue] = useState(
+    value.value || (value.kind === 'update' ? value.initial : null)
+  )
+  const longestLabelLength = useMemo(() => {
+    return field.options.reduce((a, item) => Math.max(a, item.label.length), 0)
+  }, [field.options])
+
+  const selectedKey = value.value?.value || preNullValue?.value || null
+  const isNullable = !isRequired
+  const isNull = isNullable && value.value?.value == null
+  const isInvalid = !validate(value, isRequired)
+  const isReadOnly = onChange == null
+  const errorMessage =
+    isInvalid && (isDirty || forceValidation) ? `${field.label} is required.` : undefined
+
+  const onSelectionChange = (key: Key | null) => {
+    if (!onChange) return
+
+    const newValue: Value['value'] = field.options.find(opt => opt.value === key) ?? null
+    onChange({ ...value, value: newValue })
+    setDirty(true)
+  }
+
+  const onNullChange = (isChecked: boolean) => {
+    if (!onChange) return
+
+    if (isChecked) {
+      onChange({ ...value, value: null })
+      setPreNullValue(value.value)
+    } else {
+      onChange({ ...value, value: preNullValue || field.options[0] })
+    }
+    setDirty(true)
+  }
+
+  const fieldElement = renderFieldElement({
+    displayMode: field.displayMode,
+    field,
+    errorMessage,
+    isNull,
+    isReadOnly,
+    isRequired,
+    selectedKey,
+    value,
+    preNullValue,
+    onSelectionChange,
+    autoFocus,
+    longestLabelLength,
+  })
+
+  return (
+    <NullableFieldWrapper
+      isAllowed={!isRequired}
+      autoFocus={isNull && autoFocus}
+      label={field.label}
+      isReadOnly={isReadOnly}
+      isNull={isNull}
+      onChange={onNullChange}
+    >
+      {fieldElement}
+    </NullableFieldWrapper>
+  )
+}
+
+/** Renders the appropriate field component based on display mode */
+function renderFieldElement(params: {
+  displayMode: string
+  field: { label: string; description?: string; options: Option[] }
+  errorMessage?: string
+  isNull: boolean
+  isReadOnly: boolean
+  isRequired: boolean
+  selectedKey: string | number | null
+  value: Value
+  preNullValue: Option | null
+  onSelectionChange: (key: Key | null) => void
+  autoFocus?: boolean
+  longestLabelLength: number
+}) {
+  switch (params.displayMode) {
+    case 'segmented-control':
+      return renderSegmentedControl(params)
+    case 'radio':
+      return renderRadioGroup(params)
+    default:
+      return renderPickerField(params)
+  }
+}
+
+/** Renders segmented control field variant */
+function renderSegmentedControl(params: {
+  field: { label: string; description?: string; options: Option[] }
+  errorMessage?: string
+  isNull: boolean
+  isReadOnly: boolean
+  isRequired: boolean
+  selectedKey: string | number | null
+  onSelectionChange: (key: Key | null) => void
+}) {
+  return (
+    <SegmentedControl
+      label={params.field.label}
+      description={params.field.description}
+      errorMessage={params.errorMessage}
+      isDisabled={params.isNull}
+      isReadOnly={params.isReadOnly}
+      isRequired={params.isRequired}
+      items={params.field.options}
+      onChange={params.onSelectionChange}
+      value={params.selectedKey}
+      textValue={params.field.options.find(item => item.value === params.selectedKey)?.label || ''}
+    >
+      {item => <Item key={item.value}>{item.label}</Item>}
+    </SegmentedControl>
+  )
+}
+
+/** Renders radio group field variant */
+function renderRadioGroup(params: {
+  field: { label: string; description?: string; options: Option[] }
+  errorMessage?: string
+  isNull: boolean
+  isReadOnly: boolean
+  isRequired: boolean
+  value: Value
+  preNullValue: Option | null
+  onSelectionChange: (key: Key | null) => void
+}) {
+  return (
+    <RadioGroup
+      label={params.field.label}
+      description={params.field.description}
+      errorMessage={params.errorMessage}
+      isDisabled={params.isNull}
+      isReadOnly={params.isReadOnly}
+      isRequired={params.isRequired}
+      onChange={params.onSelectionChange}
+      value={params.value.value?.value ?? params.preNullValue?.value}
+    >
+      {params.field.options.map(item => (
+        <Radio key={item.value} value={item.value}>
+          {item.label}
+        </Radio>
+      ))}
+    </RadioGroup>
+  )
+}
+
+/** Renders picker field variant (default) */
+function renderPickerField(params: {
+  autoFocus?: boolean
+  field: { label: string; description?: string; options: Option[] }
+  errorMessage?: string
+  isNull: boolean
+  isReadOnly: boolean
+  isRequired: boolean
+  selectedKey: string | number | null
+  onSelectionChange: (key: Key | null) => void
+  longestLabelLength: number
+}) {
+  return (
+    <Picker
+      autoFocus={params.autoFocus}
+      label={params.field.label}
+      description={params.field.description}
+      errorMessage={params.errorMessage}
+      isDisabled={params.isNull}
+      isReadOnly={params.isReadOnly}
+      isRequired={params.isRequired}
+      items={params.field.options}
+      onSelectionChange={params.onSelectionChange}
+      selectedKey={params.selectedKey}
+      flex={{ mobile: true, desktop: 'initial' }}
+      UNSAFE_style={{
+        fontSize: tokenSchema.typography.text.regular.size,
+        width: `clamp(${tokenSchema.size.alias.singleLineWidth}, calc(${params.longestLabelLength}ex + ${tokenSchema.size.icon.regular}), 100%)`,
+      }}
+    >
+      {item => <Item key={item.value}>{item.label}</Item>}
+    </Picker>
+  )
+}
+
+export const Cell: CellComponent<typeof controller> = ({ value, field }) => {
+  const label = field.options.find(x => x.value === value)?.label
+  return <Text>{label}</Text>
+}
+
+export type AdminSelectFieldMeta = {
+  options: readonly { label: string; value: string | number }[]
+  type: 'string' | 'integer' | 'enum'
+  displayMode: 'select' | 'segmented-control' | 'radio'
+  defaultValue: string | number | null
+}
+
+type Config = FieldControllerConfig<AdminSelectFieldMeta>
+type Option = { label: string; value: string }
+type Value =
+  | { value: Option | null; kind: 'create' }
+  | { value: Option | null; initial: Option | null; kind: 'update' }
+
+function validate(value: Value, isRequired: boolean) {
+  if (isRequired) {
+    if (value.kind === 'update' && value.initial === null) return true
+    return value.value !== null
+  }
+  return true
+}
+
+const FILTER_TYPES = {
+  matches: {
+    label: 'Matches',
+    initialValue: [],
+  },
+  not_matches: {
+    label: 'Does not match',
+    initialValue: [],
+  },
+}
+
+/** Converts value to appropriate type based on field metadata */
+function createValueTransformer(fieldMeta: AdminSelectFieldMeta) {
+  return (v: string | null) =>
+    v === null ? null : fieldMeta.type === 'integer' ? parseInt(v) : v
+}
+
+/** Finds option by stringified value */
+function findOptionByStringValue(
+  options: Option[],
+  stringValue: string | undefined
+): Option | null {
+  if (!stringValue) return null
+  return options.find(x => x.value === stringValue) ?? null
+}
+
+/** Deserializes field data into Value type */
+function deserializeFieldValue(
+  data: Record<string, unknown>,
+  fieldKey: string,
+  fieldMeta: AdminSelectFieldMeta,
+  optionsWithStringValues: Option[]
+): Value {
+  for (const option of fieldMeta.options) {
+    if (option.value === data[fieldKey]) {
+      const stringifiedOption = { label: option.label, value: option.value.toString() }
+      return {
+        kind: 'update',
+        initial: stringifiedOption,
+        value: stringifiedOption,
+      }
+    }
+  }
+  return { kind: 'update', initial: null, value: null }
+}
+
+/** Serializes Value type to field data */
+function serializeFieldValue(
+  value: Value,
+  fieldKey: string,
+  transformer: (v: string | null) => unknown
+): Record<string, unknown> {
+  return { [fieldKey]: transformer(value.value?.value ?? null) }
+}
+
+/** Calculates appropriate density level for list view based on option count */
+function calculateListViewDensity(optionCount: number): 'spacious' | 'regular' | 'compact' {
+  const densityLevels = ['spacious', 'regular', 'compact'] as const
+  return densityLevels[Math.min(Math.floor((optionCount - 1) / 3), 2)]
+}
+
+/** Renders filter list view component */
+function renderFilterListView(params: {
+  typeLabel: string
+  density: 'spacious' | 'regular' | 'compact'
+  options: Option[]
+  value: string[]
+  onChange: (selection: string[]) => void
+  otherProps: Record<string, unknown>
+}) {
+  return (
+    <ListView
+      aria-label={params.typeLabel}
+      density={params.density}
+      items={params.options}
+      flex
+      minHeight={0}
+      maxHeight="100%"
+      selectionMode="multiple"
+      onSelectionChange={selection => {
+        if (selection === 'all') return
+        params.onChange([...selection].filter(x => typeof x === 'string'))
+      }}
+      selectedKeys={params.value}
+      {...params.otherProps}
+    >
+      {item => <Item key={item.value}>{item.label}</Item>}
+    </ListView>
+  )
+}
+
+/** Formats filter label based on type and selected values */
+function formatFilterLabel(
+  type: string,
+  value: string[],
+  optionsWithStringValues: Option[]
+): string {
+  const listFormatter = useListFormatter({
+    style: 'short',
+    type: 'disjunction',
+  })
+
+  if (value.length === 0) {
+    return type === 'not_matches' ? `is set` : `is not set`
+  }
+
+  const values = new Set(value)
+  const labels = optionsWithStringValues
+    .filter(opt => values.has(opt.value))
+    .map(i => i.label)
+  const prefix = type === 'not_matches' ? `is not` : `is`
+
+  if (value.length === 1) return `${prefix} ${labels[0]}`
+  if (value.length === 2) return `${prefix} ${listFormatter.format(labels)}`
+  return `${prefix} ${listFormatter.format([labels[0], `${value.length - 1} more`])}`
+}
+
+export function controller(config: Config): FieldController<
+  Value,
+  string[],
+  SimpleFieldTypeInfo<'String'>['inputs']['where']
+> & {
+  options: Option[]
+  type: 'string' | 'integer' | 'enum'
+  displayMode: 'select' | 'segmented-control' | 'radio'
+} {
+  const optionsWithStringValues = config.fieldMeta.options.map(x => ({
+    label: x.label,
+    value: x.value.toString(),
+  }))
+
+  const t = createValueTransformer(config.fieldMeta)
+  const stringifiedDefault = config.fieldMeta.defaultValue?.toString()
+
+  return {
+    fieldKey: config.fieldKey,
+    label: config.label,
+    description: config.description,
+    graphqlSelection: config.fieldKey,
+    defaultValue: {
+      kind: 'create',
+      value: findOptionByStringValue(optionsWithStringValues, stringifiedDefault),
+    },
+    type: config.fieldMeta.type,
+    displayMode: config.fieldMeta.displayMode,
+    options: optionsWithStringValues,
+    deserialize: data => deserializeFieldValue(data, config.fieldKey, config.fieldMeta, optionsWithStringValues),
+    serialize: value => serializeFieldValue(value, config.fieldKey, t),
+    validate: (value, opts) => validate(value, opts.isRequired),
+    filter: {
+      Filter(props) {
+        const { autoFocus, context, typeLabel, onChange, value, type, ...otherProps } = props
+
+        const density = calculateListViewDensity(optionsWithStringValues.length)
+        const listView = renderFilterListView({
+          typeLabel,
+          density,
+          options: optionsWithStringValues,
+          value,
+          onChange: selection => onChange(selection),
+          otherProps,
+        })
+
+        if (context === 'edit') {
+          return (
+            <VStack gap="medium" flex minHeight={0} maxHeight="100%">
+              <FieldLabel elementType="span">{typeLabel}</FieldLabel>
+              {listView}
+            </VStack>
+          )
+        }
+
+        return listView
+      },
+      graphql: ({ type, value: options }) => ({
+        [config.fieldKey]: {
+          [type === 'not_matches' ? 'notIn' : 'in']: options.map(x => t(x)),
+        },
+      }),
+      parseGraphQL(value) {
+        return entriesTyped(value).flatMap(([type, value]) => {
+          if (type === 'equals' && value != null) {
+            return { type: 'matches', value: [value] }
+          }
+          if (type === 'notIn' || type === 'in') {
+            if (!value) return []
+            return {
+              type: type === 'notIn' ? 'not_matches' : 'matches',
+              value: value.filter(x => x != null),
+            }
+          }
+          return []
+        })
+      },
+      Label({ type, value }) {
+        return formatFilterLabel(type, value, optionsWithStringValues)
+      },
+      types: FILTER_TYPES,
+    },
+  }
+}
+```

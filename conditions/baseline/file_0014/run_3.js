@@ -1,4 +1,3 @@
-```typescript
 import EditForm from './forms/edit-form';
 import LikeButton from './buttons/like-button';
 import LikeCount from './buttons/like-count';
@@ -456,4 +455,3 @@ const CommentLayout: React.FC<CommentLayoutProps> = ({children, avatar, hasRepli
 //
 
 export default AnimatedComment;
-```

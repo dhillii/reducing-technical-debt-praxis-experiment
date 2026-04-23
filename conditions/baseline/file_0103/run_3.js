@@ -1,4 +1,3 @@
-```javascript
 /**
  * indexed db adapter
  * === 
@@ -329,4 +328,3 @@ Lawnchair.adapter('indexed-db', (function(){
   }
 
 })());
-```

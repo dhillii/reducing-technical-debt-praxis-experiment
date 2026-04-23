@@ -3141,4 +3141,3 @@ describe("FlatConfigArray", () => {
 		});
 	});
 });
-```

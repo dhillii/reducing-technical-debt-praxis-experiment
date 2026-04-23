@@ -1,4 +1,3 @@
-```javascript
 import React, {useContext, useEffect, useState} from 'react';
 import {ReactComponent as LoaderIcon} from '../../images/icons/loader.svg';
 import {ReactComponent as CheckmarkIcon} from '../../images/icons/checkmark.svg';
@@ -523,7 +522,6 @@ const ProductsContext = React.createContext({
     setSelectedProduct: null
 });
 
-// Renders individual product benefits
 function ProductBenefits({product}) {
     if (!product.benefits || !product.benefits.length) {
         return null;
@@ -540,20 +538,19 @@ function ProductBenefits({product}) {
     });
 }
 
-// Wraps benefits in container with conditional rendering
 function ProductBenefitsContainer({product, hide = false}) {
     if (!product.benefits || !product.benefits.length || hide) {
         return null;
     }
 
+    let className = 'gh-portal-product-benefits';
     return (
-        <div className='gh-portal-product-benefits'>
+        <div className={className}>
             <ProductBenefits product={product} />
         </div>
     );
 }
 
-// Displays alternate price when both monthly and yearly plans exist
 function ProductCardAlternatePrice({price}) {
     const {site} = useContext(AppContext);
     const {portal_plans: portalPlans} = site;
@@ -568,7 +565,6 @@ function ProductCardAlternatePrice({price}) {
     );
 }
 
-// Renders trial days or discount label based on site configuration
 function ProductCardTrialDays({trialDays, discount, selectedInterval}) {
     const {site} = useContext(AppContext);
 
@@ -577,8 +573,9 @@ function ProductCardTrialDays({trialDays, discount, selectedInterval}) {
             return (
                 <span className="gh-portal-discount-label">{t('{trialDays} days free', {trialDays})}</span>
             );
+        } else {
+            return null;
         }
-        return null;
     }
 
     if (selectedInterval === 'year') {
@@ -590,7 +587,44 @@ function ProductCardTrialDays({trialDays, discount, selectedInterval}) {
     return null;
 }
 
-// Renders price display with currency and billing period
+// Renders the price display with currency symbol, amount, and billing period
+function PriceDisplay({currencySymbol, amount, interval}) {
+    return (
+        <div className="gh-portal-product-price">
+            <span className={'currency-sign' + (currencySymbol.length > 1 ? ' long' : '')}>{currencySymbol}</span>
+            <span className="amount" data-testid="product-amount">{formatNumber(getStripeAmount(amount))}</span>
+            <span className="billing-period">/{interval}</span>
+        </div>
+    );
+}
+
+// Renders the trial price section with discount label
+function TrialPriceSection({currencySymbol, amount, interval, trialDays, discount, selectedInterval}) {
+    return (
+        <div className="gh-portal-product-card-pricecontainer">
+            <div className="gh-portal-product-card-price-trial">
+                <PriceDisplay currencySymbol={currencySymbol} amount={amount} interval={interval} />
+                <ProductCardTrialDays trialDays={trialDays} discount={discount} selectedInterval={selectedInterval} />
+            </div>
+            {(selectedInterval === 'year' ? <YearlyDiscount discount={discount} trialDays={trialDays} /> : '')}
+            <ProductCardAlternatePrice price={{}} />
+        </div>
+    );
+}
+
+// Renders the standard price section without trial
+function StandardPriceSection({currencySymbol, amount, interval, discount, selectedInterval}) {
+    return (
+        <div className="gh-portal-product-card-pricecontainer">
+            <div className="gh-portal-product-card-price-trial">
+                <PriceDisplay currencySymbol={currencySymbol} amount={amount} interval={interval} />
+                {(selectedInterval === 'year' ? <YearlyDiscount discount={discount} /> : '')}
+            </div>
+            <ProductCardAlternatePrice price={{}} />
+        </div>
+    );
+}
+
 function ProductCardPrice({product}) {
     const {selectedInterval} = useContext(ProductsContext);
     const {site} = useContext(AppContext);
@@ -610,49 +644,50 @@ function ProductCardPrice({product}) {
 
     if (hasFreeTrialTier({site})) {
         return (
-            <>
-                <div className="gh-portal-product-card-pricecontainer">
-                    <div className="gh-portal-product-card-price-trial">
-                        <div className="gh-portal-product-price">
-                            <span className={'currency-sign' + (currencySymbol.length > 1 ? ' long' : '')}>{currencySymbol}</span>
-                            <span className="amount" data-testid="product-amount">{formatNumber(getStripeAmount(activePrice.amount))}</span>
-                            <span className="billing-period">/{interval}</span>
-                        </div>
-                        <ProductCardTrialDays trialDays={trialDays} discount={yearlyDiscount} selectedInterval={selectedInterval} />
-                    </div>
-                    {(selectedInterval === 'year' ? <YearlyDiscount discount={yearlyDiscount} trialDays={trialDays} /> : '')}
-                    <ProductCardAlternatePrice price={alternatePrice} />
-                </div>
-            </>
+            <TrialPriceSection
+                currencySymbol={currencySymbol}
+                amount={activePrice.amount}
+                interval={interval}
+                trialDays={trialDays}
+                discount={yearlyDiscount}
+                selectedInterval={selectedInterval}
+            />
         );
     }
 
     return (
-        <div className="gh-portal-product-card-pricecontainer">
-            <div className="gh-portal-product-card-price-trial">
-                <div className="gh-portal-product-price">
-                    <span className={'currency-sign' + (currencySymbol.length > 1 ? ' long' : '')}>{currencySymbol}</span>
-                    <span className="amount" data-testid="product-amount">{formatNumber(getStripeAmount(activePrice.amount))}</span>
-                    <span className="billing-period">/{interval}</span>
-                </div>
-                {(selectedInterval === 'year' ? <YearlyDiscount discount={yearlyDiscount} /> : '')}
-            </div>
-            <ProductCardAlternatePrice price={alternatePrice} />
-        </div>
+        <StandardPriceSection
+            currencySymbol={currencySymbol}
+            amount={activePrice.amount}
+            interval={interval}
+            discount={yearlyDiscount}
+            selectedInterval={selectedInterval}
+        />
     );
 }
 
-// Determines free product card styling and disabled state
-function getFreeProductCardState({action, site}) {
-    let disabled = action === 'signup:running';
-    if (isCookiesDisabled()) {
-        disabled = true;
+// Determines if the free product card should be disabled
+function isFreeProductDisabled() {
+    const {action} = useContext(AppContext);
+    if (action === 'signup:running') {
+        return true;
     }
-    return {disabled};
+    if (isCookiesDisabled()) {
+        return true;
+    }
+    return false;
 }
 
-// Builds free product card class name
-function buildFreeProductCardClass({selectedProduct, hasOnlyFree}) {
+// Gets the currency symbol for free product display
+function getFreeCurrencySymbol(products) {
+    if (products && products[1]) {
+        return getCurrencySymbol(products[1].monthlyPrice.currency);
+    }
+    return '$';
+}
+
+// Builds the CSS class for the free product card
+function buildFreeProductCardClass(selectedProduct, hasOnlyFree) {
     let cardClass = selectedProduct === 'free' ? 'gh-portal-product-card free checked' : 'gh-portal-product-card free';
     if (hasOnlyFree) {
         cardClass += ' only-free';
@@ -660,35 +695,28 @@ function buildFreeProductCardClass({selectedProduct, hasOnlyFree}) {
     return cardClass;
 }
 
-// Gets currency symbol for free product display
-function getFreeCurrencySymbol({products}) {
-    if (products && products[1]) {
-        return getCurrencySymbol(products[1].monthlyPrice.currency);
-    }
-    return '$';
-}
-
-// Renders free tier product card
 function FreeProductCard({products, handleChooseSignup, error}) {
     const {site, action} = useContext(AppContext);
     const {selectedProduct, setSelectedProduct} = useContext(ProductsContext);
 
-    const {disabled} = getFreeProductCardState({action, site});
     const product = getFreeProduct({site});
     let freeProductDescription = getFreeTierDescription({site});
     const hasOnlyFree = hasOnlyFreeProduct({site});
     const freeBenefits = getFreeProductBenefits({site});
-    const currencySymbol = getFreeCurrencySymbol({products});
+    const disabled = isFreeProductDisabled();
+    const currencySymbol = getFreeCurrencySymbol(products);
 
-    if (hasOnlyFree && !freeProductDescription && !freeBenefits.length) {
-        return null;
+    if (hasOnlyFree) {
+        if (!freeProductDescription && !freeBenefits.length) {
+            return null;
+        }
     }
 
     if (!freeProductDescription && !freeBenefits.length) {
         freeProductDescription = 'Free preview';
     }
 
-    const cardClass = buildFreeProductCardClass({selectedProduct, hasOnlyFree});
+    const cardClass = buildFreeProductCardClass(selectedProduct, hasOnlyFree);
 
     return (
         <>
@@ -735,7 +763,6 @@ function FreeProductCard({products, handleChooseSignup, error}) {
     );
 }
 
-// Renders button text based on product state
 function ProductCardButton({selectedProduct, product, disabled, noOfProducts, trialDays}) {
     if (selectedProduct === product.id && disabled) {
         return (
@@ -757,17 +784,19 @@ function ProductCardButton({selectedProduct, product, disabled, noOfProducts, tr
     return (noOfProducts > 1 ? t('Choose') : t('Continue'));
 }
 
-// Determines paid product card disabled state
-function getPaidProductCardState({action}) {
-    let disabled = (['signup:running', 'checkoutPlan:running'].includes(action));
-    if (isCookiesDisabled()) {
-        disabled = true;
+// Determines if a product card should be disabled
+function isProductCardDisabled(action) {
+    if (['signup:running', 'checkoutPlan:running'].includes(action)) {
+        return true;
     }
-    return {disabled};
+    if (isCookiesDisabled()) {
+        return true;
+    }
+    return false;
 }
 
-// Gets default product description
-function getProductDescription({product}) {
+// Gets the default product description
+function getProductDescription(product) {
     if (product.description) {
         return product.description;
     }
@@ -777,16 +806,18 @@ function getProductDescription({product}) {
     return null;
 }
 
-// Renders paid tier product card
 function ProductCard({product, products, selectedInterval, handleChooseSignup, error}) {
     const {selectedProduct, setSelectedProduct} = useContext(ProductsContext);
     const {action} = useContext(AppContext);
     const trialDays = product.trial_days;
 
     const cardClass = selectedProduct === product.id ? 'gh-portal-product-card checked' : 'gh-portal-product-card';
-    const noOfProducts = products?.filter((d) => d.type === 'paid')?.length;
-    const {disabled} = getPaidProductCardState({action});
-    const productDescription = getProductDescription({product});
+    const noOfProducts = products?.filter((d) => {
+        return d.type === 'paid';
+    })?.length;
+
+    const disabled = isProductCardDisabled(action);
+    const productDescription = getProductDescription(product);
 
     return (
         <>
@@ -800,11 +831,9 @@ function ProductCard({product, products, selectedInterval, handleChooseSignup, e
                 </div>
                 <div className='gh-portal-product-card-details'>
                     <div className='gh-portal-product-card-detaildata'>
-                        {productDescription && (
-                            <div className="gh-portal-product-description" data-testid="product-description">
-                                {productDescription}
-                            </div>
-                        )}
+                        <div className="gh-portal-product-description" data-testid="product-description">
+                            {productDescription}
+                        </div>
                         <ProductBenefitsContainer product={product} />
                     </div>
                     <div className='gh-portal-btn-product'>
@@ -828,7 +857,6 @@ function ProductCard({product, products, selectedInterval, handleChooseSignup, e
     );
 }
 
-// Gets error message for a specific product
 function getProductErrorMessage({product, products, selectedInterval, errors}) {
     const selectedPrice = getSelectedPrice({products, selectedInterval, selectedProduct: product.id});
     if (selectedPrice && selectedPrice.id && errors && errors[selectedPrice.id]) {
@@ -837,7 +865,6 @@ function getProductErrorMessage({product, products, selectedInterval, errors}) {
     return null;
 }
 
-// Renders all product cards
 function ProductCards({products, selectedInterval, handleChooseSignup, errors}) {
     return products.map((product) => {
         const error = getProductErrorMessage({product, products, selectedInterval, errors});
@@ -852,8 +879,7 @@ function ProductCards({products, selectedInterval, handleChooseSignup, errors}) 
     });
 }
 
-// Renders yearly discount label
-function YearlyDiscount({discount}) {
+function YearlyDiscount({discount, trialDays}) {
     const {site} = useContext(AppContext);
     const {portal_plans: portalPlans} = site;
 
@@ -863,36 +889,36 @@ function YearlyDiscount({discount}) {
 
     if (hasFreeTrialTier({site})) {
         return (
-            <>
-                <span className="gh-portal-discount-label-trial">{t('{discount}% discount', {discount})}</span>
-            </>
+            <span className="gh-portal-discount-label-trial">{t('{discount}% discount', {discount})}</span>
         );
     }
-    
+
     return (
-        <>
-            <span className="gh-portal-discount-label">{t('{discount}% discount', {discount})}</span>
-        </>
+        <span className="gh-portal-discount-label">{t('{discount}% discount', {discount})}</span>
     );
 }
 
-// Calculates highest yearly discount across products
-function getHighestYearlyDiscount({products}) {
+// Calculates the highest yearly discount from all paid products
+function getHighestYearlyDiscount(products) {
     const paidProducts = products.filter(product => product.type !== 'free');
     const prices = paidProducts.map(product => calculateDiscount(product.monthlyPrice?.amount, product.yearlyPrice?.amount));
     return Math.max(...prices);
 }
 
-// Renders price toggle between monthly and yearly
+// Determines if price switch should be displayed
+function shouldShowPriceSwitch(portalPlans) {
+    return portalPlans.includes('monthly') && portalPlans.includes('yearly');
+}
+
 function ProductPriceSwitch({selectedInterval, setSelectedInterval, products}) {
     const {site} = useContext(AppContext);
     const {portal_plans: portalPlans} = site;
 
-    if (!portalPlans.includes('monthly') || !portalPlans.includes('yearly')) {
+    if (!shouldShowPriceSwitch(portalPlans)) {
         return null;
     }
 
-    const highestYearlyDiscount = getHighestYearlyDiscount({products});
+    const highestYearlyDiscount = getHighestYearlyDiscount(products);
 
     return (
         <div className='gh-portal-logged-out-form-container'>
@@ -923,7 +949,6 @@ function ProductPriceSwitch({selectedInterval, setSelectedInterval, products}) {
     );
 }
 
-// Gets selected price based on product and interval
 function getSelectedPrice({products, selectedProduct, selectedInterval}) {
     let selectedPrice = null;
     if (selectedProduct === 'free') {
@@ -938,7 +963,6 @@ function getSelectedPrice({products, selectedProduct, selectedInterval}) {
     return selectedPrice;
 }
 
-// Determines active billing interval based on configuration
 function getActiveInterval({portalPlans, portalDefaultPlan, selectedInterval}) {
     if (selectedInterval === 'month' && portalPlans.includes('monthly')) {
         return 'month';
@@ -948,8 +972,10 @@ function getActiveInterval({portalPlans, portalDefaultPlan, selectedInterval}) {
         return 'year';
     }
 
-    if (portalDefaultPlan === 'monthly' && portalPlans.includes('monthly')) {
-        return 'month';
+    if (portalDefaultPlan) {
+        if (portalDefaultPlan === 'monthly' && portalPlans.includes('monthly')) {
+            return 'month';
+        }
     }
 
     if (portalPlans.includes('yearly')) {
@@ -971,7 +997,6 @@ function ComplimentaryMemberMessage({site}) {
     );
 }
 
-// Main products section component
 function ProductsSection({onPlanSelect, products, type = null, handleChooseSignup, errors}) {
     const {site, member} = useContext(AppContext);
     const {portal_plans: portalPlans, portal_default_plan: portalDefaultPlan} = site;
@@ -1007,7 +1032,6 @@ function ProductsSection({onPlanSelect, products, type = null, handleChooseSignu
     }
 
     let finalProduct = products.find(p => p.id === selectedProduct)?.id || products.find(p => p.type === 'paid')?.id;
-    
     return (
         <ProductsContext.Provider value={{
             selectedInterval: activeInterval,
@@ -1015,7 +1039,8 @@ function ProductsSection({onPlanSelect, products, type = null, handleChooseSignu
             setSelectedProduct
         }}>
             <section className={className}>
-                {(!hasOnlyFree ?
+
+                {(!(hasOnlyFree) ?
                     <ProductPriceSwitch
                         products={products}
                         selectedInterval={activeInterval}
@@ -1031,7 +1056,6 @@ function ProductsSection({onPlanSelect, products, type = null, handleChooseSignu
     );
 }
 
-// Renders product description
 function ProductDescription({product}) {
     if (product?.description) {
         return (
@@ -1043,12 +1067,29 @@ function ProductDescription({product}) {
     return null;
 }
 
-// Determines change product card disabled state
-function getChangeProductCardState({member, site, priceId}) {
-    return isMemberActivePrice({member, site, priceId});
+// Renders the current plan indicator or choose button
+function ChangeProductCardButton({currentPlan, onPlanSelect, selectedPrice}) {
+    if (currentPlan) {
+        return (
+            <div className='gh-portal-btn-product'>
+                <span className='gh-portal-current-plan'><span>{t('Current plan')}</span></span>
+            </div>
+        );
+    }
+
+    return (
+        <div className='gh-portal-btn-product'>
+            <button
+                data-test-button='select-tier'
+                className='gh-portal-btn'
+                onClick={() => {
+                    onPlanSelect(null, selectedPrice?.id);
+                }}
+            >{t('Choose')}</button>
+        </div>
+    );
 }
 
-// Renders product card for change plan flow
 function ChangeProductCard({product, onPlanSelect}) {
     const {member, site} = useContext(AppContext);
     const {selectedProduct, setSelectedProduct, selectedInterval} = useContext(ProductsContext);
@@ -1057,7 +1098,7 @@ function ChangeProductCard({product, onPlanSelect}) {
     const yearlyPrice = product.yearlyPrice;
 
     const selectedPrice = selectedInterval === 'month' ? monthlyPrice : yearlyPrice;
-    const currentPlan = getChangeProductCardState({member, site, priceId: selectedPrice.id});
+    const currentPlan = isMemberActivePrice({member, site, priceId: selectedPrice.id});
 
     return (
         <div className={cardClass + (currentPlan ? ' disabled' : '')} key={product.id} onClick={(e) => {
@@ -1073,26 +1114,12 @@ function ChangeProductCard({product, onPlanSelect}) {
                     {product.description ? <ProductDescription product={product} /> : ''}
                     <ProductBenefitsContainer product={product} />
                 </div>
-                {(currentPlan ?
-                    <div className='gh-portal-btn-product'>
-                        <span className='gh-portal-current-plan'><span>{t('Current plan')}</span></span>
-                    </div>
-                    :
-                    <div className='gh-portal-btn-product'>
-                        <button
-                            data-test-button='select-tier'
-                            className='gh-portal-btn'
-                            onClick={() => {
-                                onPlanSelect(null, selectedPrice?.id);
-                            }}
-                        >{t('Choose')}</button>
-                    </div>)}
+                <ChangeProductCardButton currentPlan={currentPlan} onPlanSelect={onPlanSelect} selectedPrice={selectedPrice} />
             </div>
         </div>
     );
 }
 
-// Renders all change product cards
 function ChangeProductCards({products, onPlanSelect}) {
     return products.map((product) => {
         if (!product || product.id === 'free') {
@@ -1104,7 +1131,6 @@ function ChangeProductCards({products, onPlanSelect}) {
     });
 }
 
-// Change plan section component
 export function ChangeProductSection({onPlanSelect, selectedPlan, products, type = null}) {
     const {site, member} = useContext(AppContext);
     const {portal_plans: portalPlans} = site;
@@ -1160,4 +1186,3 @@ export function ChangeProductSection({onPlanSelect, selectedPlan, products, type
 }
 
 export default ProductsSection;
-```

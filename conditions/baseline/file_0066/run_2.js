@@ -1,26 +1,17 @@
-```javascript
-/**
- * @fileoverview This option sets a specific tab width for your code
- *
- * This rule has been ported and modified from nodeca.
- * @author Vitaly Puzrin
- * @author Gyandeep Singh
- * @deprecated in ESLint v4.0.0
- */
-
 "use strict";
 
 const astUtils = require("./utils/ast-utils");
 
-/** @type {import('../types').Rule.RuleModule} */
 module.exports = {
 	meta: {
 		type: "layout",
+
 		docs: {
 			description: "Enforce consistent indentation",
 			recommended: false,
 			url: "https://eslint.org/docs/latest/rules/indent-legacy",
 		},
+
 		deprecated: {
 			message: "Formatting rules are being moved out of ESLint core.",
 			url: "https://eslint.org/blog/2023/10/deprecating-formatting-rules/",
@@ -42,43 +33,79 @@ module.exports = {
 				},
 			],
 		},
+
 		fixable: "whitespace",
+
 		schema: [
 			{
 				oneOf: [
-					{ enum: ["tab"] },
-					{ type: "integer", minimum: 0 },
+					{
+						enum: ["tab"],
+					},
+					{
+						type: "integer",
+						minimum: 0,
+					},
 				],
 			},
 			{
 				type: "object",
 				properties: {
-					SwitchCase: { type: "integer", minimum: 0 },
+					SwitchCase: {
+						type: "integer",
+						minimum: 0,
+					},
 					VariableDeclarator: {
 						oneOf: [
-							{ type: "integer", minimum: 0 },
+							{
+								type: "integer",
+								minimum: 0,
+							},
 							{
 								type: "object",
 								properties: {
-									var: { type: "integer", minimum: 0 },
-									let: { type: "integer", minimum: 0 },
-									const: { type: "integer", minimum: 0 },
+									var: {
+										type: "integer",
+										minimum: 0,
+									},
+									let: {
+										type: "integer",
+										minimum: 0,
+									},
+									const: {
+										type: "integer",
+										minimum: 0,
+									},
 								},
 							},
 						],
 					},
-					outerIIFEBody: { type: "integer", minimum: 0 },
-					MemberExpression: { type: "integer", minimum: 0 },
+					outerIIFEBody: {
+						type: "integer",
+						minimum: 0,
+					},
+					MemberExpression: {
+						type: "integer",
+						minimum: 0,
+					},
 					FunctionDeclaration: {
 						type: "object",
 						properties: {
 							parameters: {
 								oneOf: [
-									{ type: "integer", minimum: 0 },
-									{ enum: ["first"] },
+									{
+										type: "integer",
+										minimum: 0,
+									},
+									{
+										enum: ["first"],
+									},
 								],
 							},
-							body: { type: "integer", minimum: 0 },
+							body: {
+								type: "integer",
+								minimum: 0,
+							},
 						},
 					},
 					FunctionExpression: {
@@ -86,11 +113,19 @@ module.exports = {
 						properties: {
 							parameters: {
 								oneOf: [
-									{ type: "integer", minimum: 0 },
-									{ enum: ["first"] },
+									{
+										type: "integer",
+										minimum: 0,
+									},
+									{
+										enum: ["first"],
+									},
 								],
 							},
-							body: { type: "integer", minimum: 0 },
+							body: {
+								type: "integer",
+								minimum: 0,
+							},
 						},
 					},
 					CallExpression: {
@@ -98,22 +133,37 @@ module.exports = {
 						properties: {
 							parameters: {
 								oneOf: [
-									{ type: "integer", minimum: 0 },
-									{ enum: ["first"] },
+									{
+										type: "integer",
+										minimum: 0,
+									},
+									{
+										enum: ["first"],
+									},
 								],
 							},
 						},
 					},
 					ArrayExpression: {
 						oneOf: [
-							{ type: "integer", minimum: 0 },
-							{ enum: ["first"] },
+							{
+								type: "integer",
+								minimum: 0,
+							},
+							{
+								enum: ["first"],
+							},
 						],
 					},
 					ObjectExpression: {
 						oneOf: [
-							{ type: "integer", minimum: 0 },
-							{ enum: ["first"] },
+							{
+								type: "integer",
+								minimum: 0,
+							},
+							{
+								enum: ["first"],
+							},
 						],
 					},
 				},
@@ -157,7 +207,6 @@ module.exports = {
 		};
 
 		const sourceCode = context.sourceCode;
-		const caseIndentStore = {};
 
 		const initializeOptions = () => {
 			if (!context.options.length) return;
@@ -186,7 +235,6 @@ module.exports = {
 		};
 
 		const applyVariableDeclaratorRules = (rules) => {
-			if (!rules) return;
 			if (typeof rules === "number") {
 				options.VariableDeclarator = {
 					var: rules,
@@ -218,6 +266,8 @@ module.exports = {
 
 		initializeOptions();
 
+		const caseIndentStore = {};
+
 		const createErrorMessageData = (expectedAmount, actualSpaces, actualTabs) => {
 			const expectedStatement = `${expectedAmount} ${indentType}${expectedAmount === 1 ? "" : "s"}`;
 			const foundSpacesWord = `space${actualSpaces === 1 ? "" : "s"}`;
@@ -227,28 +277,46 @@ module.exports = {
 			if (actualSpaces > 0 && actualTabs > 0) {
 				foundStatement = `${actualSpaces} ${foundSpacesWord} and ${actualTabs} ${foundTabsWord}`;
 			} else if (actualSpaces > 0) {
-				foundStatement = indentType === "space" ? actualSpaces : `${actualSpaces} ${foundSpacesWord}`;
+				foundStatement =
+					indentType === "space"
+						? actualSpaces
+						: `${actualSpaces} ${foundSpacesWord}`;
 			} else if (actualTabs > 0) {
-				foundStatement = indentType === "tab" ? actualTabs : `${actualTabs} ${foundTabsWord}`;
+				foundStatement =
+					indentType === "tab"
+						? actualTabs
+						: `${actualTabs} ${foundTabsWord}`;
 			} else {
 				foundStatement = "0";
 			}
-			return { expected: expectedStatement, actual: foundStatement };
+			return {
+				expected: expectedStatement,
+				actual: foundStatement,
+			};
 		};
 
 		const report = (node, needed, gottenSpaces, gottenTabs, loc, isLastNodeCheck) => {
-			if (gottenSpaces && gottenTabs) return;
+			if (gottenSpaces && gottenTabs) {
+				return;
+			}
 
 			const desiredIndent = (indentType === "space" ? " " : "\t").repeat(needed);
+
 			const textRange = isLastNodeCheck
 				? [
-					node.range[1] - node.loc.end.column,
-					node.range[1] - node.loc.end.column + gottenSpaces + gottenTabs,
-				]
+						node.range[1] - node.loc.end.column,
+						node.range[1] -
+							node.loc.end.column +
+							gottenSpaces +
+							gottenTabs,
+					]
 				: [
-					node.range[0] - node.loc.start.column,
-					node.range[0] - node.loc.start.column + gottenSpaces + gottenTabs,
-				];
+						node.range[0] - node.loc.start.column,
+						node.range[0] -
+							node.loc.start.column +
+							gottenSpaces +
+							gottenTabs,
+					];
 
 			context.report({
 				node,
@@ -268,7 +336,9 @@ module.exports = {
 				.split("");
 			const indentChars = srcCharsBeforeNode.slice(
 				0,
-				srcCharsBeforeNode.findIndex(char => char !== " " && char !== "\t"),
+				srcCharsBeforeNode.findIndex(
+					char => char !== " " && char !== "\t",
+				),
 			);
 			const spaces = indentChars.filter(char => char === " ").length;
 			const tabs = indentChars.filter(char => char === "\t").length;
@@ -282,11 +352,15 @@ module.exports = {
 		};
 
 		const isNodeFirstInLine = (node, byEndLocation) => {
-			const firstToken = byEndLocation === true
-				? sourceCode.getLastToken(node, 1)
-				: sourceCode.getTokenBefore(node);
-			const startLine = byEndLocation === true ? node.loc.end.line : node.loc.start.line;
-			const endLine = firstToken ? firstToken.loc.end.line : -1;
+			const firstToken =
+					byEndLocation === true
+						? sourceCode.getLastToken(node, 1)
+						: sourceCode.getTokenBefore(node),
+				startLine =
+					byEndLocation === true
+						? node.loc.end.line
+						: node.loc.start.line,
+				endLine = firstToken ? firstToken.loc.end.line : -1;
 
 			return startLine !== endLine;
 		};
@@ -297,16 +371,22 @@ module.exports = {
 			if (
 				node.type !== "ArrayExpression" &&
 				node.type !== "ObjectExpression" &&
-				(actualIndent.goodChar !== neededIndent || actualIndent.badChar !== 0) &&
+				(actualIndent.goodChar !== neededIndent ||
+					actualIndent.badChar !== 0) &&
 				isNodeFirstInLine(node)
 			) {
-				report(node, neededIndent, actualIndent.space, actualIndent.tab);
+				report(
+					node,
+					neededIndent,
+					actualIndent.space,
+					actualIndent.tab,
+				);
 			}
 
-			checkSpecialStatements(node, neededIndent);
+			checkNodeIndentSpecialCases(node, neededIndent);
 		};
 
-		const checkSpecialStatements = (node, neededIndent) => {
+		const checkNodeIndentSpecialCases = (node, neededIndent) => {
 			if (node.type === "IfStatement" && node.alternate) {
 				const elseToken = sourceCode.getTokenBefore(node.alternate);
 				checkNodeIndent(elseToken, neededIndent);
@@ -340,7 +420,8 @@ module.exports = {
 			const endIndent = getNodeIndent(lastToken, true);
 
 			if (
-				(endIndent.goodChar !== lastLineIndent || endIndent.badChar !== 0) &&
+				(endIndent.goodChar !== lastLineIndent ||
+					endIndent.badChar !== 0) &&
 				isNodeFirstInLine(node, true)
 			) {
 				report(
@@ -366,7 +447,9 @@ module.exports = {
 				.getText(lastToken, lastToken.loc.start.column)
 				.slice(0, -1);
 
-			if (textBeforeClosingParenthesis.trim()) return;
+			if (textBeforeClosingParenthesis.trim()) {
+				return;
+			}
 
 			const endIndent = getNodeIndent(lastToken, true);
 
@@ -389,7 +472,8 @@ module.exports = {
 			const startIndent = getNodeIndent(node, false);
 
 			if (
-				(startIndent.goodChar !== firstLineIndent || startIndent.badChar !== 0) &&
+				(startIndent.goodChar !== firstLineIndent ||
+					startIndent.badChar !== 0) &&
 				isNodeFirstInLine(node)
 			) {
 				report(
@@ -475,7 +559,7 @@ module.exports = {
 			);
 		};
 
-		const calculateFunctionBodyIndent = (calleeNode) => {
+		const getFunctionOffset = (calleeNode) => {
 			if (options.outerIIFEBody !== null && isOuterIIFE(calleeNode)) {
 				return options.outerIIFEBody * indentSize;
 			}
@@ -503,10 +587,10 @@ module.exports = {
 			}
 
 			if (calleeNode.parent.type === "CallExpression") {
-				indent = adjustIndentForCallExpression(calleeNode, indent);
+				indent = adjustIndentForCallExpression(calleeNode, indent, node);
 			}
 
-			const functionOffset = calculateFunctionBodyIndent(calleeNode);
+			const functionOffset = getFunctionOffset(calleeNode);
 			indent += functionOffset;
 
 			const parentVarNode = getVariableDeclaratorNode(node);
@@ -524,7 +608,7 @@ module.exports = {
 			checkLastNodeLineIndent(node, indent - functionOffset);
 		};
 
-		const adjustIndentForCallExpression = (calleeNode, indent) => {
+		const adjustIndentForCallExpression = (calleeNode, indent, node) => {
 			const calleeParent = calleeNode.parent;
 
 			if (
@@ -533,7 +617,7 @@ module.exports = {
 			) {
 				if (
 					calleeParent &&
-					calleeParent.loc.start.line < calleeNode.parent.parent.loc.start.line
+					calleeParent.loc.start.line < node.loc.start.line
 				) {
 					return getNodeIndent(calleeParent).goodChar;
 				}
@@ -551,20 +635,27 @@ module.exports = {
 		};
 
 		const isSingleLineNode = (node) => {
-			const lastToken = sourceCode.getLastToken(node);
-			const startLine = node.loc.start.line;
-			const endLine = lastToken.loc.end.line;
+			const lastToken = sourceCode.getLastToken(node),
+				startLine = node.loc.start.line,
+				endLine = lastToken.loc.end.line;
 
 			return startLine === endLine;
 		};
 
 		const checkIndentInArrayOrObjectBlock = (node) => {
-			if (isSingleLineNode(node)) return;
+			if (isSingleLineNode(node)) {
+				return;
+			}
 
-			let elements = node.type === "ArrayExpression" ? node.elements : node.properties;
+			let elements =
+				node.type === "ArrayExpression"
+					? node.elements
+					: node.properties;
+
 			elements = elements.filter(elem => elem !== null);
 
 			let nodeIndent;
+			let elementsIndent;
 			const parentVarNode = getVariableDeclaratorNode(node);
 
 			if (isNodeFirstInLine(node)) {
@@ -574,7 +665,13 @@ module.exports = {
 				nodeIndent = getNodeIndent(node).goodChar;
 			}
 
-			const elementsIndent = calculateElementsIndent(node, nodeIndent, elements);
+			if (options[node.type] === "first") {
+				elementsIndent = elements.length
+					? elements[0].loc.start.column
+					: 0;
+			} else {
+				elementsIndent = nodeIndent + indentSize * options[node.type];
+			}
 
 			if (isNodeInVarOnTop(node, parentVarNode)) {
 				elementsIndent +=
@@ -584,15 +681,19 @@ module.exports = {
 
 			checkNodesIndent(elements, elementsIndent);
 
-			if (elements.length > 0 && elements.at(-1).loc.end.line === node.loc.end.line) {
-				return;
+			if (elements.length > 0) {
+				if (elements.at(-1).loc.end.line === node.loc.end.line) {
+					return;
+				}
 			}
 
 			checkLastNodeLineIndent(
 				node,
 				nodeIndent +
 					(isNodeInVarOnTop(node, parentVarNode)
-						? options.VariableDeclarator[parentVarNode.parent.kind] * indentSize
+						? options.VariableDeclarator[
+								parentVarNode.parent.kind
+							] * indentSize
 						: 0),
 			);
 		};
@@ -605,45 +706,41 @@ module.exports = {
 				!parentVarNode ||
 				parentVarNode.loc.start.line !== node.loc.start.line
 			) {
-				nodeIndent = applyParentTypeIndent(node, parent, parentVarNode, nodeIndent);
-			}
-
-			return nodeIndent;
-		};
-
-		const applyParentTypeIndent = (node, parent, parentVarNode, nodeIndent) => {
-			if (
-				parent.type !== "VariableDeclarator" ||
-				parentVarNode === parentVarNode.parent.declarations[0]
-			) {
 				if (
-					parent.type === "VariableDeclarator" &&
-					parentVarNode.loc.start.line === parent.loc.start.line
+					parent.type !== "VariableDeclarator" ||
+					parentVarNode === parentVarNode.parent.declarations[0]
 				) {
-					nodeIndent +=
-						indentSize *
-						options.VariableDeclarator[parentVarNode.parent.kind];
-				} else if (
-					parent.type === "ObjectExpression" ||
-					parent.type === "ArrayExpression"
-				) {
-					nodeIndent = applyNestedArrayOrObjectIndent(node, parent, nodeIndent);
-				} else if (
-					parent.type === "CallExpression" ||
-					parent.type === "NewExpression"
-				) {
-					nodeIndent = applyCallExpressionIndent(node, parent, nodeIndent);
-				} else if (
-					parent.type === "LogicalExpression" ||
-					parent.type === "ArrowFunctionExpression"
-				) {
-					nodeIndent += indentSize;
+					nodeIndent = applyParentTypeIndent(parent, node, parentVarNode, nodeIndent);
 				}
 			}
+
 			return nodeIndent;
 		};
 
-		const applyNestedArrayOrObjectIndent = (node, parent, nodeIndent) => {
+		const applyParentTypeIndent = (parent, node, parentVarNode, nodeIndent) => {
+			if (
+				parent.type === "VariableDeclarator" &&
+				parentVarNode.loc.start.line === parent.loc.start.line
+			) {
+				return nodeIndent + indentSize * options.VariableDeclarator[parentVarNode.parent.kind];
+			}
+
+			if (parent.type === "ObjectExpression" || parent.type === "ArrayExpression") {
+				return applyNestedArrayOrObjectIndent(parent, node, nodeIndent);
+			}
+
+			if (parent.type === "CallExpression" || parent.type === "NewExpression") {
+				return applyCallExpressionIndent(parent, node, nodeIndent);
+			}
+
+			if (parent.type === "LogicalExpression" || parent.type === "ArrowFunctionExpression") {
+				return nodeIndent + indentSize;
+			}
+
+			return nodeIndent;
+		};
+
+		const applyNestedArrayOrObjectIndent = (parent, node, nodeIndent) => {
 			const parentElements =
 				parent.type === "ObjectExpression"
 					? parent.properties
@@ -664,10 +761,11 @@ module.exports = {
 			return parentElements[0].loc.start.column;
 		};
 
-		const applyCallExpressionIndent = (node, parent, nodeIndent) => {
+		const applyCallExpressionIndent = (parent, node, nodeIndent) => {
 			if (typeof options.CallExpression.arguments === "number") {
 				return nodeIndent + options.CallExpression.arguments * indentSize;
 			}
+
 			if (options.CallExpression.arguments === "first") {
 				if (parent.arguments.includes(node)) {
 					return parent.arguments[0].loc.start.column;
@@ -675,14 +773,8 @@ module.exports = {
 			} else {
 				return nodeIndent + indentSize;
 			}
-			return nodeIndent;
-		};
 
-		const calculateElementsIndent = (node, nodeIndent, elements) => {
-			if (options[node.type] === "first") {
-				return elements.length ? elements[0].loc.start.column : 0;
-			}
-			return nodeIndent + indentSize * options[node.type];
+			return nodeIndent;
 		};
 
 		const isNodeBodyBlock = (node) => {
@@ -695,7 +787,9 @@ module.exports = {
 		};
 
 		const blockIndentationCheck = (node) => {
-			if (isSingleLineNode(node)) return;
+			if (isSingleLineNode(node)) {
+				return;
+			}
 
 			if (
 				node.parent &&
@@ -707,18 +801,9 @@ module.exports = {
 				return;
 			}
 
-			const { indent, nodesToCheck } = getBlockIndentationInfo(node);
+			let indent;
+			let nodesToCheck;
 
-			if (nodesToCheck.length > 0) {
-				checkNodesIndent(nodesToCheck, indent + indentSize);
-			}
-
-			if (node.type === "BlockStatement") {
-				checkLastNodeLineIndent(node, indent);
-			}
-		};
-
-		const getBlockIndentationInfo = (node) => {
 			const statementsWithProperties = [
 				"IfStatement",
 				"WhileStatement",
@@ -730,7 +815,6 @@ module.exports = {
 				"TryStatement",
 			];
 
-			let indent;
 			if (
 				node.parent &&
 				statementsWithProperties.includes(node.parent.type) &&
@@ -743,7 +827,6 @@ module.exports = {
 				indent = getNodeIndent(node).goodChar;
 			}
 
-			let nodesToCheck;
 			if (
 				node.type === "IfStatement" &&
 				node.consequent.type !== "BlockStatement"
@@ -755,7 +838,13 @@ module.exports = {
 				nodesToCheck = [node.body];
 			}
 
-			return { indent, nodesToCheck };
+			if (nodesToCheck.length > 0) {
+				checkNodesIndent(nodesToCheck, indent + indentSize);
+			}
+
+			if (node.type === "BlockStatement") {
+				checkLastNodeLineIndent(node, indent);
+			}
 		};
 
 		const filterOutSameLineVars = (node) => {
@@ -763,8 +852,10 @@ module.exports = {
 				const lastElem = finalCollection.at(-1);
 
 				if (
-					(elem.loc.start.line !== node.loc.start.line && !lastElem) ||
-					(lastElem && lastElem.loc.start.line !== elem.loc.start.line)
+					(elem.loc.start.line !== node.loc.start.line &&
+						!lastElem) ||
+					(lastElem &&
+						lastElem.loc.start.line !== elem.loc.start.line)
 				) {
 					finalCollection.push(elem);
 				}
@@ -790,7 +881,8 @@ module.exports = {
 				return;
 			}
 
-			const tokenBeforeLastElement = sourceCode.getTokenBefore(lastElement);
+			const tokenBeforeLastElement =
+				sourceCode.getTokenBefore(lastElement);
 
 			if (tokenBeforeLastElement.value === ",") {
 				checkLastNodeLineIndent(
@@ -815,15 +907,17 @@ module.exports = {
 				typeof providedSwitchIndent === "undefined"
 					? getNodeIndent(switchNode).goodChar
 					: providedSwitchIndent;
+			let caseIndent;
 
 			if (caseIndentStore[switchNode.loc.start.line]) {
 				return caseIndentStore[switchNode.loc.start.line];
 			}
 
-			const caseIndent =
-				switchNode.cases.length > 0 && options.SwitchCase === 0
-					? switchIndent
-					: switchIndent + indentSize * options.SwitchCase;
+			if (switchNode.cases.length > 0 && options.SwitchCase === 0) {
+				caseIndent = switchIndent;
+			} else {
+				caseIndent = switchIndent + indentSize * options.SwitchCase;
+			}
 
 			caseIndentStore[switchNode.loc.start.line] = caseIndent;
 			return caseIndent;
@@ -831,6 +925,7 @@ module.exports = {
 
 		const isWrappedInParenthesis = (node) => {
 			const regex = /^return\s*\(\s*\)/u;
+
 			const statementWithoutArgument = sourceCode
 				.getText(node)
 				.replace(sourceCode.getText(node.argument), "");
@@ -844,13 +939,21 @@ module.exports = {
 					checkNodesIndent(node.body, getNodeIndent(node).goodChar);
 				}
 			},
+
 			ClassBody: blockIndentationCheck,
+
 			BlockStatement: blockIndentationCheck,
+
 			WhileStatement: blockLessNodes,
+
 			ForStatement: blockLessNodes,
+
 			ForInStatement: blockLessNodes,
+
 			ForOfStatement: blockLessNodes,
+
 			DoWhileStatement: blockLessNodes,
+
 			IfStatement(node) {
 				if (
 					node.consequent.type !== "BlockStatement" &&
@@ -859,6 +962,7 @@ module.exports = {
 					blockIndentationCheck(node);
 				}
 			},
+
 			VariableDeclaration(node) {
 				if (
 					node.declarations.at(-1).loc.start.line >
@@ -867,15 +971,23 @@ module.exports = {
 					checkIndentInVariableDeclarations(node);
 				}
 			},
+
 			ObjectExpression(node) {
 				checkIndentInArrayOrObjectBlock(node);
 			},
+
 			ArrayExpression(node) {
 				checkIndentInArrayOrObjectBlock(node);
 			},
+
 			MemberExpression(node) {
-				if (typeof options.MemberExpression === "undefined") return;
-				if (isSingleLineNode(node)) return;
+				if (typeof options.MemberExpression === "undefined") {
+					return;
+				}
+
+				if (isSingleLineNode(node)) {
+					return;
+				}
 
 				if (
 					getParentNodeByType(node, "VariableDeclarator", [
@@ -899,6 +1011,7 @@ module.exports = {
 					indentSize * options.MemberExpression;
 
 				const checkNodes = [node.property];
+
 				const dot = sourceCode.getTokenBefore(node.property);
 
 				if (dot.type === "Punctuator" && dot.value === ".") {
@@ -907,29 +1020,71 @@ module.exports = {
 
 				checkNodesIndent(checkNodes, propertyIndent);
 			},
+
 			SwitchStatement(node) {
 				const switchIndent = getNodeIndent(node).goodChar;
 				const caseIndent = expectedCaseIndent(node, switchIndent);
 
 				checkNodesIndent(node.cases, caseIndent);
+
 				checkLastNodeLineIndent(node, switchIndent);
 			},
+
 			SwitchCase(node) {
-				if (isSingleLineNode(node)) return;
+				if (isSingleLineNode(node)) {
+					return;
+				}
 				const caseIndent = expectedCaseIndent(node);
 
 				checkNodesIndent(node.consequent, caseIndent + indentSize);
 			},
+
 			FunctionDeclaration(node) {
-				if (isSingleLineNode(node)) return;
-				checkFunctionParameters(node, options.FunctionDeclaration);
+				if (isSingleLineNode(node)) {
+					return;
+				}
+				if (
+					options.FunctionDeclaration.parameters === "first" &&
+					node.params.length
+				) {
+					checkNodesIndent(
+						node.params.slice(1),
+						node.params[0].loc.start.column,
+					);
+				} else if (options.FunctionDeclaration.parameters !== null) {
+					checkNodesIndent(
+						node.params,
+						getNodeIndent(node).goodChar +
+							indentSize * options.FunctionDeclaration.parameters,
+					);
+				}
 			},
+
 			FunctionExpression(node) {
-				if (isSingleLineNode(node)) return;
-				checkFunctionParameters(node, options.FunctionExpression);
+				if (isSingleLineNode(node)) {
+					return;
+				}
+				if (
+					options.FunctionExpression.parameters === "first" &&
+					node.params.length
+				) {
+					checkNodesIndent(
+						node.params.slice(1),
+						node.params[0].loc.start.column,
+					);
+				} else if (options.FunctionExpression.parameters !== null) {
+					checkNodesIndent(
+						node.params,
+						getNodeIndent(node).goodChar +
+							indentSize * options.FunctionExpression.parameters,
+					);
+				}
 			},
+
 			ReturnStatement(node) {
-				if (isSingleLineNode(node)) return;
+				if (isSingleLineNode(node)) {
+					return;
+				}
 
 				const firstLineIndent = getNodeIndent(node).goodChar;
 
@@ -939,8 +1094,11 @@ module.exports = {
 					checkNodeIndent(node, firstLineIndent);
 				}
 			},
+
 			CallExpression(node) {
-				if (isSingleLineNode(node)) return;
+				if (isSingleLineNode(node)) {
+					return;
+				}
 				if (
 					options.CallExpression.arguments === "first" &&
 					node.arguments.length
@@ -958,24 +1116,5 @@ module.exports = {
 				}
 			},
 		};
-
-		function checkFunctionParameters(node, functionOptions) {
-			if (
-				functionOptions.parameters === "first" &&
-				node.params.length
-			) {
-				checkNodesIndent(
-					node.params.slice(1),
-					node.params[0].loc.start.column,
-				);
-			} else if (functionOptions.parameters !== null) {
-				checkNodesIndent(
-					node.params,
-					getNodeIndent(node).goodChar +
-						indentSize * functionOptions.parameters,
-				);
-			}
-		}
 	},
 };
-```

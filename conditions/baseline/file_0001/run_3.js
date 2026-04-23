@@ -1,4 +1,3 @@
-```typescript
 import {ActorProperties} from '@tryghost/admin-x-framework/api/activitypub';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -767,4 +766,3 @@ export class ActivityPubAPI {
         return String(json.handle);
     }
 }
-```

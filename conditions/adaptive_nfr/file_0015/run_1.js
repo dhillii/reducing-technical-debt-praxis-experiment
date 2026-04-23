@@ -1,4 +1,3 @@
-```javascript
 import setupGhostApi from './utils/api';
 import {chooseBestErrorMessage} from './utils/errors';
 import {createPopupNotification, getMemberEmail, getMemberName, getProductCadenceFromPrice, removePortalLinkFromUrl, getRefDomain} from './utils/helpers';
@@ -154,23 +153,23 @@ async function verifyOTC({data, api}) {
     }
 }
 
-/** Check if plan is free tier */
+/** @returns {boolean} True if plan is free tier */
 function isFreePlan(plan) {
     return plan.toLowerCase() === 'free';
 }
 
-/** Check if tier and cadence are provided */
+/** @returns {boolean} True if tier and cadence are already specified */
 function hasTierAndCadence(tierId, cadence) {
     return tierId && cadence;
 }
 
-async function _handleFreePlanSignup({data, api}) {
+async function handleFreePlanSignup({data, api}) {
     const integrityToken = await api.member.getIntegrityToken();
-    const {inboxLinks} = await api.member.sendMagicLink({emailType: 'signup', integrityToken, ...data, name: data.name});
-    return {inboxLinks};
+    const {inboxLinks} = await api.member.sendMagicLink({emailType: 'signup', integrityToken, ...data, name: data.name?.trim()});
+    return inboxLinks;
 }
 
-async function _handlePaidPlanSignup({data, state, api}) {
+async function handlePaidPlanSignup({data, state, api}) {
     let {plan, tierId, cadence, email, name, newsletters, offerId} = data;
     
     if (!hasTierAndCadence(tierId, cadence)) {
@@ -178,16 +177,15 @@ async function _handlePaidPlanSignup({data, state, api}) {
     }
     
     await api.member.checkoutPlan({plan, tierId, cadence, email, name, newsletters, offerId});
-    return {page: 'loading'};
 }
 
 async function signup({data, state, api}) {
     try {
         let {plan, email} = data;
-        data.name = data.name?.trim();
+        const name = data.name?.trim();
 
         if (isFreePlan(plan)) {
-            const {inboxLinks} = await _handleFreePlanSignup({data, api});
+            const inboxLinks = await handleFreePlanSignup({...data, name}, api);
             return {
                 page: 'magiclink',
                 lastPage: 'signup',
@@ -199,8 +197,10 @@ async function signup({data, state, api}) {
             };
         }
 
-        await _handlePaidPlanSignup({data, state, api});
-        return {page: 'loading'};
+        await handlePaidPlanSignup({data, state, api});
+        return {
+            page: 'loading'
+        };
     } catch (e) {
         const message = chooseBestErrorMessage(e, t('Failed to sign up, please try again'));
         return {
@@ -216,7 +216,7 @@ async function signup({data, state, api}) {
 async function checkoutPlan({data, state, api}) {
     try {
         let {plan, offerId, tierId, cadence} = data;
-        if (!hasTierAndCadence(tierId, cadence)) {
+        if (!tierId || !cadence) {
             ({tierId, cadence} = getProductCadenceFromPrice({site: state?.site, priceId: plan}));
         }
         await api.member.checkoutPlan({
@@ -401,13 +401,13 @@ async function showPopupNotification({data, state}) {
     };
 }
 
-/** Check if newsletter update data is provided */
-function hasNewsletterUpdateData(newsletters, enableCommentNotifications) {
+/** @returns {boolean} True if update is needed */
+function shouldUpdateNewsletterPreference(newsletters, enableCommentNotifications) {
     return newsletters || enableCommentNotifications !== undefined;
 }
 
-/** Build newsletter update payload */
-function buildNewsletterUpdatePayload(newsletters, enableCommentNotifications) {
+/** @returns {object} Update data object */
+function buildNewsletterUpdateData(newsletters, enableCommentNotifications) {
     const updateData = {};
     if (newsletters) {
         updateData.newsletters = newsletters;
@@ -421,10 +421,12 @@ function buildNewsletterUpdatePayload(newsletters, enableCommentNotifications) {
 async function updateNewsletterPreference({data, state, api}) {
     try {
         const {newsletters, enableCommentNotifications} = data;
-        if (!hasNewsletterUpdateData(newsletters, enableCommentNotifications)) {
+        
+        if (!shouldUpdateNewsletterPreference(newsletters, enableCommentNotifications)) {
             return {};
         }
-        const updateData = buildNewsletterUpdatePayload(newsletters, enableCommentNotifications);
+        
+        const updateData = buildNewsletterUpdateData(newsletters, enableCommentNotifications);
         const member = await api.member.update(updateData);
         const action = 'updateNewsletterPref:success';
         return {
@@ -493,19 +495,13 @@ async function updateNewsletter({data, state, api}) {
     }
 }
 
-/** Check if email has changed */
-function hasEmailChanged(email, originalEmail) {
-    return email !== originalEmail;
-}
-
 async function updateMemberEmail({data, state, api}) {
     const {email} = data;
     const originalEmail = getMemberEmail({member: state.member});
-    
-    if (!hasEmailChanged(email, originalEmail)) {
+    if (email === originalEmail) {
         return null;
     }
-
+    
     try {
         await api.member.updateEmailAddress({email});
         return {
@@ -519,19 +515,14 @@ async function updateMemberEmail({data, state, api}) {
     }
 }
 
-/** Check if name has changed */
-function hasNameChanged(name, originalName) {
-    return originalName !== name;
-}
-
 async function updateMemberData({data, state, api}) {
     const name = data?.name?.trim();
     const originalName = getMemberName({member: state.member});
 
-    if (!hasNameChanged(name, originalName)) {
+    if (originalName === name) {
         return null;
     }
-
+    
     try {
         const member = await api.member.update({name});
         if (!member) {
@@ -553,7 +544,7 @@ async function refreshMemberData({state, api}) {
     if (!state.member) {
         return null;
     }
-
+    
     try {
         const member = await api.member.sessionData();
         if (!member) {
@@ -573,8 +564,23 @@ async function refreshMemberData({state, api}) {
     }
 }
 
-/** Build success response for profile update with both data and email changes */
-function _buildProfileSuccessWithBoth(dataUpdate, state) {
+/** @returns {boolean} True if both updates were performed */
+function hasBothUpdates(dataUpdate, emailUpdate) {
+    return dataUpdate && emailUpdate;
+}
+
+/** @returns {boolean} True if only data update was performed */
+function hasOnlyDataUpdate(dataUpdate, emailUpdate) {
+    return dataUpdate && !emailUpdate;
+}
+
+/** @returns {boolean} True if only email update was performed */
+function hasOnlyEmailUpdate(dataUpdate, emailUpdate) {
+    return !dataUpdate && emailUpdate;
+}
+
+/** @returns {object} Result for successful email update with optional data update */
+function buildBothUpdatesSuccessResult(dataUpdate, state) {
     return {
         action: 'updateProfile:success',
         ...(dataUpdate.success ? {member: dataUpdate.member} : {}),
@@ -586,8 +592,8 @@ function _buildProfileSuccessWithBoth(dataUpdate, state) {
     };
 }
 
-/** Build error response for profile update with both data and email changes */
-function _buildProfileErrorWithBoth(dataUpdate, state) {
+/** @returns {object} Result for failed email update */
+function buildBothUpdatesFailureResult(dataUpdate, state) {
     const message = !dataUpdate.success ? t('Failed to update account data') : t('Failed to send verification email');
     return {
         action: 'updateProfile:failed',
@@ -598,8 +604,8 @@ function _buildProfileErrorWithBoth(dataUpdate, state) {
     };
 }
 
-/** Build response for profile update with only data changes */
-function _buildProfileResponseDataOnly(dataUpdate, state) {
+/** @returns {object} Result for data-only update */
+function buildDataOnlyResult(dataUpdate, state) {
     const action = dataUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
     const status = dataUpdate.success ? 'success' : 'error';
     const message = !dataUpdate.success ? t('Failed to update account details') : t('Account details updated successfully');
@@ -613,8 +619,8 @@ function _buildProfileResponseDataOnly(dataUpdate, state) {
     };
 }
 
-/** Build response for profile update with only email changes */
-function _buildProfileResponseEmailOnly(emailUpdate, state) {
+/** @returns {object} Result for email-only update */
+function buildEmailOnlyResult(emailUpdate, state) {
     const action = emailUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
     const status = emailUpdate.success ? 'success' : 'error';
     let message = '';
@@ -634,8 +640,8 @@ function _buildProfileResponseEmailOnly(emailUpdate, state) {
     };
 }
 
-/** Build default success response for profile update */
-function _buildProfileDefaultSuccess(state) {
+/** @returns {object} Result for no updates */
+function buildNoUpdatesResult(state) {
     return {
         action: 'updateProfile:success',
         page: 'accountHome',
@@ -649,32 +655,19 @@ function _buildProfileDefaultSuccess(state) {
 async function updateProfile({data, state, api}) {
     const [dataUpdate, emailUpdate] = await Promise.all([updateMemberData({data, state, api}), updateMemberEmail({data, state, api})]);
     
-    if (dataUpdate && emailUpdate) {
-        return emailUpdate.success ? _buildProfileSuccessWithBoth(dataUpdate, state) : _buildProfileErrorWithBoth(dataUpdate, state);
+    if (hasBothUpdates(dataUpdate, emailUpdate)) {
+        return emailUpdate.success ? buildBothUpdatesSuccessResult(dataUpdate, state) : buildBothUpdatesFailureResult(dataUpdate, state);
     }
     
-    if (dataUpdate) {
-        return _buildProfileResponseDataOnly(dataUpdate, state);
+    if (hasOnlyDataUpdate(dataUpdate, emailUpdate)) {
+        return buildDataOnlyResult(dataUpdate, state);
     }
     
-    if (emailUpdate) {
-        return _buildProfileResponseEmailOnly(emailUpdate, state);
+    if (hasOnlyEmailUpdate(dataUpdate, emailUpdate)) {
+        return buildEmailOnlyResult(emailUpdate, state);
     }
     
-    return _buildProfileDefaultSuccess(state);
-}
-
-/** Build custom URL history for outbound link tagging */
-function _buildCustomUrlHistory(site, referrerSource, referrerUrl) {
-    if (!site.outbound_link_tagging) {
-        return [];
-    }
-    return [{
-        time: Date.now(),
-        referrerSource,
-        referrerMedium: 'Ghost Recommendations',
-        referrerUrl
-    }];
+    return buildNoUpdatesResult(state);
 }
 
 async function oneClickSubscribe({data: {siteUrl}, state}) {
@@ -683,7 +676,6 @@ async function oneClickSubscribe({data: {siteUrl}, state}) {
 
     const referrerUrl = window.location.href;
     const referrerSource = getRefDomain();
-    const customUrlHistory = _buildCustomUrlHistory(state.site, referrerSource, referrerUrl);
 
     const integrityToken = await externalSiteApi.member.getIntegrityToken();
     await externalSiteApi.member.sendMagicLink({
@@ -692,41 +684,45 @@ async function oneClickSubscribe({data: {siteUrl}, state}) {
         email: member.email,
         autoRedirect: false,
         integrityToken,
-        customUrlHistory
+        customUrlHistory: state.site.outbound_link_tagging ? [
+            {
+                time: Date.now(),
+                referrerSource,
+                referrerMedium: 'Ghost Recommendations',
+                referrerUrl
+            }
+        ] : []
     });
 
     return {};
 }
 
-/** Check if recommendation ID is already tracked */
-function isRecommendationAlreadyTracked(recommendationId) {
-    try {
-        const existing = localStorage.getItem('ghost-recommendations-clicked');
-        const clicked = existing ? JSON.parse(existing) : [];
-        return clicked.includes(recommendationId);
-    } catch (e) {
-        return false;
-    }
+/** @returns {boolean} True if recommendation is already tracked */
+function isRecommendationAlreadyTracked(clicked, recommendationId) {
+    return clicked.includes(recommendationId);
 }
 
-/** Store recommendation click in local storage */
-function storeRecommendationClick(recommendationId) {
+/** @returns {array} Updated clicked recommendations list */
+function addRecommendationToTracked(clicked, recommendationId) {
+    clicked.push(recommendationId);
+    return clicked;
+}
+
+function trackRecommendationClicked({data: {recommendationId}, api}) {
     try {
         const existing = localStorage.getItem('ghost-recommendations-clicked');
         const clicked = existing ? JSON.parse(existing) : [];
-        clicked.push(recommendationId);
+        
+        if (isRecommendationAlreadyTracked(clicked, recommendationId)) {
+            return;
+        }
+        
+        addRecommendationToTracked(clicked, recommendationId);
         localStorage.setItem('ghost-recommendations-clicked', JSON.stringify(clicked));
     } catch (e) {
         // Ignore localstorage errors (browser not supported or in private mode)
     }
-}
-
-function trackRecommendationClicked({data: {recommendationId}, api}) {
-    if (isRecommendationAlreadyTracked(recommendationId)) {
-        return {};
-    }
     
-    storeRecommendationClick(recommendationId);
     api.recommendations.trackClicked({
         recommendationId
     });
@@ -782,4 +778,3 @@ export default async function ActionHandler({action, data, state, api}) {
     }
     return {};
 }
-```

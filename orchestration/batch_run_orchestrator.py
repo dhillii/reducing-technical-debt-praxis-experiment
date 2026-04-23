@@ -99,6 +99,7 @@ class BatchRunOrchestrator:
             self.max_tokens = CLAUDE_MAX_OUTPUT_TOKENS
             self.temperature = CLAUDE_TEMPERATURE
             self.gpt_oss_prefix = False
+            self.disable_reasoning = False
             self.conditions_root = "conditions"
             self.state_file = EXPERIMENT_STATE_FILE
             self.output_csv = CSV_INPUT_FILE
@@ -114,6 +115,7 @@ class BatchRunOrchestrator:
             self.max_tokens = TOGETHER_MAX_TOKENS
             self.temperature = TOGETHER_TEMPERATURE
             self.gpt_oss_prefix = cfg["gpt_oss_prefix"]
+            self.disable_reasoning = cfg.get("disable_reasoning", False)
             self.conditions_root = f"conditions_{model_key}"
             self.state_file = PROJECT_ROOT / f"experiment_state_{model_key}.json"
             self.output_csv = DATA_DIR / f"together_dataset_{model_key}.csv"
@@ -295,6 +297,7 @@ class BatchRunOrchestrator:
                 "max_tokens": self.max_tokens,
                 "temperature": self.temperature,
                 "reasoning_effort": "medium" if self.gpt_oss_prefix else None,
+                "disable_reasoning": self.disable_reasoning,
             })
 
         logger.info(f"Prepared {len(requests)} batch requests")
@@ -302,14 +305,13 @@ class BatchRunOrchestrator:
 
     def submit_batches(
         self,
-        batch_size: int = 164,
         status_filter: str = "PENDING"
     ) -> List[str]:
         """
-        Submit all pending runs as batches.
+        Submit all pending runs as a single batch.
 
         Returns:
-            List of batch IDs
+            List of batch IDs (always length 1)
         """
         requests = self.prepare_batch_requests(status_filter)
 
@@ -317,10 +319,7 @@ class BatchRunOrchestrator:
             logger.warning(f"No {status_filter} runs found")
             return []
 
-        batch_ids = self.batch_orchestrator.create_and_submit_batches(
-            requests,
-            batch_size=batch_size
-        )
+        batch_ids = self.batch_orchestrator.create_and_submit_batches(requests)
 
         if self.provider == "anthropic":
             batch_ids_file = Path.home() / ".claude" / "batches" / "batch_ids.json"
@@ -370,6 +369,10 @@ class BatchRunOrchestrator:
         """
         Retrieve results from completed batches, write code files, commit,
         calculate local metrics, and update the CSV.
+
+        Args:
+            batch_ids:       Explicit list of batch IDs; loads from saved file if None.
+            auto_update_csv: Write CSV after processing.
 
         Returns:
             Number of results processed
@@ -532,86 +535,42 @@ class BatchRunOrchestrator:
             processed_count += 1
             logger.info(f"Processed result {record_id} ({processed_count} so far)")
 
-        # Git commits strategy:
-        # - Anthropic (haiku): 9 grouped commits (condition × run), then push once
-        # - Together AI: single commit covering all files, then push once
+        # Single commit for all files in this retrieval pass, then push once
         if batch_commits_to_make:
             with self._git_lock:
-                if self.provider == "anthropic":
-                    # Group by (condition, run_number) → 9 commits max
-                    from collections import defaultdict
-                    commits_by_group = defaultdict(list)
+                n = len(batch_commits_to_make)
+                first = batch_commits_to_make[0]
+                label = self.model_key if self.provider == "together" else self.model
+                logger.info(f"Committing {n} files for {self.provider} model {label}")
+                try:
+                    commit_hash = self.repo_manager.create_commit(
+                        record_id=first["record_id"],
+                        file_id=first["file_id"],
+                        project_name=first["project_name"],
+                        file_name=f"{n} files via {self.provider} ({label})",
+                        condition=first["condition"],
+                        run_number=first["run_number"],
+                        llm_model=self.model,
+                        llm_temperature=self.temperature,
+                        prompt_tokens=sum(c["prompt_tokens"] for c in batch_commits_to_make),
+                        completion_tokens=sum(c["completion_tokens"] for c in batch_commits_to_make),
+                        total_tokens=sum(c["total_tokens"] for c in batch_commits_to_make),
+                        timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                        pre_cc=first["pre_cc"],
+                    )
                     for commit_info in batch_commits_to_make:
-                        key = (commit_info["condition"], commit_info["run_number"])
-                        commits_by_group[key].append(commit_info)
-
-                    total_groups = len(commits_by_group)
-                    for group_idx, (key, group) in enumerate(sorted(commits_by_group.items()), 1):
-                        condition, run_number = key
-                        logger.info(
-                            f"Committing group {group_idx}/{total_groups}: "
-                            f"{condition}/run_{run_number} ({len(group)} files)"
-                        )
-                        try:
-                            first = group[0]
-                            commit_hash = self.repo_manager.create_commit(
-                                record_id=first["record_id"],
-                                file_id=first["file_id"],
-                                project_name=first["project_name"],
-                                file_name=f"{len(group)} files in {condition}/run_{run_number}",
-                                condition=condition,
-                                run_number=run_number,
-                                llm_model=first["llm_model"],
-                                llm_temperature=first["llm_temperature"],
-                                prompt_tokens=sum(c["prompt_tokens"] for c in group),
-                                completion_tokens=sum(c["completion_tokens"] for c in group),
-                                total_tokens=sum(c["total_tokens"] for c in group),
-                                timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                                pre_cc=first["pre_cc"],
-                            )
-                            for commit_info in group:
-                                commit_info["run_object"].git_commit_hash = commit_hash
-                                self.csv_df.loc[commit_info["csv_idx"], "git_commit_hash"] = commit_hash
-                            logger.info(f"  Committed {len(group)} files with hash {commit_hash[:8]}")
-                        except Exception as e:
-                            logger.error(f"Failed to commit group {condition}/run_{run_number}: {e}")
-                            for commit_info in group:
-                                self.csv_df.loc[commit_info["csv_idx"], "git_commit_hash"] = ""
-
-                else:
-                    # Together AI: single commit for all files in this retrieval pass
-                    n = len(batch_commits_to_make)
-                    first = batch_commits_to_make[0]
-                    logger.info(f"Committing {n} files for Together AI model {self.model_key}")
-                    try:
-                        commit_hash = self.repo_manager.create_commit(
-                            record_id=first["record_id"],
-                            file_id=first["file_id"],
-                            project_name=first["project_name"],
-                            file_name=f"{n} files via Together AI ({self.model_key})",
-                            condition=first["condition"],
-                            run_number=first["run_number"],
-                            llm_model=self.model,
-                            llm_temperature=self.temperature,
-                            prompt_tokens=sum(c["prompt_tokens"] for c in batch_commits_to_make),
-                            completion_tokens=sum(c["completion_tokens"] for c in batch_commits_to_make),
-                            total_tokens=sum(c["total_tokens"] for c in batch_commits_to_make),
-                            timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                            pre_cc=first["pre_cc"],
-                        )
-                        for commit_info in batch_commits_to_make:
-                            commit_info["run_object"].git_commit_hash = commit_hash
-                            self.csv_df.loc[commit_info["csv_idx"], "git_commit_hash"] = commit_hash
-                        logger.info(f"  Single Together AI commit: {commit_hash[:8]}")
-                    except Exception as e:
-                        logger.error(f"Failed to create Together AI commit: {e}")
-                        for commit_info in batch_commits_to_make:
-                            self.csv_df.loc[commit_info["csv_idx"], "git_commit_hash"] = ""
+                        commit_info["run_object"].git_commit_hash = commit_hash
+                        self.csv_df.loc[commit_info["csv_idx"], "git_commit_hash"] = commit_hash
+                    logger.info(f"  Single commit: {commit_hash[:8]}")
+                except Exception as e:
+                    logger.error(f"Failed to create commit: {e}")
+                    for commit_info in batch_commits_to_make:
+                        self.csv_df.loc[commit_info["csv_idx"], "git_commit_hash"] = ""
 
                 # Push once after all commits
                 try:
                     self.repo_manager.push_to_remote()
-                    logger.info(f"Git push succeeded ({len(batch_commits_to_make)} files)")
+                    logger.info(f"Git push succeeded ({n} files)")
                 except Exception as e:
                     logger.warning(f"Git push failed: {e}")
 
@@ -627,7 +586,7 @@ class BatchRunOrchestrator:
         self,
         batch_ids: Optional[List[str]] = None,
         poll_interval: int = 60,
-        max_wait_hours: int = 24
+        max_wait_hours: int = 24,
     ) -> Dict[str, Any]:
         """
         Stream results as batches complete, with live polling.
@@ -665,8 +624,6 @@ class BatchRunOrchestrator:
                 f"Progress: {summary['total_completed']}/{summary['total_requests']} "
                 f"({summary['completion_pct']}%) | Processing: {summary['total_processing']}"
             )
-
-            self.retrieve_and_process_results(batch_ids, auto_update_csv=True)
 
             time.sleep(poll_interval)
 
@@ -716,33 +673,42 @@ class BatchRunOrchestrator:
 
     def _build_prompt(self, record_id: str, source_code: str) -> str:
         """Build the refactoring prompt by appending source code to the active prompt."""
+        _no_fence_reminder = (
+            "Return ONLY the raw refactored source code with no markdown fences, "
+            "no ```javascript, no ```, and no explanations."
+        )
         active_prompt = self._prompts.get(record_id)
         if not active_prompt or str(active_prompt) == "nan":
             logger.warning(f"No active_prompt found for record_id={record_id}, using fallback")
             return (
                 "Refactor the following code to reduce complexity and improve maintainability. "
-                "Return only the refactored code without explanations:\n\n"
+                f"{_no_fence_reminder}\n\n"
                 f"{source_code}"
             )
-        return f"{active_prompt}\n\nReturn only the refactored code without explanations:\n\n{source_code}"
+        return f"{active_prompt}\n\n{_no_fence_reminder}\n\n{source_code}"
 
     def _get_system_prompt(self, condition: str) -> str:
         """Get system prompt based on condition."""
+        _no_fence = (
+            "Return ONLY the raw refactored source code. "
+            "Do NOT wrap the code in markdown code fences (no ```javascript, no ```, etc.). "
+            "Do NOT include any explanation, commentary, or preamble."
+        )
         prompts = {
             "baseline": (
                 "You are an expert code refactoring specialist. "
                 "Refactor the given code to improve code quality and reduce complexity. "
-                "Return only the refactored code without any explanation."
+                + _no_fence
             ),
             "nfr_enriched": (
                 "You are an expert code refactoring specialist focused on non-functional requirements. "
                 "Refactor the code to reduce complexity while satisfying the stated NFR constraints. "
-                "Return only the refactored code without any explanation."
+                + _no_fence
             ),
             "adaptive_nfr": (
                 "You are an expert code refactoring specialist. "
                 "Analyze the structural debt archetype described and refactor the code accordingly. "
-                "Return only the refactored code without any explanation."
+                + _no_fence
             ),
         }
         return prompts.get(condition, prompts["baseline"])
@@ -755,6 +721,7 @@ class BatchRunOrchestrator:
 
         manifest_index = self._load_manifest_index()
 
+        runs_to_add = []
         for _, row in self.csv_df.iterrows():
             record_id = str(row["record_id"])
 
@@ -762,7 +729,7 @@ class BatchRunOrchestrator:
             try:
                 file_id, _ = self._find_source_file_for_row(row, manifest_index)
             except Exception:
-                file_id = int(row.get("file_id", 0))
+                file_id = int(row.get("file_id", 0) or 0)
 
             run = ExperimentRun(
                 record_id=record_id,
@@ -773,6 +740,8 @@ class BatchRunOrchestrator:
                 run_number=int(row.get("run_number", 0)),
                 status="PENDING",
             )
-            self.state_manager.add_run(run)
+            runs_to_add.append(run)
 
-        logger.info(f"Initialized state with {len(self.csv_df)} runs")
+        # Bulk-save once to avoid 1000+ slow filesystem writes
+        self.state_manager.bulk_add_runs(runs_to_add)
+        logger.info(f"Initialized state with {len(runs_to_add)} runs")

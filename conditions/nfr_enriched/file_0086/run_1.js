@@ -1,4 +1,3 @@
-```typescript
 import { useListFormatter } from '@react-aria/i18n'
 import { Fragment, useState } from 'react'
 
@@ -73,7 +72,7 @@ function renderCombobox(
     label: field.label,
     description: field.description,
     forceValidation: props.forceValidation,
-    isReadOnly: props.onChange === undefined,
+    isReadOnly: props.isReadOnly,
     isRequired: props.isRequired,
     list: foreignList,
     labelField: field.refLabelField,
@@ -111,59 +110,14 @@ function renderCombobox(
   )
 }
 
-// Handles tag removal for many relationships
-function handleTagRemove(
-  isReadOnly: boolean,
-  value: any,
-  onChange: any
-) {
-  if (isReadOnly) return undefined
-  return (keys: any) => {
-    onChange?.({
-      ...value,
-      value: value.value.filter((item: any) => !keys.has(item.id)),
-    })
-  }
-}
-
-// Renders tag group for many relationships
-function renderTagGroup(
-  value: any,
-  foreignList: any,
-  isReadOnly: boolean,
-  isRequired: boolean,
-  onChange: any
-) {
-  return (
-    <TagGroup
-      aria-label={`related ${foreignList.plural}`}
-      isRequired={isRequired}
-      items={value.value.map((item: any) => ({
-        id: item.id.toString() ?? '',
-        label: item.label ?? '',
-        href: item.built ? '' : `/${foreignList.path}/${item.id}`,
-      }))}
-      maxRows={2}
-      onRemove={handleTagRemove(isReadOnly, value, onChange)}
-      renderEmptyState={() => (
-        <Text color="neutralSecondary" size="small">
-          No related {foreignList.plural.toLowerCase()}…
-        </Text>
-      )}
-    >
-      {renderItem}
-    </TagGroup>
-  )
-}
-
-// Handles built item dialog submission
-function handleBuiltItemSubmit(
+// Handles item creation via dialog
+function handleBuiltItem(
   builtItemData: any,
-  counter: number,
-  setCounter: any,
-  setDialogOpen: any,
-  value: any,
   foreignList: any,
+  value: any,
+  counter: number,
+  setCounter: (c: number) => void,
+  setDialogOpen: (open: boolean) => void,
   onChange: any
 ) {
   const id = `_____temporary_${counter}`
@@ -173,24 +127,69 @@ function handleBuiltItemSubmit(
   setDialogOpen(false)
   setCounter(counter + 1)
 
-  const newItem = {
-    id,
-    label,
-    data: builtItemData,
-    built: true,
-  }
-
   if (value.kind === 'many') {
     onChange({
       ...value,
-      value: [...value.value, newItem],
+      value: [
+        ...value.value,
+        {
+          id,
+          label,
+          data: builtItemData,
+          built: true,
+        },
+      ],
     })
   } else if (value.kind === 'one') {
     onChange({
       ...value,
-      value: newItem,
+      value: {
+        id,
+        label,
+        data: builtItemData,
+        built: true,
+      },
     })
   }
+}
+
+// Renders tag group for many relationships
+function renderTagGroup(
+  value: any,
+  foreignList: any,
+  isRequired: boolean,
+  isReadOnly: boolean,
+  onChange: any
+) {
+  return (
+    <TagGroup
+      aria-label={`related ${foreignList.plural}`}
+      isRequired={isRequired}
+      items={value.value.map(item => ({
+        id: item.id.toString() ?? '',
+        label: item.label ?? '',
+        href: item.built ? '' : `/${foreignList.path}/${item.id}`,
+      }))}
+      maxRows={2}
+      onRemove={
+        isReadOnly
+          ? undefined
+          : keys => {
+              onChange?.({
+                ...value,
+                value: value.value.filter(item => !keys.has(item.id)),
+              })
+            }
+      }
+      renderEmptyState={() => (
+        <Text color="neutralSecondary" size="small">
+          No related {foreignList.plural.toLowerCase()}…
+        </Text>
+      )}
+    >
+      {renderItem}
+    </TagGroup>
+  )
 }
 
 export function Field(props: FieldProps<typeof controller>) {
@@ -205,22 +204,23 @@ export function Field(props: FieldProps<typeof controller>) {
     if (field.display === 'table') {
       return <RelationshipTable field={field} value={value} />
     }
-    return renderCountDisplay(
-      { ...field, autoFocus },
-      value,
-      foreignList
-    )
+    return renderCountDisplay(field, value, foreignList)
   }
 
   return (
     <Fragment>
       <VStack gap="medium">
         <ContextualActions onAdd={() => setDialogOpen(true)} {...props}>
-          {renderCombobox(field, value, foreignList, props)}
+          {renderCombobox(field, value, foreignList, {
+            autoFocus,
+            forceValidation,
+            isReadOnly,
+            isRequired,
+            onChange,
+          })}
         </ContextualActions>
 
-        {value.kind === 'many' &&
-          renderTagGroup(value, foreignList, isReadOnly, isRequired, onChange)}
+        {value.kind === 'many' && renderTagGroup(value, foreignList, isRequired, isReadOnly, onChange)}
       </VStack>
 
       {!isReadOnly && (
@@ -229,13 +229,13 @@ export function Field(props: FieldProps<typeof controller>) {
             <BuildItemDialog
               listKey={foreignList.key}
               onChange={builtItemData => {
-                handleBuiltItemSubmit(
+                handleBuiltItem(
                   builtItemData,
+                  foreignList,
+                  value,
                   counter,
                   setCounter,
                   setDialogOpen,
-                  value,
-                  foreignList,
                   onChange
                 )
               }}
@@ -286,38 +286,64 @@ function buildGraphqlSelection(
   displayMode: string,
   many: boolean,
   refLabelField: string,
-  sort?: any
+  config: any
 ) {
   if (displayMode === 'count' || displayMode === 'table') {
     return `${fieldKey}Count`
   }
-  const sortClause =
-    many && sort
-      ? `(orderBy: { ${sort.field}: ${sort.direction.toLowerCase()} })`
-      : ''
-  return `${fieldKey}${sortClause} {
+  const orderByClause = many && config.fieldMeta.sort
+    ? `(orderBy: { ${config.fieldMeta.sort.field}: ${config.fieldMeta.sort.direction.toLowerCase()} })`
+    : ''
+  return `${fieldKey}${orderByClause} {
     id
     label: ${refLabelField}
   }`
 }
 
-// Deserializes data into relationship value state
-function deserializeRelationshipValue(
+// Creates default value based on relationship kind
+function createDefaultValue(many: boolean) {
+  if (many) {
+    return {
+      kind: 'many',
+      id: null,
+      initialValue: [],
+      value: [],
+    }
+  }
+  return {
+    kind: 'one',
+    id: null,
+    value: null,
+    initialValue: null,
+  }
+}
+
+// Validates relationship value
+function validateRelationshipValue(value: any, opts: any) {
+  if ('count' in value) return true
+  return opts.isRequired
+    ? value.kind === 'one'
+      ? value.value !== null
+      : value.value.length > 0
+    : true
+}
+
+// Deserializes data into relationship value
+function deserializeRelationshipData(
   data: any,
-  config: any,
   displayMode: string,
-  many: boolean
+  many: boolean,
+  fieldKey: string
 ) {
   if (displayMode === 'count' || displayMode === 'table') {
     return {
       id: data.id,
       kind: 'count',
-      count: data[`${config.fieldKey}Count`] ?? 0,
+      count: data[`${fieldKey}Count`] ?? 0,
     }
   }
-
   if (many) {
-    const value = (data[config.fieldKey] || []).map((x: any) => ({
+    const value = (data[fieldKey] || []).map((x: any) => ({
       id: x.id,
       label: x.label || x.id,
     }))
@@ -328,8 +354,7 @@ function deserializeRelationshipValue(
       value,
     }
   }
-
-  let value = data[config.fieldKey]
+  let value = data[fieldKey]
   if (value) {
     value = {
       id: value.id,
@@ -344,17 +369,17 @@ function deserializeRelationshipValue(
   }
 }
 
-// Serializes many relationship state to mutation format
-function serializeMany(state: any, config: any) {
-  const newAllIds = new Set(state.value.map((x: any) => x.id))
-  const initialIds = new Set(state.initialValue.map((x: any) => x.id))
+// Serializes many relationship state
+function serializeMany(state: any, fieldKey: string) {
+  const newAllIds = new Set(state.value.map(x => x.id))
+  const initialIds = new Set(state.initialValue.map(x => x.id))
   const disconnect = state.initialValue
-    .filter((x: any) => !newAllIds.has(x.id))
-    .map((x: any) => ({ id: x.id }))
+    .filter(x => !newAllIds.has(x.id))
+    .map(x => ({ id: x.id }))
   const connect = state.value
-    .filter((x: any) => !x.built && !initialIds.has(x.id))
-    .map((x: any) => ({ id: x.id }))
-  const create = state.value.filter((x: any) => x.built).map((x: any) => x.data)
+    .filter(x => !x.built && !initialIds.has(x.id))
+    .map(x => ({ id: x.id }))
+  const create = state.value.filter(x => x.built).map(x => x.data)
   const output = {
     ...(disconnect.length ? { disconnect } : {}),
     ...(connect.length ? { connect } : {}),
@@ -363,27 +388,25 @@ function serializeMany(state: any, config: any) {
 
   if (Object.keys(output).length) {
     return {
-      [config.fieldKey]: output,
+      [fieldKey]: output,
     }
   }
   return {}
 }
 
-// Serializes one relationship state to mutation format
-function serializeOne(state: any, config: any) {
-  if (state.initialValue && !state.value) {
-    return { [config.fieldKey]: { disconnect: true } }
-  }
+// Serializes one relationship state
+function serializeOne(state: any, fieldKey: string) {
+  if (state.initialValue && !state.value) return { [fieldKey]: { disconnect: true } }
   if (state.value?.built) {
     return {
-      [config.fieldKey]: {
+      [fieldKey]: {
         create: state.value.data,
       },
     }
   }
   if (state.value && state.value.id !== state.initialValue?.id) {
     return {
-      [config.fieldKey]: {
+      [fieldKey]: {
         connect: {
           id: state.value.id,
         },
@@ -393,7 +416,17 @@ function serializeOne(state: any, config: any) {
   return {}
 }
 
-// Builds graphql filter for empty/not_empty conditions
+// Serializes relationship state
+function serializeRelationshipState(state: any, fieldKey: string) {
+  if (state.kind === 'many') {
+    return serializeMany(state, fieldKey)
+  } else if (state.kind === 'one') {
+    return serializeOne(state, fieldKey)
+  }
+  return {}
+}
+
+// Builds graphql filter for empty/not_empty types
 function buildEmptyFilter(type: string, fieldKey: string, many: boolean) {
   if (type === 'empty' && !many) return { [fieldKey]: { equals: null } }
   if (type === 'empty' && many) return { [fieldKey]: { none: {} } }
@@ -402,102 +435,49 @@ function buildEmptyFilter(type: string, fieldKey: string, many: boolean) {
   return null
 }
 
-// Builds graphql filter for comparison conditions
-function buildComparisonFilter(type: string, value: any, fieldKey: string) {
+// Builds graphql filter for is/not_is types
+function buildIsFilter(type: string, fieldKey: string, value: any) {
   if (type === 'is') return { [fieldKey]: { id: { equals: value } } }
   if (type === 'not_is') return { [fieldKey]: { not: { id: { equals: value } } } }
-  if (type === 'some') return { [fieldKey]: { some: { id: { in: value } } } }
-  if (type === 'not_some') {
-    return { [fieldKey]: { not: { some: { id: { in: value } } } } }
-  }
   return null
 }
 
-// Renders filter UI for single relationship
-function renderSingleFilter(
-  props: any,
-  label: string,
-  refLabelField: string,
-  refSearchFields: string[],
-  foreignList: any,
-  config: any
-) {
-  return (
-    <ComboboxSingle
-      autoFocus
-      aria-label={label}
-      isReadOnly={false}
-      labelField={refLabelField}
-      searchFields={refSearchFields}
-      list={foreignList}
-      state={{
-        kind: 'one',
-        value:
-          typeof props.value === 'string'
-            ? { id: props.value, label: props.value, built: false }
-            : null,
-        onChange(newItem) {
-          props.onChange(newItem === null ? null : newItem.id.toString())
-        },
-      }}
-      filter={config.fieldMeta.displayMode === 'select' ? config.fieldMeta.filter : null}
-      sort={config.fieldMeta.displayMode === 'select' ? config.fieldMeta.sort : null}
-    />
-  )
+// Builds graphql filter for some/not_some types
+function buildSomeFilter(type: string, fieldKey: string, value: any) {
+  if (type === 'some') return { [fieldKey]: { some: { id: { in: value } } } }
+  if (type === 'not_some') return { [fieldKey]: { not: { some: { id: { in: value } } } } }
+  return null
 }
 
-// Renders filter UI for many relationships
-function renderManyFilter(
-  props: any,
-  label: string,
-  refLabelField: string,
-  refSearchFields: string[],
-  foreignList: any,
-  config: any
-) {
-  const ids = Array.isArray(props.value) ? props.value : []
-  const value = ids.map((id): RelationshipValue => ({ id, label: id, built: false }))
+// Converts filter to graphql query
+function filterToGraphql(type: string, value: any, fieldKey: string, many: boolean) {
+  const emptyFilter = buildEmptyFilter(type, fieldKey, many)
+  if (emptyFilter) return emptyFilter
 
-  return (
-    <VStack gap="medium">
-      <ComboboxMany
-        autoFocus
-        aria-label={label}
-        isReadOnly={false}
-        labelField={refLabelField}
-        searchFields={refSearchFields}
-        list={foreignList}
-        state={{
-          kind: 'many',
-          value,
-          onChange(newItem) {
-            props.onChange(newItem.map((x: any) => x.id.toString()))
-          },
-        }}
-        filter={config.fieldMeta.displayMode === 'select' ? config.fieldMeta.filter : null}
-        sort={config.fieldMeta.displayMode === 'select' ? config.fieldMeta.sort : null}
-      />
-      <TagGroup
-        aria-label={`related ${foreignList.plural}`}
-        items={value.map((item: any) => ({
-          id: item.id.toString() ?? '',
-          label: item.label ?? '',
-          href: item.built ? '' : `/${foreignList.path}/${item.id}`,
-        }))}
-        maxRows={2}
-        onRemove={(keys: any) => {
-          props.onChange(ids.filter((id: any) => !keys.has(id)))
-        }}
-        renderEmptyState={() => (
-          <Text color="neutralSecondary" size="small">
-            Select related {foreignList.plural.toLowerCase()}…
-          </Text>
-        )}
-      >
-        {renderItem}
-      </TagGroup>
-    </VStack>
-  )
+  const isFilter = buildIsFilter(type, fieldKey, value)
+  if (isFilter) return isFilter
+
+  const someFilter = buildSomeFilter(type, fieldKey, value)
+  if (someFilter) return someFilter
+
+  return { [fieldKey]: { [type]: value } }
+}
+
+// Creates filter types based on relationship kind
+function createFilterTypes(many: boolean) {
+  return {
+    empty: { label: 'Is empty', initialValue: null },
+    not_empty: { label: 'Is not empty', initialValue: null },
+    ...(many
+      ? {
+          some: { label: 'Is one of', initialValue: [] },
+          not_some: { label: 'Is not one of', initialValue: [] },
+        }
+      : {
+          is: { label: 'Is', initialValue: null },
+          not_is: { label: 'Is not', initialValue: null },
+        }),
+  }
 }
 
 export function controller(
@@ -525,7 +505,7 @@ export function controller(
     )
   >
 ): RelationshipController {
-  const { listKey, fieldKey, label, description } = config
+  const { listKey, fieldKey: fieldKey, label, description } = config
   const { displayMode, hideCreate, many, refFieldKey, refLabelField, refListKey, refSearchFields } =
     config.fieldMeta
 
@@ -540,71 +520,86 @@ export function controller(
     refLabelField,
     refSearchFields,
     refListKey,
-    graphqlSelection: buildGraphqlSelection(
-      fieldKey,
-      displayMode,
-      many,
-      refLabelField,
-      displayMode === 'select' ? config.fieldMeta.sort : undefined
-    ),
+    graphqlSelection: buildGraphqlSelection(fieldKey, displayMode, many, refLabelField, config),
     hideCreate: hideCreate || displayMode === 'table',
     columns: displayMode === 'table' ? config.fieldMeta.columns : null,
     initialSort: displayMode === 'table' ? config.fieldMeta.initialSort : null,
     selectFilter: displayMode === 'select' ? config.fieldMeta.filter : null,
     selectSort: displayMode === 'select' ? config.fieldMeta.sort : null,
-    defaultValue: many
-      ? {
-          kind: 'many',
-          id: null,
-          initialValue: [],
-          value: [],
-        }
-      : {
-          kind: 'one',
-          id: null,
-          value: null,
-          initialValue: null,
-        },
-    validate(value, opts) {
-      if ('count' in value) return true
-      return opts.isRequired
-        ? value.kind === 'one'
-          ? value.value !== null
-          : value.value.length > 0
-        : true
-    },
-    deserialize: data => deserializeRelationshipValue(data, config, displayMode, many),
-    serialize: state => {
-      if (state.kind === 'many') {
-        return serializeMany(state, config)
-      } else if (state.kind === 'one') {
-        return serializeOne(state, config)
-      }
-      return {}
-    },
+    defaultValue: createDefaultValue(many),
+    validate: (value, opts) => validateRelationshipValue(value, opts),
+    deserialize: data => deserializeRelationshipData(data, displayMode, many, fieldKey),
+    serialize: state => serializeRelationshipState(state, fieldKey),
     filter: {
       Filter(props) {
         const foreignList = useList(refListKey)
         if (props.type === 'empty' || props.type === 'not_empty') return null
-
+        // TODO: show labels rather than ids
         if (props.type === 'is' || props.type === 'not_is') {
-          return renderSingleFilter(
-            props,
-            label,
-            refLabelField,
-            refSearchFields,
-            foreignList,
-            config
+          return (
+            <ComboboxSingle
+              autoFocus
+              aria-label={label}
+              isReadOnly={false}
+              labelField={refLabelField}
+              searchFields={refSearchFields}
+              list={foreignList}
+              state={{
+                kind: 'one',
+                value:
+                  typeof props.value === 'string'
+                    ? { id: props.value, label: props.value, built: false }
+                    : null,
+                onChange(newItem) {
+                  props.onChange(newItem === null ? null : newItem.id.toString())
+                },
+              }}
+              filter={config.fieldMeta.displayMode === 'select' ? config.fieldMeta.filter : null}
+              sort={config.fieldMeta.displayMode === 'select' ? config.fieldMeta.sort : null}
+            />
           )
         }
-
-        return renderManyFilter(
-          props,
-          label,
-          refLabelField,
-          refSearchFields,
-          foreignList,
-          config
+        const ids = Array.isArray(props.value) ? props.value : []
+        const value = ids.map((id): RelationshipValue => ({ id, label: id, built: false }))
+        return (
+          <VStack gap="medium">
+            <ComboboxMany
+              autoFocus
+              aria-label={label}
+              isReadOnly={false}
+              labelField={refLabelField}
+              searchFields={refSearchFields}
+              list={foreignList}
+              state={{
+                kind: 'many',
+                value,
+                onChange(newItem) {
+                  props.onChange(newItem.map(x => x.id.toString()))
+                },
+              }}
+              filter={config.fieldMeta.displayMode === 'select' ? config.fieldMeta.filter : null}
+              sort={config.fieldMeta.displayMode === 'select' ? config.fieldMeta.sort : null}
+            />
+            <TagGroup
+              aria-label={`related ${foreignList.plural}`}
+              items={value.map(item => ({
+                id: item.id.toString() ?? '',
+                label: item.label ?? '',
+                href: item.built ? '' : `/${foreignList.path}/${item.id}`,
+              }))}
+              maxRows={2}
+              onRemove={keys => {
+                props.onChange(ids.filter(id => !keys.has(id)))
+              }}
+              renderEmptyState={() => (
+                <Text color="neutralSecondary" size="small">
+                  Select related {foreignList.plural.toLowerCase()}…
+                </Text>
+              )}
+            >
+              {renderItem}
+            </TagGroup>
+          </VStack>
         )
       },
       Label({ label, type, value }) {
@@ -617,30 +612,9 @@ export function controller(
         if (['is', 'not_is'].includes(type)) return `${label.toLowerCase()} ${value}`
         return `${label.toLowerCase()} (${listFormatter.format(value || [''])})`
       },
-      graphql: ({ type, value }) => {
-        const emptyFilter = buildEmptyFilter(type, fieldKey, many)
-        if (emptyFilter) return emptyFilter
-
-        const comparisonFilter = buildComparisonFilter(type, value, fieldKey)
-        if (comparisonFilter) return comparisonFilter
-
-        return { [fieldKey]: { [type]: value } }
-      },
+      graphql: ({ type, value }) => filterToGraphql(type, value, fieldKey, many),
       parseGraphQL: () => [],
-      types: {
-        empty: { label: 'Is empty', initialValue: null },
-        not_empty: { label: 'Is not empty', initialValue: null },
-        ...(many
-          ? {
-              some: { label: 'Is one of', initialValue: [] },
-              not_some: { label: 'Is not one of', initialValue: [] },
-            }
-          : {
-              is: { label: 'Is', initialValue: null },
-              not_is: { label: 'Is not', initialValue: null },
-            }),
-      },
+      types: createFilterTypes(many),
     },
   }
 }
-```

@@ -1,4 +1,3 @@
-```javascript
 import Ember from 'ember';
 import Model, {attr, belongsTo, hasMany} from '@ember-data/model';
 import ValidationEngine from 'ghost-admin/mixins/validation-engine';
@@ -17,216 +16,104 @@ const BLANK_LEXICAL = '{"root":{"children":[{"children":[],"direction":null,"for
 const {Comparable} = Ember;
 
 /**
- * Compares two values handling null/undefined cases
- * @param {*} val1 - First value
- * @param {*} val2 - Second value
- * @returns {number} -1 if val1 is null, 1 if val2 is null, 0 if both null
+ * Compares status of two posts for sorting.
+ * Scheduled posts come first, then draft and published alphabetically.
  */
-function compareNullValues(val1, val2) {
-    if (!val1 && !val2) {
-        return 0;
-    }
-    if (!val1) {
-        return -1;
-    }
-    if (!val2) {
-        return 1;
-    }
-    return null;
-}
-
-/**
- * Checks if status is draft or published
- * @param {string} status - Status value
- * @returns {boolean}
- */
-function isDraftOrPublished(status) {
-    return status === 'draft' || status === 'published';
-}
-
-/**
- * Checks if status is scheduled
- * @param {string} status - Status value
- * @returns {boolean}
- */
-function isScheduledStatus(status) {
-    return status === 'scheduled';
-}
-
 function statusCompare(postA, postB) {
     let status1 = postA.get('status');
     let status2 = postB.get('status');
 
-    let nullResult = compareNullValues(status1, status2);
-    if (nullResult !== null) {
-        return nullResult;
+    if (!status1 && !status2) {
+        return 0;
     }
 
-    // Scheduled posts listed first, then draft and published alphabetically
-    if (isScheduledStatus(status1) && isDraftOrPublished(status2)) {
+    if (!status1) {
         return -1;
     }
 
-    if (isScheduledStatus(status2) && isDraftOrPublished(status1)) {
+    if (!status2) {
+        return 1;
+    }
+
+    if (status1 === 'scheduled' && (status2 === 'draft' || status2 === 'published')) {
+        return -1;
+    }
+
+    if (status2 === 'scheduled' && (status1 === 'draft' || status1 === 'published')) {
         return 1;
     }
 
     return compare(status1.valueOf(), status2.valueOf());
 }
 
+/**
+ * Compares publishedAt dates of two posts for sorting.
+ */
 function publishedAtCompare(postA, postB) {
     let published1 = postA.get('publishedAtUTC');
     let published2 = postB.get('publishedAtUTC');
 
-    let nullResult = compareNullValues(published1, published2);
-    if (nullResult !== null) {
-        return nullResult;
+    if (!published1 && !published2) {
+        return 0;
+    }
+
+    if (!published1) {
+        return -1;
+    }
+
+    if (!published2) {
+        return 1;
     }
 
     return compare(published1.valueOf(), published2.valueOf());
 }
 
 /**
- * Visibility segment strategy lookup
+ * Determines if a post is new or missing updated timestamp.
  */
-const visibilitySegmentStrategies = {
-    /**
-     * @param {Object} context - Post model context
-     * @returns {string}
-     */
-    members(context) {
-        return 'status:free,status:-free';
-    },
-    /**
-     * @param {Object} context - Post model context
-     * @returns {string}
-     */
-    paid(context) {
-        return 'status:-free';
-    },
-    /**
-     * @param {Object} context - Post model context
-     * @returns {string}
-     */
-    tiers(context) {
-        if (context.tiers) {
-            return context.tiers.map((tier) => {
+function isNewOrMissingUpdate(post) {
+    return post.get('isNew') || !post.get('updatedAtUTC');
+}
+
+/**
+ * Determines visibility segment based on visibility type and tiers.
+ */
+function getVisibilitySegment(visibility, isPublic, tiers, defaultContentVisibility) {
+    if (isPublic) {
+        return defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
+    }
+
+    const visibilityStrategies = {
+        members: 'status:free,status:-free',
+        paid: 'status:-free',
+        tiers: null
+    };
+
+    if (visibilityStrategies[visibility] !== undefined) {
+        if (visibility === 'tiers' && tiers) {
+            let filter = tiers.map((tier) => {
                 return `tier:${tier.slug}`;
             }).join(',');
+            return filter;
         }
-        return context.visibility;
+        return visibilityStrategies[visibility];
     }
-};
 
-/**
- * Gets visibility segment for non-public visibility
- * @param {Object} context - Post model context
- * @returns {string}
- */
-function getNonPublicVisibilitySegment(context) {
-    const strategy = visibilitySegmentStrategies[context.visibility];
-    if (strategy) {
-        return strategy(context);
-    }
-    return context.visibility;
+    return visibility;
 }
 
 /**
- * Gets visibility segment based on visibility and settings
- * @param {Object} context - Post model context
- * @returns {string}
+ * Determines if published at blog date/time are both set.
  */
-function getVisibilitySegment(context) {
-    if (context.isPublic) {
-        return context.settings.defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
-    }
-    return getNonPublicVisibilitySegment(context);
+function hasBlogDateTime(publishedAtBlogDate, publishedAtBlogTime) {
+    return publishedAtBlogDate && publishedAtBlogTime;
 }
 
 /**
- * Checks if post is public
- * @param {string} visibility - Visibility value
- * @returns {boolean}
+ * Determines if published at values are all blank.
  */
-function isPublicVisibility(visibility) {
-    return visibility === 'public';
-}
-
-/**
- * Checks if email tracking is available
- * @param {Object} context - Post model context
- * @returns {boolean}
- */
-function canShowEmailOpenAnalytics(context) {
-    return context.hasBeenEmailed
-        && !context.session.user.isContributor
-        && context.settings.membersSignupAccess !== 'none'
-        && context.email.trackOpens
-        && context.settings.emailTrackOpens;
-}
-
-/**
- * Checks if email click analytics are available
- * @param {Object} context - Post model context
- * @returns {boolean}
- */
-function canShowEmailClickAnalytics(context) {
-    return context.hasBeenEmailed
-        && !context.session.user.isContributor
-        && context.settings.membersSignupAccess !== 'none'
-        && (context.isSent || context.isPublished)
-        && context.email.trackClicks
-        && context.settings.emailTrackClicks;
-}
-
-/**
- * Checks if attribution analytics are available
- * @param {Object} context - Post model context
- * @returns {boolean}
- */
-function canShowAttributionAnalytics(context) {
-    return (context.isPage || !context.emailOnly)
-            && context.isPublished
-            && context.settings.membersTrackSources
-            && !context.membersUtils.isMembersInviteOnly
-            && !context.session.user.isContributor;
-}
-
-/**
- * Checks if analytics page should be shown
- * @param {Object} context - Post model context
- * @returns {boolean}
- */
-function canShowAnalyticsPage(context) {
-    return context.isPost
-        && context.session.user.isAdmin
-        && (
-            context.showEmailOpenAnalytics
-            || context.showEmailClickAnalytics
-            || context.showAttributionAnalytics
-        );
-}
-
-/**
- * Checks if post has been emailed
- * @param {Object} context - Post model context
- * @returns {boolean}
- */
-function hasBeenEmailedCheck(context) {
-    return context.isPost
-        && (context.isSent || context.isPublished)
-        && context.email && context.email.status !== 'failed';
-}
-
-/**
- * Checks if email failed
- * @param {Object} context - Post model context
- * @returns {boolean}
- */
-function didEmailFailCheck(context) {
-    return context.isPost
-        && (context.isSent || context.isPublished)
-        && context.email && context.email.status === 'failed';
+function isPublishedAtBlank(publishedAtUTC, publishedAtBlogDate, publishedAtBlogTime) {
+    return !publishedAtUTC && isBlank(publishedAtBlogDate) && isBlank(publishedAtBlogTime);
 }
 
 export default Model.extend(Comparable, ValidationEngine, {
@@ -327,16 +214,21 @@ export default Model.extend(Comparable, ValidationEngine, {
     hasEmail: computed('email', 'emailOnly', function () {
         return this.email !== null || this.emailOnly;
     }),
+
     willEmail: computed('isScheduled', 'newsletter', 'email', function () {
         return this.isScheduled && !!this.newsletter && !this.email;
     }),
 
     hasBeenEmailed: computed('isPost', 'isSent', 'isPublished', 'email', function () {
-        return hasBeenEmailedCheck(this);
+        return this.isPost
+            && (this.isSent || this.isPublished)
+            && this.email && this.email.status !== 'failed';
     }),
 
     didEmailFail: computed('isPost', 'isSent', 'isPublished', 'email.status', function () {
-        return didEmailFailCheck(this);
+        return this.isPost
+            && (this.isSent || this.isPublished)
+            && this.email && this.email.status === 'failed';
     }),
 
     showAudienceFeedback: computed('sentiment', function () {
@@ -344,21 +236,40 @@ export default Model.extend(Comparable, ValidationEngine, {
     }),
 
     showEmailOpenAnalytics: computed('hasBeenEmailed', 'isSent', 'isPublished', function () {
-        return canShowEmailOpenAnalytics(this);
+        return this.hasBeenEmailed
+            && !this.session.user.isContributor
+            && this.settings.membersSignupAccess !== 'none'
+            && this.email.trackOpens
+            && this.settings.emailTrackOpens;
     }),
 
     showEmailClickAnalytics: computed('hasBeenEmailed', 'isSent', 'isPublished', 'email', function () {
-        return canShowEmailClickAnalytics(this);
+        return this.hasBeenEmailed
+            && !this.session.user.isContributor
+            && this.settings.membersSignupAccess !== 'none'
+            && (this.isSent || this.isPublished)
+            && this.email.trackClicks
+            && this.settings.emailTrackClicks;
     }),
 
     showAttributionAnalytics: computed('isPage', 'emailOnly', 'isPublished', 'membersUtils.isMembersInviteOnly', 'settings.membersTrackSources', function () {
-        return canShowAttributionAnalytics(this);
+        return (this.isPage || !this.emailOnly)
+                && this.isPublished
+                && this.settings.membersTrackSources
+                && !this.membersUtils.isMembersInviteOnly
+                && !this.session.user.isContributor;
     }),
 
     showPaidAttributionAnalytics: computed.and('showAttributionAnalytics', 'membersUtils.paidMembersEnabled'),
 
     hasAnalyticsPage: computed('isPost', 'showEmailOpenAnalytics', 'showEmailClickAnalytics', 'showAttributionAnalytics', function () {
-        return canShowAnalyticsPage(this);
+        return this.isPost
+            && this.session.user.isAdmin
+            && (
+                this.showEmailOpenAnalytics
+                || this.showEmailClickAnalytics
+                || this.showAttributionAnalytics
+            );
     }),
 
     previewUrl: computed('uuid', 'ghostPaths.url', 'config.blogUrl', function () {
@@ -374,11 +285,16 @@ export default Model.extend(Comparable, ValidationEngine, {
     isFeedbackEnabledForEmail: computed.reads('email.feedbackEnabled'),
 
     isPublic: computed('visibility', function () {
-        return isPublicVisibility(this.visibility);
+        return this.visibility === 'public';
     }),
 
     visibilitySegment: computed('visibility', 'isPublic', 'tiers', function () {
-        return getVisibilitySegment(this);
+        return getVisibilitySegment(
+            this.visibility,
+            this.isPublic,
+            this.tiers,
+            this.settings.defaultContentVisibility
+        );
     }),
 
     fullRecipientFilter: computed('newsletter.recipientFilter', 'emailSegment', function () {
@@ -390,16 +306,17 @@ export default Model.extend(Comparable, ValidationEngine, {
     }),
 
     pastScheduledTime: computed('isScheduled', 'publishedAtUTC', 'clock.second', function () {
-        if (this.isScheduled) {
-            let now = moment.utc();
-            let publishedAtUTC = this.publishedAtUTC || now;
-            let pastScheduledTime = publishedAtUTC.diff(now, 'hours', true) < 0;
-
-            this.get('clock.second');
-
-            return pastScheduledTime;
+        if (!this.isScheduled) {
+            return false;
         }
-        return false;
+
+        let now = moment.utc();
+        let publishedAtUTC = this.publishedAtUTC || now;
+        let pastScheduledTime = publishedAtUTC.diff(now, 'hours', true) < 0;
+
+        this.get('clock.second');
+
+        return pastScheduledTime;
     }),
 
     publishedAtBlogTZ: computed('publishedAtBlogDate', 'publishedAtBlogTime', 'settings.timezone', {
@@ -430,11 +347,11 @@ export default Model.extend(Comparable, ValidationEngine, {
         let publishedAtBlogTime = this.publishedAtBlogTime;
         let blogTimezone = this.settings.timezone;
 
-        if (!publishedAtUTC && isBlank(publishedAtBlogDate) && isBlank(publishedAtBlogTime)) {
+        if (isPublishedAtBlank(publishedAtUTC, publishedAtBlogDate, publishedAtBlogTime)) {
             return null;
         }
 
-        if (publishedAtBlogDate && publishedAtBlogTime) {
+        if (hasBlogDateTime(publishedAtBlogDate, publishedAtBlogTime)) {
             let publishedAtBlog = moment.tz(`${publishedAtBlogDate} ${publishedAtBlogTime}`, blogTimezone);
 
             if (publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {
@@ -443,6 +360,7 @@ export default Model.extend(Comparable, ValidationEngine, {
 
             return publishedAtBlog;
         }
+
         return moment.tz(this.publishedAtUTC, blogTimezone);
     },
 
@@ -481,35 +399,33 @@ export default Model.extend(Comparable, ValidationEngine, {
     compare(postA, postB) {
         let updated1 = postA.get('updatedAtUTC');
         let updated2 = postB.get('updatedAtUTC');
-        let idResult,
-            publishedAtResult,
-            statusResult,
-            updatedAtResult;
 
-        if (postA.get('isNew') || !updated1) {
+        if (isNewOrMissingUpdate(postA)) {
             return -1;
         }
 
-        if (postB.get('isNew') || !updated2) {
+        if (isNewOrMissingUpdate(postB)) {
             return 1;
         }
 
-        idResult = compare(postA.get('id'), postB.get('id'));
-        statusResult = statusCompare(postA, postB);
-        updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
-        publishedAtResult = publishedAtCompare(postA, postB);
+        let idResult = compare(postA.get('id'), postB.get('id'));
+        let statusResult = statusCompare(postA, postB);
+        let updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
+        let publishedAtResult = publishedAtCompare(postA, postB);
 
-        if (statusResult === 0) {
-            if (publishedAtResult === 0) {
-                if (updatedAtResult === 0) {
-                    return idResult * -1;
-                }
-                return updatedAtResult * -1;
-            }
+        if (statusResult !== 0) {
+            return statusResult;
+        }
+
+        if (publishedAtResult !== 0) {
             return publishedAtResult * -1;
         }
 
-        return statusResult;
+        if (updatedAtResult !== 0) {
+            return updatedAtResult * -1;
+        }
+
+        return idResult * -1;
     },
 
     beforeSave() {
@@ -530,4 +446,3 @@ export default Model.extend(Comparable, ValidationEngine, {
         });
     }
 });
-```

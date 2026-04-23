@@ -1,4 +1,3 @@
-```typescript
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import countries from 'i18n-iso-countries';
 import enLocale from 'i18n-iso-countries/langs/en.json';
@@ -18,7 +17,7 @@ interface StatsFilterProps extends Omit<React.ComponentProps<typeof Filters>, 'f
     onChange?: (filters: Filter[]) => void;
 }
 
-/** Get country name from ISO code, with fallback to code itself */
+/** Get country name from ISO code, with fallback to mappings and code itself */
 const getCountryName = (code: string): string => {
     return STATS_LABEL_MAPPINGS[code as keyof typeof STATS_LABEL_MAPPINGS] || countries.getName(code, 'en') || code;
 };
@@ -37,7 +36,7 @@ interface FilterFieldDefinition {
     filterItem?: (item: Record<string, unknown>) => boolean;
 }
 
-/** Device type label transformer */
+/** Device label transformation strategy */
 const transformDeviceLabel = (value: string): string => {
     const deviceLabelMap: Record<string, string> = {
         'mobile-ios': 'iOS',
@@ -49,77 +48,84 @@ const transformDeviceLabel = (value: string): string => {
     return deviceLabelMap[value] || value;
 };
 
-/** Transforms empty UTM values to "(not set)" */
-const transformUtmValue = (value: string): {value: string; label: string} => ({
-    value: value || '(not set)',
-    label: value || '(not set)'
-});
+/** UTM parameter label transformation strategy */
+const transformUtmLabel = (value: string): string => {
+    return value || '(not set)';
+};
 
-/** Transforms source value with "Direct" fallback */
-const transformSourceValue = (value: string): {value: string; label: string} => ({
-    value: value || '',
-    label: value || 'Direct'
-});
-
-/** Filters out invalid location items */
-const filterLocationItem = (item: Record<string, unknown>): boolean => {
-    const location = String(item.location || '');
-    return location !== '' && !UNKNOWN_LOCATION_VALUES.includes(location);
+/** Source label transformation strategy */
+const transformSourceLabel = (value: string): string => {
+    return value || 'Direct';
 };
 
 const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     utm_source: {
         endpoint: 'api_top_utm_sources',
         valueKey: 'utm_source',
-        transformValue: transformUtmValue
+        transformValue: v => ({value: transformUtmLabel(v), label: transformUtmLabel(v)})
     },
     utm_medium: {
         endpoint: 'api_top_utm_mediums',
         valueKey: 'utm_medium',
-        transformValue: transformUtmValue
+        transformValue: v => ({value: transformUtmLabel(v), label: transformUtmLabel(v)})
     },
     utm_campaign: {
         endpoint: 'api_top_utm_campaigns',
         valueKey: 'utm_campaign',
-        transformValue: transformUtmValue
+        transformValue: v => ({value: transformUtmLabel(v), label: transformUtmLabel(v)})
     },
     utm_content: {
         endpoint: 'api_top_utm_contents',
         valueKey: 'utm_content',
-        transformValue: transformUtmValue
+        transformValue: v => ({value: transformUtmLabel(v), label: transformUtmLabel(v)})
     },
     utm_term: {
         endpoint: 'api_top_utm_terms',
         valueKey: 'utm_term',
-        transformValue: transformUtmValue
+        transformValue: v => ({value: transformUtmLabel(v), label: transformUtmLabel(v)})
     },
     source: {
         endpoint: 'api_top_sources',
         valueKey: 'source',
-        transformValue: transformSourceValue
+        transformValue: v => ({
+            value: v || '',
+            label: transformSourceLabel(v)
+        })
     },
     location: {
         endpoint: 'api_top_locations',
         valueKey: 'location',
-        filterItem: filterLocationItem,
+        filterItem(item) {
+            const location = String(item.location || '');
+            return location !== '' && !UNKNOWN_LOCATION_VALUES.includes(location);
+        },
         transformValue: v => ({value: v, label: getCountryName(v)})
     },
     device: {
         endpoint: 'api_top_devices',
         valueKey: 'device',
-        transformValue: v => ({value: v, label: transformDeviceLabel(v)})
+        transformValue: v => ({
+            value: v,
+            label: transformDeviceLabel(v)
+        })
     }
 };
 
-/** Determines if filter value is a post UUID or pathname */
-const isPostPathname = (value: string): boolean => value.startsWith('/');
-
-/** Determines if field should be included in filter params */
-const isFilterableField = (field: string): boolean => {
-    return field === 'source' || field === 'device' || field === 'location' || field.startsWith('utm_');
+/** Determine if filter field should be included in params based on field type */
+const isFilterableField = (fieldName: string): boolean => {
+    return fieldName === 'source' || fieldName === 'device' || fieldName === 'location' || fieldName.startsWith('utm_');
 };
 
-/** Builds filter parameters for Tinybird API, excluding specified field */
+/** Handle post field value extraction */
+const extractPostFilterValue = (value: string, params: Record<string, string>): void => {
+    if (value.startsWith('/')) {
+        params.pathname = value;
+    } else {
+        params.post_uuid = value;
+    }
+};
+
+/** Build filter params for Tinybird API, excluding the specified field to avoid circular filtering */
 const buildFilterParams = (
     currentFilters: Filter[],
     excludeField: string,
@@ -135,11 +141,7 @@ const buildFilterParams = (
         const value = filter.values[0] as string;
 
         if (filter.field === 'post') {
-            if (isPostPathname(value)) {
-                params.pathname = value;
-            } else {
-                params.post_uuid = value;
-            }
+            extractPostFilterValue(value, params);
         } else if (filter.field === 'audience') {
             return;
         } else if (isFilterableField(filter.field)) {
@@ -154,7 +156,7 @@ interface UseTinybirdFilterOptionsConfig {
     enabled?: boolean;
 }
 
-/** Generic hook to fetch and transform filter options from Tinybird */
+/** Generic hook to fetch filter options from Tinybird with transformation and deduplication */
 const useTinybirdFilterOptions = (
     fieldKey: string,
     currentFilters: Filter[] = [],
@@ -222,17 +224,17 @@ interface UsePostOptionsConfig {
     enabled?: boolean;
 }
 
-/** Determines if post UUID is valid */
+/** Determine if post UUID is valid for use as filter value */
 const isValidPostUuid = (uuid: string | undefined): boolean => {
     return !!(uuid && uuid !== '' && uuid !== 'undefined');
 };
 
-/** Gets unique key for deduplication - prefers post_uuid over pathname */
+/** Extract unique key for post deduplication */
 const getPostUniqueKey = (item: {post_uuid?: string; pathname: string}): string => {
     return isValidPostUuid(item.post_uuid) ? `uuid:${item.post_uuid}` : `path:${item.pathname}`;
 };
 
-/** Gets filter value for post - prefers post_uuid over pathname */
+/** Extract filter value from post item, preferring UUID over pathname */
 const getPostFilterValue = (item: {post_uuid?: string; pathname: string}): string => {
     return isValidPostUuid(item.post_uuid) ? item.post_uuid! : item.pathname;
 };
@@ -296,8 +298,8 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
     return {options, loading: isLoading};
 };
 
-/** Creates UTM field configuration */
-const createUtmFieldConfig = (
+/** Build UTM field configuration */
+const buildUtmFieldConfig = (
     key: string,
     label: string,
     icon: React.ReactNode,
@@ -321,8 +323,8 @@ const createUtmFieldConfig = (
     selectedOptionsClassName: 'hidden'
 });
 
-/** Creates basic filter field configuration */
-const createBasicFieldConfig = (
+/** Build basic filter field configuration */
+const buildBasicFieldConfig = (
     key: string,
     label: string,
     type: 'select' | 'multiselect',
@@ -348,8 +350,12 @@ const createBasicFieldConfig = (
         config.autoCloseOnSelect = true;
     } else {
         config.placeholder = `Select ${label.toLowerCase()}`;
-        config.isLoading = isLoading;
-        config.searchable = searchable;
+        if (isLoading !== undefined) {
+            config.isLoading = isLoading;
+        }
+        if (searchable) {
+            config.searchable = searchable;
+        }
         if (key === 'post') {
             config.className = 'w-80';
             config.popoverContentClassName = 'w-80';
@@ -366,6 +372,7 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
     const {appSettings} = useAppContext();
 
     const [activeFilterField, setActiveFilterField] = useState<string | null>(null);
+
     const [isMobile, setIsMobile] = useState(false);
 
     useEffect(() => {
@@ -376,6 +383,7 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
         };
 
         handleChange(mediaQuery);
+
         mediaQuery.addEventListener('change', handleChange);
 
         return () => mediaQuery.removeEventListener('change', handleChange);
@@ -413,23 +421,25 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
 
     const groupedFields: FilterFieldConfig[] = useMemo(() => {
         const utmFields: FilterFieldConfig[] = [
-            createUtmFieldConfig('utm_source', 'UTM Source', <LucideIcon.MousePointerClick className="size-4" />, utmSourceOptions, utmSourceLoading, supportedOperators),
-            createUtmFieldConfig('utm_medium', 'UTM Medium', <LucideIcon.SatelliteDish className="size-4" />, utmMediumOptions, utmMediumLoading, supportedOperators),
-            createUtmFieldConfig('utm_campaign', 'UTM Campaign', <LucideIcon.Flag className="size-4" />, utmCampaignOptions, utmCampaignLoading, supportedOperators),
-            createUtmFieldConfig('utm_content', 'UTM Content', <LucideIcon.TextCursorInput className="size-4" />, utmContentOptions, utmContentLoading, supportedOperators),
-            createUtmFieldConfig('utm_term', 'UTM Term', <LucideIcon.Tag className="size-4" />, utmTermOptions, utmTermLoading, supportedOperators)
+            buildUtmFieldConfig('utm_source', 'UTM Source', <LucideIcon.MousePointerClick className="size-4" />, utmSourceOptions, utmSourceLoading, supportedOperators),
+            buildUtmFieldConfig('utm_medium', 'UTM Medium', <LucideIcon.SatelliteDish className="size-4" />, utmMediumOptions, utmMediumLoading, supportedOperators),
+            buildUtmFieldConfig('utm_campaign', 'UTM Campaign', <LucideIcon.Flag className="size-4" />, utmCampaignOptions, utmCampaignLoading, supportedOperators),
+            buildUtmFieldConfig('utm_content', 'UTM Content', <LucideIcon.TextCursorInput className="size-4" />, utmContentOptions, utmContentLoading, supportedOperators),
+            buildUtmFieldConfig('utm_term', 'UTM Term', <LucideIcon.Tag className="size-4" />, utmTermOptions, utmTermLoading, supportedOperators)
+        ];
+
+        const basicFields: FilterFieldConfig[] = [
+            buildBasicFieldConfig('audience', 'Audience', 'multiselect', <LucideIcon.Users />, audienceOptions.map(({value, label, icon}) => ({value, label, icon})), supportedOperators),
+            buildBasicFieldConfig('post', 'Post or page', 'select', <LucideIcon.PenLine />, postOptions, supportedOperators, postLoading, true),
+            buildBasicFieldConfig('source', 'Source', 'select', <LucideIcon.Globe className="size-4" />, sourceOptions, supportedOperators, sourceLoading, true),
+            buildBasicFieldConfig('device', 'Device', 'select', <LucideIcon.Monitor className="size-4" />, deviceOptions, supportedOperators, deviceLoading),
+            buildBasicFieldConfig('location', 'Location', 'select', <LucideIcon.MapPin className="size-4" />, locationOptions, supportedOperators, locationLoading, true)
         ];
 
         return [
             {
                 group: 'Basic',
-                fields: [
-                    createBasicFieldConfig('audience', 'Audience', 'multiselect', <LucideIcon.Users />, audienceOptions.map(({value, label, icon}) => ({value, label, icon})), supportedOperators),
-                    createBasicFieldConfig('post', 'Post or page', 'select', <LucideIcon.PenLine />, postOptions, supportedOperators, postLoading, true),
-                    createBasicFieldConfig('source', 'Source', 'select', <LucideIcon.Globe className="size-4" />, sourceOptions, supportedOperators, sourceLoading, true),
-                    createBasicFieldConfig('device', 'Device', 'select', <LucideIcon.Monitor className="size-4" />, deviceOptions, supportedOperators, deviceLoading),
-                    createBasicFieldConfig('location', 'Location', 'select', <LucideIcon.MapPin className="size-4" />, locationOptions, supportedOperators, locationLoading, true)
-                ]
+                fields: basicFields
             },
             {
                 group: 'UTM parameters',
@@ -478,4 +488,3 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
 }
 
 export default StatsFilter;
-```

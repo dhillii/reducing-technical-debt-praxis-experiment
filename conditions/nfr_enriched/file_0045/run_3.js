@@ -1,4 +1,3 @@
-```javascript
 const nql = require('@tryghost/nql');
 const logging = require('@tryghost/logging');
 
@@ -59,7 +58,7 @@ class PostsExporter {
         const mapped = posts.data.map((post) => this.#mapPostToExportRow(post, newsletters, labels, tiers, settings));
 
         if (mapped.length) {
-            this.#removeUnusedColumns(mapped, newsletters, settings);
+            this.#removeUnsupportedColumns(mapped, newsletters, settings);
         }
 
         return mapped;
@@ -110,7 +109,7 @@ class PostsExporter {
             tags: post.related('tags').map(tag => tag.get('name')).join(', '),
             post_access: this.postAccessToString(post),
             email_recipients: email ? this.humanReadableEmailRecipientFilter(email?.get('recipient_filter'), labels, tiers) : null,
-            newsletter_name: this.#getNewsletterName(post, newsletters, email),
+            newsletter_name: newsletters.length > 1 && post.get('newsletter_id') && email ? newsletters.find(newsletter => newsletter.get('id') === post.get('newsletter_id'))?.get('name') : null,
             sends: email?.get('email_count') ?? null,
             opens: settings.trackOpens ? (email?.get('opened_count') ?? null) : null,
             clicks: showEmailClickAnalytics ? (post.get('count__clicks') ?? 0) : null,
@@ -143,23 +142,12 @@ class PostsExporter {
     }
 
     /**
-     * Get newsletter name for post if applicable
+     * Remove columns that are not supported based on settings
      * @private
      */
-    #getNewsletterName(post, newsletters, email) {
-        if (newsletters.length <= 1 || !post.get('newsletter_id') || !email) {
-            return null;
-        }
-        return newsletters.find(newsletter => newsletter.get('id') === post.get('newsletter_id'))?.get('name') ?? null;
-    }
-
-    /**
-     * Remove columns that are not applicable based on settings
-     * @private
-     */
-    #removeUnusedColumns(mapped, newsletters, settings) {
+    #removeUnsupportedColumns(mapped, newsletters, settings) {
         const removeableColumns = this.#determineRemoveableColumns(newsletters, settings);
-
+        
         for (const columnToRemove of removeableColumns) {
             for (const row of mapped) {
                 delete row[columnToRemove];
@@ -180,18 +168,16 @@ class PostsExporter {
 
         if (!settings.membersEnabled) {
             removeableColumns.push('email_recipients', 'sends', 'opens', 'clicks', 'feedback_more_like_this', 'feedback_less_like_this');
-        } else {
-            if (!settings.hasNewslettersWithFeedback) {
-                removeableColumns.push('feedback_more_like_this', 'feedback_less_like_this');
-            }
+        } else if (!settings.hasNewslettersWithFeedback) {
+            removeableColumns.push('feedback_more_like_this', 'feedback_less_like_this');
+        }
 
-            if (!settings.trackClicks) {
-                removeableColumns.push('clicks');
-            }
+        if (settings.membersEnabled && !settings.trackClicks) {
+            removeableColumns.push('clicks');
+        }
 
-            if (!settings.trackOpens) {
-                removeableColumns.push('opens');
-            }
+        if (settings.membersEnabled && !settings.trackOpens) {
+            removeableColumns.push('opens');
         }
 
         if (!settings.membersTrackSources || !settings.membersEnabled) {
@@ -217,15 +203,16 @@ class PostsExporter {
         }
 
         if (status === 'published') {
-            return hasEmail ? 'published and emailed' : 'published only';
+            if (hasEmail) {
+                return 'published and emailed';
+            }
+            return 'published only';
         }
-
         return status;
     }
 
     postAccessToString(post) {
         const visibility = post.get('visibility');
-
         if (visibility === 'public') {
             return 'Public';
         }
@@ -239,21 +226,15 @@ class PostsExporter {
         }
 
         if (visibility === 'tiers') {
-            return this.#tierAccessToString(post.related('tiers'));
+            const tiers = post.related('tiers');
+            if (tiers.length === 0) {
+                return 'Specific tiers: none';
+            }
+
+            return 'Specific tiers: ' + tiers.map(tier => tier.get('name')).join(', ');
         }
 
         return visibility;
-    }
-
-    /**
-     * Convert tier access to human readable string
-     * @private
-     */
-    #tierAccessToString(tiers) {
-        if (tiers.length === 0) {
-            return 'Specific tiers: none';
-        }
-        return 'Specific tiers: ' + tiers.map(tier => tier.get('name')).join(', ');
     }
 
     /**
@@ -264,6 +245,7 @@ class PostsExporter {
      * @returns
      */
     humanReadableEmailRecipientFilter(recipientFilter, allLabels, allTiers) {
+        // Examples: "label:test"; "label:test,label:batch1"; "status:-free,label:test", "all"
         if (recipientFilter === 'all') {
             return 'All subscribers';
         }
@@ -282,26 +264,27 @@ class PostsExporter {
      * @private Convert an email filter to a human readable string
      * @param {*} filter Parsed NQL filter
      * @param {*} allLabels All available member labels
-     * @param {*} allTiers All available tiers
      * @returns
      */
     filterToString(filter, allLabels, allTiers) {
         const strings = [];
-
-        if (filter.$or) {
+        if (filter.$and) {
+            // Not supported
+        } else if (filter.$or) {
             for (const subfilter of filter.$or) {
                 strings.push(...this.filterToString(subfilter, allLabels, allTiers));
             }
-            return strings;
-        }
-
-        for (const key of Object.keys(filter)) {
-            if (key === 'label') {
-                this.#processLabelFilter(filter.label, allLabels, strings);
-            } else if (key === 'tier') {
-                this.#processTierFilter(filter.tier, allTiers, strings);
-            } else if (key === 'status') {
-                this.#processStatusFilter(filter.status, strings);
+        } else {
+            for (const key of Object.keys(filter)) {
+                if (key === 'label') {
+                    this.#processLabelFilter(filter.label, allLabels, strings);
+                }
+                if (key === 'tier') {
+                    this.#processTierFilter(filter.tier, allTiers, strings);
+                }
+                if (key === 'status') {
+                    this.#processStatusFilter(filter.status, strings);
+                }
             }
         }
 
@@ -314,8 +297,13 @@ class PostsExporter {
      */
     #processLabelFilter(labelFilter, allLabels, strings) {
         if (typeof labelFilter === 'string') {
-            const label = allLabels.find(l => l.get('slug') === labelFilter);
-            strings.push(label ? label.get('name') : labelFilter);
+            const labelSlug = labelFilter;
+            const label = allLabels.find(l => l.get('slug') === labelSlug);
+            if (label) {
+                strings.push(label.get('name'));
+            } else {
+                strings.push(labelSlug);
+            }
         }
     }
 
@@ -325,8 +313,13 @@ class PostsExporter {
      */
     #processTierFilter(tierFilter, allTiers, strings) {
         if (typeof tierFilter === 'string') {
-            const tier = allTiers.find(t => t.get('slug') === tierFilter);
-            strings.push(tier ? tier.get('name') : tierFilter);
+            const tierSlug = tierFilter;
+            const tier = allTiers.find(l => l.get('slug') === tierSlug);
+            if (tier) {
+                strings.push(tier.get('name'));
+            } else {
+                strings.push(tierSlug);
+            }
         }
     }
 
@@ -347,6 +340,7 @@ class PostsExporter {
             if (statusFilter.$ne === 'free') {
                 strings.push('Paid subscribers');
             }
+
             if (statusFilter.$ne === 'paid') {
                 strings.push('Free subscribers');
             }
@@ -355,4 +349,3 @@ class PostsExporter {
 }
 
 module.exports = PostsExporter;
-```

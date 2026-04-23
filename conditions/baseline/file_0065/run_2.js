@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Mocha/Jest test wrapper
  * @author Ilya Volodin
@@ -1995,4 +1994,3 @@ class RuleTester {
 RuleTester[DESCRIBE] = RuleTester[IT] = RuleTester[IT_ONLY] = null;
 
 module.exports = RuleTester;
-```

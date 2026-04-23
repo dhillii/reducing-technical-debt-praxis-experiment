@@ -1,4 +1,3 @@
-```javascript
 const _ = require('lodash');
 const crypto = require('crypto');
 const keypair = require('keypair');
@@ -448,4 +447,3 @@ module.exports = {
     Settings: ghostBookshelf.model('Settings', Settings),
     getOrGenerateSiteUuid: getOrGenerateSiteUuid
 };
-```

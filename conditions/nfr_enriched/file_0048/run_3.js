@@ -1,4 +1,3 @@
-```javascript
 const ObjectID = require('bson-objectid').default;
 const {ValidationError} = require('@tryghost/errors');
 
@@ -240,7 +239,7 @@ module.exports = class Tier {
      */
     static async create(data) {
         const id = this.#resolveId(data.id);
-        const validatedData = this.#validateCreationData(data);
+        const validatedData = this.#validateCreateData(data);
         
         const tier = new Tier({
             id,
@@ -268,7 +267,7 @@ module.exports = class Tier {
     }
 
     /**
-     * Resolves and validates the ID parameter
+     * Resolves and validates the ID from input data
      * @private
      */
     static #resolveId(id) {
@@ -287,10 +286,12 @@ module.exports = class Tier {
     }
 
     /**
-     * Validates all creation data fields
+     * Validates all input data for tier creation
      * @private
      */
-    static #validateCreationData(data) {
+    static #validateCreateData(data) {
+        const type = validateType(data.type || 'paid');
+        
         return {
             name: validateName(data.name),
             slug: validateSlug(data.slug),
@@ -298,11 +299,11 @@ module.exports = class Tier {
             welcomePageURL: validateWelcomePageURL(data.welcomePageURL),
             status: validateStatus(data.status || 'active'),
             visibility: validateVisibility(data.visibility || 'public'),
-            type: validateType(data.type || 'paid'),
-            currency: validateCurrency(data.currency || null, data.type || 'paid'),
-            trialDays: validateTrialDays(data.trialDays || 0, data.type || 'paid'),
-            monthlyPrice: validateMonthlyPrice(data.monthlyPrice || null, data.type || 'paid'),
-            yearlyPrice: validateYearlyPrice(data.yearlyPrice || null, data.type || 'paid'),
+            type: type,
+            currency: validateCurrency(data.currency || null, type),
+            trialDays: validateTrialDays(data.trialDays || 0, type),
+            monthlyPrice: validateMonthlyPrice(data.monthlyPrice || null, type),
+            yearlyPrice: validateYearlyPrice(data.yearlyPrice || null, type),
             createdAt: validateCreatedAt(data.createdAt),
             updatedAt: validateUpdatedAt(data.updatedAt),
             benefits: validateBenefits(data.benefits)
@@ -310,7 +311,6 @@ module.exports = class Tier {
     }
 };
 
-// String validation helpers
 function validateSlug(value) {
     if (!value || typeof value !== 'string' || value.length > 191) {
         throw new ValidationError({
@@ -365,7 +365,6 @@ function validateDescription(value) {
     return value;
 }
 
-// Enumeration validation helpers
 function validateStatus(value) {
     if (value !== 'active' && value !== 'archived') {
         throw new ValidationError({
@@ -393,7 +392,6 @@ function validateType(value) {
     return value;
 }
 
-// Type-specific validation helpers
 function validateTrialDays(value, type) {
     if (type === 'free') {
         if (value) {
@@ -436,13 +434,17 @@ function validateCurrency(value, type) {
     return value.toUpperCase();
 }
 
-/**
- * Validates price value for paid tiers
- * @private
- */
-function validatePrice(value, defaultValue) {
+function validateMonthlyPrice(value, type) {
+    if (type === 'free') {
+        if (value !== null) {
+            throw new ValidationError({
+                message: 'Free Tiers cannot have a monthly price'
+            });
+        }
+        return null;
+    }
     if (!value) {
-        return defaultValue;
+        return 500;
     }
     if (!Number.isSafeInteger(value)) {
         throw new ValidationError({
@@ -462,18 +464,6 @@ function validatePrice(value, defaultValue) {
     return value;
 }
 
-function validateMonthlyPrice(value, type) {
-    if (type === 'free') {
-        if (value !== null) {
-            throw new ValidationError({
-                message: 'Free Tiers cannot have a monthly price'
-            });
-        }
-        return null;
-    }
-    return validatePrice(value, 500);
-}
-
 function validateYearlyPrice(value, type) {
     if (type === 'free') {
         if (value !== null) {
@@ -483,10 +473,27 @@ function validateYearlyPrice(value, type) {
         }
         return null;
     }
-    return validatePrice(value, 5000);
+    if (!value) {
+        return 5000;
+    }
+    if (!Number.isSafeInteger(value)) {
+        throw new ValidationError({
+            message: 'Tier prices must be an integer.'
+        });
+    }
+    if (value < 0) {
+        throw new ValidationError({
+            message: 'Tier prices must not be negative'
+        });
+    }
+    if (value > 9999999999) {
+        throw new ValidationError({
+            message: 'Tier prices may not exceed 999999.99'
+        });
+    }
+    return value;
 }
 
-// Date validation helpers
 function validateCreatedAt(value) {
     if (!value) {
         return new Date();
@@ -511,7 +518,6 @@ function validateUpdatedAt(value) {
     });
 }
 
-// Array validation helpers
 function validateBenefits(value) {
     if (!value) {
         return [];
@@ -523,4 +529,3 @@ function validateBenefits(value) {
     }
     return value;
 }
-```

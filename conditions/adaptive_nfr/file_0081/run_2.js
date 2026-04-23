@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const Catbox = require('catbox');
@@ -91,15 +90,15 @@ internals.Server.prototype._setupDebugLogging = function () {
         console.error('Debug:', event.tags.join(', '), (data ? '\n    ' + (data.stack || (typeof data === 'object' ? Hoek.stringify(data) : data)) : ''));
     };
 
-    this._setupDebugLogEvents(debug);
-    this._setupDebugRequestEvents(debug);
+    this._setupDebugLogFilter(debug);
+    this._setupDebugRequestFilter(debug);
 };
 
 
 /**
- * Setup debug logging for server log events
+ * Setup debug filter for server logs
  */
-internals.Server.prototype._setupDebugLogEvents = function (debug) {
+internals.Server.prototype._setupDebugLogFilter = function (debug) {
 
     if (!this._settings.debug.log) {
         return;
@@ -111,9 +110,9 @@ internals.Server.prototype._setupDebugLogEvents = function (debug) {
 
 
 /**
- * Setup debug logging for request events
+ * Setup debug filter for request logs
  */
-internals.Server.prototype._setupDebugRequestEvents = function (debug) {
+internals.Server.prototype._setupDebugRequestFilter = function (debug) {
 
     if (!this._settings.debug.request) {
         return;
@@ -135,7 +134,6 @@ internals.Server.prototype._createCache = function (options, _callback) {
     for (let i = 0; i < options.length; ++i) {
         const client = this._createCacheClient(options[i]);
         const name = options[i].name || '_default';
-        
         Hoek.assert(!this._caches[name], 'Cannot configure the same cache more than once: ', name === '_default' ? 'default cache' : name);
 
         this._caches[name] = {
@@ -179,13 +177,13 @@ internals.Server.prototype._createCacheClient = function (config) {
 
 
 /**
- * Start cache clients if server is in appropriate state
+ * Start cache clients if server is initialized
  */
 internals.Server.prototype._startCaches = function (added, _callback) {
 
-    const shouldStartCaches = ['initialized', 'starting', 'started'].indexOf(this._state) !== -1;
+    const isServerInitialized = ['initialized', 'starting', 'started'].indexOf(this._state) !== -1;
 
-    if (shouldStartCaches) {
+    if (isServerInitialized) {
         const each = (client, next) => client.start(next);
         return Items.parallel(added, each, _callback);
     }
@@ -246,42 +244,17 @@ internals.Server.prototype.start = function (callback) {
         return nextTickCallback(new Error('No connections to start'));
     }
 
-    const validationError = this._getStartValidationError();
-    if (validationError) {
-        return nextTickCallback(validationError);
+    const depError = this._validateDepsIfNeeded();
+    if (depError) {
+        return nextTickCallback(depError);
     }
-
-    this._handleStartByState(callback, nextTickCallback);
-};
-
-
-/**
- * Get validation error if server state requires dependency validation
- */
-internals.Server.prototype._getStartValidationError = function () {
-
-    const needsValidation = this._state === 'initialized' || this._state === 'started';
-
-    if (!needsValidation) {
-        return null;
-    }
-
-    return this._validateDeps();
-};
-
-
-/**
- * Handle start based on current server state
- */
-internals.Server.prototype._handleStartByState = function (callback, nextTickCallback) {
 
     if (this._state === 'initialized') {
         return this._start(callback);
     }
 
     if (this._state === 'started') {
-        const each = (connection, next) => connection._start(next);
-        return Items.parallel(this.connections, each, nextTickCallback);
+        return this._restartConnections(nextTickCallback);
     }
 
     if (this._state !== 'stopped') {
@@ -297,6 +270,31 @@ internals.Server.prototype._handleStartByState = function (callback, nextTickCal
 };
 
 
+/**
+ * Validate dependencies if server is initialized or started
+ */
+internals.Server.prototype._validateDepsIfNeeded = function () {
+
+    const needsValidation = this._state === 'initialized' || this._state === 'started';
+
+    if (!needsValidation) {
+        return null;
+    }
+
+    return this._validateDeps();
+};
+
+
+/**
+ * Restart all connections
+ */
+internals.Server.prototype._restartConnections = function (callback) {
+
+    const each = (connection, next) => connection._start(next);
+    return Items.parallel(this.connections, each, callback);
+};
+
+
 internals.Server.prototype.initialize = function (callback) {
 
     if (!callback) {
@@ -306,9 +304,21 @@ internals.Server.prototype.initialize = function (callback) {
     Hoek.assert(typeof callback === 'function', 'Missing required start callback function');
     const nextTickCallback = Hoek.nextTick(callback);
 
-    const initError = this._getInitializeError();
-    if (initError) {
-        return nextTickCallback(initError);
+    if (this._registring) {
+        return nextTickCallback(new Error('Cannot start server before plugins finished registration'));
+    }
+
+    if (this._state === 'initialized') {
+        return nextTickCallback();
+    }
+
+    if (this._state !== 'stopped') {
+        return nextTickCallback(new Error('Cannot initialize server while it is in ' + this._state + ' state'));
+    }
+
+    const error = this._validateDeps();
+    if (error) {
+        return nextTickCallback(error);
     }
 
     this._state = 'initializing';
@@ -317,41 +327,20 @@ internals.Server.prototype.initialize = function (callback) {
 
 
 /**
- * Get validation error for initialize operation
- */
-internals.Server.prototype._getInitializeError = function () {
-
-    if (this._registring) {
-        return new Error('Cannot start server before plugins finished registration');
-    }
-
-    if (this._state === 'initialized') {
-        return null;
-    }
-
-    if (this._state !== 'stopped') {
-        return new Error('Cannot initialize server while it is in ' + this._state + ' state');
-    }
-
-    return this._validateDeps();
-};
-
-
-/**
- * Initialize cache clients and proceed with startup
+ * Initialize all cache clients
  */
 internals.Server.prototype._initializeCaches = function (callback) {
 
     const caches = Object.keys(this._caches);
     const each = (cache, next) => this._caches[cache].client.start(next);
-    
+
     Items.parallel(caches, each, (err) => {
         if (err) {
             this._state = 'invalid';
             return callback(err);
         }
 
-        this._invokePreStart(callback);
+        this._invokePreStartExtensions(callback);
     });
 };
 
@@ -359,7 +348,7 @@ internals.Server.prototype._initializeCaches = function (callback) {
 /**
  * Invoke onPreStart extensions
  */
-internals.Server.prototype._invokePreStart = function (callback) {
+internals.Server.prototype._invokePreStartExtensions = function (callback) {
 
     this._invoke('onPreStart', (err) => {
         if (err) {
@@ -375,37 +364,32 @@ internals.Server.prototype._invokePreStart = function (callback) {
 
 
 /**
- * Check if dependency is registered in registrations object
+ * Validate dependency for a single plugin
  */
-internals.Server.prototype._isDependencyRegistered = function (registrations, dep) {
+internals.Server.prototype._validatePluginDep = function (dependency, dep, version, registrations) {
 
-    return !!registrations[dep];
-};
-
-
-/**
- * Check if dependency version matches requirement
- */
-internals.Server.prototype._isDependencyVersionValid = function (registrations, dep, version) {
-
-    if (version === '*') {
-        return true;
+    if (!registrations[dep]) {
+        return new Error('Plugin ' + dependency.plugin + ' missing dependency ' + dep);
     }
 
-    return Somever.match(registrations[dep].version, version);
+    if (version !== '*' && !Somever.match(registrations[dep].version, version)) {
+        return new Error('Plugin ' + dependency.plugin + ' requires ' + dep + ' version ' + version + ' but found ' + registrations[dep].version);
+    }
+
+    return null;
 };
 
 
 /**
  * Validate dependency for a connection
  */
-internals.Server.prototype._validateConnectionDependency = function (dependency, connection, dep, version) {
+internals.Server.prototype._validateConnectionDep = function (dependency, dep, version, connection) {
 
-    if (!this._isDependencyRegistered(connection.registrations, dep)) {
+    if (!connection.registrations[dep]) {
         return new Error('Plugin ' + dependency.plugin + ' missing dependency ' + dep + ' in connection: ' + connection.info.uri);
     }
 
-    if (!this._isDependencyVersionValid(connection.registrations, dep, version)) {
+    if (version !== '*' && !Somever.match(connection.registrations[dep].version, version)) {
         return new Error('Plugin ' + dependency.plugin + ' requires ' + dep + ' version ' + version + ' but found ' + connection.registrations[dep].version + ' in connection: ' + connection.info.uri);
     }
 
@@ -414,47 +398,22 @@ internals.Server.prototype._validateConnectionDependency = function (dependency,
 
 
 /**
- * Validate dependency for server
+ * Validate all dependencies for a plugin with connections
  */
-internals.Server.prototype._validateServerDependency = function (dependency, dep, version) {
-
-    if (!this._isDependencyRegistered(this._registrations, dep)) {
-        return new Error('Plugin ' + dependency.plugin + ' missing dependency ' + dep);
-    }
-
-    if (!this._isDependencyVersionValid(this._registrations, dep, version)) {
-        return new Error('Plugin ' + dependency.plugin + ' requires ' + dep + ' version ' + version + ' but found ' + this._registrations[dep].version);
-    }
-
-    return null;
-};
-
-
-/**
- * Validate all dependencies for a single dependency object
- */
-internals.Server.prototype._validateDependencyDeps = function (dependency) {
-
-    const deps = Object.keys(dependency.deps);
-
-    if (dependency.connections) {
-        return this._validateConnectionDependencies(dependency, deps);
-    }
-
-    return this._validateServerDependencies(dependency, deps);
-};
-
-
-/**
- * Validate dependencies across all connections
- */
-internals.Server.prototype._validateConnectionDependencies = function (dependency, deps) {
+internals.Server.prototype._validateDepsForConnections = function (dependency) {
 
     for (let j = 0; j < dependency.connections.length; ++j) {
         const connection = dependency.connections[j];
-        const error = this._validateConnectionDeps(dependency, connection, deps);
-        if (error) {
-            return error;
+        const deps = Object.keys(dependency.deps);
+
+        for (let k = 0; k < deps.length; ++k) {
+            const dep = deps[k];
+            const version = dependency.deps[dep];
+            const error = this._validateConnectionDep(dependency, dep, version, connection);
+
+            if (error) {
+                return error;
+            }
         }
     }
 
@@ -463,32 +422,17 @@ internals.Server.prototype._validateConnectionDependencies = function (dependenc
 
 
 /**
- * Validate dependencies for a specific connection
+ * Validate all dependencies for a plugin without connections
  */
-internals.Server.prototype._validateConnectionDeps = function (dependency, connection, deps) {
+internals.Server.prototype._validateDepsWithoutConnections = function (dependency) {
 
-    for (let k = 0; k < deps.length; ++k) {
-        const dep = deps[k];
-        const version = dependency.deps[dep];
-        const error = this._validateConnectionDependency(dependency, connection, dep, version);
-        if (error) {
-            return error;
-        }
-    }
-
-    return null;
-};
-
-
-/**
- * Validate server-level dependencies
- */
-internals.Server.prototype._validateServerDependencies = function (dependency, deps) {
+    const deps = Object.keys(dependency.deps);
 
     for (let j = 0; j < deps.length; ++j) {
         const dep = deps[j];
         const version = dependency.deps[dep];
-        const error = this._validateServerDependency(dependency, dep, version);
+        const error = this._validatePluginDep(dependency, dep, version, this._registrations);
+
         if (error) {
             return error;
         }
@@ -502,7 +446,11 @@ internals.Server.prototype._validateDeps = function () {
 
     for (let i = 0; i < this._dependencies.length; ++i) {
         const dependency = this._dependencies[i];
-        const error = this._validateDependencyDeps(dependency);
+
+        const error = dependency.connections
+            ? this._validateDepsForConnections(dependency)
+            : this._validateDepsWithoutConnections(dependency);
+
         if (error) {
             return error;
         }
@@ -518,15 +466,23 @@ internals.Server.prototype._start = function (callback) {
 
     const each = (connection, next) => connection._start(next);
     Items.parallel(this.connections, each, (err) => {
-
         if (err) {
             this._state = 'invalid';
             return Hoek.nextTick(callback)(err);
         }
 
-        this._events.emit('start', null, () => {
-            this._invokePostStart(callback);
-        });
+        this._emitStartEvent(callback);
+    });
+};
+
+
+/**
+ * Emit start event and invoke post-start extensions
+ */
+internals.Server.prototype._emitStartEvent = function (callback) {
+
+    this._events.emit('start', null, () => {
+        this._invokePostStartExtensions(callback);
     });
 };
 
@@ -534,7 +490,7 @@ internals.Server.prototype._start = function (callback) {
 /**
  * Invoke onPostStart extensions
  */
-internals.Server.prototype._invokePostStart = function (callback) {
+internals.Server.prototype._invokePostStartExtensions = function (callback) {
 
     this._invoke('onPostStart', (err) => {
         if (err) {
@@ -566,12 +522,12 @@ internals.Server.prototype.stop = function (/* [options], callback */) {
     }
 
     this._state = 'stopping';
-    this._invokePreStop(options, callback);
+    this._invokePreStopExtensions(options, callback);
 };
 
 
 /**
- * Check if current state allows stopping
+ * Check if server is in a valid state for stopping
  */
 internals.Server.prototype._isValidStopState = function () {
 
@@ -583,7 +539,7 @@ internals.Server.prototype._isValidStopState = function () {
 /**
  * Invoke onPreStop extensions
  */
-internals.Server.prototype._invokePreStop = function (options, callback) {
+internals.Server.prototype._invokePreStopExtensions = function (options, callback) {
 
     this._invoke('onPreStop', (err) => {
         if (err) {
@@ -608,7 +564,8 @@ internals.Server.prototype._stopConnections = function (options, callback) {
             return callback(err);
         }
 
-        this._stopCaches(callback);
+        this._stopCaches();
+        this._emitStopEvent(callback);
     });
 };
 
@@ -616,25 +573,32 @@ internals.Server.prototype._stopConnections = function (options, callback) {
 /**
  * Stop all cache clients
  */
-internals.Server.prototype._stopCaches = function (callback) {
+internals.Server.prototype._stopCaches = function () {
 
     const caches = Object.keys(this._caches);
     for (let i = 0; i < caches.length; ++i) {
         this._caches[caches[i]].client.stop();
     }
+};
+
+
+/**
+ * Emit stop event and invoke post-stop extensions
+ */
+internals.Server.prototype._emitStopEvent = function (callback) {
 
     this._events.emit('stop', null, () => {
-        this._finalizeStop(callback);
+        this._heavy.stop();
+        this._invokePostStopExtensions(callback);
     });
 };
 
 
 /**
- * Finalize server stop with post-stop extensions
+ * Invoke onPostStop extensions
  */
-internals.Server.prototype._finalizeStop = function (callback) {
+internals.Server.prototype._invokePostStopExtensions = function (callback) {
 
-    this._heavy.stop();
     this._invoke('onPostStop', (err) => {
         if (err) {
             this._state = 'invalid';
@@ -655,9 +619,7 @@ internals.Server.prototype._invoke = function (type, next) {
     }
 
     Items.serial(exts.nodes, (ext, nextExt) => {
-
         const bind = (ext.bind || ext.plugin.realm.settings.bind);
         ext.func.call(bind, ext.plugin._select(), nextExt);
     }, next);
 };
-```

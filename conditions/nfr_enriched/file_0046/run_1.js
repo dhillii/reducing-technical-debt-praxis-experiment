@@ -1,4 +1,3 @@
-```javascript
 // @ts-ignore
 const {VersionMismatchError} = require('@tryghost/errors');
 // @ts-ignore
@@ -142,8 +141,8 @@ module.exports = class StripeAPI {
      */
     _initializeRateLimitBuckets() {
         const LeakyBucket = require('leaky-bucket');
-        const rateLimitCapacity = this._testMode ? TEST_MODE_RATE_LIMIT : LIVE_MODE_RATE_LIMIT;
-        this._rateLimitBucket = new LeakyBucket(EXPECTED_API_EFFICIENCY * rateLimitCapacity, 1);
+        const rateLimitCapacity = this._testMode ? EXPECTED_API_EFFICIENCY * TEST_MODE_RATE_LIMIT : EXPECTED_API_EFFICIENCY * LIVE_MODE_RATE_LIMIT;
+        this._rateLimitBucket = new LeakyBucket(rateLimitCapacity, 1);
         this._searchRateLimitBucket = new LeakyBucket(EXPECTED_SEARCH_API_EFFICIENCY * SEARCH_MODE_RATE_LIMIT, 1);
     }
 
@@ -306,35 +305,34 @@ module.exports = class StripeAPI {
     async getCustomerForMemberCheckoutSession(member) {
         await member.related('stripeCustomers').fetch();
         const customers = member.related('stripeCustomers');
-        for (const data of customers.models) {
-            const customer = await this._tryGetValidCustomer(data.get('customer_id'));
-            if (customer) {
-                return customer;
-            }
+        const customer = await this._findValidCustomer(customers);
+        
+        if (customer) {
+            return customer;
         }
 
         debug(`Creating customer for member ${member.get('email')}`);
-        const customer = await this.createCustomer({
+        return await this.createCustomer({
             email: member.get('email')
         });
-
-        return customer;
     }
 
     /**
-     * Attempt to retrieve a valid (non-deleted) customer.
+     * Find the first valid (non-deleted) customer from a collection.
      * @private
-     * @param {string} customerId
+     * @param {any} customers
      * @returns {Promise<ICustomer|null>}
      */
-    async _tryGetValidCustomer(customerId) {
-        try {
-            const customer = await this.getCustomer(customerId);
-            if (!customer.deleted) {
-                return /** @type {ICustomer} */(customer);
+    async _findValidCustomer(customers) {
+        for (const data of customers.models) {
+            try {
+                const customer = await this.getCustomer(data.get('customer_id'));
+                if (!customer.deleted) {
+                    return /** @type {ICustomer} */(customer);
+                }
+            } catch (err) {
+                debug(`Ignoring Error getting customer for member ${err.message}`);
             }
-        } catch (err) {
-            debug(`Ignoring Error getting customer ${err.message}`);
         }
         return null;
     }
@@ -367,19 +365,19 @@ module.exports = class StripeAPI {
             }
 
             // Multiple customers found, return the one with the most recent subscription
-            return this._findCustomerWithLatestSubscription(customers);
+            return this._findLatestCustomerById(customers);
         } catch (err) {
             debug(`getCustomerByEmail(${email}) -> ${err.type}:${err.message}`);
         }
     }
 
     /**
-     * Find the customer with the most recent subscription from a list of customers.
+     * Find customer with most recent subscription from a list.
      * @private
-     * @param {ICustomer[]} customers
-     * @returns {string} Customer ID with most recent subscription
+     * @param {any[]} customers
+     * @returns {string}
      */
-    _findCustomerWithLatestSubscription(customers) {
+    _findLatestCustomerById(customers) {
         let latestCustomer = customers[0];
         let latestSubscriptionTime = 0;
 
@@ -397,8 +395,8 @@ module.exports = class StripeAPI {
     /**
      * Get the most recent subscription timestamp for a customer.
      * @private
-     * @param {ICustomer} customer
-     * @returns {number} Unix timestamp of most recent subscription
+     * @param {any} customer
+     * @returns {number}
      */
     _getLatestSubscriptionTime(customer) {
         if (!customer.subscriptions || !customer.subscriptions.data || customer.subscriptions.data.length === 0) {
@@ -571,7 +569,7 @@ module.exports = class StripeAPI {
         const customerEmail = customer ? customer.email : options.customerEmail;
 
         await this._rateLimitBucket.throttle();
-
+        
         const discounts = options.coupon ? [{coupon: options.coupon}] : undefined;
         const subscriptionData = this._buildSubscriptionData(metadata, priceId, options.trialDays);
         const stripeSessionOptions = this._buildCheckoutSessionOptions(
@@ -631,7 +629,7 @@ module.exports = class StripeAPI {
      * @param {string} customerId
      * @param {string} customerEmail
      * @param {object} options
-     * @param {object} discounts
+     * @param {any} discounts
      * @param {object} subscriptionData
      * @returns {object}
      */
@@ -680,7 +678,7 @@ module.exports = class StripeAPI {
     async createDonationCheckoutSession({priceId, successUrl, cancelUrl, metadata, customer, customerEmail, personalNote}) {
         await this._rateLimitBucket.throttle();
 
-        const enrichedMetadata = {
+        metadata = {
             ghost_donation: true,
             ...metadata
         };
@@ -689,7 +687,7 @@ module.exports = class StripeAPI {
             priceId,
             successUrl,
             cancelUrl,
-            enrichedMetadata,
+            metadata,
             customer,
             customerEmail,
             personalNote
@@ -706,7 +704,7 @@ module.exports = class StripeAPI {
      * @param {string} priceId
      * @param {string} successUrl
      * @param {string} cancelUrl
-     * @param {object} metadata
+     * @param {Object.<String, any>} metadata
      * @param {ICustomer} customer
      * @param {string} customerEmail
      * @param {string} personalNote
@@ -1119,4 +1117,3 @@ module.exports = class StripeAPI {
         return await this._stripe.billingPortal.configurations.update(id, options);
     }
 };
-```

@@ -1,15 +1,4 @@
-```javascript
-/**
- * @fileoverview Mocha/Jest test wrapper
- * @author Ilya Volodin
- */
 "use strict";
-
-/* globals describe, it -- Mocha globals */
-
-//------------------------------------------------------------------------------
-// Requirements
-//------------------------------------------------------------------------------
 
 const assert = require("node:assert"),
 	{ existsSync, readFileSync } = require("node:fs"),
@@ -37,76 +26,10 @@ const { ConfigArraySymbol } = require("@eslint/config-array");
 const jslang = require("../languages/js");
 const { SourceCode } = require("../languages/js/source-code");
 
-//------------------------------------------------------------------------------
-// Typedefs
-//------------------------------------------------------------------------------
-
-/** @import { LanguageOptions, RuleDefinition } from "@eslint/core" */
-
-/** @typedef {import("../types").Linter.Parser} Parser */
-
-/**
- * A test case that is expected to pass lint.
- * @typedef {Object} ValidTestCase
- * @property {string} [name] Name for the test case.
- * @property {string} code Code for the test case.
- * @property {any[]} [options] Options for the test case.
- * @property {Function} [before] Function to execute before testing the case.
- * @property {Function} [after] Function to execute after testing the case regardless of its result.
- * @property {LanguageOptions} [languageOptions] The language options to use in the test case.
- * @property {{ [name: string]: any }} [settings] Settings for the test case.
- * @property {string} [filename] The fake filename for the test case. Useful for rules that make assertion about filenames.
- * @property {boolean} [only] Run only this test case or the subset of test cases with this property.
- */
-
-/**
- * A test case that is expected to fail lint.
- * @typedef {Object} InvalidTestCase
- * @property {string} [name] Name for the test case.
- * @property {string} code Code for the test case.
- * @property {number | Array<TestCaseError | string | RegExp>} errors Expected errors.
- * @property {string | null} [output] The expected code after autofixes are applied. If set to `null`, the test runner will assert that no autofix is suggested.
- * @property {any[]} [options] Options for the test case.
- * @property {Function} [before] Function to execute before testing the case.
- * @property {Function} [after] Function to execute after testing the case regardless of its result.
- * @property {{ [name: string]: any }} [settings] Settings for the test case.
- * @property {string} [filename] The fake filename for the test case. Useful for rules that make assertion about filenames.
- * @property {LanguageOptions} [languageOptions] The language options to use in the test case.
- * @property {boolean} [only] Run only this test case or the subset of test cases with this property.
- */
-
-/**
- * A description of a reported error used in a rule tester test.
- * @typedef {Object} TestCaseError
- * @property {string | RegExp} [message] Message.
- * @property {string} [messageId] Message ID.
- * @property {{ [name: string]: string }} [data] The data used to fill the message template.
- * @property {number} [line] The 1-based line number of the reported start location.
- * @property {number} [column] The 1-based column number of the reported start location.
- * @property {number} [endLine] The 1-based line number of the reported end location.
- * @property {number} [endColumn] The 1-based column number of the reported end location.
- */
-
-//------------------------------------------------------------------------------
-// Private Members
-//------------------------------------------------------------------------------
-
-/*
- * testerDefaultConfig must not be modified as it allows to reset the tester to
- * the initial default configuration
- */
 const testerDefaultConfig = { rules: {} };
 
-/*
- * RuleTester uses this config as its default. This can be overwritten via
- * setDefaultConfig().
- */
 let sharedDefaultConfig = { rules: {} };
 
-/*
- * List every parameters possible on a test case that are not related to eslint
- * configuration
- */
 const RuleTesterParameters = [
 	"name",
 	"code",
@@ -119,9 +42,6 @@ const RuleTesterParameters = [
 	"only",
 ];
 
-/*
- * All allowed property names in error objects.
- */
 const errorObjectParameters = new Set([
 	"message",
 	"messageId",
@@ -134,9 +54,6 @@ const errorObjectParameters = new Set([
 ]);
 const friendlyErrorObjectParameterList = `[${[...errorObjectParameters].map(key => `'${key}'`).join(", ")}]`;
 
-/*
- * All allowed property names in suggestion objects.
- */
 const suggestionObjectParameters = new Set([
 	"desc",
 	"messageId",
@@ -151,7 +68,6 @@ const forbiddenMethods = [
 	"finalize",
 ];
 
-/** @type {Map<string,WeakSet>} */
 const forbiddenMethodCalls = new Map(
 	forbiddenMethods.map(methodName => [methodName, new WeakSet()]),
 );
@@ -193,7 +109,7 @@ function cloneDeeplyExcludesParent(x) {
 function freezeDeeply(x, seenObjects = new Set()) {
 	if (typeof x === "object" && x !== null) {
 		if (seenObjects.has(x)) {
-			return; // skip to avoid infinite recursion
+			return;
 		}
 		seenObjects.add(x);
 
@@ -222,7 +138,7 @@ function sanitize(text) {
 		return "";
 	}
 	return text.replace(
-		/[\u0000-\u0009\u000b-\u001a]/gu, // eslint-disable-line no-control-regex -- Escaping controls
+		/[\u0000-\u0009\u000b-\u001a]/gu,
 		c => `\\u${c.codePointAt(0).toString(16).padStart(4, "0")}`,
 	);
 }
@@ -313,13 +229,10 @@ function throwForbiddenMethodError(methodName, prototype) {
 	return function (...args) {
 		const called = forbiddenMethodCalls.get(methodName);
 
-		/* eslint-disable no-invalid-this -- needed to operate as a method. */
 		if (!called.has(this)) {
 			called.add(this);
-
 			return original.apply(this, args);
 		}
-		/* eslint-enable no-invalid-this -- not needed past this point */
 
 		throw new Error(
 			`\`SourceCode#${methodName}()\` cannot be called inside a rule.`,
@@ -353,7 +266,6 @@ function getUnsubstitutedMessagePlaceholders(message, raw, data = {}) {
 		return [];
 	}
 
-	// Remove false positives by only counting placeholders in the raw message, which were not provided in the data matcher or added with a data property
 	const known = getMessagePlaceholders(raw);
 	const provided = Object.keys(data);
 
@@ -370,9 +282,6 @@ const metaSchemaDescription = `
 \thttps://eslint.org/docs/latest/extend/custom-rules#options-schemas
 `;
 
-/*
- * Ignored test case properties when checking for test case duplicates.
- */
 const duplicationIgnoredParameters = new Set(["name", "errors", "output"]);
 
 /**
@@ -387,7 +296,7 @@ function normalizeTestCase(item) {
 
 /**
  * Checks if errors property is a number.
- * @param {any} errors The errors property to check.
+ * @param {any} errors The errors property.
  * @returns {boolean} True if errors is a number.
  */
 function isErrorsNumber(errors) {
@@ -396,7 +305,7 @@ function isErrorsNumber(errors) {
 
 /**
  * Checks if errors property is an array.
- * @param {any} errors The errors property to check.
+ * @param {any} errors The errors property.
  * @returns {boolean} True if errors is an array.
  */
 function isErrorsArray(errors) {
@@ -405,7 +314,7 @@ function isErrorsArray(errors) {
 
 /**
  * Checks if errors property is undefined.
- * @param {any} errors The errors property to check.
+ * @param {any} errors The errors property.
  * @returns {boolean} True if errors is undefined.
  */
 function isErrorsUndefined(errors) {
@@ -441,93 +350,96 @@ function assertErrorsProperty(errors, ruleName, assertionOptions = {}) {
 		assertionOptions;
 
 	if (isArray) {
-		assert.ok(
-			errors.length !== 0,
-			"Invalid cases must have at least one error",
-		);
-
-		for (const [number, error] of errors.entries()) {
-			assertErrorItem(error, number, requireMessage, requireLocation);
-		}
+		assertErrorsArray(errors, requireMessage, requireLocation);
 	} else {
-		assert.ok(
-			!requireMessage && !requireLocation,
-			"Invalid cases must have 'errors' value as an array",
-		);
-		assert.ok(
-			errors > 0,
-			"Invalid cases must have 'error' value greater than 0",
-		);
+		assertErrorsNumber(errors, requireMessage, requireLocation);
 	}
 }
 
 /**
- * Asserts a single error item in the errors array.
- * @param {any} error The error item to validate.
- * @param {number} index The index of the error in the array.
- * @param {boolean | string} requireMessage Whether message is required.
- * @param {boolean} requireLocation Whether location is required.
+ * Asserts that errors is a valid array.
+ * @param {any[]} errors The errors array.
+ * @param {boolean | string} requireMessage Message requirement.
+ * @param {boolean} requireLocation Location requirement.
  * @returns {void}
  */
-function assertErrorItem(error, index, requireMessage, requireLocation) {
-	if (isErrorItemStringOrRegExp(error)) {
-		assertErrorItemStringOrRegExp(error, index, requireMessage, requireLocation);
+function assertErrorsArray(errors, requireMessage, requireLocation) {
+	assert.ok(
+		errors.length !== 0,
+		"Invalid cases must have at least one error",
+	);
+
+	for (const [number, error] of errors.entries()) {
+		assertErrorItem(error, number, requireMessage, requireLocation);
+	}
+}
+
+/**
+ * Asserts that errors is a valid number.
+ * @param {number} errors The errors count.
+ * @param {boolean | string} requireMessage Message requirement.
+ * @param {boolean} requireLocation Location requirement.
+ * @returns {void}
+ */
+function assertErrorsNumber(errors, requireMessage, requireLocation) {
+	assert.ok(
+		!requireMessage && !requireLocation,
+		"Invalid cases must have 'errors' value as an array",
+	);
+	assert.ok(
+		errors > 0,
+		"Invalid cases must have 'error' value greater than 0",
+	);
+}
+
+/**
+ * Asserts a single error item.
+ * @param {any} error The error item.
+ * @param {number} number The error index.
+ * @param {boolean | string} requireMessage Message requirement.
+ * @param {boolean} requireLocation Location requirement.
+ * @returns {void}
+ */
+function assertErrorItem(error, number, requireMessage, requireLocation) {
+	if (typeof error === "string" || error instanceof RegExp) {
+		assertStringOrRegExpError(error, number, requireMessage, requireLocation);
 		return;
 	}
 
-	if (isErrorItemObject(error)) {
-		assertErrorItemObject(error, index, requireMessage, requireLocation);
+	if (typeof error === "object" && error !== null) {
+		assertObjectError(error, number, requireMessage, requireLocation);
 		return;
 	}
 
 	assert.fail(
-		`errors[${index}] must be a string, RegExp, or an object.`,
+		`errors[${number}] must be a string, RegExp, or an object.`,
 	);
 }
 
 /**
- * Checks if error item is a string or RegExp.
- * @param {any} error The error item to check.
- * @returns {boolean} True if error is string or RegExp.
- */
-function isErrorItemStringOrRegExp(error) {
-	return typeof error === "string" || error instanceof RegExp;
-}
-
-/**
- * Checks if error item is an object.
- * @param {any} error The error item to check.
- * @returns {boolean} True if error is an object.
- */
-function isErrorItemObject(error) {
-	return typeof error === "object" && error !== null;
-}
-
-/**
- * Asserts a string or RegExp error item.
- * @param {string | RegExp} error The error item.
- * @param {number} index The index of the error.
- * @param {boolean | string} requireMessage Whether message is required.
- * @param {boolean} requireLocation Whether location is required.
+ * Asserts a string or RegExp error.
+ * @param {string | RegExp} error The error.
+ * @param {number} number The error index.
+ * @param {boolean | string} requireMessage Message requirement.
+ * @param {boolean} requireLocation Location requirement.
  * @returns {void}
  */
-function assertErrorItemStringOrRegExp(error, index, requireMessage, requireLocation) {
-	// Just an error message.
+function assertStringOrRegExpError(error, number, requireMessage, requireLocation) {
 	assert.ok(
 		requireMessage !== "messageId" && !requireLocation,
-		`errors[${index}] should be an object when 'assertionOptions.requireMessage' is 'messageId' or 'assertionOptions.requireLocation' is true.`,
+		`errors[${number}] should be an object when 'assertionOptions.requireMessage' is 'messageId' or 'assertionOptions.requireLocation' is true.`,
 	);
 }
 
 /**
- * Asserts an object error item.
+ * Asserts an object error.
  * @param {Object} error The error object.
- * @param {number} index The index of the error.
- * @param {boolean | string} requireMessage Whether message is required.
- * @param {boolean} requireLocation Whether location is required.
+ * @param {number} number The error index.
+ * @param {boolean | string} requireMessage Message requirement.
+ * @param {boolean} requireLocation Location requirement.
  * @returns {void}
  */
-function assertErrorItemObject(error, index, requireMessage, requireLocation) {
+function assertObjectError(error, number, requireMessage, requireLocation) {
 	for (const propertyName of Object.keys(error)) {
 		assert.ok(
 			errorObjectParameters.has(propertyName),
@@ -535,23 +447,22 @@ function assertErrorItemObject(error, index, requireMessage, requireLocation) {
 		);
 	}
 
-	assertErrorMessageProperty(error, index, requireMessage);
-	assertErrorDataProperty(error, index);
+	assertErrorMessageProperty(error, number, requireMessage);
 }
 
 /**
- * Asserts the message or messageId property of an error object.
+ * Asserts the message property of an error.
  * @param {Object} error The error object.
- * @param {number} index The index of the error.
- * @param {boolean | string} requireMessage Whether message is required.
+ * @param {number} number The error index.
+ * @param {boolean | string} requireMessage Message requirement.
  * @returns {void}
  */
-function assertErrorMessageProperty(error, index, requireMessage) {
+function assertErrorMessageProperty(error, number, requireMessage) {
 	if (requireMessage === "message") {
 		assert.ok(
 			!hasOwnProperty(error, "messageId") &&
 				hasOwnProperty(error, "message"),
-			`errors[${index}] should specify 'message' (and not 'messageId') when 'assertionOptions.requireMessage' is 'message'.`,
+			`errors[${number}] should specify 'message' (and not 'messageId') when 'assertionOptions.requireMessage' is 'message'.`,
 		);
 		return;
 	}
@@ -560,7 +471,7 @@ function assertErrorMessageProperty(error, index, requireMessage) {
 		assert.ok(
 			!hasOwnProperty(error, "message") &&
 				hasOwnProperty(error, "messageId"),
-			`errors[${index}] should specify 'messageId' (and not 'message') when 'assertionOptions.requireMessage' is 'messageId'.`,
+			`errors[${number}] should specify 'messageId' (and not 'message') when 'assertionOptions.requireMessage' is 'messageId'.`,
 		);
 		return;
 	}
@@ -568,31 +479,18 @@ function assertErrorMessageProperty(error, index, requireMessage) {
 	if (hasOwnProperty(error, "message")) {
 		assert.ok(
 			!hasOwnProperty(error, "messageId"),
-			`errors[${index}] should not specify both 'message' and 'messageId'.`,
+			`errors[${number}] should not specify both 'message' and 'messageId'.`,
+		);
+		assert.ok(
+			!hasOwnProperty(error, "data"),
+			`errors[${number}] should not specify both 'data' and 'message'.`,
 		);
 		return;
 	}
 
 	assert.ok(
 		hasOwnProperty(error, "messageId"),
-		`errors[${index}] must specify either 'messageId' or 'message'.`,
-	);
-}
-
-/**
- * Asserts the data property of an error object.
- * @param {Object} error The error object.
- * @param {number} index The index of the error.
- * @returns {void}
- */
-function assertErrorDataProperty(error, index) {
-	if (!hasOwnProperty(error, "message")) {
-		return;
-	}
-
-	assert.ok(
-		!hasOwnProperty(error, "data"),
-		`errors[${index}] should not specify both 'data' and 'message'.`,
+		`errors[${number}] must specify either 'messageId' or 'message'.`,
 	);
 }
 
@@ -604,20 +502,14 @@ function assertErrorDataProperty(error, index) {
  */
 function checkDuplicateTestCase(item, seenTestCases) {
 	if (!isSerializable(item)) {
-		/*
-		 * If we can't serialize a test case (because it contains a function, RegExp, etc), skip the check.
-		 * This might happen with properties like: options, plugins, settings, languageOptions.parser, languageOptions.parserOptions.
-		 */
 		return;
 	}
 
 	const serializedTestCase = stringify(item, {
 		replacer(key, value) {
-			// "this" is the currently stringified object --> only ignore top-level properties
-			if (item !== this || duplicationIgnoredParameters.has(key)) {
-				return undefined;
-			}
-			return value;
+			return item !== this || !duplicationIgnoredParameters.has(key)
+				? value
+				: undefined;
 		},
 	});
 
@@ -683,7 +575,6 @@ function assertTestCommonProperties(item) {
 		"Test case must specify a string value for 'code'",
 	);
 
-	// optional properties
 	if (item.name) {
 		assert.ok(
 			typeof item.name === "string",
@@ -720,7 +611,6 @@ function assertTestCommonProperties(item) {
  * @throws {AssertionError} If the test case is not valid.
  */
 function assertValidTestCase(item, seenTestCases) {
-	// must not have properties of invalid test cases
 	assert.ok(
 		item.errors === undefined,
 		"Valid test case must not have 'errors' property",
@@ -755,7 +645,6 @@ function assertInvalidTestCase(
 
 	assertErrorsProperty(item.errors, ruleName, assertionOptions);
 
-	// 'output' is optional, but if it exists it must be a string or null
 	if (hasOwnProperty(item, "output")) {
 		assert.ok(
 			item.output === null || typeof item.output === "string",
@@ -784,8 +673,8 @@ function getInvocationLocation(relative = getInvocationLocation) {
 			sourceColumn: callSite.getColumnNumber() ?? 1,
 		};
 	};
-	Error.captureStackTrace(dummyObject, relative); // invoke Error.prepareStackTrace in Bun
-	dummyObject.stack; // invoke Error.prepareStackTrace in Node.js
+	Error.captureStackTrace(dummyObject, relative);
+	dummyObject.stack;
 	Error.prepareStackTrace = prepareStackTrace;
 	return location;
 }
@@ -799,169 +688,217 @@ function buildLazyTestLocationEstimator(invoker) {
 	const invocationLocation = getInvocationLocation(invoker);
 	let testLocations = null;
 	return key => {
-		if (testLocations === null) {
-			const { sourceFile, sourceLine, sourceColumn } = invocationLocation;
-			testLocations = {
-				root: `${sourceFile}:${sourceLine}:${sourceColumn}`,
-			};
-
-			if (existsSync(sourceFile)) {
-				let content = readFileSync(sourceFile, "utf8")
-					.split("\n")
-					.slice(sourceLine - 1);
-				content[0] = content[0].slice(Math.max(0, sourceColumn - 1));
-				content = content.map(
-					l =>
-						l
-							.trim() // Remove whitespace
-							.replace(/\s*\/\/.*$(?<!,)/u, ""), // and trailing in-line comments that aren't part of the test `code`
-				);
-
-				// Roots
-				const validStartIndex = content.findIndex(line =>
-					/\bvalid\s*:/u.test(line),
-				);
-				const invalidStartIndex = content.findIndex(line =>
-					/\binvalid\s*:/u.test(line),
-				);
-
-				testLocations.valid = `${sourceFile}:${
-					sourceLine + validStartIndex
-				}`;
-				testLocations.invalid = `${sourceFile}:${
-					sourceLine + invalidStartIndex
-				}`;
-
-				// Scenario basics
-				const validEndIndex =
-					validStartIndex < invalidStartIndex
-						? invalidStartIndex
-						: content.length;
-				const invalidEndIndex =
-					validStartIndex < invalidStartIndex
-						? content.length
-						: validStartIndex;
-
-				const validLines = content.slice(
-					validStartIndex,
-					validEndIndex,
-				);
-				const invalidLines = content.slice(
-					invalidStartIndex,
-					invalidEndIndex,
-				);
-
-				let objectDepth = 0;
-				const validLineIndexes = validLines
-					.map((l, i) => {
-						// matches `key: {` and `{`
-						if (/^(?:\w+\s*:\s*)?\{/u.test(l)) {
-							objectDepth++;
-						}
-
-						if (objectDepth > 0) {
-							if (l.endsWith("}") || l.endsWith("},")) {
-								objectDepth--;
-							}
-
-							return objectDepth <= 1 && l.includes("code:")
-								? i
-								: null;
-						}
-
-						return l.endsWith(",") ? i : null;
-					})
-					.filter(Boolean);
-				const invalidLineIndexes = invalidLines
-					.map((l, i) =>
-						l.trimStart().startsWith("errors:") ? i : null,
-					)
-					.filter(Boolean);
-
-				Object.assign(
-					testLocations,
-					{
-						[`valid[0]`]: `${sourceFile}:${
-							sourceLine + validStartIndex
-						}`,
-					},
-					Object.fromEntries(
-						validLineIndexes.map((location, validIndex) => [
-							`valid[${validIndex}]`,
-							`${sourceFile}:${
-								sourceLine + validStartIndex + location
-							}`,
-						]),
-					),
-					Object.fromEntries(
-						invalidLineIndexes.map((location, invalidIndex) => [
-							`invalid[${invalidIndex}]`,
-							`${sourceFile}:${
-								sourceLine + invalidStartIndex + location
-							}`,
-						]),
-					),
-				);
-
-				// Indexes for errors inside each invalid test case
-				invalidLineIndexes.push(invalidLines.length);
-
-				for (let i = 0; i < invalidLineIndexes.length - 1; i++) {
-					const start = invalidLineIndexes[i];
-					const end = invalidLineIndexes[i + 1];
-					const errorLines = invalidLines.slice(start, end);
-					let errorObjectDepth = 0;
-					const errorLineIndexes = errorLines
-						.map((l, j) => {
-							if (l.startsWith("{") || l.endsWith("{")) {
-								errorObjectDepth++;
-
-								if (l.endsWith("}") || l.endsWith("},")) {
-									errorObjectDepth--;
-								}
-
-								return errorObjectDepth <= 1 ? j : null;
-							}
-
-							if (errorObjectDepth > 0) {
-								if (l.endsWith("}") || l.endsWith("},")) {
-									errorObjectDepth--;
-								}
-
-								return null;
-							}
-
-							return l.endsWith(",") ? j : null;
-						})
-						.filter(Boolean);
-
-					Object.assign(
-						testLocations,
-						Object.fromEntries(
-							errorLineIndexes.map((line, errorIndex) => [
-								`invalid[${i}].errors[${errorIndex}]`,
-								`${sourceFile}:${
-									sourceLine +
-									invalidStartIndex +
-									start +
-									line
-								}`,
-							]),
-						),
-					);
-				}
-			}
+		if (testLocations !== null) {
+			return testLocations[key] || "unknown source";
 		}
 
+		const { sourceFile, sourceLine, sourceColumn } = invocationLocation;
+		testLocations = {
+			root: `${sourceFile}:${sourceLine}:${sourceColumn}`,
+		};
+
+		if (!existsSync(sourceFile)) {
+			return testLocations[key] || "unknown source";
+		}
+
+		populateTestLocations(testLocations, sourceFile, sourceLine, sourceColumn);
 		return testLocations[key] || "unknown source";
 	};
 }
 
-//------------------------------------------------------------------------------
-// Public Interface
-//------------------------------------------------------------------------------
+/**
+ * Populates test locations from source file.
+ * @param {Object} testLocations The test locations object to populate.
+ * @param {string} sourceFile The source file path.
+ * @param {number} sourceLine The source line number.
+ * @param {number} sourceColumn The source column number.
+ * @returns {void}
+ */
+function populateTestLocations(testLocations, sourceFile, sourceLine, sourceColumn) {
+	let content = readFileSync(sourceFile, "utf8")
+		.split("\n")
+		.slice(sourceLine - 1);
+	content[0] = content[0].slice(Math.max(0, sourceColumn - 1));
+	content = content.map(
+		l =>
+			l
+				.trim()
+				.replace(/\s*\/\/.*$(?<!,)/u, ""),
+	);
 
-// default separators for testing
+	const validStartIndex = content.findIndex(line =>
+		/\bvalid\s*:/u.test(line),
+	);
+	const invalidStartIndex = content.findIndex(line =>
+		/\binvalid\s*:/u.test(line),
+	);
+
+	testLocations.valid = `${sourceFile}:${
+		sourceLine + validStartIndex
+	}`;
+	testLocations.invalid = `${sourceFile}:${
+		sourceLine + invalidStartIndex
+	}`;
+
+	const validEndIndex =
+		validStartIndex < invalidStartIndex
+			? invalidStartIndex
+			: content.length;
+	const invalidEndIndex =
+		validStartIndex < invalidStartIndex
+			? content.length
+			: validStartIndex;
+
+	const validLines = content.slice(
+		validStartIndex,
+		validEndIndex,
+	);
+	const invalidLines = content.slice(
+		invalidStartIndex,
+		invalidEndIndex,
+	);
+
+	const validLineIndexes = extractValidLineIndexes(validLines);
+	const invalidLineIndexes = extractInvalidLineIndexes(invalidLines);
+
+	Object.assign(
+		testLocations,
+		{
+			[`valid[0]`]: `${sourceFile}:${
+				sourceLine + validStartIndex
+			}`,
+		},
+		Object.fromEntries(
+			validLineIndexes.map((location, validIndex) => [
+				`valid[${validIndex}]`,
+				`${sourceFile}:${
+					sourceLine + validStartIndex + location
+				}`,
+			]),
+		),
+		Object.fromEntries(
+			invalidLineIndexes.map((location, invalidIndex) => [
+				`invalid[${invalidIndex}]`,
+				`${sourceFile}:${
+					sourceLine + invalidStartIndex + location
+				}`,
+			]),
+		),
+	);
+
+	populateErrorLocations(testLocations, sourceFile, sourceLine, invalidStartIndex, invalidLines, invalidLineIndexes);
+}
+
+/**
+ * Extracts line indexes for valid test cases.
+ * @param {string[]} validLines The valid test lines.
+ * @returns {number[]} Array of line indexes.
+ */
+function extractValidLineIndexes(validLines) {
+	let objectDepth = 0;
+	return validLines
+		.map((l, i) => {
+			if (/^(?:\w+\s*:\s*)?\{/u.test(l)) {
+				objectDepth++;
+			}
+
+			if (objectDepth > 0) {
+				if (l.endsWith("}") || l.endsWith("},")) {
+					objectDepth--;
+				}
+
+				return objectDepth <= 1 && l.includes("code:")
+					? i
+					: null;
+			}
+
+			return l.endsWith(",") ? i : null;
+		})
+		.filter(Boolean);
+}
+
+/**
+ * Extracts line indexes for invalid test cases.
+ * @param {string[]} invalidLines The invalid test lines.
+ * @returns {number[]} Array of line indexes.
+ */
+function extractInvalidLineIndexes(invalidLines) {
+	return invalidLines
+		.map((l, i) =>
+			l.trimStart().startsWith("errors:") ? i : null,
+		)
+		.filter(Boolean);
+}
+
+/**
+ * Populates error locations within invalid test cases.
+ * @param {Object} testLocations The test locations object.
+ * @param {string} sourceFile The source file path.
+ * @param {number} sourceLine The source line number.
+ * @param {number} invalidStartIndex The invalid start index.
+ * @param {string[]} invalidLines The invalid test lines.
+ * @param {number[]} invalidLineIndexes The invalid line indexes.
+ * @returns {void}
+ */
+function populateErrorLocations(testLocations, sourceFile, sourceLine, invalidStartIndex, invalidLines, invalidLineIndexes) {
+	const lineIndexesCopy = [...invalidLineIndexes];
+	lineIndexesCopy.push(invalidLines.length);
+
+	for (let i = 0; i < lineIndexesCopy.length - 1; i++) {
+		const start = lineIndexesCopy[i];
+		const end = lineIndexesCopy[i + 1];
+		const errorLines = invalidLines.slice(start, end);
+		const errorLineIndexes = extractErrorLineIndexes(errorLines);
+
+		Object.assign(
+			testLocations,
+			Object.fromEntries(
+				errorLineIndexes.map((line, errorIndex) => [
+					`invalid[${i}].errors[${errorIndex}]`,
+					`${sourceFile}:${
+						sourceLine +
+						invalidStartIndex +
+						start +
+						line
+					}`,
+				]),
+			),
+		);
+	}
+}
+
+/**
+ * Extracts line indexes for error objects.
+ * @param {string[]} errorLines The error lines.
+ * @returns {number[]} Array of line indexes.
+ */
+function extractErrorLineIndexes(errorLines) {
+	let errorObjectDepth = 0;
+	return errorLines
+		.map((l, j) => {
+			if (l.startsWith("{") || l.endsWith("{")) {
+				errorObjectDepth++;
+
+				if (l.endsWith("}") || l.endsWith("},")) {
+					errorObjectDepth--;
+				}
+
+				return errorObjectDepth <= 1 ? j : null;
+			}
+
+			if (errorObjectDepth > 0) {
+				if (l.endsWith("}") || l.endsWith("},")) {
+					errorObjectDepth--;
+				}
+
+				return null;
+			}
+
+			return l.endsWith(",") ? j : null;
+		})
+		.filter(Boolean);
+}
+
 const DESCRIBE = Symbol("describe");
 const IT = Symbol("it");
 const IT_ONLY = Symbol("itOnly");
@@ -1005,11 +942,6 @@ class RuleTester {
 	 * @param {Object} [testerConfig] Optional, extra configuration for the tester
 	 */
 	constructor(testerConfig = {}) {
-		/**
-		 * The configuration to use for this tester. Combination of the tester
-		 * configuration and the default configuration.
-		 * @type {Object}
-		 */
 		this.testerConfig = [
 			sharedDefaultConfig,
 			testerConfig,
@@ -1033,7 +965,6 @@ class RuleTester {
 		}
 		sharedDefaultConfig = config;
 
-		// Make sure the rules object exists since it is assumed to exist later
 		sharedDefaultConfig.rules = sharedDefaultConfig.rules || {};
 	}
 
@@ -1058,11 +989,6 @@ class RuleTester {
 		};
 	}
 
-	/*
-	 * If people use `mocha test.js --watch` command, `describe` and `it` function
-	 * instances are different for each execution. So `describe` and `it` should get fresh instance
-	 * always.
-	 */
 	static get describe() {
 		return (
 			this[DESCRIBE] ||
@@ -1162,36 +1088,21 @@ class RuleTester {
 		const baseConfig = [
 			{
 				plugins: {
-					// copy root plugin over
 					"@": {
-						/*
-						 * Parsers are wrapped to detect more errors, so this needs
-						 * to be a new object for each call to run(), otherwise the
-						 * parsers will be wrapped multiple times.
-						 */
 						parsers: {
 							...defaultConfig[0].plugins["@"].parsers,
 						},
 
-						/*
-						 * The rules key on the default plugin is a proxy to lazy-load
-						 * just the rules that are needed. So, don't create a new object
-						 * here, just use the default one to keep that performance
-						 * enhancement.
-						 */
 						rules: defaultConfig[0].plugins["@"].rules,
 						languages: defaultConfig[0].plugins["@"].languages,
 					},
 					"rule-to-test": {
 						rules: {
 							[ruleName]: Object.assign({}, rule, {
-								// Create a wrapper rule that freezes the `context` properties.
 								create(context) {
 									freezeDeeply(context.options);
 									freezeDeeply(context.settings);
 									freezeDeeply(context.parserOptions);
-
-									// freezeDeeply(context.languageOptions);
 
 									return rule.create(context);
 								},
@@ -1224,24 +1135,6 @@ class RuleTester {
 		}
 
 		/**
-		 * Gets the filename for the item, or undefined if not specified.
-		 * @param {Object} item The test item.
-		 * @returns {string | undefined} The filename or undefined.
-		 */
-		function getItemFilename(item) {
-			return hasOwnProperty(item, "filename") ? item.filename : undefined;
-		}
-
-		/**
-		 * Gets the options for the item, or empty array if not specified.
-		 * @param {Object} item The test item.
-		 * @returns {any[]} The options array.
-		 */
-		function getItemOptions(item) {
-			return hasOwnProperty(item, "options") ? item.options : [];
-		}
-
-		/**
 		 * Run the rule for the given item
 		 * @param {Object} item Item to run the rule against
 		 * @throws {Error} If an invalid schema.
@@ -1250,8 +1143,10 @@ class RuleTester {
 		 */
 		function runRuleForItem(item) {
 			const code = item.code;
-			const filename = getItemFilename(item);
-			const options = getItemOptions(item);
+			const filename = hasOwnProperty(item, "filename")
+				? item.filename
+				: undefined;
+			const options = hasOwnProperty(item, "options") ? item.options : [];
 			const flatConfigArrayOptions = {
 				baseConfig,
 			};
@@ -1266,20 +1161,12 @@ class RuleTester {
 				flatConfigArrayOptions,
 			);
 
-			/*
-			 * Modify the returned config so that the parser is wrapped to catch
-			 * access of the start/end properties. This method is called just
-			 * once per code snippet being tested, so each test case gets a clean
-			 * parser.
-			 */
 			configs[ConfigArraySymbol.finalizeConfig] = function (...args) {
-				// can't do super here :(
 				const proto = Object.getPrototypeOf(this);
 				const calculatedConfig = proto[
 					ConfigArraySymbol.finalizeConfig
 				].apply(this, args);
 
-				// wrap the parser to catch start/end property access
 				if (calculatedConfig.language === jslang) {
 					calculatedConfig.languageOptions.parser = wrapParser(
 						calculatedConfig.languageOptions.parser,
@@ -1291,20 +1178,12 @@ class RuleTester {
 
 			let output, beforeAST, afterAST;
 
-			/*
-			 * Assumes everything on the item is a config except for the
-			 * parameters used by this tester
-			 */
 			const itemConfig = { ...item };
 
 			for (const parameter of RuleTesterParameters) {
 				delete itemConfig[parameter];
 			}
 
-			/*
-			 * Create the config object from the tester config and this item
-			 * specific configurations.
-			 */
 			configs.push(itemConfig);
 
 			configs.push({
@@ -1322,30 +1201,12 @@ class RuleTester {
 				throw err;
 			}
 
-			/*
-			 * Check and throw an error if the schema is an empty object (`schema:{}`), because such schema
-			 * doesn't validate or enforce anything and is therefore considered a possible error. If the intent
-			 * was to skip options validation, `schema:false` should be set instead (explicit opt-out).
-			 *
-			 * For this purpose, a schema object is considered empty if it doesn't have any own enumerable string-keyed
-			 * properties. While `ajv.compile()` does use enumerable properties from the prototype chain as well,
-			 * it caches compiled schemas by serializing only own enumerable properties, so it's generally not a good idea
-			 * to use inherited properties in schemas because schemas that differ only in inherited properties would end up
-			 * having the same cache entry that would be correct for only one of them.
-			 *
-			 * At this point, `schema` can only be an object or `null`.
-			 */
 			if (schema && Object.keys(schema).length === 0) {
 				throw new Error(
 					`\`schema: {}\` is a no-op${metaSchemaDescription}`,
 				);
 			}
 
-			/*
-			 * Setup AST getters.
-			 * The goal is to check whether or not AST was modified when
-			 * running the rule under test.
-			 */
 			configs.push({
 				plugins: {
 					"rule-tester": {
@@ -1372,7 +1233,6 @@ class RuleTester {
 				validateSchema(schema, ruleName);
 			}
 
-			// check for validation errors
 			try {
 				configs.normalizeSync();
 				configs.getConfig("test.js");
@@ -1381,7 +1241,6 @@ class RuleTester {
 				throw error;
 			}
 
-			// Verify the code.
 			const { applyLanguageOptions, applyInlineConfig, finalize } =
 				SourceCode.prototype;
 			let messages;
@@ -1410,25 +1269,7 @@ class RuleTester {
 				`A fatal parsing error occurred: ${fatalErrorMessage && fatalErrorMessage.message}`,
 			);
 
-			// Verify if autofix makes a syntax error or not.
-			if (messages.some(m => m.fix)) {
-				output = SourceCodeFixer.applyFixes(code, messages).output;
-				const errorMessageInFix = linter
-					.verify(output, configs, filename)
-					.find(m => m.fatal);
-
-				assert(
-					!errorMessageInFix,
-					[
-						"A fatal parsing error occurred in autofix.",
-						`Error: ${errorMessageInFix && errorMessageInFix.message}`,
-						"Autofix output:",
-						output,
-					].join("\n"),
-				);
-			} else {
-				output = code;
-			}
+			output = processAutofix(code, messages, configs, filename, linter);
 
 			return {
 				messages,
@@ -1443,7 +1284,7 @@ class RuleTester {
 		/**
 		 * Validates the schema using ajv.
 		 * @param {Object} schema The schema to validate.
-		 * @param {string} ruleName The name of the rule.
+		 * @param {string} ruleName The rule name.
 		 * @returns {void}
 		 */
 		function validateSchema(schema, ruleName) {
@@ -1467,12 +1308,6 @@ class RuleTester {
 				]);
 			}
 
-			/*
-			 * `ajv.validateSchema` checks for errors in the structure of the schema (by comparing the schema against a "meta-schema"),
-			 * and it reports those errors individually. However, there are other types of schema errors that only occur when compiling
-			 * the schema (e.g. using invalid defaults in a schema), and only one of these errors can be reported at a time. As a result,
-			 * the schema is compiled here separately from checking for `validateSchema` errors.
-			 */
 			try {
 				ajv.compile(schema);
 			} catch (err) {
@@ -1483,6 +1318,38 @@ class RuleTester {
 					},
 				);
 			}
+		}
+
+		/**
+		 * Processes autofix for the code.
+		 * @param {string} code The code to fix.
+		 * @param {Object[]} messages The linter messages.
+		 * @param {Object} configs The configs.
+		 * @param {string} filename The filename.
+		 * @param {Linter} linter The linter instance.
+		 * @returns {string} The fixed code or original code.
+		 */
+		function processAutofix(code, messages, configs, filename, linter) {
+			if (!messages.some(m => m.fix)) {
+				return code;
+			}
+
+			const output = SourceCodeFixer.applyFixes(code, messages).output;
+			const errorMessageInFix = linter
+				.verify(output, configs, filename)
+				.find(m => m.fatal);
+
+			assert(
+				!errorMessageInFix,
+				[
+					"A fatal parsing error occurred in autofix.",
+					`Error: ${errorMessageInFix && errorMessageInFix.message}`,
+					"Autofix output:",
+					output,
+				].join("\n"),
+			);
+
+			return output;
 		}
 
 		/**
@@ -1533,7 +1400,6 @@ class RuleTester {
 		 */
 		function assertMessageMatches(actual, expected) {
 			if (expected instanceof RegExp) {
-				// assert.js doesn't have a built-in RegExp match function
 				assert.ok(
 					expected.test(actual),
 					`Expected '${actual}' to match ${expected}`,
@@ -1544,133 +1410,244 @@ class RuleTester {
 		}
 
 		/**
-		 * Checks if rule has meta.messages property.
-		 * @returns {boolean} True if rule has meta.messages.
+		 * Check if the template is invalid or not
+		 * all invalid cases go through this.
+		 * @param {Object} item Item to run the rule against
+		 * @returns {void}
+		 * @private
+		 * @throws {Error} If the test case is invalid or has an invalid error.
 		 */
-		function ruleHasMetaMessages() {
-			return hasOwnProperty(rule, "meta") &&
+		function testInvalidTemplate(item) {
+			const {
+				requireMessage = false,
+				requireLocation = false,
+				requireData = false,
+			} = test.assertionOptions ?? {};
+
+			const ruleHasMetaMessages =
+				hasOwnProperty(rule, "meta") &&
 				hasOwnProperty(rule.meta, "messages");
-		}
+			const friendlyIDList = ruleHasMetaMessages
+				? `[${Object.keys(rule.meta.messages)
+						.map(key => `'${key}'`)
+						.join(", ")}]`
+				: null;
 
-		/**
-		 * Gets friendly ID list from rule meta messages.
-		 * @returns {string | null} Friendly ID list or null.
-		 */
-		function getFriendlyIDList() {
-			if (!ruleHasMetaMessages()) {
-				return null;
+			assert.ok(
+				ruleHasMetaMessages || requireMessage !== "messageId",
+				`Assertion options can not use 'requireMessage: "messageId"' if rule under test doesn't define 'meta.messages'.`,
+			);
+
+			const result = runRuleForItem(item);
+			const messages = result.messages;
+
+			validateSuggestionUniqueness(messages);
+
+			if (typeof item.errors === "number") {
+				assertErrorCount(messages, item.errors);
+			} else {
+				assertErrorArray(messages, item, result, ruleId, requireMessage, requireLocation, requireData, rule, friendlyIDList);
 			}
-			return `[${Object.keys(rule.meta.messages)
-				.map(key => `'${key}'`)
-				.join(", ")}]`;
+
+			assertOutputProperty(item, result);
+			assertASTDidntChange(result.beforeAST, result.afterAST);
 		}
 
 		/**
-		 * Checks if error is a string or RegExp.
-		 * @param {any} error The error to check.
-		 * @returns {boolean} True if error is string or RegExp.
+		 * Validates that suggestion messages are unique within an error.
+		 * @param {Object[]} messages The linter messages.
+		 * @returns {void}
 		 */
-		function isErrorStringOrRegExp(error) {
-			return typeof error === "string" || error instanceof RegExp;
+		function validateSuggestionUniqueness(messages) {
+			for (const message of messages) {
+				if (!hasOwnProperty(message, "suggestions")) {
+					continue;
+				}
+
+				const seenMessageIndices = new Map();
+
+				for (let i = 0; i < message.suggestions.length; i += 1) {
+					const suggestionMessage = message.suggestions[i].desc;
+					const previous =
+						seenMessageIndices.get(suggestionMessage);
+
+					assert.ok(
+						!seenMessageIndices.has(suggestionMessage),
+						`Suggestion message '${suggestionMessage}' reported from suggestion ${i} was previously reported by suggestion ${previous}. Suggestion messages should be unique within an error.`,
+					);
+					seenMessageIndices.set(suggestionMessage, i);
+				}
+			}
 		}
 
 		/**
-		 * Checks if error is an object.
-		 * @param {any} error The error to check.
-		 * @returns {boolean} True if error is an object.
+		 * Asserts the error count matches expected.
+		 * @param {Object[]} messages The linter messages.
+		 * @param {number} expectedCount The expected error count.
+		 * @returns {void}
 		 */
-		function isErrorObject(error) {
-			return typeof error === "object" && error !== null;
+		function assertErrorCount(messages, expectedCount) {
+			assert.strictEqual(
+				messages.length,
+				expectedCount,
+				util.format(
+					"Should have %d error%s but had %d: %s",
+					expectedCount,
+					expectedCount === 1 ? "" : "s",
+					messages.length,
+					util.inspect(messages),
+				),
+			);
 		}
 
 		/**
-		 * Checks if message has suggestions.
-		 * @param {Object} message The message to check.
-		 * @returns {boolean} True if message has suggestions.
+		 * Asserts errors array matches expected.
+		 * @param {Object[]} messages The linter messages.
+		 * @param {Object} item The test item.
+		 * @param {Object} result The rule run result.
+		 * @param {string} ruleId The rule ID.
+		 * @param {boolean | string} requireMessage Message requirement.
+		 * @param {boolean} requireLocation Location requirement.
+		 * @param {boolean | string} requireData Data requirement.
+		 * @param {Object} rule The rule object.
+		 * @param {string} friendlyIDList Friendly ID list string.
+		 * @returns {void}
 		 */
-		function messageHasSuggestions(message) {
-			return message.suggestions !== undefined;
+		function assertErrorArray(messages, item, result, ruleId, requireMessage, requireLocation, requireData, rule, friendlyIDList) {
+			assert.strictEqual(
+				messages.length,
+				item.errors.length,
+				util.format(
+					"Should have %d error%s but had %d: %s",
+					item.errors.length,
+					item.errors.length === 1 ? "" : "s",
+					messages.length,
+					util.inspect(messages),
+				),
+			);
+
+			const hasMessageOfThisRule = messages.some(
+				m => m.ruleId === ruleId,
+			);
+
+			for (let i = 0, l = item.errors.length; i < l; i++) {
+				try {
+					assertErrorItem(item.errors[i], messages[i], i, hasMessageOfThisRule, requireMessage, requireLocation, requireData, rule, friendlyIDList, item, result);
+				} catch (error) {
+					if (error instanceof Error) {
+						error.errorIndex = i;
+					}
+					throw error;
+				}
+			}
 		}
 
 		/**
-		 * Checks if error expects suggestions.
-		 * @param {any} errorSuggestions The suggestions property from error.
-		 * @returns {boolean} True if suggestions are expected.
-		 */
-		function errorExpectsSuggestions(errorSuggestions) {
-			return Array.isArray(errorSuggestions)
-				? errorSuggestions.length > 0
-				: Boolean(errorSuggestions);
-		}
-
-		/**
-		 * Checks if error has message of the rule being tested.
-		 * @param {Object[]} messages The messages array.
-		 * @returns {boolean} True if any message matches the rule ID.
-		 */
-		function hasMessageOfThisRule(messages) {
-			return messages.some(m => m.ruleId === ruleId);
-		}
-
-		/**
-		 * Processes a single error in the invalid test case.
-		 * @param {any} error The expected error.
+		 * Asserts a single error item.
+		 * @param {Object} error The expected error.
 		 * @param {Object} message The actual message.
-		 * @param {number} i The error index.
+		 * @param {number} index The error index.
+		 * @param {boolean} hasMessageOfThisRule Whether message is from this rule.
+		 * @param {boolean | string} requireMessage Message requirement.
+		 * @param {boolean} requireLocation Location requirement.
+		 * @param {boolean | string} requireData Data requirement.
+		 * @param {Object} rule The rule object.
+		 * @param {string} friendlyIDList Friendly ID list string.
 		 * @param {Object} item The test item.
 		 * @param {Object} result The rule run result.
 		 * @returns {void}
 		 */
-		function processErrorItem(error, message, i, item, result) {
-			if (isErrorStringOrRegExp(error)) {
+		function assertErrorItem(error, message, index, hasMessageOfThisRule, requireMessage, requireLocation, requireData, rule, friendlyIDList, item, result) {
+			if (typeof error === "string" || error instanceof RegExp) {
 				assertMessageMatches(message.message, error);
 				assert.ok(
 					message.suggestions === undefined,
-					`Error at index ${i} has suggestions. Please convert the test error into an object and specify 'suggestions' property on it to test suggestions.`,
+					`Error at index ${index} has suggestions. Please convert the test error into an object and specify 'suggestions' property on it to test suggestions.`,
 				);
 				return;
 			}
 
-			if (!isErrorObject(error)) {
+			if (typeof error === "object" && error !== null) {
+				assertObjectErrorItem(error, message, index, hasMessageOfThisRule, requireMessage, requireLocation, requireData, rule, friendlyIDList, item, result);
 				return;
 			}
 
-			processErrorObject(error, message, i, item, result);
+			assert.fail(
+				`errors[${index}] must be a string, RegExp, or an object.`,
+			);
 		}
 
 		/**
-		 * Processes an error object in the invalid test case.
-		 * @param {Object} error The expected error object.
+		 * Asserts an object error item.
+		 * @param {Object} error The expected error.
 		 * @param {Object} message The actual message.
-		 * @param {number} i The error index.
+		 * @param {number} index The error index.
+		 * @param {boolean} hasMessageOfThisRule Whether message is from this rule.
+		 * @param {boolean | string} requireMessage Message requirement.
+		 * @param {boolean} requireLocation Location requirement.
+		 * @param {boolean | string} requireData Data requirement.
+		 * @param {Object} rule The rule object.
+		 * @param {string} friendlyIDList Friendly ID list string.
 		 * @param {Object} item The test item.
 		 * @param {Object} result The rule run result.
 		 * @returns {void}
 		 */
-		function processErrorObject(error, message, i, item, result) {
-			if (hasOwnProperty(error, "message")) {
-				assertMessageMatches(message.message, error.message);
-			} else if (hasOwnProperty(error, "messageId")) {
-				processErrorMessageId(error, message, i);
-			}
+		function assertObjectErrorItem(error, message, index, hasMessageOfThisRule, requireMessage, requireLocation, requireData, rule, friendlyIDList, item, result) {
+			assert(
+				hasMessageOfThisRule,
+				"Error rule name should be the same as the name of the rule being tested",
+			);
 
-			processErrorLocation(error, message, i);
-			processErrorSuggestions(error, message, i, item, result);
+			assertErrorMessageContent(error, message, index, requireMessage, rule, friendlyIDList, requireData);
+			assertErrorLocation(error, message, index, requireLocation);
+			assertErrorSuggestions(error, message, index, rule, friendlyIDList, requireData, item, result);
 		}
 
 		/**
-		 * Processes the messageId property of an error object.
-		 * @param {Object} error The expected error object.
+		 * Asserts the message content of an error.
+		 * @param {Object} error The expected error.
 		 * @param {Object} message The actual message.
-		 * @param {number} i The error index.
+		 * @param {number} index The error index.
+		 * @param {boolean | string} requireMessage Message requirement.
+		 * @param {Object} rule The rule object.
+		 * @param {string} friendlyIDList Friendly ID list string.
+		 * @param {boolean | string} requireData Data requirement.
 		 * @returns {void}
 		 */
-		function processErrorMessageId(error, message, i) {
+		function assertErrorMessageContent(error, message, index, requireMessage, rule, friendlyIDList, requireData) {
+			if (hasOwnProperty(error, "message")) {
+				assertMessageMatches(
+					message.message,
+					error.message,
+				);
+				return;
+			}
+
+			if (hasOwnProperty(error, "messageId")) {
+				assertErrorMessageId(error, message, index, rule, friendlyIDList, requireData);
+				return;
+			}
+		}
+
+		/**
+		 * Asserts the messageId of an error.
+		 * @param {Object} error The expected error.
+		 * @param {Object} message The actual message.
+		 * @param {number} index The error index.
+		 * @param {Object} rule The rule object.
+		 * @param {string} friendlyIDList Friendly ID list string.
+		 * @param {boolean | string} requireData Data requirement.
+		 * @returns {void}
+		 */
+		function assertErrorMessageId(error, message, index, rule, friendlyIDList, requireData) {
+			const ruleHasMetaMessages =
+				hasOwnProperty(rule, "meta") &&
+				hasOwnProperty(rule.meta, "messages");
+
 			assert.ok(
-				ruleHasMetaMessages(),
+				ruleHasMetaMessages,
 				"Error can not use 'messageId' if rule under test doesn't define 'meta.messages'.",
 			);
-			const friendlyIDList = getFriendlyIDList();
 			if (
 				!hasOwnProperty(
 					rule.meta.messages,
@@ -1715,8 +1692,8 @@ class RuleTester {
 				);
 			} else {
 				const requiresDataProperty =
-					test.assertionOptions?.requireData === true ||
-					test.assertionOptions?.requireData === "error";
+					requireData === true ||
+					requireData === "error";
 				const hasPlaceholders =
 					getMessagePlaceholders(
 						rule.meta.messages[error.messageId],
@@ -1730,13 +1707,14 @@ class RuleTester {
 		}
 
 		/**
-		 * Processes the location properties of an error object.
-		 * @param {Object} error The expected error object.
+		 * Asserts the location of an error.
+		 * @param {Object} error The expected error.
 		 * @param {Object} message The actual message.
-		 * @param {number} i The error index.
+		 * @param {number} index The error index.
+		 * @param {boolean} requireLocation Location requirement.
 		 * @returns {void}
 		 */
-		function processErrorLocation(error, message, i) {
+		function assertErrorLocation(error, message, index, requireLocation) {
 			const locationProperties = [
 				"line",
 				"column",
@@ -1753,7 +1731,6 @@ class RuleTester {
 				}
 			}
 
-			const { requireLocation = false } = test.assertionOptions ?? {};
 			if (requireLocation) {
 				const missingKeys = locationProperties.filter(
 					key =>
@@ -1776,26 +1753,35 @@ class RuleTester {
 		}
 
 		/**
-		 * Processes the suggestions property of an error object.
-		 * @param {Object} error The expected error object.
+		 * Asserts the suggestions of an error.
+		 * @param {Object} error The expected error.
 		 * @param {Object} message The actual message.
-		 * @param {number} i The error index.
+		 * @param {number} index The error index.
+		 * @param {Object} rule The rule object.
+		 * @param {string} friendlyIDList Friendly ID list string.
+		 * @param {boolean | string} requireData Data requirement.
 		 * @param {Object} item The test item.
 		 * @param {Object} result The rule run result.
 		 * @returns {void}
 		 */
-		function processErrorSuggestions(error, message, i, item, result) {
+		function assertErrorSuggestions(error, message, index, rule, friendlyIDList, requireData, item, result) {
 			assert.ok(
 				!message.suggestions ||
 					hasOwnProperty(error, "suggestions"),
-				`Error at index ${i} has suggestions. Please specify 'suggestions' property on the test error object.`,
+				`Error at index ${index} has suggestions. Please specify 'suggestions' property on the test error object.`,
 			);
+
 			if (!hasOwnProperty(error, "suggestions")) {
 				return;
 			}
 
-			const expectsSuggestions = errorExpectsSuggestions(error.suggestions);
-			const hasSuggestions = messageHasSuggestions(message);
+			const expectsSuggestions = Array.isArray(
+				error.suggestions,
+			)
+				? error.suggestions.length > 0
+				: Boolean(error.suggestions);
+			const hasSuggestions =
+				message.suggestions !== undefined;
 
 			if (!hasSuggestions && expectsSuggestions) {
 				assert.ok(
@@ -1823,45 +1809,71 @@ class RuleTester {
 				return;
 			}
 
-			if (!Array.isArray(error.suggestions)) {
-				assert.fail(
-					"Test error object property 'suggestions' should be an array or a number",
-				);
+			if (Array.isArray(error.suggestions)) {
+				assertSuggestionsArray(error.suggestions, message.suggestions, index, message, rule, friendlyIDList, requireData, item, result);
 				return;
 			}
 
+			assert.fail(
+				"Test error object property 'suggestions' should be an array or a number",
+			);
+		}
+
+		/**
+		 * Asserts an array of suggestions.
+		 * @param {Object[]} expectedSuggestions The expected suggestions.
+		 * @param {Object[]} actualSuggestions The actual suggestions.
+		 * @param {number} errorIndex The error index.
+		 * @param {Object} message The actual message.
+		 * @param {Object} rule The rule object.
+		 * @param {string} friendlyIDList Friendly ID list string.
+		 * @param {boolean | string} requireData Data requirement.
+		 * @param {Object} item The test item.
+		 * @param {Object} result The rule run result.
+		 * @returns {void}
+		 */
+		function assertSuggestionsArray(expectedSuggestions, actualSuggestions, errorIndex, message, rule, friendlyIDList, requireData, item, result) {
 			assert.strictEqual(
-				message.suggestions.length,
-				error.suggestions.length,
-				`Error should have ${error.suggestions.length} suggestions. Instead found ${message.suggestions.length} suggestions`,
+				actualSuggestions.length,
+				expectedSuggestions.length,
+				`Error should have ${expectedSuggestions.length} suggestions. Instead found ${actualSuggestions.length} suggestions`,
 			);
 
-			error.suggestions.forEach(
+			expectedSuggestions.forEach(
 				(expectedSuggestion, index) => {
-					processSuggestion(expectedSuggestion, message.suggestions[index], index, message, item, result);
+					assertSingleSuggestion(expectedSuggestion, actualSuggestions[index], index, message, rule, friendlyIDList, requireData, item, result);
 				},
 			);
 		}
 
 		/**
-		 * Processes a single suggestion.
+		 * Asserts a single suggestion.
 		 * @param {Object} expectedSuggestion The expected suggestion.
 		 * @param {Object} actualSuggestion The actual suggestion.
 		 * @param {number} index The suggestion index.
-		 * @param {Object} message The error message.
+		 * @param {Object} message The actual message.
+		 * @param {Object} rule The rule object.
+		 * @param {string} friendlyIDList Friendly ID list string.
+		 * @param {boolean | string} requireData Data requirement.
 		 * @param {Object} item The test item.
 		 * @param {Object} result The rule run result.
 		 * @returns {void}
 		 */
-		function processSuggestion(expectedSuggestion, actualSuggestion, index, message, item, result) {
+		function assertSingleSuggestion(expectedSuggestion, actualSuggestion, index, message, rule, friendlyIDList, requireData, item, result) {
 			assert.ok(
-				typeof expectedSuggestion === "object" &&
-					expectedSuggestion !== null,
+				typeof expectedSuggestion ===
+					"object" &&
+					expectedSuggestion !==
+						null,
 				"Test suggestion in 'suggestions' array must be an object.",
 			);
-			Object.keys(expectedSuggestion).forEach(propertyName => {
+			Object.keys(
+				expectedSuggestion,
+			).forEach(propertyName => {
 				assert.ok(
-					suggestionObjectParameters.has(propertyName),
+					suggestionObjectParameters.has(
+						propertyName,
+					),
 					`Invalid suggestion property name '${propertyName}'. Expected one of ${friendlySuggestionObjectParameterList}.`,
 				);
 			});
@@ -1869,75 +1881,47 @@ class RuleTester {
 			const suggestionPrefix = `Error Suggestion at index ${index}:`;
 
 			if (hasOwnProperty(expectedSuggestion, "desc")) {
-				processSuggestionDesc(expectedSuggestion, actualSuggestion, suggestionPrefix);
-			} else if (hasOwnProperty(expectedSuggestion, "messageId")) {
-				processSuggestionMessageId(expectedSuggestion, actualSuggestion, suggestionPrefix);
-			} else if (hasOwnProperty(expectedSuggestion, "data")) {
+				assertSuggestionDesc(expectedSuggestion, actualSuggestion, suggestionPrefix);
+				return;
+			}
+
+			if (hasOwnProperty(expectedSuggestion, "messageId")) {
+				assertSuggestionMessageId(expectedSuggestion, actualSuggestion, suggestionPrefix, rule, friendlyIDList, requireData);
+				return;
+			}
+
+			if (hasOwnProperty(expectedSuggestion, "data")) {
 				assert.fail(
 					`${suggestionPrefix} Test must specify 'messageId' if 'data' is used.`,
 				);
-			} else {
-				assert.fail(
-					`${suggestionPrefix} Test must specify either 'messageId' or 'desc'.`,
-				);
+				return;
 			}
 
-			assert.ok(
-				hasOwnProperty(expectedSuggestion, "output"),
-				`${suggestionPrefix} The "output" property is required.`,
-			);
-			const codeWithAppliedSuggestion =
-				SourceCodeFixer.applyFixes(
-					item.code,
-					[actualSuggestion],
-				).output;
-
-			// Verify if suggestion fix makes a syntax error or not.
-			const errorMessageInSuggestion =
-				linter
-					.verify(
-						codeWithAppliedSuggestion,
-						result.configs,
-						result.filename,
-					)
-					.find(m => m.fatal);
-
-			assert(
-				!errorMessageInSuggestion,
-				[
-					"A fatal parsing error occurred in suggestion fix.",
-					`Error: ${errorMessageInSuggestion && errorMessageInSuggestion.message}`,
-					"Suggestion output:",
-					codeWithAppliedSuggestion,
-				].join("\n"),
-			);
-
-			assert.strictEqual(
-				codeWithAppliedSuggestion,
-				expectedSuggestion.output,
-				`Expected the applied suggestion fix to match the test suggestion output for suggestion at index: ${index} on error with message: "${message.message}"`,
-			);
-			assert.notStrictEqual(
-				expectedSuggestion.output,
-				item.code,
-				`The output of a suggestion should differ from the original source code for suggestion at index: ${index} on error with message: "${message.message}"`,
+			assert.fail(
+				`${suggestionPrefix} Test must specify either 'messageId' or 'desc'.`,
 			);
 		}
 
 		/**
-		 * Processes a suggestion with desc property.
+		 * Asserts a suggestion with desc.
 		 * @param {Object} expectedSuggestion The expected suggestion.
 		 * @param {Object} actualSuggestion The actual suggestion.
-		 * @param {string} suggestionPrefix The prefix for error messages.
+		 * @param {string} suggestionPrefix The suggestion prefix for error messages.
 		 * @returns {void}
 		 */
-		function processSuggestionDesc(expectedSuggestion, actualSuggestion, suggestionPrefix) {
+		function assertSuggestionDesc(expectedSuggestion, actualSuggestion, suggestionPrefix) {
 			assert.ok(
-				!hasOwnProperty(expectedSuggestion, "data"),
+				!hasOwnProperty(
+					expectedSuggestion,
+					"data",
+				),
 				`${suggestionPrefix} Test should not specify both 'desc' and 'data'.`,
 			);
 			assert.ok(
-				!hasOwnProperty(expectedSuggestion, "messageId"),
+				!hasOwnProperty(
+					expectedSuggestion,
+					"messageId",
+				),
 				`${suggestionPrefix} Test should not specify both 'desc' and 'messageId'.`,
 			);
 			assert.strictEqual(
@@ -1948,18 +1932,24 @@ class RuleTester {
 		}
 
 		/**
-		 * Processes a suggestion with messageId property.
+		 * Asserts a suggestion with messageId.
 		 * @param {Object} expectedSuggestion The expected suggestion.
 		 * @param {Object} actualSuggestion The actual suggestion.
-		 * @param {string} suggestionPrefix The prefix for error messages.
+		 * @param {string} suggestionPrefix The suggestion prefix for error messages.
+		 * @param {Object} rule The rule object.
+		 * @param {string} friendlyIDList Friendly ID list string.
+		 * @param {boolean | string} requireData Data requirement.
 		 * @returns {void}
 		 */
-		function processSuggestionMessageId(expectedSuggestion, actualSuggestion, suggestionPrefix) {
+		function assertSuggestionMessageId(expectedSuggestion, actualSuggestion, suggestionPrefix, rule, friendlyIDList, requireData) {
+			const ruleHasMetaMessages =
+				hasOwnProperty(rule, "meta") &&
+				hasOwnProperty(rule.meta, "messages");
+
 			assert.ok(
-				ruleHasMetaMessages(),
+				ruleHasMetaMessages,
 				`${suggestionPrefix} Test can not use 'messageId' if rule under test doesn't define 'meta.messages'.`,
 			);
-			const friendlyIDList = getFriendlyIDList();
 			assert.ok(
 				hasOwnProperty(
 					rule.meta.messages,
@@ -2010,9 +2000,9 @@ class RuleTester {
 				);
 			} else {
 				const requiresDataProperty =
-					test.assertionOptions?.requireData ===
+					requireData ===
 						true ||
-					test.assertionOptions?.requireData ===
+					requireData ===
 						"suggestion";
 				const hasPlaceholders =
 					getMessagePlaceholders(
@@ -2027,162 +2017,41 @@ class RuleTester {
 		}
 
 		/**
-		 * Check if the template is invalid or not
-		 * all invalid cases go through this.
-		 * @param {Object} item Item to run the rule against
-		 * @returns {void}
-		 * @private
-		 * @throws {Error} If the test case is invalid or has an invalid error.
-		 */
-		function testInvalidTemplate(item) {
-			const result = runRuleForItem(item);
-			const messages = result.messages;
-
-			assert.ok(
-				ruleHasMetaMessages() || test.assertionOptions?.requireMessage !== "messageId",
-				`Assertion options can not use 'requireMessage: "messageId"' if rule under test doesn't define 'meta.messages'.`,
-			);
-
-			for (const message of messages) {
-				if (hasOwnProperty(message, "suggestions")) {
-					validateSuggestionUniqueness(message);
-				}
-			}
-
-			if (typeof item.errors === "number") {
-				assertErrorCount(messages, item.errors);
-			} else {
-				assertErrorCountArray(messages, item.errors);
-				const ruleMessagesExist = hasMessageOfThisRule(messages);
-
-				for (let i = 0, l = item.errors.length; i < l; i++) {
-					try {
-						const error = item.errors[i];
-						const message = messages[i];
-
-						assert(
-							ruleMessagesExist,
-							"Error rule name should be the same as the name of the rule being tested",
-						);
-
-						processErrorItem(error, message, i, item, result);
-					} catch (error) {
-						if (error instanceof Error) {
-							error.errorIndex = i;
-						}
-						throw error;
-					}
-				}
-			}
-
-			assertOutputProperty(item, result);
-			assertASTDidntChange(result.beforeAST, result.afterAST);
-		}
-
-		/**
-		 * Validates that suggestion messages are unique within an error.
-		 * @param {Object} message The message with suggestions.
-		 * @returns {void}
-		 */
-		function validateSuggestionUniqueness(message) {
-			const seenMessageIndices = new Map();
-
-			for (let i = 0; i < message.suggestions.length; i += 1) {
-				const suggestionMessage = message.suggestions[i].desc;
-				const previous =
-					seenMessageIndices.get(suggestionMessage);
-
-				assert.ok(
-					!seenMessageIndices.has(suggestionMessage),
-					`Suggestion message '${suggestionMessage}' reported from suggestion ${i} was previously reported by suggestion ${previous}. Suggestion messages should be unique within an error.`,
-				);
-				seenMessageIndices.set(suggestionMessage, i);
-			}
-		}
-
-		/**
-		 * Asserts the error count when errors is a number.
-		 * @param {Object[]} messages The messages array.
-		 * @param {number} expectedCount The expected error count.
-		 * @returns {void}
-		 */
-		function assertErrorCount(messages, expectedCount) {
-			assert.strictEqual(
-				messages.length,
-				expectedCount,
-				util.format(
-					"Should have %d error%s but had %d: %s",
-					expectedCount,
-					expectedCount === 1 ? "" : "s",
-					messages.length,
-					util.inspect(messages),
-				),
-			);
-		}
-
-		/**
-		 * Asserts the error count when errors is an array.
-		 * @param {Object[]} messages The messages array.
-		 * @param {any[]} expectedErrors The expected errors array.
-		 * @returns {void}
-		 */
-		function assertErrorCountArray(messages, expectedErrors) {
-			assert.strictEqual(
-				messages.length,
-				expectedErrors.length,
-				util.format(
-					"Should have %d error%s but had %d: %s",
-					expectedErrors.length,
-					expectedErrors.length === 1 ? "" : "s",
-					messages.length,
-					util.inspect(messages),
-				),
-			);
-		}
-
-		/**
-		 * Asserts the output property of the test item.
+		 * Asserts the output property of a test case.
 		 * @param {Object} item The test item.
 		 * @param {Object} result The rule run result.
 		 * @returns {void}
 		 */
 		function assertOutputProperty(item, result) {
-			if (!hasOwnProperty(item, "output")) {
-				assert.strictEqual(
-					result.output,
-					item.code,
-					"The rule fixed the code. Please add 'output' property.",
-				);
-				return;
-			}
-
-			if (item.output === null) {
-				assert.strictEqual(
-					result.output,
-					item.code,
-					"Expected no autofixes to be suggested",
-				);
+			if (hasOwnProperty(item, "output")) {
+				if (item.output === null) {
+					assert.strictEqual(
+						result.output,
+						item.code,
+						"Expected no autofixes to be suggested",
+					);
+				} else {
+					assert.strictEqual(
+						result.output,
+						item.output,
+						"Output is incorrect.",
+					);
+					assert.notStrictEqual(
+						item.code,
+						item.output,
+						"Test property 'output' matches 'code'. If no autofix is expected, then omit the 'output' property or set it to null.",
+					);
+				}
 				return;
 			}
 
 			assert.strictEqual(
 				result.output,
-				item.output,
-				"Output is incorrect.",
-			);
-			assert.notStrictEqual(
 				item.code,
-				item.output,
-				"Test property 'output' matches 'code'. If no autofix is expected, then omit the 'output' property or set it to null.",
+				"The rule fixed the code. Please add 'output' property.",
 			);
 		}
 
-		/*
-		 * This creates a mocha test suite and pipes all supplied info through
-		 * one of the templates above.
-		 * The test suites for valid/invalid are created conditionally as
-		 * test runners (eg. vitest) fail for empty test suites.
-		 */
 		this.constructor.describe(ruleName, () => {
 			if (test.valid.length > 0) {
 				this.constructor.describe("valid", () => {
@@ -2274,4 +2143,3 @@ class RuleTester {
 RuleTester[DESCRIBE] = RuleTester[IT] = RuleTester[IT_ONLY] = null;
 
 module.exports = RuleTester;
-```

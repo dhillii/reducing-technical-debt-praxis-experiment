@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const Catbox = require('catbox');
@@ -175,7 +174,8 @@ internals.Server.prototype.connection = function (options) {
         root.registerPodium(connection);
         root._single();
 
-        this._registerConnectionPlugins(root, connection);
+        this._copyRegistrations(connection, root);
+
         connections.push(connection);
     });
 
@@ -183,7 +183,7 @@ internals.Server.prototype.connection = function (options) {
 };
 
 
-internals.Server.prototype._registerConnectionPlugins = function (root, connection) {
+internals.Server.prototype._copyRegistrations = function (connection, root) {
 
     const registrations = Object.keys(root._registrations);
     for (let i = 0; i < registrations.length; ++i) {
@@ -206,9 +206,9 @@ internals.Server.prototype.start = function (callback) {
         return nextTickCallback(new Error('No connections to start'));
     }
 
-    const stateError = this._validateStartState();
-    if (stateError) {
-        return nextTickCallback(stateError);
+    const error = this._validateStartState();
+    if (error) {
+        return nextTickCallback(error);
     }
 
     if (this._state === 'initialized') {
@@ -300,8 +300,8 @@ internals.Server.prototype._validateDeps = function () {
     for (let i = 0; i < this._dependencies.length; ++i) {
         const dependency = this._dependencies[i];
         const error = dependency.connections ? 
-            this._validateDepsByConnection(dependency) : 
-            this._validateDepsGlobal(dependency);
+            this._validateConnectionDeps(dependency) : 
+            this._validateServerDeps(dependency);
         
         if (error) {
             return error;
@@ -312,7 +312,7 @@ internals.Server.prototype._validateDeps = function () {
 };
 
 
-internals.Server.prototype._validateDepsByConnection = function (dependency) {
+internals.Server.prototype._validateConnectionDeps = function (dependency) {
 
     for (let j = 0; j < dependency.connections.length; ++j) {
         const connection = dependency.connections[j];
@@ -326,7 +326,7 @@ internals.Server.prototype._validateDepsByConnection = function (dependency) {
 };
 
 
-internals.Server.prototype._validateDepsGlobal = function (dependency) {
+internals.Server.prototype._validateServerDeps = function (dependency) {
 
     return this._validateDepVersion(dependency, this._registrations);
 };
@@ -460,4 +460,3 @@ internals.Server.prototype._invoke = function (type, next) {
         ext.func.call(bind, ext.plugin._select(), nextExt);
     }, next);
 };
-```

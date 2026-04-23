@@ -1,4 +1,3 @@
-```javascript
 const errors = require('@tryghost/errors');
 const nql = require('@tryghost/nql');
 const mingo = require('mingo');
@@ -56,8 +55,7 @@ module.exports = class EventRepository {
         this._AutomatedEmailRecipient = AutomatedEmailRecipient;
     }
 
-    async getEventTimeline(options) {
-        options = options || {};
+    async getEventTimeline(options = {}) {
         if (!options.limit) {
             options.limit = 10;
         }
@@ -155,8 +153,7 @@ module.exports = class EventRepository {
         });
     }
 
-    async getNewsletterSubscriptionEvents(filter, options) {
-        options = options || {};
+    async getNewsletterSubscriptionEvents(filter, options = {}) {
         options = {
             ...options,
             withRelated: ['member', 'newsletter'],
@@ -190,8 +187,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getSubscriptionEvents(filter, options) {
-        options = options || {};
+    async getSubscriptionEvents(filter, options = {}) {
         options = {
             ...options,
             withRelated: [
@@ -253,8 +249,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getPaymentEvents(filter, options) {
-        options = options || {};
+    async getPaymentEvents(filter, options = {}) {
         options = {
             ...options,
             withRelated: ['member'],
@@ -287,8 +282,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getLoginEvents(filter, options) {
-        options = options || {};
+    async getLoginEvents(filter, options = {}) {
         options = {
             ...options,
             withRelated: ['member'],
@@ -321,8 +315,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getSignupEvents(filter, options) {
-        options = options || {};
+    async getSignupEvents(filter, options = {}) {
         options = {
             ...options,
             withRelated: [
@@ -377,8 +370,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getDonationEvents(filter, options) {
-        options = options || {};
+    async getDonationEvents(filter, options = {}) {
         options = {
             ...options,
             withRelated: [
@@ -432,8 +424,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getCommentEvents(filter, options) {
-        options = options || {};
+    async getCommentEvents(filter, options = {}) {
         options = {
             ...options,
             withRelated: ['member', 'post', 'parent'],
@@ -467,8 +458,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getClickEvents(filter, options) {
-        options = options || {};
+    async getClickEvents(filter, options = {}) {
         options = {
             ...options,
             withRelated: ['member', 'link', 'link.post'],
@@ -523,8 +513,7 @@ module.exports = class EventRepository {
     /**
      * This groups click events per member for the same post, and only returns the first actual event, and includes the total clicks per event (for the same member and post)
      */
-    async getAggregatedClickEvents(filter, options) {
-        options = options || {};
+    async getAggregatedClickEvents(filter, options = {}) {
         const postId = this.getPostIdFromFilter(filter);
 
         //Remove type filter as we don't need it in the query
@@ -623,8 +612,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getFeedbackEvents(filter, options) {
-        options = options || {};
+    async getFeedbackEvents(filter, options = {}) {
         options = {
             ...options,
             withRelated: ['member', 'post'],
@@ -658,8 +646,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailSentEvents(filter, options) {
-        options = options || {};
+    async getEmailSentEvents(filter, options = {}) {
         const filterStr = 'failed_at:null+processed_at:-null+delivered_at:null+custom:true';
         options = {
             ...options,
@@ -703,8 +690,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailDeliveredEvents(filter, options) {
-        options = options || {};
+    async getEmailDeliveredEvents(filter, options = {}) {
         options = {
             ...options,
             withRelated: ['member', 'email'],
@@ -747,8 +733,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailOpenedEvents(filter, options) {
-        options = options || {};
+    async getEmailOpenedEvents(filter, options = {}) {
         options = {
             ...options,
             withRelated: ['member', 'email'],
@@ -791,8 +776,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailSpamComplaintEvents(filter, options) {
-        options = options || {};
+    async getEmailSpamComplaintEvents(filter, options = {}) {
         options = {
             ...options,
             withRelated: ['member', 'email'],
@@ -826,8 +810,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailFailedEvents(filter, options) {
-        options = options || {};
+    async getEmailFailedEvents(filter, options = {}) {
         options = {
             ...options,
             withRelated: ['member', 'email'],
@@ -870,8 +853,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailChangeEvent(filter, options) {
-        options = options || {};
+    async getEmailChangeEvent(filter, options = {}) {
         options = {
             ...options,
             withRelated: ['member'],
@@ -904,8 +886,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getAutomatedEmailSentEvents(filter, options) {
-        options = options || {};
+    async getAutomatedEmailSentEvents(filter, options = {}) {
         options = {
             ...options,
             withRelated: ['member', 'automatedEmail'],
@@ -1058,4 +1039,3 @@ module.exports = class EventRepository {
         return cumulativeResults;
     }
 };
-```

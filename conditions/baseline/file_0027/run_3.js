@@ -1,4 +1,3 @@
-```javascript
 import Component from '@ember/component';
 import boundOneWay from 'ghost-admin/utils/bound-one-way';
 import classic from 'ember-classic-decorator';
@@ -129,10 +128,16 @@ export default class GhPostSettingsMenu extends Component {
         const urlParts = [];
 
         if (this.post.canonicalUrl) {
-            const canonicalUrl = this.parseUrl(this.post.canonicalUrl);
-            if (canonicalUrl) {
+            try {
+                const canonicalUrl = new URL(this.post.canonicalUrl);
                 urlParts.push(canonicalUrl.host);
                 urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
+            } catch (e) {
+                // Invalid URL - use blog URL instead
+                const blogUrl = new URL(this.config.blogUrl);
+                urlParts.push(blogUrl.host);
+                urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
+                urlParts.push(this.post.slug);
             }
         } else {
             const blogUrl = new URL(this.config.blogUrl);
@@ -646,14 +651,6 @@ export default class GhPostSettingsMenu extends Component {
         this.setSidebarWidthVariable(width);
     }
 
-    parseUrl(urlString) {
-        try {
-            return new URL(urlString);
-        } catch (e) {
-            return null;
-        }
-    }
-
     showError(error) {
         // TODO: remove null check once ValidationEngine has been removed
         if (error) {
@@ -666,4 +663,3 @@ export default class GhPostSettingsMenu extends Component {
         document.documentElement.style.setProperty('--kg-breakout-adjustment', `${width}px`);
     }
 }
-```

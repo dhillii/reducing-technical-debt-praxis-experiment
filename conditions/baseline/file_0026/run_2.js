@@ -1,4 +1,3 @@
-```typescript
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import countries from 'i18n-iso-countries';
 import enLocale from 'i18n-iso-countries/langs/en.json';
@@ -39,15 +38,6 @@ interface FilterFieldDefinition {
     // Filter out invalid items from API response
     filterItem?: (item: Record<string, unknown>) => boolean;
 }
-
-const getDeviceLabel = (value: string): string => {
-    if (value === 'mobile-ios') return 'iOS';
-    if (value === 'mobile-android') return 'Android';
-    if (value === 'desktop') return 'Desktop';
-    if (value === 'bot') return 'Bot';
-    if (value === 'unknown') return 'Unknown';
-    return value;
-};
 
 const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     utm_source: {
@@ -95,10 +85,17 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     device: {
         endpoint: 'api_top_devices',
         valueKey: 'device',
-        transformValue: v => ({
-            value: v,
-            label: getDeviceLabel(v)
-        })
+        transformValue: v => {
+            const deviceLabelMap: Record<string, string> = {
+                'mobile-ios': 'iOS',
+                'mobile-android': 'Android',
+                'desktop': 'Desktop',
+                'bot': 'Bot',
+                'unknown': 'Unknown'
+            };
+            const label = deviceLabelMap[v] || v;
+            return {value: v, label};
+        }
     }
 };
 
@@ -549,4 +546,3 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
 };
 
 export default StatsFilter;
-```

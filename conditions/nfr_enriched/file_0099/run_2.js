@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const util = require('crypto-lib').util;
@@ -42,9 +41,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         }
     };
 
-    /**
-     * Reset all composer fields to initial state
-     */
+    // Resets all composer fields to initial state
     function resetFields() {
         $scope.writerTitle = 'New email';
         $scope.to = [];
@@ -60,9 +57,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         $scope.invited = [];
     }
 
-    /**
-     * Format a single log entry with level, timestamp, component, and message
-     */
+    // Formats a single log entry with level, timestamp, component, and message
     function formatLogEntry(level, date, component, log) {
         let entry = '';
 
@@ -96,10 +91,8 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         return entry;
     }
 
-    /**
-     * Collect application logs for bug report
-     */
-    function collectApplicationLogs() {
+    // Collects application logs and prepares bug report email
+    function reportBug() {
         let dump = '';
         const appender = {
             log: function(level, date, component, log) {
@@ -107,38 +100,24 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
             }
         };
         axe.dump(appender);
-        return dump;
-    }
-
-    /**
-     * Populate composer with bug report details
-     */
-    function reportBug() {
-        const dump = collectApplicationLogs();
 
         $scope.to = [{
             address: str.supportAddress
         }];
         $scope.writerTitle = str.bugReportTitle;
         $scope.subject = str.bugReportSubject;
-        $scope.body = str.bugReportBody
-            .replace('{0}', navigator.userAgent)
-            .replace('{1}', cfg.appVersion) + dump;
+        $scope.body = str.bugReportBody.replace('{0}', navigator.userAgent).replace('{1}', cfg.appVersion) + dump;
     }
 
-    /**
-     * Extract reply-to address from email
-     */
-    function extractReplyToAddress(originalEmail) {
-        return originalEmail.replyTo && originalEmail.replyTo[0] && originalEmail.replyTo[0].address || originalEmail.from[0].address;
+    // Extracts reply-to address from email headers
+    function extractReplyToAddress(email) {
+        return email.replyTo && email.replyTo[0] && email.replyTo[0].address || email.from[0].address;
     }
 
-    /**
-     * Set up recipient field and message references for reply
-     */
-    function setupReplyRecipients(originalEmail, replyTo) {
+    // Populates recipient fields for reply operations
+    function populateReplyRecipients(originalEmail, replyAll, replyToAddress) {
         $scope.to.unshift({
-            address: replyTo
+            address: replyToAddress
         });
         $scope.to.forEach($scope.verify);
 
@@ -149,15 +128,17 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         if (originalEmail.id) {
             $scope.inReplyTo = originalEmail.id;
         }
+
+        if (replyAll) {
+            populateReplyAllCc(originalEmail, replyToAddress);
+        }
     }
 
-    /**
-     * Add recipients from original email to CC field for reply-all
-     */
-    function setupReplyAllRecipients(originalEmail, replyTo) {
+    // Populates CC field for reply-all operations
+    function populateReplyAllCc(originalEmail, replyToAddress) {
         originalEmail.to.concat(originalEmail.cc).forEach(function(recipient) {
             const me = auth.emailAddress;
-            if (recipient.address === me && replyTo !== me) {
+            if (recipient.address === me && replyToAddress !== me) {
                 // don't reply to yourself
                 return;
             }
@@ -174,10 +155,8 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         $scope.cc.forEach($scope.verify);
     }
 
-    /**
-     * Set up attachments and references for forward
-     */
-    function setupForwardAttachments(originalEmail) {
+    // Populates attachments and references for forward operations
+    function populateForwardAttachments(originalEmail) {
         // create a new array, otherwise removing an attachment will also
         // remove it from the original in the mail list as a side effect
         $scope.attachments = [].concat(originalEmail.attachments);
@@ -186,20 +165,16 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         }
     }
 
-    /**
-     * Set subject line based on reply or forward
-     */
-    function setupSubject(originalEmail, isForward) {
+    // Formats subject line for reply or forward
+    function formatSubjectLine(originalSubject, isForward) {
         if (isForward) {
-            $scope.subject = 'Fwd: ' + originalEmail.subject;
+            return 'Fwd: ' + originalSubject;
         } else {
-            $scope.subject = originalEmail.subject ? 'Re: ' + originalEmail.subject.replace('Re: ', '') : '';
+            return originalSubject ? 'Re: ' + originalSubject.replace('Re: ', '') : '';
         }
     }
 
-    /**
-     * Format recipient list as comma-separated string with names and addresses
-     */
+    // Formats recipient list as comma-separated string with names and addresses
     function formatRecipientList(recipients) {
         let result = '';
         recipients.forEach(function(recipient) {
@@ -209,91 +184,58 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         return result;
     }
 
-    /**
-     * Create quoted text body for reply
-     */
-    function createReplyQuote(originalEmail, replyTo) {
-        const from = originalEmail.from[0].name || replyTo;
+    // Builds quoted text body for reply or forward
+    function buildQuotedBody(originalEmail, isForward, replyToAddress) {
+        const from = originalEmail.from[0].name || replyToAddress;
         const sentDate = $filter('date')(originalEmail.sentDate, 'EEEE, MMM d, yyyy h:mm a');
-        return '\n\n' + sentDate + ' ' + from + ' wrote:\n> ';
-    }
 
-    /**
-     * Create forwarded message header
-     */
-    function createForwardHeader(originalEmail) {
-        const sentDate = $filter('date')(originalEmail.sentDate, 'EEEE, MMM d, yyyy h:mm a');
-        let header = '\n\n' +
-            '---------- Forwarded message ----------\n' +
-            'From: ' + originalEmail.from[0].name + ' <' + originalEmail.from[0].address + '>\n' +
-            'Date: ' + sentDate + '\n' +
-            'Subject: ' + originalEmail.subject + '\n' +
-            'To: ' + formatRecipientList(originalEmail.to) + '\n';
-
-        if (originalEmail.cc && originalEmail.cc.length > 0) {
-            header += 'Cc: ' + formatRecipientList(originalEmail.cc) + '\n';
-        }
-
-        header += '\n\n';
-        return header;
-    }
-
-    /**
-     * Format email body with proper quoting
-     */
-    function formatBodyWithQuoting(bodyText) {
-        return bodyText.trim().split('\n').join('\n> ').replace(/ >/g, '>');
-    }
-
-    /**
-     * Set up message body for reply or forward
-     */
-    function setupMessageBody(originalEmail, isForward, replyTo) {
-        let body;
+        let body = '';
 
         if (isForward) {
-            body = createForwardHeader(originalEmail);
+            body = '\n\n' +
+                '---------- Forwarded message ----------\n' +
+                'From: ' + originalEmail.from[0].name + ' <' + originalEmail.from[0].address + '>\n' +
+                'Date: ' + sentDate + '\n' +
+                'Subject: ' + originalEmail.subject + '\n' +
+                'To: ' + formatRecipientList(originalEmail.to) + '\n' +
+                ((originalEmail.cc && originalEmail.cc.length > 0) ? 'Cc: ' + formatRecipientList(originalEmail.cc) + '\n' : '') +
+                '\n\n';
         } else {
-            body = createReplyQuote(originalEmail, replyTo);
+            body = '\n\n' + sentDate + ' ' + from + ' wrote:\n> ';
         }
 
         if (originalEmail.body) {
-            body += formatBodyWithQuoting(originalEmail.body);
-            $scope.body = body;
+            body += originalEmail.body.trim().split('\n').join('\n> ').replace(/ >/g, '>');
         }
+
+        return body;
     }
 
-    /**
-     * Populate composer fields based on original email for reply/forward
-     */
-    function fillFields(originalEmail, replyAll, isForward) {
-        if (!originalEmail) {
+    // Populates composer fields based on reply/forward context
+    function fillFields(re, replyAll, forward) {
+        if (!re) {
             return;
         }
 
-        $scope.writerTitle = (isForward) ? 'Forward' : 'Reply';
+        $scope.writerTitle = (forward) ? 'Forward' : 'Reply';
 
-        const replyTo = extractReplyToAddress(originalEmail);
+        const replyToAddress = extractReplyToAddress(re);
 
         // fill recipient field and references
-        if (!isForward) {
-            setupReplyRecipients(originalEmail, replyTo);
-        }
-
-        if (replyAll) {
-            setupReplyAllRecipients(originalEmail, replyTo);
+        if (!forward) {
+            populateReplyRecipients(re, replyAll, replyToAddress);
         }
 
         // fill attachments and references on forward
-        if (isForward) {
-            setupForwardAttachments(originalEmail);
+        if (forward) {
+            populateForwardAttachments(re);
         }
 
         // fill subject
-        setupSubject(originalEmail, isForward);
+        $scope.subject = formatSubjectLine(re.subject, forward);
 
         // fill text body
-        setupMessageBody(originalEmail, isForward, replyTo);
+        $scope.body = buildQuotedBody(re, forward, replyToAddress);
     }
 
     //
@@ -311,10 +253,8 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         });
     };
 
-    /**
-     * Normalize recipient display and address fields
-     */
-    function normalizeRecipientFields(recipient) {
+    // Sets recipient display properties based on address validation
+    function setRecipientDisplay(recipient) {
         if (recipient.address) {
             // display only email address after autocomplete
             recipient.displayId = recipient.address;
@@ -324,24 +264,21 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         }
     }
 
-    /**
-     * Validate recipient email address format
-     */
-    function validateRecipientAddress(recipient) {
-        if (!util.validateEmailAddress(recipient.address)) {
-            recipient.secure = undefined;
-            $scope.checkSendStatus();
-            return false;
-        }
-        return true;
+    // Validates email address format
+    function isValidEmailAddress(address) {
+        return util.validateEmailAddress(address);
     }
 
-    /**
-     * Fetch and set public key for recipient
-     */
-    function fetchRecipientKey(recipient) {
-        return keychain.refreshKeyForUserId({
-            userId: recipient.address
+    // Fetches and sets public key for recipient
+    function fetchAndSetRecipientKey(recipient) {
+        return $q(function(resolve) {
+            resolve();
+
+        }).then(function() {
+            return keychain.refreshKeyForUserId({
+                userId: recipient.address
+            });
+
         }).then(function(key) {
             if (key) {
                 // compare again since model could have changed during the roundtrip
@@ -359,7 +296,8 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
                 $scope.showInvite = true;
             }
             $scope.checkSendStatus();
-        });
+
+        }).catch(dialog.error);
     }
 
     /**
@@ -370,7 +308,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
             return;
         }
 
-        normalizeRecipientFields(recipient);
+        setRecipientDisplay(recipient);
 
         // set display to insecure while fetching keys
         recipient.key = undefined;
@@ -378,23 +316,20 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         $scope.checkSendStatus();
 
         // verify email address
-        if (!validateRecipientAddress(recipient)) {
+        if (!isValidEmailAddress(recipient.address)) {
+            recipient.secure = undefined;
+            $scope.checkSendStatus();
             return;
         }
 
         // check if to address is contained in known public keys
         // when we write an email, we always need to work with the latest keys available
-        return $q(function(resolve) {
-            resolve();
-        }).then(function() {
-            return fetchRecipientKey(recipient);
-        }).catch(dialog.error);
+        return fetchAndSetRecipientKey(recipient);
     };
 
-    /**
-     * Validate a single recipient address
-     */
-    function validateRecipient(recipient) {
+    // Validates recipient address and counts receivers
+    function validateAndCountRecipient(recipient) {
+        // validate address
         if (!util.validateEmailAddress(recipient.address)) {
             return dialog.info({
                 title: 'Warning',
@@ -404,36 +339,18 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         return true;
     }
 
-    /**
-     * Count receivers and check if all are secure
-     */
-    function analyzeRecipientSecurity() {
-        let allSecure = true;
-        let numReceivers = 0;
-
-        const recipients = $scope.to.concat($scope.cc).concat($scope.bcc);
-
-        recipients.forEach(function(recipient) {
-            if (!validateRecipient(recipient)) {
-                return;
-            }
-            numReceivers++;
-            if (!recipient.secure) {
-                allSecure = false;
-            }
-        });
-
-        return {
-            numReceivers: numReceivers,
-            allSecure: allSecure
-        };
+    // Determines if all recipients have secure keys
+    function areAllRecipientsSecure(allSecure) {
+        // bcc automatically disables secure sending
+        if ($scope.bcc.filter(filterEmptyAddresses).length > 0) {
+            return false;
+        }
+        return allSecure;
     }
 
-    /**
-     * Determine send button state based on recipient security
-     */
-    function setSendButtonState(allSecure) {
-        if (allSecure) {
+    // Sets send button state based on security level
+    function setSendButtonState(isSecure) {
+        if (isSecure) {
             // send encrypted if all secure
             $scope.okToSend = true;
             $scope.sendBtnText = str.sendBtnSecure;
@@ -455,21 +372,32 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         $scope.sendBtnText = undefined;
         $scope.sendBtnSecure = undefined;
 
-        const security = analyzeRecipientSecurity();
+        let allSecure = true;
+        let numReceivers = 0;
 
-        // only allow sending if receivers exist
-        if (security.numReceivers < 1) {
+        // count number of receivers and check security
+        const checkRecipient = function(recipient) {
+            if (!validateAndCountRecipient(recipient)) {
+                return;
+            }
+            numReceivers++;
+            if (!recipient.secure) {
+                allSecure = false;
+            }
+        };
+
+        $scope.to.forEach(checkRecipient);
+        $scope.cc.forEach(checkRecipient);
+        $scope.bcc.forEach(checkRecipient);
+
+        // only allow sending if receviers exist
+        if (numReceivers < 1) {
             $scope.showInvite = false;
             return;
         }
 
-        // bcc automatically disables secure sending
-        let allSecure = security.allSecure;
-        if ($scope.bcc.filter(filterEmptyAddresses).length > 0) {
-            allSecure = false;
-        }
-
-        setSendButtonState(allSecure);
+        const isSecure = areAllRecipientsSecure(allSecure);
+        setSendButtonState(isSecure);
     };
 
     //
@@ -480,32 +408,30 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         $scope.attachments.splice($scope.attachments.indexOf(attachment), 1);
     };
 
-    /**
-     * Collect recipients without public keys
-     */
-    function collectUnencryptedRecipients() {
+    // Collects addresses of recipients without public keys
+    function collectInvitees() {
         const invitees = [];
 
-        const recipients = $scope.to.concat($scope.cc).concat($scope.bcc);
-
-        recipients.forEach(function(recipient) {
+        const checkRecipient = function(recipient) {
             if (util.validateEmailAddress(recipient.address) && !recipient.secure && $scope.invited.indexOf(recipient.address) === -1) {
                 invitees.push(recipient.address);
             }
-        });
+        };
+
+        $scope.to.forEach(checkRecipient);
+        $scope.cc.forEach(checkRecipient);
+        $scope.bcc.forEach(checkRecipient);
 
         return invitees;
     }
 
-    /**
-     * Send invitation mail for a single recipient
-     */
-    function sendInvitationForRecipient(recipientAddress, sender) {
+    // Sends invitation mail and tracks invitation state
+    function sendInvitationMail(recipientAddress, sender) {
         const invitationMail = invitation.createMail({
             sender: sender,
             recipient: recipientAddress
         });
-
+        // send invitation mail
         return outbox.put(invitationMail).then(function() {
             return invitation.invite({
                 recipient: recipientAddress,
@@ -519,23 +445,27 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
      */
     $scope.invite = function() {
         const sender = auth.emailAddress;
-        const invitees = collectUnencryptedRecipients();
+        const sendJobs = [];
 
         $scope.showInvite = false;
 
+        // get recipients with no keys
+        const invitees = collectInvitees();
+
         return $q(function(resolve) {
             resolve();
-        }).then(function() {
-            const sendJobs = [];
 
+        }).then(function() {
             invitees.forEach(function(recipientAddress) {
-                const promise = sendInvitationForRecipient(recipientAddress, sender);
+                // send invitation mail
+                const promise = sendInvitationMail(recipientAddress, sender);
                 sendJobs.push(promise);
                 // remember already invited users to prevent spamming
                 $scope.invited.push(recipientAddress);
             });
 
             return Promise.all(sendJobs);
+
         }).catch(function(err) {
             $scope.showInvite = true;
             return dialog.error(err);
@@ -546,30 +476,9 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
     // Editing email body
     //
 
-    /**
-     * Build message headers for in-reply-to and references
-     */
-    function buildMessageHeaders() {
-        const headers = {};
-
-        if ($scope.inReplyTo) {
-            headers['in-reply-to'] = '<' + $scope.inReplyTo + '>';
-        }
-
-        if ($scope.references && $scope.references.length) {
-            headers.references = $scope.references.map(function(reference) {
-                return '<' + reference + '>';
-            }).join(' ');
-        }
-
-        return headers;
-    }
-
-    /**
-     * Build email message object for outbox
-     */
-    function buildEmailMessage() {
-        return {
+    // Builds message object from composer fields
+    function buildMessage() {
+        const message = {
             from: [{
                 name: auth.realname,
                 address: auth.emailAddress
@@ -581,16 +490,28 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
             body: $scope.body.trim(),
             attachments: $scope.attachments,
             sentDate: new Date(),
-            headers: buildMessageHeaders()
+            headers: {}
         };
+
+        if ($scope.inReplyTo) {
+            message.headers['in-reply-to'] = '<' + $scope.inReplyTo + '>';
+        }
+
+        if ($scope.references && $scope.references.length) {
+            message.headers.references = $scope.references.map(function(reference) {
+                return '<' + reference + '>';
+            }).join(' ');
+        }
+
+        return message;
     }
 
-    /**
-     * Mark original email as answered if replying
-     */
+    // Marks original email as answered if replying
     function markOriginalAsAnswered() {
+        // if we need to synchronize replyTo.answered = true to imap,
+        // let's do that. otherwise, we're done
         if (!$scope.replyTo || $scope.replyTo.answered) {
-            return $q.when();
+            return;
         }
 
         $scope.replyTo.answered = true;
@@ -600,11 +521,9 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         });
     }
 
-    /**
-     * Send email to outbox for later transmission
-     */
     $scope.sendToOutbox = function() {
-        const message = buildEmailMessage();
+        // build email model for smtp-client
+        const message = buildMessage();
 
         // close the writer
         $scope.state.writer.close();
@@ -616,12 +535,13 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         // persist the email to disk for later sending
         return $q(function(resolve) {
             resolve();
+
         }).then(function() {
             return outbox.put(message);
+
         }).then(function() {
-            // if we need to synchronize replyTo.answered = true to imap,
-            // let's do that. otherwise, we're done
             return markOriginalAsAnswered();
+
         }).catch(function(err) {
             if (err.code !== 42) {
                 dialog.error(err);
@@ -641,9 +561,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         return classes;
     };
 
-    /**
-     * Populate address book cache from local public keys
-     */
+    // Populates address book cache from keychain
     function populateAddressBookCache() {
         return keychain.listLocalPublicKeys().then(function(keys) {
             $scope.addressBookCache = keys.map(function(key) {
@@ -656,30 +574,28 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         });
     }
 
-    /**
-     * Filter address book cache by query string
-     */
+    // Filters address book cache by query string
     function filterAddressBook(query) {
-        return $scope.addressBookCache.filter(function(entry) {
-            return entry.displayId.toLowerCase().indexOf(query.toLowerCase()) !== -1;
+        return $scope.addressBookCache.filter(function(i) {
+            return i.displayId.toLowerCase().indexOf(query.toLowerCase()) !== -1;
         });
     }
 
-    /**
-     * Look up addresses in address book
-     */
     $scope.lookupAddressBook = function(query) {
         return $q(function(resolve) {
             resolve();
+
         }).then(function() {
             if ($scope.addressBookCache) {
                 return;
             }
             // populate address book cache
             return populateAddressBookCache();
+
         }).then(function() {
             // filter the address book cache
             return filterAddressBook(query);
+
         }).catch(dialog.error);
     };
 
@@ -687,15 +603,13 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
     // Helpers
     //
 
-    /**
-     * Get current folder from navigation state
-     */
+    // Returns the currently selected folder from navigation state
     function currentFolder() {
         return $scope.state.nav.currentFolder;
     }
 
-    /**
-     * Filter out objects without an address property, i.e. empty addresses
+    /*
+     * Visitor to filter out objects without an address property, i.e. empty addresses
      */
     function filterEmptyAddresses(addr) {
         return !!addr.address;
@@ -703,4 +617,3 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
 };
 
 module.exports = WriteCtrl;
-```

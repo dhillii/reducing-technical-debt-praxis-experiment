@@ -1,4 +1,3 @@
-```javascript
 const _ = require('lodash');
 const logging = require('@tryghost/logging');
 
@@ -87,12 +86,12 @@ module.exports = class StripeMigrations {
     }
 
     /**
-     * Add stripe prices to database
+     * Upsert stripe products and prices
      * @param {Array} stripePrices
      * @param {object} defaultProduct
      * @param {object} options
      */
-    async addStripePricesToDatabase(stripePrices, defaultProduct, options) {
+    async upsertStripePricesAndProducts(stripePrices, defaultProduct, options) {
         for (const stripePrice of stripePrices) {
             const stripeProduct = stripePrice.product;
 
@@ -142,7 +141,7 @@ module.exports = class StripeMigrations {
             const uniquePlans = _.uniq(subscriptions.map(d => _.get(d, 'plan.id')));
             const stripePrices = await this.fetchStripePrices(uniquePlans);
             logging.info(`Adding ${stripePrices.length} prices from Stripe`);
-            await this.addStripePricesToDatabase(stripePrices, defaultProduct, options);
+            await this.upsertStripePricesAndProducts(stripePrices, defaultProduct, options);
         } catch (e) {
             logging.error(`Failed to populate products/prices from stripe`);
             logging.error(e);
@@ -311,13 +310,13 @@ module.exports = class StripeMigrations {
     }
 
     /**
-     * Convert portal plan to price id
+     * Convert portal plan name to price id
      * @param {string} plan
      * @param {Array} plans
      * @param {object} options
      * @returns {Promise<string|null>}
      */
-    async convertPortalPlanToPriceId(plan, plans, options) {
+    async convertPortalPlanNameToId(plan, plans, options) {
         if (plan === 'monthly') {
             const monthlyPlan = this.findPlanByName(plans, 'Monthly');
             if (!monthlyPlan) {
@@ -365,7 +364,7 @@ module.exports = class StripeMigrations {
         }
 
         const newPortalPlans = await portalPlans.reduce(async (newPortalPlansPromise, plan) => {
-            const newPlan = await this.convertPortalPlanToPriceId(plan, plans, options);
+            const newPlan = await this.convertPortalPlanNameToId(plan, plans, options);
             if (newPlan === null) {
                 return newPortalPlansPromise;
             }
@@ -635,14 +634,14 @@ module.exports = class StripeMigrations {
     }
 
     /**
-     * Convert price ids to plan names in portal plans
+     * Convert portal plan ids to names
      * @param {Array} portalPlanIds
      * @param {Array} defaultPortalPlans
      * @param {object} options
      * @returns {Promise<Array>}
      */
-    async convertPriceIdsToPlanNames(portalPlanIds, defaultPortalPlans, options) {
-        const newPortalPlans = await portalPlanIds.reduce(async (newPortalPlansPromise, priceId) => {
+    async convertPortalPlanIdsToNames(portalPlanIds, defaultPortalPlans, options) {
+        return await portalPlanIds.reduce(async (newPortalPlansPromise, priceId) => {
             const plan = await this.getPlanFromPrice(priceId, options);
 
             if (!plan) {
@@ -654,8 +653,6 @@ module.exports = class StripeMigrations {
 
             return updatedPortalPlans;
         }, defaultPortalPlans);
-
-        return newPortalPlans;
     }
 
     async revertPortalPlansSetting(options) {
@@ -691,7 +688,7 @@ module.exports = class StripeMigrations {
         }
 
         const defaultPortalPlans = this.getDefaultPortalPlans(portalPlans);
-        const newPortalPlans = await this.convertPriceIdsToPlanNames(portalPlanIds, defaultPortalPlans, options);
+        const newPortalPlans = await this.convertPortalPlanIdsToNames(portalPlanIds, defaultPortalPlans, options);
 
         logging.info(`Updating portal_plans setting to ${JSON.stringify(newPortalPlans)}`);
         await this.models.Settings.edit({
@@ -708,8 +705,8 @@ module.exports = class StripeMigrations {
      * @param {object} sub
      * @returns {boolean}
      */
-    isValidSubscription(sub) {
-        return !!sub.toJSON().price;
+    isInvalidSubscription(sub) {
+        return !sub.toJSON().price;
     }
 
     async removeInvalidSubscriptions(options) {
@@ -723,7 +720,7 @@ module.exports = class StripeMigrations {
             withRelated: ['stripePrice']
         });
         const invalidSubscriptions = subscriptionModels.filter((sub) => {
-            return !this.isValidSubscription(sub);
+            return this.isInvalidSubscription(sub);
         });
 
         if (invalidSubscriptions.length === 0) {
@@ -819,4 +816,3 @@ module.exports = class StripeMigrations {
         }
     }
 };
-```

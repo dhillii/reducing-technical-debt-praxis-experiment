@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /*!
@@ -57,106 +56,70 @@ exports.toCollectionName = function(name, pluralize) {
  * @api private
  */
 
-// Helper: Check if values are identical primitives
 function _arePrimitivesEqual(a, b) {
-  if (a === b) {
-    return true;
-  }
-  if (typeof a !== 'object' && typeof b !== 'object') {
-    return a === b;
-  }
-  return null; // Not primitives, continue checking
+  return a === b;
 }
 
-// Helper: Check if values are dates
 function _areDatesEqual(a, b) {
-  if (a instanceof Date && b instanceof Date) {
-    return a.getTime() === b.getTime();
-  }
-  return null;
+  return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
 }
 
-// Helper: Check if values are BSON types
 function _areBsonTypesEqual(a, b) {
-  if ((isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
-      (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128'))) {
-    return a.toString() === b.toString();
-  }
-  return null;
+  const isObjectIdPair = isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID');
+  const isDecimalPair = isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128');
+  return (isObjectIdPair || isDecimalPair) && a.toString() === b.toString();
 }
 
-// Helper: Check if values are regexes
-function _areRegexesEqual(a, b) {
-  if (a instanceof RegExp && b instanceof RegExp) {
-    return a.source === b.source &&
-        a.ignoreCase === b.ignoreCase &&
-        a.multiline === b.multiline &&
-        a.global === b.global;
-  }
-  return null;
+function _areRegExpsEqual(a, b) {
+  return a instanceof RegExp && b instanceof RegExp &&
+    a.source === b.source &&
+    a.ignoreCase === b.ignoreCase &&
+    a.multiline === b.multiline &&
+    a.global === b.global;
 }
 
-// Helper: Check if values are maps
-function _areMapsEqual(a, b, deepEqual) {
-  if (a instanceof Map && b instanceof Map) {
-    return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
-      deepEqual(Array.from(a.values()), Array.from(b.values()));
+function _areMapsEqual(a, b) {
+  if (!(a instanceof Map && b instanceof Map)) {
+    return false;
   }
-  return null;
+  return exports.deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
+    exports.deepEqual(Array.from(a.values()), Array.from(b.values()));
 }
 
-// Helper: Check if values are numbers
 function _areNumbersEqual(a, b) {
-  if (a instanceof Number && b instanceof Number) {
-    return a.valueOf() === b.valueOf();
-  }
-  return null;
+  return a instanceof Number && b instanceof Number && a.valueOf() === b.valueOf();
 }
 
-// Helper: Check if values are buffers
-function _areBuffersEqual(a, b) {
-  if (Buffer.isBuffer(a)) {
-    return exports.buffer.areEqual(a, b);
-  }
-  return null;
-}
-
-// Helper: Check if values are arrays
-function _areArraysEqual(a, b, deepEqual) {
+function _areArraysEqual(a, b) {
   if (!Array.isArray(a) || !Array.isArray(b)) {
-    return null;
+    return false;
   }
   const len = a.length;
   if (len !== b.length) {
     return false;
   }
   for (let i = 0; i < len; ++i) {
-    if (!deepEqual(a[i], b[i])) {
+    if (!exports.deepEqual(a[i], b[i])) {
       return false;
     }
   }
   return true;
 }
 
-// Helper: Normalize mongoose objects to plain objects
-function _normalizeMongooseObjects(a, b) {
-  if (a.$__ != null) {
-    a = a._doc;
-  } else if (isMongooseObject(a)) {
-    a = a.toObject();
+function _normalizeObjectForComparison(obj) {
+  if (obj == null) {
+    return obj;
   }
-
-  if (b.$__ != null) {
-    b = b._doc;
-  } else if (isMongooseObject(b)) {
-    b = b.toObject();
+  if (obj.$__ != null) {
+    return obj._doc;
   }
-
-  return [a, b];
+  if (isMongooseObject(obj)) {
+    return obj.toObject();
+  }
+  return obj;
 }
 
-// Helper: Check if object keys match
-function _doKeysMatch(ka, kb) {
+function _areObjectKeysEqual(ka, kb) {
   if (ka.length !== kb.length) {
     return false;
   }
@@ -170,10 +133,9 @@ function _doKeysMatch(ka, kb) {
   return true;
 }
 
-// Helper: Check if object values match
-function _doValuesMatch(a, b, ka, deepEqual) {
-  for (const key of ka) {
-    if (!deepEqual(a[key], b[key])) {
+function _areObjectValuesEqual(a, b, keys) {
+  for (const key of keys) {
+    if (!exports.deepEqual(a[key], b[key])) {
       return false;
     }
   }
@@ -181,26 +143,24 @@ function _doValuesMatch(a, b, ka, deepEqual) {
 }
 
 exports.deepEqual = function deepEqual(a, b) {
-  let result;
-
-  result = _arePrimitivesEqual(a, b);
-  if (result !== null) {
-    return result;
+  if (a === b) {
+    return true;
   }
 
-  result = _areDatesEqual(a, b);
-  if (result !== null) {
-    return result;
+  if (typeof a !== 'object' || typeof b !== 'object') {
+    return _arePrimitivesEqual(a, b);
   }
 
-  result = _areBsonTypesEqual(a, b);
-  if (result !== null) {
-    return result;
+  if (_areDatesEqual(a, b)) {
+    return true;
   }
 
-  result = _areRegexesEqual(a, b);
-  if (result !== null) {
-    return result;
+  if (_areBsonTypesEqual(a, b)) {
+    return true;
+  }
+
+  if (_areRegExpsEqual(a, b)) {
+    return true;
   }
 
   if (a == null || b == null) {
@@ -211,36 +171,33 @@ exports.deepEqual = function deepEqual(a, b) {
     return false;
   }
 
-  result = _areMapsEqual(a, b, deepEqual);
-  if (result !== null) {
-    return result;
+  if (_areMapsEqual(a, b)) {
+    return true;
   }
 
-  result = _areNumbersEqual(a, b);
-  if (result !== null) {
-    return result;
+  if (_areNumbersEqual(a, b)) {
+    return true;
   }
 
-  result = _areBuffersEqual(a, b);
-  if (result !== null) {
-    return result;
+  if (Buffer.isBuffer(a)) {
+    return exports.buffer.areEqual(a, b);
   }
 
-  result = _areArraysEqual(a, b, deepEqual);
-  if (result !== null) {
-    return result;
+  if (_areArraysEqual(a, b)) {
+    return true;
   }
 
-  [a, b] = _normalizeMongooseObjects(a, b);
+  a = _normalizeObjectForComparison(a);
+  b = _normalizeObjectForComparison(b);
 
   const ka = Object.keys(a);
   const kb = Object.keys(b);
 
-  if (!_doKeysMatch(ka, kb)) {
+  if (!_areObjectKeysEqual(ka, kb)) {
     return false;
   }
 
-  return _doValuesMatch(a, b, ka, deepEqual);
+  return _areObjectValuesEqual(a, b, ka);
 };
 
 /*!
@@ -318,7 +275,6 @@ exports.random = function() {
   return Math.random().toString().substr(3);
 };
 
-// Helper: Check if should skip key during merge
 function _shouldSkipMergeKey(key, options, omitNested, path) {
   if (options.omit && options.omit[key]) {
     return true;
@@ -332,14 +288,15 @@ function _shouldSkipMergeKey(key, options, omitNested, path) {
   return false;
 }
 
-// Helper: Check if discriminator schema merge should skip nested merge
-function _shouldSkipDiscriminatorMerge(fromVal, toVal) {
-  return (fromVal.$isSingleNested && toVal.$isMongooseDocumentArray) ||
-         (fromVal.$isMongooseDocumentArray && toVal.$isSingleNested);
+function _isDiscriminatorSchemaConflict(options, fromValue, toValue) {
+  if (!options.isDiscriminatorSchemaMerge) {
+    return false;
+  }
+  return (fromValue.$isSingleNested && toValue.$isMongooseDocumentArray) ||
+    (fromValue.$isMongooseDocumentArray && toValue.$isSingleNested);
 }
 
-// Helper: Handle schema merge
-function _handleSchemaMerge(to, from, key, options) {
+function _mergeSchemaValue(to, key, from, options) {
   if (from[key].instanceOfSchema) {
     if (to[key].instanceOfSchema) {
       schemaMerge(to[key], from[key].clone(), options.isDiscriminatorSchemaMerge);
@@ -348,11 +305,6 @@ function _handleSchemaMerge(to, from, key, options) {
     }
     return true;
   }
-  return false;
-}
-
-// Helper: Handle ObjectId merge
-function _handleObjectIdMerge(to, from, key) {
   if (from[key] instanceof ObjectId) {
     to[key] = new ObjectId(from[key]);
     return true;
@@ -360,23 +312,20 @@ function _handleObjectIdMerge(to, from, key) {
   return false;
 }
 
-// Helper: Recursively merge nested objects
-function _mergeNestedObject(to, from, key, options, path) {
+function _mergeObjectValue(to, key, from, options, path) {
   if (!exports.isObject(to[key])) {
     to[key] = {};
   }
   if (from[key] != null) {
-    if (_shouldSkipDiscriminatorMerge(from[key], to[key])) {
-      return;
+    if (_isDiscriminatorSchemaConflict(options, from[key], to[key])) {
+      return false;
     }
-    if (_handleSchemaMerge(to, from, key, options)) {
-      return;
-    }
-    if (_handleObjectIdMerge(to, from, key)) {
-      return;
+    if (_mergeSchemaValue(to, key, from, options)) {
+      return false;
     }
   }
   exports.merge(to[key], from[key], options, path ? path + '.' + key : key);
+  return true;
 }
 
 /*!
@@ -406,15 +355,34 @@ exports.merge = function merge(to, from, options, path) {
     if (to[key] == null) {
       to[key] = from[key];
     } else if (exports.isObject(from[key])) {
-      _mergeNestedObject(to, from, key, options, path);
+      _mergeObjectValue(to, key, from, options, path);
     } else if (options.overwrite) {
       to[key] = from[key];
     }
   }
 };
 
-// Helper: Process document for toObject
-function _processDocumentForToObject(obj) {
+/*!
+ * Applies toObject recursively.
+ *
+ * @param {Document|Array|Object} obj
+ * @return {Object}
+ * @api private
+ */
+
+function _toObjectDocument(obj) {
+  return obj.toObject();
+}
+
+function _toObjectArray(obj) {
+  const ret = [];
+  for (const doc of obj) {
+    ret.push(exports.toObject(doc));
+  }
+  return ret;
+}
+
+function _toObjectPOJO(obj) {
   const ret = {};
   for (const k of Object.keys(obj)) {
     if (specialProperties.has(k)) {
@@ -425,23 +393,6 @@ function _processDocumentForToObject(obj) {
   return ret;
 }
 
-// Helper: Process array for toObject
-function _processArrayForToObject(obj) {
-  const ret = [];
-  for (const doc of obj) {
-    ret.push(exports.toObject(doc));
-  }
-  return ret;
-}
-
-/*!
- * Applies toObject recursively.
- *
- * @param {Document|Array|Object} obj
- * @return {Object}
- * @api private
- */
-
 exports.toObject = function toObject(obj) {
   Document || (Document = require('./document'));
 
@@ -450,15 +401,15 @@ exports.toObject = function toObject(obj) {
   }
 
   if (obj instanceof Document) {
-    return obj.toObject();
+    return _toObjectDocument(obj);
   }
 
   if (Array.isArray(obj)) {
-    return _processArrayForToObject(obj);
+    return _toObjectArray(obj);
   }
 
   if (exports.isPOJO(obj)) {
-    return _processDocumentForToObject(obj);
+    return _toObjectPOJO(obj);
   }
 
   return obj;
@@ -483,9 +434,6 @@ exports.isPOJO = function isPOJO(arg) {
     return false;
   }
   const proto = Object.getPrototypeOf(arg);
-  // Prototype may be null if you used `Object.create(null)`
-  // Checking `proto`'s constructor is safe because `getPrototypeOf()`
-  // explicitly crosses the boundary from object data to object metadata
   return !proto || proto.constructor.name === 'Object';
 };
 
@@ -556,8 +504,6 @@ exports.tick = function tick(callback) {
     try {
       callback.apply(this, arguments);
     } catch (err) {
-      // only nextTick on err to get out of
-      // the event loop and avoid state corruption.
       immediate(function() {
         throw err;
       });
@@ -601,7 +547,10 @@ exports.expires = function expires(object) {
   delete object.expires;
 };
 
-// Helper: Split path by spaces and create copies
+/*!
+ * Split space-separated paths into individual path objects
+ * @api private
+ */
 function _makeSingles(arr) {
   const ret = [];
   arr.forEach(function(obj) {
@@ -619,75 +568,13 @@ function _makeSingles(arr) {
   return ret;
 }
 
-// Helper: Build populate object from arguments
-function _buildPopulateObject(path, select, model, match, options, subPopulate, justOne, count) {
-  let obj = null;
-
-  if (arguments.length === 1) {
-    if (path instanceof PopulateOptions) {
-      return path;
-    }
-    if (Array.isArray(path)) {
-      return null; // Signal to handle array case
-    }
-    if (exports.isObject(path)) {
-      obj = Object.assign({}, path);
-    } else {
-      obj = { path: path };
-    }
-  } else if (typeof model === 'object') {
-    obj = {
-      path: path,
-      select: select,
-      match: model,
-      options: match
-    };
-  } else {
-    obj = {
-      path: path,
-      select: select,
-      model: model,
-      match: match,
-      options: options,
-      populate: subPopulate,
-      justOne: justOne,
-      count: count
-    };
-  }
-
-  return obj;
-}
-
 /*!
- * populate helper
+ * Process nested populate arrays with space-separated paths
+ * @api private
  */
-
-exports.populate = function populate(path, select, model, match, options, subPopulate, justOne, count) {
-  // might have passed an object specifying all arguments
-  if (arguments.length === 1) {
-    if (path instanceof PopulateOptions) {
-      return [path];
-    }
-
-    if (Array.isArray(path)) {
-      const singles = _makeSingles(path);
-      return singles.map(o => exports.populate(o)[0]);
-    }
-  }
-
-  const obj = _buildPopulateObject(path, select, model, match, options, subPopulate, justOne, count);
-
-  if (typeof obj.path !== 'string') {
-    throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof path + '`');
-  }
-
-  return _populateObj(obj);
-};
-
-// Helper: Process nested populate paths
-function _processNestedPopulatePaths(populateArr) {
+function _processNestedPopulate(populate) {
   const ret = [];
-  populateArr.forEach(function(obj) {
+  populate.forEach(function(obj) {
     if (/[\s]/.test(obj.path)) {
       const copy = Object.assign({}, obj);
       const paths = copy.path.split(' ');
@@ -702,10 +589,69 @@ function _processNestedPopulatePaths(populateArr) {
   return ret;
 }
 
+/*!
+ * Normalize populate argument into object form
+ * @api private
+ */
+function _normalizePopulateArg(path, select, model, match, options, subPopulate, justOne, count) {
+  if (arguments.length === 1) {
+    if (path instanceof PopulateOptions) {
+      return path;
+    }
+    if (Array.isArray(path)) {
+      return null;
+    }
+    if (exports.isObject(path)) {
+      return Object.assign({}, path);
+    }
+    return { path: path };
+  }
+  if (typeof model === 'object') {
+    return {
+      path: path,
+      select: select,
+      match: model,
+      options: match
+    };
+  }
+  return {
+    path: path,
+    select: select,
+    model: model,
+    match: match,
+    options: options,
+    populate: subPopulate,
+    justOne: justOne,
+    count: count
+  };
+}
+
+/*!
+ * populate helper
+ */
+
+exports.populate = function populate(path, select, model, match, options, subPopulate, justOne, count) {
+  if (arguments.length === 1 && Array.isArray(path)) {
+    const singles = _makeSingles(path);
+    return singles.map(o => exports.populate(o)[0]);
+  }
+
+  const obj = _normalizePopulateArg(path, select, model, match, options, subPopulate, justOne, count);
+
+  if (obj == null) {
+    return [];
+  }
+
+  if (typeof obj.path !== 'string') {
+    throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof path + '`');
+  }
+
+  return _populateObj(obj);
+};
+
 function _populateObj(obj) {
   if (Array.isArray(obj.populate)) {
-    obj.populate = _processNestedPopulatePaths(obj.populate);
-    obj.populate = exports.populate(obj.populate);
+    obj.populate = exports.populate(_processNestedPopulate(obj.populate));
   } else if (obj.populate != null && typeof obj.populate === 'object') {
     obj.populate = exports.populate(obj.populate);
   }
@@ -892,39 +838,24 @@ exports.isArrayIndex = function(val) {
  * @private
  */
 
-// Helper: Check if item is primitive type
-function _isPrimitiveType(item) {
-  return typeof item === 'number' || typeof item === 'string' || item == null;
-}
-
-// Helper: Add primitive to unique array
-function _addPrimitiveToUnique(item, primitives, ret) {
-  if (primitives.has(item)) {
-    return;
-  }
-  ret.push(item);
-  primitives.add(item);
-}
-
-// Helper: Add ObjectId to unique array
-function _addObjectIdToUnique(item, ids, ret) {
-  if (ids.has(item.toString())) {
-    return;
-  }
-  ret.push(item);
-  ids.add(item.toString());
-}
-
 exports.array.unique = function(arr) {
   const primitives = new Set();
   const ids = new Set();
   const ret = [];
 
   for (const item of arr) {
-    if (_isPrimitiveType(item)) {
-      _addPrimitiveToUnique(item, primitives, ret);
+    if (typeof item === 'number' || typeof item === 'string' || item == null) {
+      if (primitives.has(item)) {
+        continue;
+      }
+      ret.push(item);
+      primitives.add(item);
     } else if (item instanceof ObjectId) {
-      _addObjectIdToUnique(item, ids, ret);
+      if (ids.has(item.toString())) {
+        continue;
+      }
+      ret.push(item);
+      ids.add(item.toString());
     } else {
       ret.push(item);
     }
@@ -960,6 +891,7 @@ exports.buffer.areEqual = function(a, b) {
 };
 
 exports.getFunctionName = getFunctionName;
+
 /*!
  * Decorate buffers
  */
@@ -973,7 +905,10 @@ exports.decorate = function(destination, source) {
   }
 };
 
-// Helper: Get clone options for mergeClone
+/*!
+ * Clone options object for mergeClone operations
+ * @api private
+ */
 function _getCloneOptions() {
   return {
     transform: false,
@@ -984,29 +919,40 @@ function _getCloneOptions() {
   };
 }
 
-// Helper: Convert mongoose object to plain object
-function _toPlainObject(val) {
-  return val.toObject(_getCloneOptions());
-}
-
-// Helper: Handle value conversion for mergeClone
-function _convertValueForMergeClone(val) {
-  if (val != null && val.valueOf && !(val instanceof Date)) {
-    return val.valueOf();
+/*!
+ * Convert mongoose object to plain object for merging
+ * @api private
+ */
+function _toPlainObjectForMerge(obj) {
+  if (isMongooseObject(obj)) {
+    return obj.toObject(_getCloneOptions());
   }
-  return val;
+  return obj;
 }
 
-// Helper: Handle object merge in mergeClone
-function _handleObjectInMergeClone(val) {
+/*!
+ * Handle merging of mongoose object values
+ * @api private
+ */
+function _mergeMongooseValue(to, key, val) {
   let obj = val;
   if (isMongooseObject(val) && !val.isMongooseBuffer) {
-    obj = _toPlainObject(val);
+    obj = obj.toObject(_getCloneOptions());
   }
   if (val.isMongooseBuffer) {
     obj = Buffer.from(obj);
   }
-  return obj;
+  exports.mergeClone(to[key], obj);
+}
+
+/*!
+ * Handle merging of non-object values
+ * @api private
+ */
+function _mergeNonObjectValue(to, key, val) {
+  to[key] = exports.clone(val, {
+    flattenDecimals: false
+  });
 }
 
 /**
@@ -1018,9 +964,7 @@ function _handleObjectInMergeClone(val) {
  */
 
 exports.mergeClone = function(to, fromObj) {
-  if (isMongooseObject(fromObj)) {
-    fromObj = _toPlainObject(fromObj);
-  }
+  fromObj = _toPlainObjectForMerge(fromObj);
   const keys = Object.keys(fromObj);
   const len = keys.length;
   let i = 0;
@@ -1034,12 +978,14 @@ exports.mergeClone = function(to, fromObj) {
     if (typeof to[key] === 'undefined') {
       to[key] = exports.clone(fromObj[key], _getCloneOptions());
     } else {
-      let val = _convertValueForMergeClone(fromObj[key]);
+      let val = fromObj[key];
+      if (val != null && val.valueOf && !(val instanceof Date)) {
+        val = val.valueOf();
+      }
       if (exports.isObject(val)) {
-        const obj = _handleObjectInMergeClone(val);
-        exports.mergeClone(to[key], obj);
+        _mergeMongooseValue(to, key, val);
       } else {
-        to[key] = exports.clone(val, { flattenDecimals: false });
+        _mergeNonObjectValue(to, key, val);
       }
     }
   }
@@ -1097,4 +1043,3 @@ exports.errorToPOJO = function errorToPOJO(error) {
 exports.nodeMajorVersion = function nodeMajorVersion() {
   return parseInt(process.versions.node.split('.')[0], 10);
 };
-```

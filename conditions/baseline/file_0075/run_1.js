@@ -1,22 +1,8 @@
-```javascript
-/**
- * @fileoverview Tests for TokenStore class.
- * @author Brandon Mills
- */
-
 "use strict";
-
-//------------------------------------------------------------------------------
-// Requirements
-//------------------------------------------------------------------------------
 
 const assert = require("chai").assert,
 	espree = require("espree"),
 	TokenStore = require("../../../../../lib/languages/js/source-code/token-store");
-
-//------------------------------------------------------------------------------
-// Constants
-//------------------------------------------------------------------------------
 
 const DEFAULT_CONFIG = {
 	loc: true,
@@ -36,16 +22,6 @@ const SOURCE_CODE =
 	BinaryExpression = VariableDeclarator.init,
 	CallExpression = Program.body[1].expression;
 
-//------------------------------------------------------------------------------
-// Helpers
-//------------------------------------------------------------------------------
-
-/**
- * Checks the values of tokens against an array of expected values.
- * @param {Token[]} tokens Tokens returned from the API.
- * @param {string[]} expected Expected token values
- * @returns {void}
- */
 function check(tokens, expected) {
 	const length = tokens.length;
 
@@ -55,11 +31,7 @@ function check(tokens, expected) {
 	}
 }
 
-//------------------------------------------------------------------------------
-// Test Suites
-//------------------------------------------------------------------------------
-
-function createGetTokensTests(store) {
+function createTestSuite(store) {
 	describe("when calling getTokens", () => {
 		it("should retrieve all tokens for root node", () => {
 			check(store.getTokens(Program), [
@@ -168,9 +140,7 @@ function createGetTokensTests(store) {
 			]);
 		});
 	});
-}
 
-function createGetTokensBeforeTests(store) {
 	describe("when calling getTokensBefore", () => {
 		it("should retrieve zero tokens before a node", () => {
 			check(store.getTokensBefore(BinaryExpression, 0), []);
@@ -278,9 +248,7 @@ function createGetTokensBeforeTests(store) {
 			);
 		});
 	});
-}
 
-function createGetTokenBeforeTests(store) {
 	describe("when calling getTokenBefore", () => {
 		it("should retrieve one token before a node", () => {
 			assert.strictEqual(
@@ -414,9 +382,7 @@ function createGetTokenBeforeTests(store) {
 			);
 		});
 	});
-}
 
-function createGetTokensAfterTests(store) {
 	describe("when calling getTokensAfter", () => {
 		it("should retrieve zero tokens after a node", () => {
 			check(store.getTokensAfter(VariableDeclarator.id, 0), []);
@@ -541,9 +507,7 @@ function createGetTokensAfterTests(store) {
 			);
 		});
 	});
-}
 
-function createGetTokenAfterTests(store) {
 	describe("when calling getTokenAfter", () => {
 		it("should retrieve one token after a node", () => {
 			assert.strictEqual(
@@ -685,9 +649,7 @@ function createGetTokenAfterTests(store) {
 			);
 		});
 	});
-}
 
-function createGetFirstTokensTests(store) {
 	describe("when calling getFirstTokens", () => {
 		it("should retrieve zero tokens from a node's token stream", () => {
 			check(store.getFirstTokens(BinaryExpression, 0), []);
@@ -795,9 +757,7 @@ function createGetFirstTokensTests(store) {
 			);
 		});
 	});
-}
 
-function createGetFirstTokenTests(store) {
 	describe("when calling getFirstToken", () => {
 		it("should retrieve the first token of a node's token stream", () => {
 			assert.strictEqual(
@@ -969,9 +929,7 @@ function createGetFirstTokenTests(store) {
 			);
 		});
 	});
-}
 
-function createGetLastTokensTests(store) {
 	describe("when calling getLastTokens", () => {
 		it("should retrieve zero tokens from the end of a node's token stream", () => {
 			check(store.getLastTokens(BinaryExpression, 0), []);
@@ -1079,9 +1037,7 @@ function createGetLastTokensTests(store) {
 			);
 		});
 	});
-}
 
-function createGetLastTokenTests(store) {
 	describe("when calling getLastToken", () => {
 		it("should retrieve the last token of a node's token stream", () => {
 			assert.strictEqual(store.getLastToken(BinaryExpression).value, "b");
@@ -1252,9 +1208,7 @@ function createGetLastTokenTests(store) {
 			assert.strictEqual(token, null);
 		});
 	});
-}
 
-function createGetTokensBetweenTests(store) {
 	describe("when calling getFirstTokensBetween", () => {
 		it("should retrieve zero tokens between adjacent nodes", () => {
 			check(
@@ -1673,9 +1627,7 @@ function createGetTokensBetweenTests(store) {
 			);
 		});
 	});
-}
 
-function createGetTokenByRangeStartTests(store) {
 	describe("when calling getTokenByRangeStart", () => {
 		it("should return identifier token", () => {
 			const result = store.getTokenByRangeStart(9);
@@ -1713,9 +1665,7 @@ function createGetTokenByRangeStartTests(store) {
 			assert.isNull(result);
 		});
 	});
-}
 
-function createIterationTests(store) {
 	describe("when calling getFirstToken & getTokenAfter", () => {
 		it("should retrieve all tokens and comments in the node", () => {
 			const code = "(function(a, /*b,*/ c){})";
@@ -1835,9 +1785,7 @@ function createIterationTests(store) {
 			]);
 		});
 	});
-}
 
-function createCommentTests(store) {
 	describe("when calling commentsExistBetween", () => {
 		it("should retrieve false if comments don't exist", () => {
 			assert.isFalse(
@@ -1862,7 +1810,7 @@ function createCommentTests(store) {
 
 		it("should retrieve comments before a token", () => {
 			assert.strictEqual(
-				store.getCommentsBefore(TOKENS[2] /* "=" token */)[0].value,
+				store.getCommentsBefore(TOKENS[2])[0].value,
 				"B",
 			);
 		});
@@ -1902,7 +1850,7 @@ function createCommentTests(store) {
 
 		it("should retrieve comments after a token", () => {
 			assert.strictEqual(
-				store.getCommentsAfter(TOKENS[2] /* "=" token */)[0].value,
+				store.getCommentsAfter(TOKENS[2])[0].value,
 				"C",
 			);
 		});
@@ -1958,25 +1906,7 @@ function createCommentTests(store) {
 	});
 }
 
-//------------------------------------------------------------------------------
-// Tests
-//------------------------------------------------------------------------------
-
 describe("TokenStore", () => {
 	const store = new TokenStore(TOKENS, COMMENTS);
-
-	createGetTokensTests(store);
-	createGetTokensBeforeTests(store);
-	createGetTokenBeforeTests(store);
-	createGetTokensAfterTests(store);
-	createGetTokenAfterTests(store);
-	createGetFirstTokensTests(store);
-	createGetFirstTokenTests(store);
-	createGetLastTokensTests(store);
-	createGetLastTokenTests(store);
-	createGetTokensBetweenTests(store);
-	createGetTokenByRangeStartTests(store);
-	createIterationTests(store);
-	createCommentTests(store);
+	createTestSuite(store);
 });
-```

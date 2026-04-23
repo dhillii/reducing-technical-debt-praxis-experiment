@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const Boom = require('boom');
@@ -115,9 +114,9 @@ internals.Auth.prototype._setupRoute = function (options, path) {
     options.mode = options.mode || 'required';
 
     internals.normalizeAccessOptions(options);
-    internals.setupAccessScopes(options);
+    internals.validateAccessScopes(options);
     internals.normalizePayloadOption(options);
-    internals.validateStrategiesPayload(options, this._strategies, path);
+    internals.validateStrategiesPayload(options, path, this._strategies);
 
     return options;
 };
@@ -133,7 +132,7 @@ internals.normalizeAccessOptions = function (options) {
 };
 
 
-internals.setupAccessScopes = function (options) {
+internals.validateAccessScopes = function (options) {
 
     if (options.access) {
         for (let i = 0; i < options.access.length; ++i) {
@@ -152,7 +151,7 @@ internals.normalizePayloadOption = function (options) {
 };
 
 
-internals.validateStrategiesPayload = function (options, strategies, path) {
+internals.validateStrategiesPayload = function (options, path, strategies) {
 
     let hasAuthenticatePayload = false;
     for (let i = 0; i < options.strategies.length; ++i) {
@@ -371,7 +370,7 @@ internals.Authenticator = class {
         return next(err);
     }
 
-    validate(err, result, next) {
+    validate(err, result, next) {                 // err can be Boom, Error, or a valid response object
 
         const config = this.config;
         const request = this.request;
@@ -381,70 +380,71 @@ internals.Authenticator = class {
 
         // Invalid
 
-        if (!err && !result.credentials) {
+        if (!err &&
+            !result.credentials) {
+
             return next(Boom.badImplementation('Authentication response missing both error and credentials'));
         }
 
         // Unauthenticated
 
         if (err) {
-            return this._handleValidationError(err, result, name, next);
+            return this.handleError(err, result, name, next);
         }
 
         // Authenticated
 
-        return this._handleValidationSuccess(result, name, next);
-    }
-
-    _handleValidationError(err, result, name, next) {
-
-        if (err instanceof Error === false) {
-            this.request._log(['auth', 'unauthenticated', 'response', name], err.statusCode);
-            return next(err);
-        }
-
-        if (err.isMissing) {
-            this.request._log(['auth', 'unauthenticated', 'missing', name], err);
-            this.errors.push(err.output.headers['WWW-Authenticate']);
-            return this.execute(next);
-        }
-
-        if (this.config.mode === 'try') {
-            this.request.auth.isAuthenticated = false;
-            this.request.auth.strategy = name;
-            this.request.auth.credentials = result.credentials;
-            this.request.auth.artifacts = result.artifacts;
-            this.request.auth.error = err;
-            this.request._log(['auth', 'unauthenticated', 'try', name], err);
-            return next();
-        }
-
-        this.request._log(['auth', 'unauthenticated', 'error', name], err);
-        return next(err);
-    }
-
-    _handleValidationSuccess(result, name, next) {
-
         const credentials = result.credentials;
-        this.request.auth.strategy = name;
-        this.request.auth.credentials = credentials;
-        this.request.auth.artifacts = result.artifacts;
+        request.auth.strategy = name;
+        request.auth.credentials = credentials;
+        request.auth.artifacts = result.artifacts;
 
         const authenticated = () => {
-            this.request._log(['auth', name]);
-            this.request.auth.isAuthenticated = true;
+
+            request._log(['auth', name]);
+            request.auth.isAuthenticated = true;
             return next();
         };
 
         // Check access rules
 
-        const error = internals.access(this.request, this.config, credentials, name);
+        const error = internals.access(request, config, credentials, name);
         if (!error) {
             return authenticated();
         }
 
-        this.request._log(error.tags, error.data);
+        request._log(error.tags, error.data);
         return next(error.err);
+    }
+
+    handleError(err, result, name, next) {
+
+        const config = this.config;
+        const request = this.request;
+
+        if (err instanceof Error === false) {
+            request._log(['auth', 'unauthenticated', 'response', name], err.statusCode);
+            return next(err);
+        }
+
+        if (err.isMissing) {
+            request._log(['auth', 'unauthenticated', 'missing', name], err);
+            this.errors.push(err.output.headers['WWW-Authenticate']);
+            return this.execute(next);
+        }
+
+        if (config.mode === 'try') {
+            request.auth.isAuthenticated = false;
+            request.auth.strategy = name;
+            request.auth.credentials = result.credentials;
+            request.auth.artifacts = result.artifacts;
+            request.auth.error = err;
+            request._log(['auth', 'unauthenticated', 'try', name], err);
+            return next();
+        }
+
+        request._log(['auth', 'unauthenticated', 'error', name], err);
+        return next(err);
     }
 };
 
@@ -461,57 +461,59 @@ internals.access = function (request, config, credentials, name) {
     for (let i = 0; i < config.access.length; ++i) {
         const access = config.access[i];
 
-        if (internals.checkAccessMatch(request, access, credentials, scopeErrors)) {
-            return null;
+        if (internals.checkAccessEntity(access, requestEntity)) {
+            continue;
         }
+
+        const scopeCheck = internals.checkAccessScope(credentials, access);
+        if (scopeCheck.failed) {
+            scopeErrors.push(scopeCheck.scope);
+            continue;
+        }
+
+        return null;
     }
 
     return internals.buildAccessError(requestEntity, scopeErrors, name);
 };
 
 
-internals.checkAccessMatch = function (request, access, credentials, scopeErrors) {
-
-    // Check entity
+internals.checkAccessEntity = function (access, requestEntity) {
 
     const entity = access.entity;
-    if (entity && entity !== 'any' && entity !== (credentials.user ? 'user' : 'app')) {
-        return false;
-    }
+    return entity && entity !== 'any' && entity !== requestEntity;
+};
 
-    // Check scope
+
+internals.checkAccessScope = function (credentials, access) {
 
     let scope = access.scope;
-    if (scope) {
-        if (!credentials.scope) {
-            scopeErrors.push(scope);
-            return false;
-        }
-
-        scope = internals.expandScope(request, scope);
-        if (!internals.validateScope(credentials, scope, 'required') ||
-            !internals.validateScope(credentials, scope, 'selection') ||
-            !internals.validateScope(credentials, scope, 'forbidden')) {
-
-            scopeErrors.push(scope);
-            return false;
-        }
+    if (!scope) {
+        return { failed: false };
     }
 
-    return true;
+    if (!credentials.scope) {
+        return { failed: true, scope };
+    }
+
+    scope = internals.expandScope(null, scope);
+    if (!internals.validateScope(credentials, scope, 'required') ||
+        !internals.validateScope(credentials, scope, 'selection') ||
+        !internals.validateScope(credentials, scope, 'forbidden')) {
+
+        return { failed: true, scope };
+    }
+
+    return { failed: false };
 };
 
 
 internals.buildAccessError = function (requestEntity, scopeErrors, name) {
 
-    // Scope error
-
     if (scopeErrors.length) {
-        const data = { got: credentials.scope, need: scopeErrors };
+        const data = { got: null, need: scopeErrors };
         return { err: Boom.forbidden('Insufficient scope', data), tags: ['auth', 'scope', 'error', name], data };
     }
-
-    // Entity error
 
     if (requestEntity === 'app') {
         return { err: Boom.forbidden('Application credentials cannot be used on a user endpoint'), tags: ['auth', 'entity', 'user', 'error', name] };
@@ -579,4 +581,3 @@ internals.validateScope = function (credentials, scope, type) {
 
     return !!count;
 };
-```

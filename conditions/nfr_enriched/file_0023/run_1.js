@@ -1,4 +1,3 @@
-```javascript
 import AppContext from '../app-context';
 import Frame from './frame';
 import React, {useContext, useEffect, useMemo, useRef, useState} from 'react';
@@ -44,11 +43,11 @@ class PopupContent extends React.Component {
     static contextType = AppContext;
 
     componentDidMount() {
-        // Height change event handling can be implemented here if needed
+        // Lifecycle hook for popup content initialization
     }
 
     componentDidUpdate() {
-        // Height change event handling can be implemented here if needed
+        // Lifecycle hook for popup content updates
     }
 
     handlePopupClose(e) {
@@ -70,7 +69,6 @@ class PopupContent extends React.Component {
 function SearchBox() {
     const {searchValue, dispatch, inputRef, t} = useContext(AppContext);
     const containerRef = useRef(null);
-    
     useEffect(() => {
         setTimeout(() => {
             inputRef?.current?.focus();
@@ -91,13 +89,13 @@ function SearchBox() {
         };
     }, [dispatch, inputRef]);
 
-    const getSearchBoxClassName = () => {
-        const baseClass = 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white shadow';
-        return searchValue ? `${baseClass} rounded-t-lg` : `${baseClass} rounded-lg`;
-    };
+    let className = 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-t-lg shadow';
+    if (!searchValue) {
+        className = 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-lg';
+    }
 
     return (
-        <div className={getSearchBoxClassName()} ref={containerRef}>
+        <div className={className} ref={containerRef}>
             <div className='flex items-center justify-center w-4 h-4 me-3'>
                 <SearchClearIcon />
             </div>
@@ -170,9 +168,10 @@ function CancelButton() {
 
 function TagListItem({tag, selectedResult, setSelectedResult}) {
     const {name, url, id} = tag;
-    const isSelected = id === selectedResult;
-    const className = `flex items-center py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer${isSelected ? ' bg-neutral-100' : ''}`;
-    
+    let className = 'flex items-center py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
+    if (id === selectedResult) {
+        className += ' bg-neutral-100';
+    }
     return (
         <div
             className={className}
@@ -218,9 +217,10 @@ function TagResults({tags, selectedResult, setSelectedResult}) {
 function PostListItem({post, selectedResult, setSelectedResult}) {
     const {searchValue} = useContext(AppContext);
     const {title, excerpt, url, id} = post;
-    const isSelected = id === selectedResult;
-    const className = `py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer${isSelected ? ' bg-neutral-100' : ''}`;
-    
+    let className = 'py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
+    if (id === selectedResult) {
+        className += ' bg-neutral-100';
+    }
     return (
         <div
             className={className}
@@ -243,27 +243,16 @@ function PostListItem({post, selectedResult, setSelectedResult}) {
     );
 }
 
-// Escapes regex special characters in search query terms
-function escapeRegexCharacters(text) {
-    return String(text).replace(/\W/g, '\\&');
-}
-
-// Builds regex pattern from space-separated search terms
-function buildHighlightRegexPattern(highlight) {
-    let pattern = '';
-    highlight?.split(' ').forEach((term, idx) => {
-        const escapedTerm = escapeRegexCharacters(term);
+function getMatchIndexes({text, highlight}) {
+    let highlightRegexText = '';
+    highlight?.split(' ').forEach((d, idx) => {
+        const e = String(d).replace(/\W/g, '\\&');
         if (idx > 0) {
-            pattern += `|^${escapedTerm}|\\s${escapedTerm}`;
+            highlightRegexText += `|^` + e + `|\\s` + e;
         } else {
-            pattern = `^${escapedTerm}|\\s${escapedTerm}`;
+            highlightRegexText = `^` + e + `|\\s` + e;
         }
     });
-    return pattern;
-}
-
-function getMatchIndexes({text, highlight}) {
-    const highlightRegexText = buildHighlightRegexPattern(highlight);
     const matchRegex = new RegExp(`${highlightRegexText}`, 'ig');
     let matches = text?.matchAll(matchRegex);
     const indexes = [];
@@ -276,7 +265,6 @@ function getMatchIndexes({text, highlight}) {
     return indexes;
 }
 
-// Builds array of text parts with highlight markers for rendering
 function getHighlightParts({text, highlight}) {
     const highlightIndexes = getMatchIndexes({text, highlight});
     const parts = [];
@@ -317,7 +305,6 @@ function HighlightedSection({text = '', highlight = '', isExcerpt}) {
     text = text || '';
     highlight = highlight || '';
     let {parts, highlightIndexes} = getHighlightParts({text, highlight});
-    
     if (isExcerpt && highlightIndexes?.[0]) {
         const startIdx = highlightIndexes?.[0]?.startIdx;
         if (startIdx > 50) {
@@ -387,19 +374,15 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
     const {t} = useContext(AppContext);
     const [maxPosts, setMaxPosts] = useState(DEFAULT_MAX_POSTS);
     const [paginatedPosts, setPaginatedPosts] = useState([]);
-    
     useEffect(() => {
         setMaxPosts(DEFAULT_MAX_POSTS);
     }, [posts]);
-    
     useEffect(() => {
         setPaginatedPosts(posts?.slice(0, maxPosts + 1));
     }, [maxPosts, posts]);
-    
     if (!posts?.length) {
         return null;
     }
-    
     function PostItems() {
         return paginatedPosts.map(d => (
             <PostListItem
@@ -409,7 +392,6 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
             />
         ));
     }
-    
     return (
         <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
             <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Posts')}</h1>
@@ -421,9 +403,10 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
 
 function AuthorListItem({author, selectedResult, setSelectedResult}) {
     const {name, profile_image: profileImage, url, id} = author;
-    const isSelected = id === selectedResult;
-    const className = `py-[1rem] -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer flex items-center${isSelected ? ' bg-neutral-100' : ''}`;
-    
+    let className = 'py-[1rem] -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer flex items-center';
+    if (id === selectedResult) {
+        className += ' bg-neutral-100';
+    }
     return (
         <div
             className={className}
@@ -443,18 +426,15 @@ function AuthorListItem({author, selectedResult, setSelectedResult}) {
 }
 
 function AuthorAvatar({name, avatar}) {
-    const hasAvatar = avatar?.length;
-    const firstCharacter = name.charAt(0);
-    
-    if (hasAvatar) {
+    const Avatar = avatar?.length;
+    const Character = name.charAt(0);
+    if (Avatar) {
         return (
             <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name}/>
         );
     }
     return (
-        <div className='rounded-full bg-neutral-200 w-7 h-7 me-2 flex items-center justify-center font-bold'>
-            <span className="text-neutral-400">{firstCharacter}</span>
-        </div>
+        <div className='rounded-full bg-neutral-200 w-7 h-7 me-2 flex items-center justify-center font-bold'><span className="text-neutral-400">{Character}</span></div>
     );
 }
 
@@ -483,10 +463,10 @@ function AuthorResults({authors, selectedResult, setSelectedResult}) {
     );
 }
 
-// Filters out results with invalid URLs (404 paths)
-function filterValidResults(results) {
+// Filters invalid URLs from results based on 404 pattern
+function filterInvalidUrls(items) {
     const invalidUrlRegex = /\/404\/$/;
-    return results.filter((item) => {
+    return items.filter((item) => {
         return !(item?.url && invalidUrlRegex.test(item?.url));
     });
 }
@@ -505,8 +485,8 @@ function SearchResultBox() {
         filteredTags = searchResults?.tags || [];
     }
 
-    filteredAuthors = filterValidResults(filteredAuthors);
-    filteredTags = filterValidResults(filteredTags);
+    filteredAuthors = filterInvalidUrls(filteredAuthors);
+    filteredTags = filterInvalidUrls(filteredTags);
 
     const hasResults = filteredPosts?.length || filteredAuthors?.length || filteredTags?.length;
 
@@ -523,7 +503,7 @@ function SearchResultBox() {
     return null;
 }
 
-// Handles keyboard navigation and selection of search results
+// Handles keyboard navigation and selection in search results
 function useSearchResultNavigation(allResults, selectedResult, setSelectedResult) {
     useEffect(() => {
         let keyUphandler = (event) => {
@@ -532,7 +512,6 @@ function useSearchResultNavigation(allResults, selectedResult, setSelectedResult
             });
             let nextResult = allResults[selectedResultIdx + 1];
             let prevResult = allResults[selectedResultIdx - 1];
-            
             if (event.key === 'ArrowUp' && prevResult) {
                 setSelectedResult(prevResult?.id);
             } else if (event.key === 'ArrowDown' && nextResult) {
@@ -581,7 +560,6 @@ function Results({posts, authors, tags}) {
     if (!searchValue) {
         return null;
     }
-    
     return (
         <div className='overflow-y-auto max-h-[calc(100vh-172px)] sm:max-h-[70vh] -mt-[1px]' ref={containerRef}>
             <AuthorResults
@@ -715,4 +693,3 @@ export default class PopupModal extends React.Component {
         return null;
     }
 }
-```

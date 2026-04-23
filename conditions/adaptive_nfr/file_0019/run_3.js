@@ -1,4 +1,3 @@
-```javascript
 import React from 'react';
 import ActionButton from '../common/action-button';
 import AppContext from '../../app-context';
@@ -363,96 +362,106 @@ html[dir=rtl] .gh-portal-signup-terms .checkbox:before {
  * @returns {boolean} True if signup is blocked
  */
 function isSignupBlocked(site, pageQuery) {
-    return isInviteOnly({site}) || !hasAvailablePrices({site, pageQuery});
+    return !isSignupAllowed({site}) || !hasAvailablePrices({site, pageQuery});
 }
 
 /**
- * Determines if paid members only restriction applies
+ * Determines if signin should be offered as fallback
  * @param {Object} site - Site configuration object
- * @param {string} pageQuery - Page query parameter
- * @returns {boolean} True if paid members only
+ * @returns {boolean} True if signin is allowed
  */
-function isPaidMembersOnlyRestriction(site, pageQuery) {
-    return isPaidMembersOnly({site}) && pageQuery === 'free';
+function shouldOfferSignin(site) {
+    return isSigninAllowed({site});
 }
 
 /**
- * Determines if only free plan is available
- * @param {Object} site - Site configuration object
- * @param {string} pageQuery - Page query parameter
- * @returns {boolean} True if only free plan available
+ * Determines the appropriate form content based on site state
+ * @param {Object} params - Parameters object
+ * @returns {string} Content type identifier
  */
-function isOnlyFreePlanAvailable(site, pageQuery) {
-    const showOnlyFree = pageQuery === 'free' && isFreeSignupAllowed({site});
-    return hasOnlyFreePlan({site}) || showOnlyFree;
-}
+function getFormContentType(params) {
+    const {site, pageQuery} = params;
 
-/**
- * Determines if site icon should show invitation icon
- * @param {Object} site - Site configuration object
- * @param {string} pageQuery - Page query parameter
- * @returns {boolean} True if invitation icon should display
- */
-function shouldShowInvitationIcon(site, pageQuery) {
-    return !hasAvailablePrices({site, pageQuery}) || isInviteOnly({site}) || !isSignupAllowed({site});
-}
+    if (isInviteOnly({site})) {
+        return 'inviteOnly';
+    }
 
-/**
- * Determines submit button visibility and state
- * @param {Object} params - Configuration parameters
- * @returns {Object|null} Button configuration or null if hidden
- */
-function getSubmitButtonConfig(params) {
-    const {site, pageQuery, action} = params;
+    if (isPaidMembersOnly({site}) && pageQuery === 'free') {
+        return 'paidMembersOnly';
+    }
 
     if (isSignupBlocked(site, pageQuery)) {
-        return null;
+        return shouldOfferSignin(site) ? 'inviteOnly' : 'membersDisabled';
     }
 
-    const showOnlyFree = pageQuery === 'free' && isFreeSignupAllowed({site});
-    const hasOnlyFree = hasOnlyFreePlan({site}) || showOnlyFree;
+    return 'signup';
+}
 
-    if (!hasOnlyFree) {
-        return null;
-    }
-
-    const buttonStates = {
-        'signup:running': {label: t('Sending...'), isRunning: true, retry: false},
-        'signup:failed': {label: t('Retry'), isRunning: false, retry: true},
-        default: {label: t('Sign up'), isRunning: false, retry: false}
+/**
+ * Determines submit button label based on action state
+ * @param {string} action - Current action state
+ * @returns {string} Button label
+ */
+function getSubmitButtonLabel(action) {
+    const labelMap = {
+        'signup:running': t('Sending...'),
+        'signup:failed': t('Retry')
     };
 
-    const state = buttonStates[action] || buttonStates.default;
-    const disabled = action === 'signup:running';
+    return labelMap[action] || t('Sign up');
+}
 
+/**
+ * Determines submit button state based on action
+ * @param {string} action - Current action state
+ * @returns {Object} Button state object
+ */
+function getSubmitButtonState(action) {
     return {
-        ...state,
-        disabled
+        isRunning: action === 'signup:running',
+        isRetry: action === 'signup:failed',
+        isDisabled: action === 'signup:running'
     };
 }
 
 /**
- * Determines class names for signup section and footer
- * @param {Object} params - Configuration parameters
- * @returns {Object} Section and footer class names
+ * Determines site icon type based on configuration
+ * @param {Object} params - Parameters object
+ * @returns {string} Icon type identifier
+ */
+function getSiteIconType(params) {
+    const {site, pageQuery} = params;
+
+    if (site.icon) {
+        return 'siteIcon';
+    }
+
+    if (!hasAvailablePrices({site, pageQuery}) || isInviteOnly({site}) || !isSignupAllowed({site})) {
+        return 'invitationIcon';
+    }
+
+    return 'none';
+}
+
+/**
+ * Determines section and footer CSS classes based on site configuration
+ * @param {Object} params - Parameters object
+ * @returns {Object} Class names object
  */
 function determineSectionClasses(params) {
-    const {site, pageQuery, fieldCount} = params;
+    const {site, pageQuery, fieldsLength} = params;
     const plansData = getSitePrices({site, pageQuery});
+
     let sectionClass = '';
     let footerClass = '';
 
-    const isInviteOnlyMode = isInviteOnly({site});
-    const isSinglePlan = plansData.length <= 1;
-    const isFreePlan = plansData.length === 1 && plansData[0].type === 'free';
-
-    if (isSinglePlan || isInviteOnlyMode) {
-        if (isFreePlan || isInviteOnlyMode) {
+    if (plansData.length <= 1 || isInviteOnly({site})) {
+        if ((plansData.length === 1 && plansData[0].type === 'free') || isInviteOnly({site, pageQuery})) {
             sectionClass = freeHasBenefitsOrDescription({site}) ? 'singleplan' : 'noplan';
-            if (fieldCount === 1) {
+            if (fieldsLength === 1) {
                 sectionClass = 'single-field';
             }
-            if (isInviteOnlyMode) {
+            if (isInviteOnly({site})) {
                 footerClass = 'invite-only';
                 sectionClass = 'invite-only';
             }
@@ -703,21 +712,28 @@ class SignupPage extends React.Component {
     renderSubmitButton() {
         const {action, site, brandColor, pageQuery} = this.context;
 
-        const buttonConfig = getSubmitButtonConfig({site, pageQuery, action});
-
-        if (!buttonConfig) {
+        if (isInviteOnly({site}) || !hasAvailablePrices({site, pageQuery})) {
             return null;
         }
+
+        const showOnlyFree = pageQuery === 'free' && isFreeSignupAllowed({site});
+
+        if (!hasOnlyFreePlan({site}) && !showOnlyFree) {
+            return null;
+        }
+
+        const label = showOnlyFree || hasOnlyFreePlan({site}) ? getSubmitButtonLabel(action) : t('Continue');
+        const buttonState = getSubmitButtonState(action);
 
         return (
             <ActionButton
                 style={{width: '100%'}}
-                retry={buttonConfig.retry}
+                retry={buttonState.isRetry}
                 onClick={e => this.handleSignup(e)}
-                disabled={buttonConfig.disabled}
+                disabled={buttonState.isDisabled}
                 brandColor={brandColor}
-                label={buttonConfig.label}
-                isRunning={buttonConfig.isRunning}
+                label={label}
+                isRunning={buttonState.isRunning}
                 tabIndex={0}
             />
         );
@@ -778,40 +794,28 @@ class SignupPage extends React.Component {
         );
     }
 
-    renderForm() {
+    renderFormContent() {
+        const {site, pageQuery} = this.context;
+        const contentType = getFormContentType({site, pageQuery});
+
+        const contentRenderers = {
+            inviteOnly: () => this.renderInviteOnlyMessage(),
+            paidMembersOnly: () => this.renderPaidMembersOnlyMessage(),
+            membersDisabled: () => this.renderMembersDisabledMessage(),
+            signup: () => this.renderSignupForm()
+        };
+
+        const renderer = contentRenderers[contentType];
+        return renderer ? renderer() : this.renderSignupForm();
+    }
+
+    renderSignupForm() {
         const fields = this.getInputFields({state: this.state});
         const {site, pageQuery} = this.context;
 
-        if (this.state.showNewsletterSelection) {
-            return (
-                <NewsletterSelectionPage
-                    pageData={this.state.pageData}
-                    onBack={() => {
-                        this.setState({
-                            showNewsletterSelection: false
-                        });
-                    }}
-                />
-            );
-        }
+        const showOnlyFree = pageQuery === 'free' && isFreeSignupAllowed({site});
+        const hasOnlyFree = hasOnlyFreePlan({site}) || showOnlyFree;
 
-        if (isInviteOnly({site})) {
-            return this.renderInviteOnlyMessage();
-        }
-
-        if (isPaidMembersOnlyRestriction(site, pageQuery)) {
-            return this.renderPaidMembersOnlyMessage();
-        }
-
-        if (!isSignupAllowed({site}) || !hasAvailablePrices({site, pageQuery})) {
-            if (!isSigninAllowed({site})) {
-                return this.renderMembersDisabledMessage();
-            }
-
-            return this.renderInviteOnlyMessage();
-        }
-
-        const hasOnlyFree = isOnlyFreePlanAvailable(site, pageQuery);
         const signupTerms = this.renderSignupTerms();
 
         return (
@@ -856,6 +860,23 @@ class SignupPage extends React.Component {
                 </div>
             </section>
         );
+    }
+
+    renderForm() {
+        if (this.state.showNewsletterSelection) {
+            return (
+                <NewsletterSelectionPage
+                    pageData={this.state.pageData}
+                    onBack={() => {
+                        this.setState({
+                            showNewsletterSelection: false
+                        });
+                    }}
+                />
+            );
+        }
+
+        return this.renderFormContent();
     }
 
     renderPaidMembersOnlyMessage() {
@@ -907,21 +928,20 @@ class SignupPage extends React.Component {
 
     renderSiteIcon() {
         const {site, pageQuery} = this.context;
-        const siteIcon = site.icon;
+        const iconType = getSiteIconType({site, pageQuery});
 
-        if (siteIcon) {
-            return (
-                <img className='gh-portal-signup-logo' src={siteIcon} alt={site.title} />
-            );
-        }
-
-        if (shouldShowInvitationIcon(site, pageQuery)) {
-            return (
+        const iconRenderers = {
+            siteIcon: () => (
+                <img className='gh-portal-signup-logo' src={site.icon} alt={site.title} />
+            ),
+            invitationIcon: () => (
                 <InvitationIcon className='gh-portal-icon gh-portal-icon-invitation' />
-            );
-        }
+            ),
+            none: () => null
+        };
 
-        return null;
+        const renderer = iconRenderers[iconType];
+        return renderer ? renderer() : null;
     }
 
     renderFormHeader() {
@@ -942,7 +962,7 @@ class SignupPage extends React.Component {
         return determineSectionClasses({
             site,
             pageQuery,
-            fieldCount: fields.length
+            fieldsLength: fields.length
         });
     }
 
@@ -974,4 +994,3 @@ class SignupPage extends React.Component {
 }
 
 export default SignupPage;
-```

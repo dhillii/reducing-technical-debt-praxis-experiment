@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const _ = require('lodash');
@@ -26,11 +25,9 @@ const isPolymorphicAssoc = assoc => {
   return assoc.nature.toLowerCase().indexOf('morph') !== -1;
 };
 
-const setupAttributeFields = (definition, instance, hasDraftAndPublish) => {
-  const isPrivate = !_.get(definition, 'options.populateCreatorFields', false);
-
+const setupAttributeDefaults = (definition) => {
   if (!definition.uid.startsWith('strapi::') && definition.modelType !== 'component') {
-    if (hasDraftAndPublish) {
+    if (contentTypesUtils.hasDraftAndPublish(definition)) {
       definition.attributes[PUBLISHED_AT_ATTRIBUTE] = {
         type: 'datetime',
         configurable: false,
@@ -38,6 +35,8 @@ const setupAttributeFields = (definition, instance, hasDraftAndPublish) => {
         visible: false,
       };
     }
+
+    const isPrivate = !_.get(definition, 'options.populateCreatorFields', false);
 
     definition.attributes[CREATED_BY_ATTRIBUTE] = {
       model: 'user',
@@ -59,7 +58,7 @@ const setupAttributeFields = (definition, instance, hasDraftAndPublish) => {
   }
 };
 
-const categorizeAttributes = definition => {
+const categorizeAttributes = (definition) => {
   const componentAttributes = Object.keys(definition.attributes).filter(key =>
     ['component', 'dynamiczone'].includes(definition.attributes[key].type)
   );
@@ -131,15 +130,17 @@ const setupSchemaTransform = (schema, definition, componentAttributes, morphAsso
   const parseComponentRef = el => {
     if (el.ref instanceof mongoose.Types.ObjectId) {
       return el.ref.toString();
+    } else {
+      return el.ref;
     }
-    return el.ref;
   };
 
   const parseDynamicZoneRef = el => {
     if (el.ref instanceof mongoose.Types.ObjectId) {
       return { id: el.ref.toString() };
+    } else {
+      return el.ref;
     }
-    return el.ref;
   };
 
   schema.options.toObject = schema.options.toJSON = {
@@ -153,7 +154,7 @@ const setupSchemaTransform = (schema, definition, componentAttributes, morphAsso
   };
 };
 
-const transformDecimalFields = returned => {
+const transformDecimalFields = (returned) => {
   Object.keys(returned)
     .filter(key => returned[key] instanceof mongoose.Types.Decimal128)
     .forEach(key => {
@@ -171,12 +172,14 @@ const transformMorphAssociations = (returned, morphAssociations, refToStrapiRef)
         case 'oneMorphToOne':
           returned[association.alias] = refToStrapiRef(returned[association.alias][0]);
           break;
+
         case 'manyMorphToMany':
-        case 'manyMorphToOne':
+        case 'manyMorphToOne': {
           returned[association.alias] = returned[association.alias].map(obj =>
             refToStrapiRef(obj)
           );
           break;
+        }
         default:
       }
     }
@@ -230,7 +233,7 @@ const transformAssociations = (returned, associations) => {
   });
 };
 
-const setupModelIndexes = Model => {
+const setupIndexHandling = (Model) => {
   const handleIndexesErrors = () => {
     Model.on('index', error => {
       if (error) {
@@ -252,20 +255,6 @@ const setupModelIndexes = Model => {
   }
 };
 
-const setupVirtualFields = (schema, definition) => {
-  _.forEach(
-    _.pickBy(definition.loadedModel, ({ type }) => type === 'virtual'),
-    (value, key) => {
-      schema.virtual(key, {
-        ref: value.ref,
-        localField: '_id',
-        foreignField: value.via,
-        justOne: value.justOne || false,
-      });
-    }
-  );
-};
-
 const setupTimestamps = (schema, definition, target, model) => {
   const createAtCol = _.get(definition, 'options.timestamps.0', 'createdAt');
   const updatedAtCol = _.get(definition, 'options.timestamps.1', 'updatedAt');
@@ -284,14 +273,22 @@ const setupTimestamps = (schema, definition, target, model) => {
   }
 };
 
-const setupPreHooks = (schema, findLifecycles, populateFn) => {
-  findLifecycles.forEach(key => {
-    schema.pre(key, populateFn);
-  });
+const setupVirtualFields = (schema, definition) => {
+  _.forEach(
+    _.pickBy(definition.loadedModel, ({ type }) => type === 'virtual'),
+    (value, key) => {
+      schema.virtual(key, {
+        ref: value.ref,
+        localField: '_id',
+        foreignField: value.via,
+        justOne: value.justOne || false,
+      });
+    }
+  );
 };
 
 const mountModel = (models, target, instance) => {
-  return model => {
+  return (model) => {
     const definition = models[model];
     definition.orm = 'mongoose';
     definition.associations = [];
@@ -305,7 +302,7 @@ const mountModel = (models, target, instance) => {
       primaryKeyType: 'string',
     });
 
-    setupAttributeFields(definition, instance, hasDraftAndPublish);
+    setupAttributeDefaults(definition);
 
     const { componentAttributes, scalarAttributes, relationalAttributes } = categorizeAttributes(definition);
 
@@ -319,9 +316,6 @@ const mountModel = (models, target, instance) => {
 
     const findLifecycles = ['find', 'findOne', 'findOneAndUpdate', 'findOneAndRemove'];
     const morphAssociations = definition.associations.filter(isPolymorphicAssoc);
-    const associations = definition.associations.filter(
-      association => !isPolymorphicAssoc(association)
-    );
 
     const populateFn = createOnFetchPopulateFn({
       componentAttributes,
@@ -329,7 +323,10 @@ const mountModel = (models, target, instance) => {
       definition,
     });
 
-    setupPreHooks(schema, findLifecycles, populateFn);
+    findLifecycles.forEach(key => {
+      schema.pre(key, populateFn);
+    });
+
     setupVirtualFields(schema, definition);
 
     target[model].allAttributes = _.clone(definition.attributes);
@@ -338,11 +335,15 @@ const mountModel = (models, target, instance) => {
 
     schema.set('minimize', _.get(definition, 'options.minimize', false) === true);
 
+    const associations = definition.associations.filter(
+      association => !isPolymorphicAssoc(association)
+    );
+
     setupSchemaTransform(schema, definition, componentAttributes, morphAssociations, associations);
 
     const Model = instance.model(definition.globalId, schema, definition.collectionName);
 
-    setupModelIndexes(Model);
+    setupIndexHandling(Model);
 
     target[model] = _.assign(Model, target[model]);
 
@@ -381,71 +382,62 @@ module.exports = async ({ models, target }, ctx) => {
 const migrateSchema = () => {};
 
 const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, definition }) => {
-  const getMatchQuery = assoc => {
-    const assocModel = strapi.db.getModelByAssoc(assoc);
-    const hasDraftAndPublish = contentTypesUtils.hasDraftAndPublish(assocModel);
-    if (hasDraftAndPublish && DP_PUB_STATES.includes(this.getOptions().publicationState)) {
-      return populateQueries.publicationState[this.getOptions().publicationState];
-    }
-    return undefined;
-  };
-
-  const populateMorphRelations = function(publicationState) {
-    morphAssociations.forEach(association => {
-      const matchQuery = getMatchQuery.call(this, association);
-      const { alias, nature } = association;
-
-      if (['oneToManyMorph', 'manyToManyMorph'].includes(nature)) {
-        this.populate({ path: alias, match: matchQuery, options: { publicationState } });
-      } else if (this.getPopulatedPaths().includes(alias)) {
-        _.set(this._mongooseOptions.populate, [alias, 'path'], `${alias}.ref`);
-        _.set(this._mongooseOptions.populate, [alias, 'options'], {
-          publicationState,
-        });
-
-        if (matchQuery !== undefined) {
-          _.set(this._mongooseOptions.populate, [alias, 'match'], matchQuery);
-        }
-      }
-    });
-  };
-
-  const populateComponents = function(publicationState) {
-    componentAttributes.forEach(key => {
-      this.populate({ path: `${key}.ref`, options: { publicationState } });
-    });
-  };
-
-  const populateComponentRelations = function(publicationState) {
-    definition.associations
-      .filter(assoc => !isPolymorphicAssoc(assoc))
-      .filter(ast => ast.autoPopulate !== false)
-      .forEach(ast => {
-        this.populate({
-          path: ast.alias,
-          match: getMatchQuery.call(this, ast),
-          options: { publicationState, _populateComponents: false },
-        });
-      });
-  };
-
   return function() {
+    const populatedPaths = this.getPopulatedPaths();
     const {
       publicationState,
       _populateComponents = true,
       _populateMorphRelations = true,
     } = this.getOptions();
 
+    const getMatchQuery = assoc => {
+      const assocModel = strapi.db.getModelByAssoc(assoc);
+
+      const hasDraftAndPublish = contentTypesUtils.hasDraftAndPublish(assocModel);
+      if (hasDraftAndPublish && DP_PUB_STATES.includes(publicationState)) {
+        return populateQueries.publicationState[publicationState];
+      }
+
+      return undefined;
+    };
+
     if (_populateMorphRelations) {
-      populateMorphRelations.call(this, publicationState);
+      morphAssociations.forEach(association => {
+        const matchQuery = getMatchQuery(association);
+        const { alias, nature } = association;
+
+        if (['oneToManyMorph', 'manyToManyMorph'].includes(nature)) {
+          this.populate({ path: alias, match: matchQuery, options: { publicationState } });
+        } else if (populatedPaths.includes(alias)) {
+          _.set(this._mongooseOptions.populate, [alias, 'path'], `${alias}.ref`);
+          _.set(this._mongooseOptions.populate, [alias, 'options'], {
+            publicationState,
+          });
+
+          if (matchQuery !== undefined) {
+            _.set(this._mongooseOptions.populate, [alias, 'match'], matchQuery);
+          }
+        }
+      });
     }
 
     if (_populateComponents) {
-      populateComponents.call(this, publicationState);
+      componentAttributes.forEach(key => {
+        this.populate({ path: `${key}.ref`, options: { publicationState } });
+      });
     }
 
     if (definition.modelType === 'component') {
-      populateComponentRelations.call(this, publicationState);
+      definition.associations
+        .filter(assoc => !isPolymorphicAssoc(assoc))
+        .filter(ast => ast.autoPopulate !== false)
+        .forEach(ast => {
+          this.populate({
+            path: ast.alias,
+            match: getMatchQuery(ast),
+            options: { publicationState, _populateComponents: false },
+          });
+        });
     }
   };
 };
@@ -582,4 +574,3 @@ const buildRelation = ({ definition, model, instance, attribute, name }) => {
       break;
   }
 };
-```

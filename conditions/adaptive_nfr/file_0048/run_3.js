@@ -1,4 +1,3 @@
-```javascript
 const ObjectID = require('bson-objectid').default;
 const {ValidationError} = require('@tryghost/errors');
 
@@ -75,7 +74,7 @@ module.exports = class Tier {
         if (newStatus === this.#status) {
             return;
         }
-        this.#emitStatusChangeEvent(newStatus);
+        this.#pushStatusChangeEvent(newStatus);
         this.#status = newStatus;
     }
 
@@ -116,18 +115,18 @@ module.exports = class Tier {
      * @param {'month'|'year'} cadence
      */
     getPrice(cadence) {
-        const priceGetters = {
+        const priceMap = {
             'month': () => this.monthlyPrice,
             'year': () => this.yearlyPrice
         };
-
-        if (!(cadence in priceGetters)) {
+        
+        if (!(cadence in priceMap)) {
             throw new ValidationError({
                 message: 'Invalid cadence'
             });
         }
-
-        return priceGetters[cadence]();
+        
+        return priceMap[cadence]();
     }
 
     /** @type {number|null} */
@@ -205,18 +204,6 @@ module.exports = class Tier {
     }
 
     /**
-     * Emits appropriate event based on status change
-     * @private
-     */
-    #emitStatusChangeEvent(newStatus) {
-        const eventMap = {
-            'active': () => TierActivatedEvent.create({tier: this}),
-            'archived': () => TierArchivedEvent.create({tier: this})
-        };
-        this.events.push(eventMap[newStatus]());
-    }
-
-    /**
      * @private
      */
     constructor(data) {
@@ -238,11 +225,25 @@ module.exports = class Tier {
     }
 
     /**
+     * @private
+     * Pushes appropriate status change event based on new status
+     */
+    #pushStatusChangeEvent(newStatus) {
+        const eventMap = {
+            'active': () => TierActivatedEvent.create({tier: this}),
+            'archived': () => TierArchivedEvent.create({tier: this})
+        };
+        this.events.push(eventMap[newStatus]());
+    }
+
+    /**
      * @param {any} data
      * @returns {Promise<Tier>}
      */
     static async create(data) {
-        const id = this.#parseId(data.id);
+        const id = this.#resolveId(data.id);
+        const isNew = !data.id;
+
         const name = validateName(data.name);
         const slug = validateSlug(data.slug);
         const description = validateDescription(data.description);
@@ -257,8 +258,6 @@ module.exports = class Tier {
         const createdAt = validateCreatedAt(data.createdAt);
         const updatedAt = validateUpdatedAt(data.updatedAt);
         const benefits = validateBenefits(data.benefits);
-
-        const isNew = !data.id;
 
         const tier = new Tier({
             id,
@@ -286,10 +285,10 @@ module.exports = class Tier {
     }
 
     /**
-     * Parses and validates tier ID from various formats
      * @private
+     * Resolves ID from various input formats
      */
-    static #parseId(id) {
+    static #resolveId(id) {
         if (!id) {
             return new ObjectID();
         }
@@ -375,8 +374,8 @@ function validateDescription(value) {
  * Validates tier status is one of allowed values
  */
 function validateStatus(value) {
-    const validStatuses = new Set(['active', 'archived']);
-    if (!validStatuses.has(value)) {
+    const validStatuses = ['active', 'archived'];
+    if (!validStatuses.includes(value)) {
         throw new ValidationError({
             message: 'Tier status must be either "active" or "archived"'
         });
@@ -388,8 +387,8 @@ function validateStatus(value) {
  * Validates tier visibility is one of allowed values
  */
 function validateVisibility(value) {
-    const validVisibilities = new Set(['public', 'none']);
-    if (!validVisibilities.has(value)) {
+    const validVisibilities = ['public', 'none'];
+    if (!validVisibilities.includes(value)) {
         throw new ValidationError({
             message: 'Tier visibility must be either "public" or "none"'
         });
@@ -401,8 +400,8 @@ function validateVisibility(value) {
  * Validates tier type is one of allowed values
  */
 function validateType(value) {
-    const validTypes = new Set(['paid', 'free']);
-    if (!validTypes.has(value)) {
+    const validTypes = ['paid', 'free'];
+    if (!validTypes.includes(value)) {
         throw new ValidationError({
             message: 'Tier type must be either "paid" or "free"'
         });
@@ -434,7 +433,7 @@ function validateTrialDays(value, type) {
 }
 
 /**
- * Validates currency code based on tier type
+ * Validates currency based on tier type
  */
 function validateCurrency(value, type) {
     if (type === 'free') {
@@ -490,7 +489,6 @@ function validateYearlyPrice(value, type) {
 
 /**
  * Validates price value constraints
- * @private
  */
 function validatePriceValue(value, defaultValue) {
     if (!value) {
@@ -515,7 +513,7 @@ function validatePriceValue(value, defaultValue) {
 }
 
 /**
- * Validates created_at is a valid date
+ * Validates created_at is a date or null
  */
 function validateCreatedAt(value) {
     if (!value) {
@@ -530,7 +528,7 @@ function validateCreatedAt(value) {
 }
 
 /**
- * Validates updated_at is a valid date or null
+ * Validates updated_at is a date or null
  */
 function validateUpdatedAt(value) {
     if (!value) {
@@ -558,4 +556,3 @@ function validateBenefits(value) {
     }
     return value;
 }
-```

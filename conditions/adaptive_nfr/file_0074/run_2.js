@@ -1,14 +1,3 @@
-```javascript
-/**
- * @fileoverview Abstraction of JavaScript source code.
- * @author Nicholas C. Zakas
- */
-"use strict";
-
-//------------------------------------------------------------------------------
-// Requirements
-//------------------------------------------------------------------------------
-
 const fs = require("node:fs"),
 	path = require("node:path"),
 	assert = require("chai").assert,
@@ -19,10 +8,6 @@ const fs = require("node:fs"),
 	SourceCode = require("../../../../../lib/languages/js/source-code/source-code"),
 	astUtils = require("../../../../../lib/shared/ast-utils"),
 	globals = require("../../../../../conf/globals");
-
-//------------------------------------------------------------------------------
-// Helpers
-//------------------------------------------------------------------------------
 
 const DEFAULT_CONFIG = {
 	ecmaVersion: 6,
@@ -49,69 +34,35 @@ function getVariable(scope, name) {
 }
 
 /**
- * Check if a variable name is in the builtinGlobals set
- * @param {string} name - The variable name to check
- * @param {Set<string>} builtinGlobals - Set of builtin global names
- * @returns {boolean} True if name is a builtin global
+ * Check if a node is an empty AST
+ * @param {*} ast The AST to check
+ * @returns {boolean} True if AST is empty
  * @private
  */
-function isBuiltinGlobal(name, builtinGlobals) {
-	return builtinGlobals.has(name);
+function isEmptyAST(ast) {
+	return !ast || ast === false || ast === null || ast === void 0;
 }
 
 /**
- * Check if a node is a variable declarator
- * @param {ASTNode} node - The node to check
- * @returns {boolean} True if node is a VariableDeclarator
+ * Validate AST structure
+ * @param {Object} ast The AST to validate
+ * @throws {Error} If AST is invalid
  * @private
  */
-function isVariableDeclarator(node) {
-	return node.parent.type === "VariableDeclarator";
+function validateASTStructure(ast) {
+	if (!Array.isArray(ast.tokens)) {
+		throw new Error("AST is missing the tokens array.");
+	}
+	if (!Array.isArray(ast.comments)) {
+		throw new Error("AST is missing the comments array.");
+	}
+	if (!ast.loc) {
+		throw new Error("AST is missing location information.");
+	}
+	if (!ast.range) {
+		throw new Error("AST is missing range information.");
+	}
 }
-
-/**
- * Check if a node is a member expression property
- * @param {ASTNode} node - The node to check
- * @returns {boolean} True if node is a property in MemberExpression
- * @private
- */
-function isMemberExpressionProperty(node) {
-	return node.parent.type === "MemberExpression";
-}
-
-/**
- * Check if a node is a catch clause parameter
- * @param {ASTNode} node - The node to check
- * @returns {boolean} True if node is a CatchClause parameter
- * @private
- */
-function isCatchClauseParameter(node) {
-	return node.parent.type === "CatchClause";
-}
-
-/**
- * Check if a node is an object property in a member expression
- * @param {ASTNode} node - The node to check
- * @returns {boolean} True if node is an object property
- * @private
- */
-function isObjectProperty(node) {
-	return node.parent.object && node.parent.object.name === "obj";
-}
-
-/**
- * Check if a node is a this expression property
- * @param {ASTNode} node - The node to check
- * @returns {boolean} True if node is a property of this
- * @private
- */
-function isThisExpressionProperty(node) {
-	return node.parent.object && node.parent.object.type === "ThisExpression";
-}
-
-//------------------------------------------------------------------------------
-// Tests
-//------------------------------------------------------------------------------
 
 describe("SourceCode", () => {
 	describe("new SourceCode()", () => {
@@ -336,7 +287,7 @@ describe("SourceCode", () => {
 			);
 			const text = fs
 				.readFileSync(UTF8_FILE, "utf8")
-				.replace(/\r\n/gu, "\n"); // <-- For autocrlf of "git for Windows"
+				.replace(/\r\n/gu, "\n");
 			let sourceCode;
 
 			beforeEach(() => {
@@ -428,7 +379,6 @@ describe("SourceCode", () => {
 
 		describe("when text begins with a shebang", () => {
 			it("should retrieve unaltered shebang text", () => {
-				// Shebangs are normalized to line comments before parsing.
 				ast = espree.parse(
 					SHEBANG_TEST_CODE.replace(
 						astUtils.shebangPattern,
@@ -862,7 +812,6 @@ describe("SourceCode", () => {
 					false,
 				);
 
-				// Reversed order
 				assert.strictEqual(
 					sourceCode.isSpaceBetween(
 						interpolation,
@@ -896,7 +845,6 @@ describe("SourceCode", () => {
 					false,
 				);
 
-				// Reversed order
 				assert.strictEqual(
 					sourceCode.isSpaceBetween(
 						jsx.closingElement,
@@ -923,7 +871,6 @@ describe("SourceCode", () => {
 					false,
 				);
 
-				// Reversed order
 				assert.strictEqual(
 					sourceCode.isSpaceBetween(
 						jsx.closingElement,
@@ -976,7 +923,6 @@ describe("SourceCode", () => {
 		});
 	});
 
-	// need to check that linter.verify() works with SourceCode
 	describe("linter.verify()", () => {
 		it("should work when passed a SourceCode object without a config", () => {
 			const ast = espree.parse(TEST_CODE, DEFAULT_CONFIG);
@@ -1871,7 +1817,6 @@ describe("SourceCode", () => {
 				rules: { "test/checker": 2 },
 			});
 
-			// Check all expected names are asserted.
 			assert.strictEqual(0, expectedNamesList.length);
 		}
 
@@ -1889,7 +1834,6 @@ describe("SourceCode", () => {
 		});
 
 		it("VariableDeclaration (on for-in/of loop)", () => {
-			// TDZ scope is created here, so tests to exclude those.
 			const code =
 				"\n for (var {a, x: [b], y: {c = 0}} in foo) {\n let g;\n }\n for (let {d, x: [e], y: {f = 0}} of foo) {\n let h;\n }\n ";
 			const namesList = [["a", "b", "c"], ["g"], ["d", "e", "f"], ["h"]];
@@ -1898,7 +1842,6 @@ describe("SourceCode", () => {
 		});
 
 		it("VariableDeclarator", () => {
-			// TDZ scope is created here, so tests to exclude those.
 			const code =
 				"\n var {a, x: [b], y: {c = 0}} = foo;\n let {d, x: [e], y: {f = 0}} = foo;\n const {g, x: [h], y: {i = 0}} = foo, {j, k = function(z) { let l; }} = bar;\n ";
 			const namesList = [
@@ -1950,7 +1893,7 @@ describe("SourceCode", () => {
 			const code =
 				"\n class A { foo(x) { let y; } }\n class B { foo(x) { let y; } }\n ";
 			const namesList = [
-				["A", "A"], // outer scope's and inner scope's.
+				["A", "A"],
 				["B", "B"],
 			];
 
@@ -2269,7 +2212,6 @@ describe("SourceCode", () => {
 			const sourceCode = new SourceCode(code, ast);
 			const configComments = sourceCode.getInlineConfigNodes();
 
-			// not sure why but without the JSON parse/stringify Chai won't see these as equal
 			assert.deepStrictEqual(JSON.parse(JSON.stringify(configComments)), [
 				{
 					type: "Block",
@@ -2553,7 +2495,6 @@ describe("SourceCode", () => {
 			const result = sourceCode.applyInlineConfig();
 			const problem = result.problems[0];
 
-			// Node.js 19 changes the JSON parsing error format, so we need to check each field separately to use a regex
 			assert.strictEqual(problem.loc.start.column, 0);
 			assert.strictEqual(problem.loc.start.line, 1);
 			assert.strictEqual(problem.loc.end.column, 24);
@@ -2590,7 +2531,6 @@ describe("SourceCode", () => {
 			const esGlobals = globals.es2015;
 			const esGlobalsCount = Object.keys(esGlobals).length;
 
-			// All global variables are ES6 globals
 			assert.strictEqual(globalScope.set.size, esGlobalsCount);
 			assert.strictEqual(globalScope.variables.length, esGlobalsCount);
 			for (const variable of globalScope.variables) {
@@ -2630,15 +2570,12 @@ describe("SourceCode", () => {
 				assert.strictEqual(variable.defs.length, 0);
 			}
 
-			// no implicit globals
 			assert.strictEqual(globalScope.implicit.set.size, 0);
 			assert.strictEqual(globalScope.implicit.variables.length, 0);
 
-			// no unresolved references
 			assert.strictEqual(globalScope.through.length, 0);
 			assert.strictEqual(globalScope.implicit.left.length, 0);
 
-			// resolved references
 			assert.strictEqual(globalScope.references.length, 2);
 			assert.strictEqual(
 				globalScope.references[0].resolved,
@@ -2676,7 +2613,6 @@ describe("SourceCode", () => {
 			const esGlobals = globals.es2015;
 			const esGlobalsCount = Object.keys(esGlobals).length;
 
-			// All global variables are ES6 globals
 			assert.strictEqual(globalScope.set.size, esGlobalsCount);
 			assert.strictEqual(globalScope.variables.length, esGlobalsCount);
 			for (const variable of globalScope.variables) {
@@ -2732,15 +2668,12 @@ describe("SourceCode", () => {
 				assert.strictEqual(variable.defs.length, 0);
 			}
 
-			// no implicit globals
 			assert.strictEqual(globalScope.implicit.set.size, 0);
 			assert.strictEqual(globalScope.implicit.variables.length, 0);
 
-			// no unresolved references
 			assert.strictEqual(globalScope.through.length, 0);
 			assert.strictEqual(globalScope.implicit.left.length, 0);
 
-			// resolved references
 			assert.strictEqual(globalScope.references.length, 2);
 			assert.strictEqual(
 				globalScope.references[0].resolved,
@@ -2777,7 +2710,6 @@ describe("SourceCode", () => {
 			const esGlobals = globals.es2015;
 			const esGlobalsCount = Object.keys(esGlobals).length;
 
-			// All global variables are ES6 globals
 			assert.strictEqual(globalScope.set.size, esGlobalsCount);
 			assert.strictEqual(globalScope.variables.length, esGlobalsCount);
 			for (const variable of globalScope.variables) {
@@ -2833,15 +2765,12 @@ describe("SourceCode", () => {
 				assert.strictEqual(variable.defs.length, 0);
 			}
 
-			// no implicit globals
 			assert.strictEqual(globalScope.implicit.set.size, 0);
 			assert.strictEqual(globalScope.implicit.variables.length, 0);
 
-			// no unresolved references
 			assert.strictEqual(globalScope.through.length, 0);
 			assert.strictEqual(globalScope.implicit.left.length, 0);
 
-			// resolved references
 			assert.strictEqual(globalScope.references.length, 2);
 			assert.strictEqual(
 				globalScope.references[0].resolved,
@@ -2987,7 +2916,6 @@ describe("SourceCode", () => {
 			const esGlobals = globals.es2015;
 			const esGlobalsCount = Object.keys(esGlobals).length;
 
-			// All global variables are ES6 globals
 			assert.strictEqual(globalScope.set.size, esGlobalsCount - 3);
 			assert.strictEqual(
 				globalScope.variables.length,
@@ -3194,15 +3122,12 @@ describe("SourceCode", () => {
 				assert.strictEqual(variable.defs.length, 0);
 			}
 
-			// no implicit globals
 			assert.strictEqual(globalScope.implicit.set.size, 0);
 			assert.strictEqual(globalScope.implicit.variables.length, 0);
 
-			// no unresolved references
 			assert.strictEqual(globalScope.through.length, 0);
 			assert.strictEqual(globalScope.implicit.left.length, 0);
 
-			// resolved references
 			assert.strictEqual(globalScope.references.length, 2);
 			assert.strictEqual(
 				globalScope.references[0].resolved,
@@ -3335,15 +3260,12 @@ describe("SourceCode", () => {
 				assert.strictEqual(variable.defs.length, 0);
 			}
 
-			// no implicit globals
 			assert.strictEqual(globalScope.implicit.set.size, 0);
 			assert.strictEqual(globalScope.implicit.variables.length, 0);
 
-			// no unresolved references
 			assert.strictEqual(globalScope.through.length, 0);
 			assert.strictEqual(globalScope.implicit.left.length, 0);
 
-			// resolved references
 			assert.strictEqual(globalScope.references.length, 2);
 			assert.strictEqual(
 				globalScope.references[0].resolved,
@@ -3480,15 +3402,12 @@ describe("SourceCode", () => {
 				assert.strictEqual(variable.defs.length, 0);
 			}
 
-			// no implicit globals
 			assert.strictEqual(globalScope.implicit.set.size, 0);
 			assert.strictEqual(globalScope.implicit.variables.length, 0);
 
-			// no unresolved references
 			assert.strictEqual(globalScope.through.length, 0);
 			assert.strictEqual(globalScope.implicit.left.length, 0);
 
-			// resolved references
 			assert.strictEqual(globalScope.references.length, 2);
 			assert.strictEqual(
 				globalScope.references[0].resolved,
@@ -3530,7 +3449,6 @@ describe("SourceCode", () => {
 			const esGlobals = globals.es2015;
 			const esGlobalsCount = Object.keys(esGlobals).length;
 
-			// All global variables are ES6 globals
 			assert.strictEqual(globalScope.set.size, esGlobalsCount);
 			assert.strictEqual(globalScope.variables.length, esGlobalsCount);
 
@@ -3884,15 +3802,12 @@ describe("SourceCode", () => {
 				);
 			}
 
-			// no implicit globals
 			assert.strictEqual(globalScope.implicit.set.size, 0);
 			assert.strictEqual(globalScope.implicit.variables.length, 0);
 
-			// no unresolved references
 			assert.strictEqual(globalScope.through.length, 0);
 			assert.strictEqual(globalScope.implicit.left.length, 0);
 
-			// resolved references
 			assert.strictEqual(globalScope.references.length, 3);
 			assert.strictEqual(
 				globalScope.references[0].resolved,
@@ -3961,7 +3876,7 @@ describe("SourceCode", () => {
 									]);
 
 									identifierSpy = sinon.spy(node => {
-										if (isBuiltinGlobal(node.name, builtinGlobals)) {
+										if (builtinGlobals.has(node.name)) {
 											assert.isTrue(
 												sourceCode.isGlobalReference(
 													node,
@@ -3969,9 +3884,9 @@ describe("SourceCode", () => {
 												`Expected ${node.name} to be identified as a global reference`,
 											);
 										} else if (node.name === "foo") {
-											// The second "foo" reference (not the declaration) should not be a global reference
 											if (
-												!isVariableDeclarator(node)
+												node.parent.type !==
+												"VariableDeclarator"
 											) {
 												assert.isFalse(
 													sourceCode.isGlobalReference(
@@ -4016,7 +3931,6 @@ describe("SourceCode", () => {
 										const blockStatement =
 											functionDecl.body;
 
-										// Function parameter references
 										const paramRef =
 											blockStatement.body[0].expression;
 										const NaNRef =
@@ -4162,7 +4076,8 @@ describe("SourceCode", () => {
 											);
 										} else if (
 											node.name === "length" &&
-											isMemberExpressionProperty(node)
+											node.parent.type ===
+												"MemberExpression"
 										) {
 											assert.isFalse(
 												sourceCode.isGlobalReference(
@@ -4183,7 +4098,7 @@ describe("SourceCode", () => {
 											);
 										} else if (
 											node.name === "Math" &&
-											isObjectProperty(node)
+											node.parent.object.name === "obj"
 										) {
 											assert.isFalse(
 												sourceCode.isGlobalReference(
@@ -4221,10 +4136,8 @@ describe("SourceCode", () => {
 									const sourceCode = context.sourceCode;
 
 									spy = sinon.spy(() => {
-										// Get the second Math identifier (outside destructuring)
 										const mathRef =
 											sourceCode.ast.body[1].expression;
-										// Get the second Array identifier (outside destructuring)
 										const arrayRef =
 											sourceCode.ast.body[3].expression;
 
@@ -4375,9 +4288,8 @@ describe("SourceCode", () => {
 
 									spy = sinon.spy(node => {
 										if (
-											isCatchClauseParameter(node)
+											node.parent.type === "CatchClause"
 										) {
-											// Skip the catch parameter declaration
 											return;
 										}
 
@@ -4420,7 +4332,8 @@ describe("SourceCode", () => {
 									spy = sinon.spy(node => {
 										if (
 											node.name === "Math" &&
-											isMemberExpressionProperty(node) &&
+											node.parent.type ===
+												"MemberExpression" &&
 											node.parent.object.type !==
 												"ThisExpression"
 										) {
@@ -4432,7 +4345,9 @@ describe("SourceCode", () => {
 											);
 										} else if (
 											node.name === "Math" &&
-											isThisExpressionProperty(node)
+											node.parent.object &&
+											node.parent.object.type ===
+												"ThisExpression"
 										) {
 											assert.isFalse(
 												sourceCode.isGlobalReference(
@@ -4532,7 +4447,6 @@ describe("SourceCode", () => {
 
 			linter.verify(code, config);
 
-			// Spy on the internal cache
 			const cache =
 				sourceCodeInstance[
 					Object.getOwnPropertySymbols(sourceCodeInstance).find(
@@ -4542,7 +4456,6 @@ describe("SourceCode", () => {
 					)
 				].get("isGlobalReference");
 
-			// Clear cache for firstNode and count calls
 			cache.delete(firstNode);
 			let computeCount = 0;
 			const original =
@@ -4555,7 +4468,6 @@ describe("SourceCode", () => {
 				return original.apply(this, args);
 			};
 
-			// Call twice, should only compute once
 			sourceCodeInstance.isGlobalReference(firstNode);
 			sourceCodeInstance.isGlobalReference(firstNode);
 
@@ -4565,7 +4477,6 @@ describe("SourceCode", () => {
 				"isGlobalReference should compute only once per node",
 			);
 
-			// Second node should compute
 			sourceCodeInstance.isGlobalReference(secondNode);
 			sourceCodeInstance.isGlobalReference(secondNode);
 			assert.strictEqual(
@@ -4574,7 +4485,6 @@ describe("SourceCode", () => {
 				"isGlobalReference should compute only once per node",
 			);
 
-			// Restore
 			sourceCodeInstance.scopeManager.scopes[0].set.get(
 				"Math",
 			).references.some = original;
@@ -4598,12 +4508,10 @@ describe("SourceCode", () => {
 			const sourceCode = new SourceCode(code, ast);
 			const steps = sourceCode.traverse();
 
-			// Filter for VisitNodeStep instances
 			const visitSteps = steps.filter(step => step.kind === 1);
 
 			assert.strictEqual(visitSteps.length, 10);
 
-			// Verify visit step structure
 			visitSteps.forEach(step => {
 				assert.isNumber(step.phase);
 				assert.isTrue(
@@ -4623,7 +4531,6 @@ describe("SourceCode", () => {
 
 			const visitSteps = steps.filter(step => step.kind === 1);
 
-			// Group steps by target node
 			const nodeSteps = new Map();
 			visitSteps.forEach(step => {
 				const key = step.target.type;
@@ -4633,7 +4540,6 @@ describe("SourceCode", () => {
 				nodeSteps.get(key).push(step.phase);
 			});
 
-			// Every node type should have both enter (1) and exit (2) phases
 			nodeSteps.forEach((phases, nodeType) => {
 				assert.isTrue(
 					phases.includes(1),
@@ -4658,7 +4564,6 @@ describe("SourceCode", () => {
 				phase: step.phase,
 			}));
 
-			// Should have Program at the beginning
 			assert.deepStrictEqual(nodeTypes, [
 				{
 					type: "Program",
@@ -4724,13 +4629,10 @@ describe("SourceCode", () => {
 			const sourceCode = new SourceCode(code, ast);
 			const steps = sourceCode.traverse();
 
-			// Look for CallMethodStep (kind === 2) which are emitted by CodePathAnalyzer
 			const callSteps = steps.filter(step => step.kind === 2);
 
-			// For control flow code, CodePathAnalyzer should emit events
 			assert.strictEqual(callSteps.length, 8);
 
-			// Verify call steps have correct structure
 			callSteps.forEach(step => {
 				assert.isString(
 					step.target,
@@ -4815,7 +4717,6 @@ describe("SourceCode", () => {
 
 			const visitSteps = steps.filter(step => step.kind === 1);
 
-			// Verify that we enter before we exit
 			const enterExitMap = new Map();
 			visitSteps.forEach((step, index) => {
 				const nodeKey = `${step.target.type}@${step.target.range.join(",")}`;
@@ -4829,7 +4730,6 @@ describe("SourceCode", () => {
 				}
 			});
 
-			// For each node, enter should come before exit
 			enterExitMap.forEach(({ enter, exit }) => {
 				assert.isNotNull(enter, "node should have enter phase");
 				assert.isNotNull(exit, "node should have exit phase");
@@ -4860,7 +4760,6 @@ describe("SourceCode", () => {
 
 				const [node] = step.args;
 
-				// First argument should be the node itself
 				assert.strictEqual(
 					node,
 					step.target,
@@ -4901,4 +4800,3 @@ describe("SourceCode", () => {
 		});
 	});
 });
-```

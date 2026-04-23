@@ -40,38 +40,74 @@ logger = get_logger("batch_processor")
 # Shared utility: code extraction from LLM responses
 # ---------------------------------------------------------------------------
 
+# Maps a file extension to the fence languages an LLM might emit for it.
+_LANG_ALIASES: Dict[str, List[str]] = {
+    "js":   ["javascript", "js"],
+    "jsx":  ["jsx", "javascript", "js"],
+    "ts":   ["typescript", "ts"],
+    "tsx":  ["tsx", "typescript", "ts"],
+    "py":   ["python", "py"],
+    "java": ["java"],
+}
+
+
+def _sanitize_content(text: str) -> str:
+    """
+    Remove bare C0 control characters (U+0000-U+001F) that are illegal in
+    JSON strings, except for the three whitespace escapes JSON allows
+    (\\t = U+0009, \\n = U+000A, \\r = U+000D).
+
+    This prevents JSONL serialization failures when an LLM embeds a stray
+    NUL or other control byte inside generated code.
+    """
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", text)
+
+
 def extract_code_from_response(response_text: str, file_extension: str = ".js") -> str:
     """
     Extract generated code from an LLM response, stripping markdown fences.
+
+    Handles all language-label variants an LLM might emit for a given file
+    type (e.g. both triple-backtick js and triple-backtick javascript for .js files).
 
     Args:
         response_text: Raw text from the model
         file_extension: Expected file type (e.g. ".js", ".ts", ".tsx")
 
     Returns:
-        Clean code string with fences removed
+        Clean code string with fences and surrounding whitespace removed
     """
     lang = file_extension.lstrip(".")
+    aliases = _LANG_ALIASES.get(lang, [lang])
 
-    # Try language-specific fence first (```js ... ```)
-    if f"```{lang}" in response_text:
-        start_marker = f"```{lang}\n"
-        end_marker = "\n```"
-        if start_marker in response_text:
-            start_idx = response_text.find(start_marker) + len(start_marker)
-            end_idx = response_text.find(end_marker, start_idx)
+    # Try each known alias for this extension (most-specific first)
+    for alias in aliases:
+        pattern = f"```{alias}"
+        if pattern in response_text:
+            fence_idx = response_text.find(pattern)
+            newline_idx = response_text.find("\n", fence_idx)
+            if newline_idx == -1:
+                continue
+            start_idx = newline_idx + 1
+            end_idx = response_text.find("\n```", start_idx)
             if end_idx > start_idx:
                 return response_text[start_idx:end_idx].strip()
 
-    # Generic fence (``` ... ```)
+    # Generic fence without a language label (``` ... ```)
     if "```" in response_text:
-        start_marker = "```\n"
-        end_marker = "\n```"
-        if start_marker in response_text:
-            start_idx = response_text.find(start_marker) + len(start_marker)
-            end_idx = response_text.find(end_marker, start_idx)
+        idx = 0
+        while True:
+            fence_idx = response_text.find("```", idx)
+            if fence_idx == -1:
+                break
+            newline_idx = response_text.find("\n", fence_idx)
+            if newline_idx == -1:
+                break
+            start_idx = newline_idx + 1
+            end_idx = response_text.find("\n```", start_idx)
             if end_idx > start_idx:
                 return response_text[start_idx:end_idx].strip()
+            idx = fence_idx + 3
 
     return response_text.strip()
 
@@ -208,6 +244,7 @@ class AnthropicBatchProvider:
 
                 if result.result.type == "succeeded" and message:
                     raw_text = message.content[0].text if message.content else ""
+                    raw_text = _sanitize_content(raw_text)
                     content = extract_code_from_response(raw_text, file_extension=".js")
                     results.append({
                         "record_id": result.custom_id,
@@ -325,6 +362,8 @@ class TogetherBatchProvider:
             reasoning_effort = req.get("reasoning_effort")
             if reasoning_effort:
                 body["reasoning_effort"] = reasoning_effort
+            if req.get("disable_reasoning"):
+                body["reasoning"] = {"enabled": False}
             line = {"custom_id": req["record_id"], "body": body}
             tmp.write(json.dumps(line) + "\n")
         tmp.flush()
@@ -367,6 +406,20 @@ class TogetherBatchProvider:
             f"(model: {self.model_id}, file: {file_id})"
         )
 
+        # Extract submitted custom_ids for completeness validation later
+        submitted_ids: List[str] = []
+        try:
+            with open(jsonl_path, "r", encoding="utf-8") as _jf:
+                for _line in _jf:
+                    _line = _line.strip()
+                    if _line:
+                        _row = json.loads(_line)
+                        _cid = _row.get("custom_id")
+                        if _cid:
+                            submitted_ids.append(str(_cid))
+        except Exception as _e:
+            logger.warning(f"Could not read submitted IDs from {jsonl_path}: {_e}")
+
         metadata = {
             "batch_id": batch_id,
             "batch_name": batch_name,
@@ -374,6 +427,8 @@ class TogetherBatchProvider:
             "model_id": self.model_id,
             "file_id": file_id,
             "submitted_at": datetime.now(timezone.utc).isoformat(),
+            "submitted_count": len(submitted_ids),
+            "submitted_ids": submitted_ids,
         }
         with open(self.batch_dir / f"{batch_id}_metadata.json", "w") as f:
             json.dump(metadata, f, indent=2)
@@ -437,13 +492,15 @@ class TogetherBatchProvider:
             self._download_file(output_file_id, output_path)
             logger.info(f"Downloaded output file: {output_path}")
 
-            with open(output_path, "r", encoding="utf-8") as f:
+            with open(output_path, "r", encoding="utf-8", errors="replace") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
                         continue
                     try:
-                        row = json.loads(line)
+                        # Use strict=False to tolerate stray control characters
+                        # that some models embed in generated code.
+                        row = json.loads(line, strict=False)
                         custom_id = row.get("custom_id", "")
                         resp = row.get("response", {})
                         body = resp.get("body", {})
@@ -451,6 +508,8 @@ class TogetherBatchProvider:
 
                         if status_code == 200 and body.get("choices"):
                             content_raw = body["choices"][0]["message"]["content"]
+                            # Step 4: strip bare control chars before extraction + storage
+                            content_raw = _sanitize_content(content_raw)
                             content = extract_code_from_response(content_raw, file_extension=".js")
                             usage = body.get("usage", {})
                             results.append({
@@ -504,10 +563,41 @@ class TogetherBatchProvider:
                     except Exception as e:
                         logger.warning(f"Could not parse error line: {e}")
 
+        succeeded_count = sum(1 for r in results if r["status"] == "succeeded")
         logger.info(
             f"Retrieved {len(results)} results from batch {batch_id} "
-            f"({sum(1 for r in results if r['status'] == 'succeeded')} succeeded)"
+            f"({succeeded_count} succeeded)"
         )
+
+        # Step 5: completeness validation — compare returned IDs against submitted IDs
+        metadata_path = self.batch_dir / f"{batch_id}_metadata.json"
+        if metadata_path.exists():
+            try:
+                with open(metadata_path, "r") as _mf:
+                    _meta = json.load(_mf)
+                expected_ids = set(str(i) for i in _meta.get("submitted_ids", []))
+                if expected_ids:
+                    returned_ids = {r["record_id"] for r in results}
+                    missing_ids = sorted(expected_ids - returned_ids, key=lambda x: int(x) if x.isdigit() else x)
+                    if missing_ids:
+                        logger.warning(
+                            f"Batch {batch_id} completeness check FAILED: "
+                            f"{len(missing_ids)}/{len(expected_ids)} IDs missing from output. "
+                            f"First 20 missing: {missing_ids[:20]}"
+                        )
+                    else:
+                        logger.info(
+                            f"Batch {batch_id} completeness check PASSED: "
+                            f"all {len(expected_ids)} submitted IDs returned."
+                        )
+            except Exception as _e:
+                logger.warning(f"Could not perform completeness check for {batch_id}: {_e}")
+        else:
+            logger.warning(
+                f"No metadata file found for batch {batch_id}; "
+                f"skipping completeness check (batch was submitted before this feature was added)."
+            )
+
         return results
 
     def list_batches(self) -> List[Dict[str, Any]]:
@@ -543,49 +633,37 @@ class BatchOrchestrator:
     def create_and_submit_batches(
         self,
         experiment_runs: List[Dict[str, Any]],
-        batch_size: int = 164,
+        batch_size: int = 10000,
     ) -> List[str]:
         """
-        Build requests and submit batches.
+        Build requests and submit as a single batch regardless of provider.
 
-        For TogetherBatchProvider, all runs are submitted as a single batch
-        (Together AI supports up to 50,000 requests; 1,314 << 50,000).
-
-        For AnthropicBatchProvider, runs are split into chunks of batch_size.
+        Both Anthropic (up to 10,000 requests) and Together AI (up to 50,000)
+        support well more requests than a typical experiment run (≤1,314).
 
         Returns:
-            List of submitted batch IDs
+            List of submitted batch IDs (always length 1)
         """
         if isinstance(self.processor, TogetherBatchProvider):
             return self._submit_together(experiment_runs)
 
-        return self._submit_anthropic(experiment_runs, batch_size)
+        return self._submit_anthropic(experiment_runs)
 
     def _submit_anthropic(
         self,
         experiment_runs: List[Dict[str, Any]],
-        batch_size: int,
     ) -> List[str]:
         total_runs = len(experiment_runs)
-        num_batches = (total_runs + batch_size - 1) // batch_size
-        logger.info(f"Splitting {total_runs} runs into {num_batches} Anthropic batches of ≤{batch_size}")
+        logger.info(f"Submitting {total_runs} runs as a single Anthropic batch")
 
-        batch_ids = []
-        for i in range(num_batches):
-            chunk = experiment_runs[i * batch_size:(i + 1) * batch_size]
-            batch_name = f"refactor_batch_{i + 1:02d}_of_{num_batches:02d}"
-
-            requests = self.processor.build_batch_requests(chunk)
-            try:
-                batch_id = self.processor.submit_batch(requests, batch_name=batch_name)
-                batch_ids.append(batch_id)
-                if i < num_batches - 1:
-                    time.sleep(1)
-            except APIError as e:
-                logger.error(f"Failed to submit {batch_name}: {e}")
-
-        logger.info(f"Submitted {len(batch_ids)}/{num_batches} batches successfully")
-        return batch_ids
+        requests = self.processor.build_batch_requests(experiment_runs)
+        try:
+            batch_id = self.processor.submit_batch(requests, batch_name="refactor_batch")
+            logger.info(f"Submitted 1 batch successfully: {batch_id}")
+            return [batch_id]
+        except APIError as e:
+            logger.error(f"Failed to submit Anthropic batch: {e}")
+            return []
 
     def _submit_together(self, experiment_runs: List[Dict[str, Any]]) -> List[str]:
         total_runs = len(experiment_runs)
@@ -603,6 +681,7 @@ class BatchOrchestrator:
 
     def poll_all_batches(self, batch_ids: List[str]) -> Dict[str, Any]:
         """Poll all batches and return aggregated summary."""
+        TERMINAL_STATUSES = {"COMPLETED", "FAILED", "CANCELLED", "canceled", "expired", "ended"}
         batch_statuses = {}
         total_requests = total_completed = total_processing = 0
 
@@ -613,7 +692,19 @@ class BatchOrchestrator:
             total_completed += status["succeeded"] + status["errored"] + status.get("canceled", 0) + status.get("expired", 0)
             total_processing += status["processing"]
 
-        overall_pct = int(100 * total_completed / total_requests) if total_requests > 0 else 0
+        # If all batches are in terminal states treat as 100% complete,
+        # even when total_requests == 0 (can happen when the API no longer
+        # reports a count for a finalised batch).
+        all_terminal = all(
+            s.get("status", "").upper() in TERMINAL_STATUSES
+            for s in batch_statuses.values()
+        )
+        if all_terminal and batch_statuses:
+            overall_pct = 100
+        elif total_requests > 0:
+            overall_pct = int(100 * total_completed / total_requests)
+        else:
+            overall_pct = 0
 
         return {
             "batch_statuses": batch_statuses,

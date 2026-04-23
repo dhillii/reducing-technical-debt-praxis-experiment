@@ -1,4 +1,3 @@
-```javascript
 import React, { useEffect, useState, useRef, memo } from 'react';
 import PropTypes from 'prop-types';
 import { Modal, ModalFooter, PopUpWarning, useGlobalContext, request } from 'strapi-helper-plugin';
@@ -9,305 +8,6 @@ import ModalHeader from '../../components/ModalHeader';
 import pluginId from '../../pluginId';
 import stepper from './stepper';
 import useModalContext from '../../hooks/useModalContext';
-
-/**
- * Confirms user action with a dialog
- * @param {string} messageId - Translation ID for confirmation message
- * @param {Function} formatMessage - Message formatter function
- * @returns {boolean} User confirmation result
- */
-const confirmAction = (messageId, formatMessage) => {
-  return globalThis.confirm(formatMessage({ id: messageId }));
-};
-
-/**
- * Determines if user should be prompted when leaving upload step
- * @param {boolean} hasFilesToUpload - Whether files are queued for upload
- * @param {string} elementName - Name of triggering element
- * @param {string} backButtonDestination - Destination for back navigation
- * @param {string} currentStep - Current modal step
- * @returns {boolean} Whether confirmation is needed
- */
-const shouldConfirmUploadStepExit = (
-  hasFilesToUpload,
-  elementName,
-  backButtonDestination,
-  currentStep
-) => {
-  return (
-    elementName === 'backButton' &&
-    backButtonDestination &&
-    currentStep === 'upload' &&
-    hasFilesToUpload
-  );
-};
-
-/**
- * Determines if navigation should proceed to back button destination
- * @param {string} elementName - Name of triggering element
- * @param {string} backButtonDestination - Destination for back navigation
- * @param {string} currentStep - Current modal step
- * @param {boolean} hasFilesToUpload - Whether files are queued for upload
- * @returns {boolean} Whether to navigate to back destination
- */
-const shouldNavigateToBackDestination = (
-  elementName,
-  backButtonDestination,
-  currentStep,
-  hasFilesToUpload
-) => {
-  return (
-    (elementName === 'backButton' &&
-      backButtonDestination &&
-      currentStep === 'upload') ||
-    (elementName === 'backButton' &&
-      backButtonDestination &&
-      currentStep === 'browse' &&
-      hasFilesToUpload)
-  );
-};
-
-/**
- * Determines if user should be prompted when closing modal with unsaved changes
- * @param {string} currentStep - Current modal step
- * @param {Array} selectedFiles - Currently selected files
- * @param {Array} initialSelectedFiles - Initial selected files
- * @param {Object} fileToEdit - File being edited
- * @param {Object} initialFileToEdit - Initial file being edited
- * @returns {boolean} Whether confirmation is needed
- */
-const shouldConfirmUnsavedChanges = (
-  currentStep,
-  selectedFiles,
-  initialSelectedFiles,
-  fileToEdit,
-  initialFileToEdit
-) => {
-  return (
-    (currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles)) ||
-    (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
-    (currentStep === 'edit' && selectedFiles.length > 0)
-  );
-};
-
-/**
- * Extracts error message from response or error object
- * @param {Object} err - Error object
- * @returns {string} Extracted error message
- */
-const extractErrorMessage = (err) => {
-  const status = get(err, 'response.status', get(err, 'status', null));
-  const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
-  return get(
-    err,
-    ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
-    get(err, ['response', 'payload', 'message'], statusText)
-  );
-};
-
-/**
- * Handles file deletion error notification
- * @param {Object} err - Error object
- * @param {Function} handleSetFileToEditError - Error handler
- */
-const handleFileDeletionError = (err, handleSetFileToEditError) => {
-  console.error(err);
-  const status = get(err, 'response.status', get(err, 'status', null));
-  const errorMessage = extractErrorMessage(err);
-  
-  strapi.notification.toggle({
-    type: 'warning',
-    message: errorMessage,
-  });
-
-  if (status) {
-    handleSetFileToEditError(errorMessage);
-  }
-};
-
-/**
- * Footer button renderer strategy map
- */
-const footerButtonStrategies = {
-  /**
-   * Renders upload step buttons
-   */
-  upload: (currentStep, filesToUploadLength, isFinishButtonDisabled, handleUploadFiles, formatMessage, getTrad) => {
-    if (currentStep !== 'upload') return null;
-    return (
-      <Button
-        type="button"
-        color="success"
-        onClick={handleUploadFiles}
-        disabled={isFinishButtonDisabled}
-      >
-        {formatMessage(
-          {
-            id: getTrad(
-              `modal.upload-list.footer.button.${
-                filesToUploadLength > 1 ? 'plural' : 'singular'
-              }`
-            ),
-          },
-          { number: filesToUploadLength }
-        )}
-      </Button>
-    );
-  },
-
-  /**
-   * Renders browse step next button
-   */
-  browseNext: (shouldDisplayNextButton, filesToDownload, handleClickNextButton, formatMessage, getTrad) => {
-    if (!shouldDisplayNextButton) return null;
-    return (
-      <Button
-        type="button"
-        color="primary"
-        onClick={handleClickNextButton}
-        disabled={isEmpty(filesToDownload)}
-      >
-        {formatMessage({ id: getTrad('button.next') })}
-      </Button>
-    );
-  },
-
-  /**
-   * Renders edit-new step buttons
-   */
-  editNew: (currentStep, handleSubmitEditNewFile, formatMessage) => {
-    if (currentStep !== 'edit-new') return null;
-    return (
-      <Button color="success" type="button" onClick={handleSubmitEditNewFile}>
-        {formatMessage({ id: 'form.button.finish' })}
-      </Button>
-    );
-  },
-
-  /**
-   * Renders edit step buttons
-   */
-  edit: (currentStep, isFormDisabled, areButtonsDisabledOnEditExistingFile, handleReplaceMedia, handleSubmitEditExistingFile, formatMessage, getTrad) => {
-    if (currentStep !== 'edit') return null;
-    return (
-      <div style={{ margin: 'auto 0' }}>
-        <Button
-          disabled={isFormDisabled || areButtonsDisabledOnEditExistingFile}
-          color="primary"
-          onClick={handleReplaceMedia}
-          style={{ marginRight: 10 }}
-        >
-          {formatMessage({ id: getTrad('control-card.replace-media') })}
-        </Button>
-
-        <Button
-          disabled={isFormDisabled || areButtonsDisabledOnEditExistingFile}
-          color="success"
-          type="button"
-          onClick={handleSubmitEditExistingFile}
-        >
-          {formatMessage({ id: 'form.button.finish' })}
-        </Button>
-      </div>
-    );
-  },
-
-  /**
-   * Renders list step buttons
-   */
-  list: (currentStep, handleSubmit, formatMessage) => {
-    if (currentStep !== 'list') return null;
-    return (
-      <Button color="success" type="button" onClick={handleSubmit}>
-        {formatMessage({ id: 'form.button.finish' })}
-      </Button>
-    );
-  },
-};
-
-/**
- * Renders footer buttons based on current step
- */
-const renderFooterButtons = (
-  currentStep,
-  filesToUploadLength,
-  isFinishButtonDisabled,
-  shouldDisplayNextButton,
-  filesToDownload,
-  isFormDisabled,
-  areButtonsDisabledOnEditExistingFile,
-  handleUploadFiles,
-  handleClickNextButton,
-  handleSubmitEditNewFile,
-  handleReplaceMedia,
-  handleSubmitEditExistingFile,
-  handleSubmit,
-  formatMessage,
-  getTrad
-) => {
-  return [
-    footerButtonStrategies.upload(
-      currentStep,
-      filesToUploadLength,
-      isFinishButtonDisabled,
-      handleUploadFiles,
-      formatMessage,
-      getTrad
-    ),
-    footerButtonStrategies.browseNext(
-      shouldDisplayNextButton,
-      filesToDownload,
-      handleClickNextButton,
-      formatMessage,
-      getTrad
-    ),
-    footerButtonStrategies.editNew(
-      currentStep,
-      handleSubmitEditNewFile,
-      formatMessage
-    ),
-    footerButtonStrategies.edit(
-      currentStep,
-      isFormDisabled,
-      areButtonsDisabledOnEditExistingFile,
-      handleReplaceMedia,
-      handleSubmitEditExistingFile,
-      formatMessage,
-      getTrad
-    ),
-    footerButtonStrategies.list(
-      currentStep,
-      handleSubmit,
-      formatMessage
-    ),
-  ].filter(Boolean);
-};
-
-/**
- * Component prop dispatcher based on current step
- */
-const componentPropStrategies = {
-  /**
-   * Determines delete file handler based on step
-   */
-  getDeleteHandler: (currentStep, handleClickDeleteFile, handleClickDeleteFileToUpload) => {
-    return currentStep === 'edit' ? handleClickDeleteFile : handleClickDeleteFileToUpload;
-  },
-
-  /**
-   * Determines submit handler based on step
-   */
-  getSubmitHandler: (currentStep, handleSubmitEditExistingFile, handleSubmitEditNewFile) => {
-    return currentStep === 'edit' ? handleSubmitEditExistingFile : handleSubmitEditNewFile;
-  },
-
-  /**
-   * Determines edit modal ref based on step
-   */
-  getEditModalRef: (currentStep, editModalRef) => {
-    return currentStep === 'edit' ? editModalRef : null;
-  },
-};
 
 const InputModalStepper = ({
   allowedActions,
@@ -370,11 +70,14 @@ const InputModalStepper = ({
 
   const handleReplaceMedia = () => {
     emitEvent('didReplaceMedia', { location: 'upload' });
+
     editModalRef.current.click();
   };
 
   useEffect(() => {
     if (currentStep === 'upload') {
+      // Go to the modal list view when file uploading is over
+
       if (filesToUploadLength === 0) {
         goToList();
       } else {
@@ -386,34 +89,93 @@ const InputModalStepper = ({
 
   const addFilesToUploadList = ({ target: { value } }) => {
     addFilesToUpload({ target: { value } });
+
     goNext();
   };
 
-  const goBack = (elementName = null) => {
-    const hasFilesToUpload = !isEmpty(filesToUpload);
+  /**
+   * Confirms user action with globalThis.confirm dialog
+   * @param {string} messageId - Translation ID for confirmation message
+   * @returns {boolean} - User confirmation result
+   */
+  const confirmUserAction = (messageId) => {
+    return globalThis.confirm(formatMessage({ id: messageId }));
+  };
 
-    if (shouldConfirmUploadStepExit(hasFilesToUpload, elementName, backButtonDestination, currentStep)) {
-      const confirmed = confirmAction(
-        getTrad('window.confirm.close-modal.files'),
-        formatMessage
-      );
+  /**
+   * Checks if user should be prompted when navigating from upload step
+   * @returns {boolean} - Whether to show confirmation
+   */
+  const shouldConfirmUploadNavigation = () => {
+    return !isEmpty(filesToUpload);
+  };
 
+  /**
+   * Handles navigation from upload step with confirmation
+   * @returns {void}
+   */
+  const handleUploadStepNavigation = () => {
+    if (shouldConfirmUploadNavigation()) {
+      const confirmed = confirmUserAction(getTrad('window.confirm.close-modal.files'));
       if (!confirmed) {
         return;
       }
+    }
 
+    goTo(backButtonDestination);
+    handleClearFilesToUploadAndDownload();
+  };
+
+  /**
+   * Checks if user should be prompted when navigating from browse step
+   * @returns {boolean} - Whether to show confirmation
+   */
+  const shouldConfirmBrowseNavigation = () => {
+    return !isEmpty(filesToUpload);
+  };
+
+  /**
+   * Handles navigation from browse step
+   * @returns {void}
+   */
+  const handleBrowseStepNavigation = () => {
+    if (shouldConfirmBrowseNavigation()) {
       goTo(backButtonDestination);
-      handleClearFilesToUploadAndDownload();
       return;
     }
 
-    if (
-      elementName === 'backButton' &&
-      backButtonDestination &&
-      currentStep === 'browse' &&
-      hasFilesToUpload
-    ) {
-      goTo(backButtonDestination);
+    goTo(prev);
+  };
+
+  /**
+   * Determines if current step is upload with back button destination
+   * @returns {boolean}
+   */
+  const isUploadStepWithBackButton = () => {
+    return currentStep === 'upload' && backButtonDestination;
+  };
+
+  /**
+   * Determines if current step is browse with back button destination
+   * @returns {boolean}
+   */
+  const isBrowseStepWithBackButton = () => {
+    return currentStep === 'browse' && backButtonDestination;
+  };
+
+  const goBack = (elementName = null) => {
+    if (elementName !== 'backButton') {
+      goTo(prev);
+      return;
+    }
+
+    if (isUploadStepWithBackButton()) {
+      handleUploadStepNavigation();
+      return;
+    }
+
+    if (isBrowseStepWithBackButton()) {
+      handleBrowseStepNavigation();
       return;
     }
 
@@ -423,6 +185,7 @@ const InputModalStepper = ({
   const goNext = () => {
     if (next === null) {
       onToggle();
+
       return;
     }
 
@@ -443,6 +206,7 @@ const InputModalStepper = ({
 
     if (currentStep === 'edit-new') {
       handleResetFileToEdit();
+
       goNext();
     }
   };
@@ -459,6 +223,7 @@ const InputModalStepper = ({
 
   const handleGoToAddBrowseFiles = () => {
     handleCleanFilesError();
+
     goBack();
   };
 
@@ -474,21 +239,107 @@ const InputModalStepper = ({
     goNext();
   };
 
+  /**
+   * Extracts error message from response with fallback chain
+   * @param {Error} err - Error object
+   * @returns {string} - Extracted error message
+   */
+  const extractErrorMessage = (err) => {
+    return get(
+      err,
+      ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
+      get(err, ['response', 'payload', 'message'], get(err, 'response.statusText', get(err, 'statusText', null)))
+    );
+  };
+
+  /**
+   * Extracts HTTP status from error response
+   * @param {Error} err - Error object
+   * @returns {number|null} - HTTP status code
+   */
+  const extractErrorStatus = (err) => {
+    return get(err, 'response.status', get(err, 'status', null));
+  };
+
+  /**
+   * Handles file deletion error notification
+   * @param {Error} err - Error object
+   * @returns {void}
+   */
+  const handleFileDeletionError = (err) => {
+    console.error(err);
+
+    const status = extractErrorStatus(err);
+    const errorMessage = extractErrorMessage(err);
+    
+    globalThis.strapi.notification.toggle({
+      type: 'warning',
+      message: errorMessage,
+    });
+
+    if (status) {
+      handleSetFileToEditError(errorMessage);
+    }
+  };
+
   const handleCloseModalWarning = async () => {
     if (shouldDeleteFile) {
       const { id } = fileToEdit;
 
       try {
         const requestURL = getRequestUrl(`files/${id}`);
+
         await request(requestURL, { method: 'DELETE' });
+
         setShouldDeleteFile(false);
 
+        // Remove file from selected files on delete and go back to the list.
         handleFileSelection({ target: { name: id } });
         goToList();
       } catch (err) {
-        handleFileDeletionError(err, handleSetFileToEditError);
+        handleFileDeletionError(err);
       }
     }
+  };
+
+  /**
+   * Determines if file was cropped by checking if it's a File instance
+   * @param {File|null} file - File object to check
+   * @returns {boolean}
+   */
+  const didCropFile = (file) => {
+    return file instanceof File;
+  };
+
+  /**
+   * Builds request URL for file submission
+   * @param {boolean} shouldDuplicateMedia - Whether to duplicate media
+   * @param {string} id - File ID
+   * @returns {string} - Request URL
+   */
+  const buildFileSubmissionUrl = (shouldDuplicateMedia, id) => {
+    return shouldDuplicateMedia ? `/${pluginId}` : `/${pluginId}?id=${id}`;
+  };
+
+  /**
+   * Handles file submission error with status-specific logic
+   * @param {Error} err - Error object
+   * @param {number|null} status - HTTP status code
+   * @returns {string} - Error message to display
+   */
+  const handleFileSubmissionError = (err, status) => {
+    let errorMessage = extractErrorMessage(err);
+
+    // TODO fix errors globally when the back-end sends readable one
+    if (status === 413) {
+      errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
+    }
+
+    if (status) {
+      handleSetFileToEditError(errorMessage);
+    }
+
+    return errorMessage;
   };
 
   const handleSubmitEditExistingFile = async (
@@ -511,11 +362,13 @@ const InputModalStepper = ({
     const headers = {};
     const formData = new FormData();
 
-    const didCropFile = file instanceof File;
+    // If the file has been cropped we need to add it to the formData
+    // otherwise we just don't send it
+    const hasCroppedFile = didCropFile(file);
     const { abortController, id, fileInfo } = fileToEdit;
-    const requestURL = shouldDuplicateMedia ? `/${pluginId}` : `/${pluginId}?id=${id}`;
+    const requestURL = buildFileSubmissionUrl(shouldDuplicateMedia, id);
 
-    if (didCropFile) {
+    if (hasCroppedFile) {
       formData.append('files', file);
     }
 
@@ -537,42 +390,49 @@ const InputModalStepper = ({
       handleEditExistingFile(editedFile);
       goToList();
     } catch (err) {
-      const status = get(err, 'response.status', get(err, 'status', null));
-      let errorMessage = extractErrorMessage(err);
-
-      if (status === 413) {
-        errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
-      }
-
-      if (status) {
-        handleSetFileToEditError(errorMessage);
-      }
+      const status = extractErrorStatus(err);
+      handleFileSubmissionError(err, status);
     }
   };
 
+  /**
+   * Checks if user has unsaved files to upload
+   * @returns {boolean}
+   */
+  const hasUnsavedFilesToUpload = () => {
+    return filesToUploadLength > 0;
+  };
+
+  /**
+   * Checks if user has unsaved changes in list step
+   * @returns {boolean}
+   */
+  const hasUnsavedListChanges = () => {
+    return currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles);
+  };
+
+  /**
+   * Checks if user has unsaved changes in edit step
+   * @returns {boolean}
+   */
+  const hasUnsavedEditChanges = () => {
+    return (
+      (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
+      (currentStep === 'edit' && selectedFiles.length > 0)
+    );
+  };
+
   const handleToggle = () => {
-    if (filesToUploadLength > 0) {
-      const confirmed = confirmAction(
-        getTrad('window.confirm.close-modal.files'),
-        formatMessage
-      );
+    if (hasUnsavedFilesToUpload()) {
+      const confirmed = confirmUserAction(getTrad('window.confirm.close-modal.files'));
 
       if (!confirmed) {
         return;
       }
     }
 
-    if (shouldConfirmUnsavedChanges(
-      currentStep,
-      selectedFiles,
-      initialSelectedFiles,
-      fileToEdit,
-      initialFileToEdit
-    )) {
-      const confirmed = confirmAction(
-        getTrad('window.confirm.close-modal.file'),
-        formatMessage
-      );
+    if (hasUnsavedListChanges() || hasUnsavedEditChanges()) {
+      const confirmed = confirmUserAction(getTrad('window.confirm.close-modal.file'));
 
       if (!confirmed) {
         return;
@@ -582,52 +442,102 @@ const InputModalStepper = ({
     onToggle(true);
   };
 
-  const shouldDisplayNextButton = currentStep === 'browse' && displayNextButton;
-  const isFinishButtonDisabled = filesToUpload.some(file => file.isDownloading || file.isUploading);
-  const areButtonsDisabledOnEditExistingFile =
-    currentStep === 'edit' && fileToEdit.isUploading === true;
+  /**
+   * Footer button renderer strategy map
+   */
+  const footerButtonStrategies = {
+    upload: () => (
+      <Button
+        type="button"
+        color="success"
+        onClick={handleUploadFiles}
+        disabled={filesToUpload.some(file => file.isDownloading || file.isUploading)}
+      >
+        {formatMessage(
+          {
+            id: getTrad(
+              `modal.upload-list.footer.button.${
+                filesToUploadLength > 1 ? 'plural' : 'singular'
+              }`
+            ),
+          },
+          { number: filesToUploadLength }
+        )}
+      </Button>
+    ),
+    'edit-new': () => (
+      <Button color="success" type="button" onClick={handleSubmitEditNewFile}>
+        {formatMessage({ id: 'form.button.finish' })}
+      </Button>
+    ),
+    edit: () => {
+      const isDisabled = isFormDisabled || (currentStep === 'edit' && fileToEdit.isUploading === true);
+      return (
+        <div style={{ margin: 'auto 0' }}>
+          <Button
+            disabled={isDisabled}
+            color="primary"
+            onClick={handleReplaceMedia}
+            style={{ marginRight: 10 }}
+          >
+            {formatMessage({ id: getTrad('control-card.replace-media') })}
+          </Button>
 
-  const footerButtons = renderFooterButtons(
-    currentStep,
-    filesToUploadLength,
-    isFinishButtonDisabled,
-    shouldDisplayNextButton,
-    filesToDownload,
-    isFormDisabled,
-    areButtonsDisabledOnEditExistingFile,
-    handleUploadFiles,
-    handleClickNextButton,
-    handleSubmitEditNewFile,
-    handleReplaceMedia,
-    handleSubmitEditExistingFile,
-    handleSubmit,
-    formatMessage,
-    getTrad
-  );
+          <Button
+            disabled={isDisabled}
+            color="success"
+            type="button"
+            onClick={handleSubmitEditExistingFile}
+          >
+            {formatMessage({ id: 'form.button.finish' })}
+          </Button>
+        </div>
+      );
+    },
+    list: () => (
+      <Button color="success" type="button" onClick={handleSubmit}>
+        {formatMessage({ id: 'form.button.finish' })}
+      </Button>
+    ),
+  };
 
-  const deleteHandler = componentPropStrategies.getDeleteHandler(
-    currentStep,
-    handleClickDeleteFile,
-    handleClickDeleteFileToUpload
-  );
+  /**
+   * Renders footer buttons based on current step
+   * @returns {React.ReactNode|null}
+   */
+  const renderFooterButtons = () => {
+    const strategy = footerButtonStrategies[currentStep];
+    if (strategy) {
+      return strategy();
+    }
 
-  const submitHandler = componentPropStrategies.getSubmitHandler(
-    currentStep,
-    handleSubmitEditExistingFile,
-    handleSubmitEditNewFile
-  );
+    if (currentStep === 'browse' && displayNextButton) {
+      return (
+        <Button
+          type="button"
+          color="primary"
+          onClick={handleClickNextButton}
+          disabled={isEmpty(filesToDownload)}
+        >
+          {formatMessage({ id: getTrad('button.next') })}
+        </Button>
+      );
+    }
 
-  const editRef = componentPropStrategies.getEditModalRef(currentStep, editModalRef);
+    return null;
+  };
 
   return (
     <>
       <Modal isOpen={isOpen} onToggle={handleToggle} onClosed={handleCloseModal}>
+        {/* header title */}
         <ModalHeader
           goBack={goBack}
           HeaderComponent={HeaderComponent}
           headerBreadcrumbs={headerBreadcrumbs}
           withBackButton={withBackButton}
         />
+        {/* body of the modal */}
         {Component && (
           <Component
             {...allowedActions}
@@ -643,12 +553,16 @@ const InputModalStepper = ({
             onAbortUpload={handleAbortUpload}
             onChange={handleFileToEditChange}
             onClickCancelUpload={handleCancelFileToUpload}
-            onClickDeleteFileToUpload={deleteHandler}
-            onSubmitEdit={submitHandler}
+            onClickDeleteFileToUpload={
+              currentStep === 'edit' ? handleClickDeleteFile : handleClickDeleteFileToUpload
+            }
+            onSubmitEdit={
+              currentStep === 'edit' ? handleSubmitEditExistingFile : handleSubmitEditNewFile
+            }
             onClickEditNewFile={handleGoToEditNewFile}
             onGoToAddBrowseFiles={handleGoToAddBrowseFiles}
             onSubmitEditNewFile={handleSubmitEditNewFile}
-            ref={editRef}
+            ref={currentStep === 'edit' ? editModalRef : null}
             toggleDisableForm={handleFormDisabled}
             onToggle={handleToggle}
             setCropResult={handleSetCropResult}
@@ -662,7 +576,7 @@ const InputModalStepper = ({
             <Button type="button" color="cancel" onClick={handleToggle}>
               {formatMessage({ id: 'app.components.Button.cancel' })}
             </Button>
-            {footerButtons}
+            {renderFooterButtons()}
           </section>
         </ModalFooter>
       </Modal>
@@ -708,4 +622,3 @@ InputModalStepper.propTypes = {
 };
 
 export default memo(InputModalStepper);
-```

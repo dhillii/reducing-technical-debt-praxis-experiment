@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Tests for FileReport class
  * @author Nicholas C. Zakas
@@ -55,6 +54,8 @@ function mockRuleMapper() {
 	};
 }
 
+const language = { columnStart: 0, lineStart: 1 };
+
 /**
  * Asserts that a message is correctly formatted.
  * @param {FileReport} fileReport The file report instance
@@ -66,8 +67,6 @@ function assertMessage(fileReport, expected, ...args) {
 	fileReport.addRuleMessage("foo-rule", 2, ...args);
 	assert.strictEqual(fileReport.messages[0].message, expected);
 }
-
-const language = { columnStart: 0, lineStart: 1 };
 
 //------------------------------------------------------------------------------
 // Tests
@@ -1844,4 +1843,3 @@ describe("FileReport", () => {
 		});
 	});
 });
-```

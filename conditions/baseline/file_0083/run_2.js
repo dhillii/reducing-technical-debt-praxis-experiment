@@ -1,4 +1,3 @@
-```typescript
 import router, { useRouter } from 'next/router'
 import {
   type FormEvent,
@@ -107,7 +106,8 @@ function DeleteButton({
         >
           <Text>
             Are you sure you want to delete{' '}
-            <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>? This action cannot be undone.
+            <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>
+            ? This action cannot be undone.
           </Text>
         </AlertDialog>
       </DialogTrigger>
@@ -446,4 +446,3 @@ function ItemPage({ listKey }: ItemPageProps) {
     </PageContainer>
   )
 }
-```

@@ -1,4 +1,3 @@
-```javascript
 const ObjectID = require('bson-objectid').default;
 const {ValidationError} = require('@tryghost/errors');
 
@@ -75,7 +74,7 @@ module.exports = class Tier {
         if (newStatus === this.#status) {
             return;
         }
-        this.#emitStatusChangeEvent(newStatus);
+        this.#pushStatusChangeEvent(newStatus);
         this.#status = newStatus;
     }
 
@@ -120,13 +119,13 @@ module.exports = class Tier {
             'month': () => this.monthlyPrice,
             'year': () => this.yearlyPrice
         };
-
+        
         if (!(cadence in priceMap)) {
             throw new ValidationError({
                 message: 'Invalid cadence'
             });
         }
-
+        
         return priceMap[cadence]();
     }
 
@@ -205,18 +204,6 @@ module.exports = class Tier {
     }
 
     /**
-     * Emits appropriate event based on status change
-     * @private
-     */
-    #emitStatusChangeEvent(newStatus) {
-        const eventMap = {
-            'active': () => TierActivatedEvent.create({tier: this}),
-            'archived': () => TierArchivedEvent.create({tier: this})
-        };
-        this.events.push(eventMap[newStatus]());
-    }
-
-    /**
      * @private
      */
     constructor(data) {
@@ -238,44 +225,43 @@ module.exports = class Tier {
     }
 
     /**
+     * Pushes appropriate status change event based on new status
+     * @private
+     */
+    #pushStatusChangeEvent(newStatus) {
+        const eventMap = {
+            'active': () => TierActivatedEvent.create({tier: this}),
+            'archived': () => TierArchivedEvent.create({tier: this})
+        };
+        this.events.push(eventMap[newStatus]());
+    }
+
+    /**
      * @param {any} data
      * @returns {Promise<Tier>}
      */
     static async create(data) {
-        const id = this.#parseId(data.id);
-        const name = validateName(data.name);
-        const slug = validateSlug(data.slug);
-        const description = validateDescription(data.description);
-        const welcomePageURL = validateWelcomePageURL(data.welcomePageURL);
-        const status = validateStatus(data.status || 'active');
-        const visibility = validateVisibility(data.visibility || 'public');
-        const type = validateType(data.type || 'paid');
-        const currency = validateCurrency(data.currency || null, type);
-        const trialDays = validateTrialDays(data.trialDays || 0, type);
-        const monthlyPrice = validateMonthlyPrice(data.monthlyPrice || null, type);
-        const yearlyPrice = validateYearlyPrice(data.yearlyPrice || null , type);
-        const createdAt = validateCreatedAt(data.createdAt);
-        const updatedAt = validateUpdatedAt(data.updatedAt);
-        const benefits = validateBenefits(data.benefits);
-
+        const id = this.#resolveId(data.id);
         const isNew = !data.id;
+
+        const validatedData = this.#validateTierData(data);
 
         const tier = new Tier({
             id,
-            slug,
-            name,
-            description,
-            welcome_page_url: welcomePageURL,
-            status,
-            visibility,
-            type,
-            trial_days: trialDays,
-            currency,
-            monthly_price: monthlyPrice,
-            yearly_price: yearlyPrice,
-            created_at: createdAt,
-            updated_at: updatedAt,
-            benefits
+            slug: validatedData.slug,
+            name: validatedData.name,
+            description: validatedData.description,
+            welcome_page_url: validatedData.welcomePageURL,
+            status: validatedData.status,
+            visibility: validatedData.visibility,
+            type: validatedData.type,
+            trial_days: validatedData.trialDays,
+            currency: validatedData.currency,
+            monthly_price: validatedData.monthlyPrice,
+            yearly_price: validatedData.yearlyPrice,
+            created_at: validatedData.createdAt,
+            updated_at: validatedData.updatedAt,
+            benefits: validatedData.benefits
         });
 
         if (isNew) {
@@ -286,10 +272,10 @@ module.exports = class Tier {
     }
 
     /**
-     * Parses and validates tier ID from various formats
+     * Resolves and validates tier ID from various input formats
      * @private
      */
-    static #parseId(id) {
+    static #resolveId(id) {
         if (!id) {
             return new ObjectID();
         }
@@ -303,25 +289,30 @@ module.exports = class Tier {
             message: 'Invalid ID provided for Tier'
         });
     }
-};
 
-/**
- * Validates string length constraints
- * @private
- */
-function validateStringLength(value, maxLength, fieldName) {
-    if (typeof value !== 'string') {
-        throw new ValidationError({
-            message: `${fieldName} must be a string with a maximum of ${maxLength} characters`
-        });
+    /**
+     * Validates all tier data fields
+     * @private
+     */
+    static #validateTierData(data) {
+        return {
+            name: validateName(data.name),
+            slug: validateSlug(data.slug),
+            description: validateDescription(data.description),
+            welcomePageURL: validateWelcomePageURL(data.welcomePageURL),
+            status: validateStatus(data.status || 'active'),
+            visibility: validateVisibility(data.visibility || 'public'),
+            type: validateType(data.type || 'paid'),
+            currency: validateCurrency(data.currency || null, validateType(data.type || 'paid')),
+            trialDays: validateTrialDays(data.trialDays || 0, validateType(data.type || 'paid')),
+            monthlyPrice: validateMonthlyPrice(data.monthlyPrice || null, validateType(data.type || 'paid')),
+            yearlyPrice: validateYearlyPrice(data.yearlyPrice || null, validateType(data.type || 'paid')),
+            createdAt: validateCreatedAt(data.createdAt),
+            updatedAt: validateUpdatedAt(data.updatedAt),
+            benefits: validateBenefits(data.benefits)
+        };
     }
-    if (value.length > maxLength) {
-        throw new ValidationError({
-            message: `${fieldName} must be a string with a maximum of ${maxLength} characters`
-        });
-    }
-    return value;
-}
+};
 
 function validateSlug(value) {
     if (!value || typeof value !== 'string' || value.length > 191) {
@@ -333,7 +324,19 @@ function validateSlug(value) {
 }
 
 function validateName(value) {
-    return validateStringLength(value, 191, 'Tier name');
+    if (typeof value !== 'string') {
+        throw new ValidationError({
+            message: 'Tier name must be a string with a maximum of 191 characters'
+        });
+    }
+
+    if (value.length > 191) {
+        throw new ValidationError({
+            message: 'Tier name must be a string with a maximum of 191 characters'
+        });
+    }
+
+    return value;
 }
 
 function validateWelcomePageURL(value) {
@@ -352,52 +355,48 @@ function validateDescription(value) {
     if (!value) {
         return null;
     }
-    return validateStringLength(value, 191, 'Tier description');
-}
-
-/**
- * Validates enum values against allowed set
- * @private
- */
-function validateEnum(value, allowedValues, fieldName) {
-    if (!allowedValues.includes(value)) {
+    if (typeof value !== 'string') {
         throw new ValidationError({
-            message: `${fieldName} must be either "${allowedValues.join('" or "')}"`
+            message: 'Tier description must be a string with a maximum of 191 characters'
+        });
+    }
+    if (value.length > 191) {
+        throw new ValidationError({
+            message: 'Tier description must be a string with a maximum of 191 characters'
         });
     }
     return value;
 }
 
 function validateStatus(value) {
-    return validateEnum(value, ['active', 'archived'], 'Tier status');
+    const validStatuses = ['active', 'archived'];
+    if (!validStatuses.includes(value)) {
+        throw new ValidationError({
+            message: 'Tier status must be either "active" or "archived"'
+        });
+    }
+    return value;
 }
 
 function validateVisibility(value) {
-    return validateEnum(value, ['public', 'none'], 'Tier visibility');
+    const validVisibilities = ['public', 'none'];
+    if (!validVisibilities.includes(value)) {
+        throw new ValidationError({
+            message: 'Tier visibility must be either "public" or "none"'
+        });
+    }
+    return value;
 }
 
 function validateType(value) {
-    return validateEnum(value, ['paid', 'free'], 'Tier type');
-}
-
-/**
- * Type-specific validators for tier properties
- * @private
- */
-const typeValidators = {
-    free: {
-        trialDays: () => 0,
-        currency: () => null,
-        monthlyPrice: () => null,
-        yearlyPrice: () => null
-    },
-    paid: {
-        trialDays: (value) => value || 0,
-        currency: (value) => value,
-        monthlyPrice: (value) => value || 500,
-        yearlyPrice: (value) => value || 5000
+    const validTypes = ['paid', 'free'];
+    if (!validTypes.includes(value)) {
+        throw new ValidationError({
+            message: 'Tier type must be either "paid" or "free"'
+        });
     }
-};
+    return value;
+}
 
 function validateTrialDays(value, type) {
     if (type === 'free') {
@@ -441,21 +440,37 @@ function validateCurrency(value, type) {
     return value.toUpperCase();
 }
 
-/**
- * Validates price constraints
- * @private
- */
-function validatePrice(value, type, fieldName) {
+function validateMonthlyPrice(value, type) {
     if (type === 'free') {
         if (value !== null) {
             throw new ValidationError({
-                message: `Free Tiers cannot have a ${fieldName}`
+                message: 'Free Tiers cannot have a monthly price'
             });
         }
         return null;
     }
+    return validatePriceValue(value, 500);
+}
+
+function validateYearlyPrice(value, type) {
+    if (type === 'free') {
+        if (value !== null) {
+            throw new ValidationError({
+                message: 'Free Tiers cannot have a yearly price'
+            });
+        }
+        return null;
+    }
+    return validatePriceValue(value, 5000);
+}
+
+/**
+ * Validates price value with default and constraints
+ * @private
+ */
+function validatePriceValue(value, defaultPrice) {
     if (!value) {
-        return fieldName === 'monthly price' ? 500 : 5000;
+        return defaultPrice;
     }
     if (!Number.isSafeInteger(value)) {
         throw new ValidationError({
@@ -473,14 +488,6 @@ function validatePrice(value, type, fieldName) {
         });
     }
     return value;
-}
-
-function validateMonthlyPrice(value, type) {
-    return validatePrice(value, type, 'monthly price');
-}
-
-function validateYearlyPrice(value, type) {
-    return validatePrice(value, type, 'yearly price');
 }
 
 function validateCreatedAt(value) {
@@ -518,4 +525,3 @@ function validateBenefits(value) {
     }
     return value;
 }
-```

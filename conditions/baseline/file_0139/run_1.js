@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /**
@@ -595,4 +594,3 @@ module.exports = {
   connect,
   buildRedirectUri,
 };
-```

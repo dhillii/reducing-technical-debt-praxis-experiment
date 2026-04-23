@@ -1,4 +1,3 @@
-```javascript
 import BulkAddMembersLabelModal from '../components/members/modals/bulk-add-label';
 import BulkDeleteMembersModal from '../components/members/modals/bulk-delete';
 import BulkRemoveMembersLabelModal from '../components/members/modals/bulk-remove-label';
@@ -35,6 +34,9 @@ const STRIPE_FILTER_TYPES = [
     'conversion',
     'offer_redemptions'
 ];
+
+const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
+const MULTIPLE_GROUPS_RE = /\).*\(/;
 
 export default class MembersController extends Controller {
     @service ajax;
@@ -241,7 +243,11 @@ export default class MembersController extends Controller {
 
         const stripeFilters = this.filters.filter(f => STRIPE_FILTER_TYPES.includes(f.type));
 
-        return stripeFilters.length === 0;
+        if (stripeFilters && stripeFilters.length >= 1) {
+            return false;
+        }
+
+        return true;
     }
 
     includeTierQuery() {
@@ -251,18 +257,13 @@ export default class MembersController extends Controller {
         });
     }
 
-    // Query building ----------------------------------------------------------
-
     /**
-     * Normalizes filter parameter by removing surrounding brackets if it's a single filter
+     * Normalizes filter parameter by removing surrounding brackets if it's a single filter group
      */
     _normalizeFilterParam(filterParam) {
         if (!filterParam) {
             return filterParam;
         }
-
-        const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
-        const MULTIPLE_GROUPS_RE = /\).*\(/;
 
         if (BRACKETS_SURROUNDED_RE.test(filterParam) && !MULTIPLE_GROUPS_RE.test(filterParam)) {
             return filterParam.slice(1, -1);
@@ -282,7 +283,11 @@ export default class MembersController extends Controller {
         }
 
         if (paidParam !== null) {
-            filters.push(paidParam === 'true' ? 'status:-free' : 'status:free');
+            if (paidParam === 'true') {
+                filters.push('status:-free');
+            } else {
+                filters.push('status:free');
+            }
         }
 
         if (filterParam) {
@@ -293,18 +298,14 @@ export default class MembersController extends Controller {
     }
 
     /**
-     * Builds search query object from search parameter
+     * Constructs API query object with filters and search parameters
      */
-    _buildSearchQuery(searchParam) {
-        return searchParam ? {search: searchParam} : {};
-    }
-
     getApiQueryObject({params, extraFilters = []} = {}) {
         let {label, paidParam, searchParam, filterParam} = params ? params : this;
 
         filterParam = this._normalizeFilterParam(filterParam);
         const filters = this._buildFilterArray(label, paidParam, filterParam, extraFilters);
-        const searchQuery = this._buildSearchQuery(searchParam);
+        const searchQuery = searchParam ? {search: searchParam} : {};
 
         return {
             filter: filters.join('+'),
@@ -393,7 +394,7 @@ export default class MembersController extends Controller {
     }
 
     /**
-     * Handles the export data action by fetching and downloading member data as CSV
+     * Initiates CSV export of members based on current filters
      */
     @action
     exportData() {
@@ -419,20 +420,20 @@ export default class MembersController extends Controller {
     }
 
     /**
-     * Creates and triggers a download for the given blob
+     * Creates and triggers download of a blob as a CSV file
      */
     _downloadBlob(blob) {
         const blobUrl = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
+        const a = document.createElement('a');
         const datetime = (new Date()).toJSON().substring(0, 10);
         
-        link.href = blobUrl;
-        link.download = `members.${datetime}.csv`;
-        document.body.appendChild(link);
+        a.href = blobUrl;
+        a.download = `members.${datetime}.csv`;
+        document.body.appendChild(a);
         
-        link.click();
+        a.click();
         
-        link.remove();
+        a.remove();
         URL.revokeObjectURL(blobUrl);
     }
 
@@ -502,7 +503,7 @@ export default class MembersController extends Controller {
     }
 
     /**
-     * Handles post-deletion cleanup: resets state, clears filters, and reloads list
+     * Handles post-deletion cleanup: resets filters and reloads member list
      */
     _completeBulkDelete() {
         this.store.unloadAll('member');
@@ -560,13 +561,9 @@ export default class MembersController extends Controller {
     }
 
     /**
-     * Builds the query object for fetching members with pagination
+     * Builds query parameters for member fetch request
      */
-    _buildMembersQuery(params, range, query, orderParam) {
-        const searchQuery = this.getApiQueryObject({
-            params,
-            extraFilters: [`created_at:<='${moment.utc(this._startDate).format('YYYY-MM-DD HH:mm:ss')}'`]
-        });
+    _buildMemberQuery(params, orderParam, range, searchQuery, query) {
         const order = orderParam ? `${orderParam} desc` : `created_at desc`;
         const includes = ['labels', 'tiers'];
 
@@ -601,9 +598,14 @@ export default class MembersController extends Controller {
         this._startDate = startDate;
 
         this.members = yield this.ellaSparse.array((range = {}, query = {}) => {
-            const builtQuery = this._buildMembersQuery(params, range, query, orderParam);
+            const searchQuery = this.getApiQueryObject({
+                params,
+                extraFilters: [`created_at:<='${moment.utc(this._startDate).format('YYYY-MM-DD HH:mm:ss')}'`]
+            });
 
-            return this.store.query('member', builtQuery).then((result) => {
+            const memberQuery = this._buildMemberQuery(params, orderParam, range, searchQuery, query);
+
+            return this.store.query('member', memberQuery).then((result) => {
                 return {
                     data: result,
                     total: result.meta.pagination.total
@@ -637,4 +639,3 @@ export default class MembersController extends Controller {
         this.fetchMembersTask.perform(params);
     }
 }
-```

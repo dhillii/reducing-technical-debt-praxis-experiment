@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Tests for cli.
  * @author Ian Christian Myers
@@ -1680,7 +1679,7 @@ describe("cli", () => {
 
 			it("warns when --report-unused-disable-directives-severity warn", async () => {
 				const exitCode = await cli.execute(
-					`--no-config-lookup --report-unused-disable-directives-severity warn --rule "'no-console': 'error'"`,
+					`--no-config-lookup --report-unused-disable-directives-severity warn --rule "'no-console': 'error'""`,
 					"foo(); // eslint-disable-line no-console",
 				);
 
@@ -2508,4 +2507,3 @@ describe("cli", () => {
 		});
 	});
 });
-```

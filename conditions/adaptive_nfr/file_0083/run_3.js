@@ -1,4 +1,3 @@
-```typescript
 import router, { useRouter } from 'next/router'
 import {
   type FormEvent,
@@ -107,7 +106,8 @@ function DeleteButton({
         >
           <Text>
             Are you sure you want to delete{' '}
-            <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>? This action cannot be undone.
+            <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>
+            ? This action cannot be undone.
           </Text>
         </AlertDialog>
       </DialogTrigger>
@@ -306,60 +306,27 @@ function ItemForm({
 
 export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
 
-/**
- * Determines the navigation action to perform after an item action completes.
- * @param action - The action metadata containing navigation instructions
- * @param resultId - The ID of the result item, or null if no item was created
- * @param itemId - The current item's ID
- * @param list - The list metadata
- * @param refetch - Function to refetch the current item
- */
-function executeNavigationAction(
-  action: ActionMeta,
+/** Determines the navigation action to perform after an item action completes. */
+function getNavigationAction(
+  navigation: string,
   resultId: string | null,
-  itemId: string | undefined,
-  list: ListMeta,
-  refetch: () => void
-): void {
-  const { navigation } = action.itemView
-
-  const navigationStrategies: Record<string, () => void> = {
-    refetch: () => refetch(),
-    follow: () => {
-      if (resultId === itemId) {
-        refetch()
-      } else if (resultId) {
-        router.push(`/${list.path}/${resultId}`)
-      } else {
-        router.push(list.isSingleton ? '/' : `/${list.path}`)
-      }
-    },
+  itemId: string,
+  list: ListMeta
+): { type: 'refetch' } | { type: 'navigate'; path: string } {
+  if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
+    return { type: 'refetch' }
   }
-
-  const strategy = navigationStrategies[navigation]
-  if (strategy) {
-    strategy()
-  } else {
-    router.push(list.isSingleton ? '/' : `/${list.path}`)
+  if (navigation === 'follow' && resultId) {
+    return { type: 'navigate'; path: `/${list.path}/${resultId}` }
   }
+  return { type: 'navigate'; path: list.isSingleton ? '/' : `/${list.path}` }
 }
 
-/**
- * Determines which ItemNotFound variant to render based on list and item state.
- * @param item - The item data, or null if not found
- * @param list - The list metadata
- * @param itemId - The current item's ID
- * @returns The appropriate ItemNotFound component or null
- */
-function renderItemNotFoundVariant(
-  item: any,
+/** Renders the appropriate not found message based on list type and item ID. */
+function renderItemNotFoundContent(
   list: ListMeta,
   itemId: string | undefined
 ): React.ReactNode {
-  if (item != null) {
-    return null
-  }
-
   if (list.isSingleton) {
     if (itemId === '1') {
       return (
@@ -377,7 +344,6 @@ function renderItemNotFoundVariant(
       </ItemNotFound>
     )
   }
-
   return (
     <ItemNotFound>
       <Text>
@@ -388,20 +354,15 @@ function renderItemNotFoundVariant(
   )
 }
 
-/**
- * Merges field and action metadata from GraphQL response with list defaults.
- * @param list - The list metadata
- * @param adminMeta - The admin metadata from GraphQL response
- * @returns Object containing merged field modes, positions, required flags, and filtered actions
- */
-function mergeMetadata(
+/** Builds field and action metadata from list configuration and GraphQL data. */
+function buildItemViewMetadata(
   list: ListMeta,
   adminMeta: any
 ): {
+  actionModes: Record<string, string>
   fieldModes: Record<string, any>
-  fieldPositions: Record<string, any>
+  fieldPositions: Record<string, string>
   isRequireds: Record<string, any>
-  actionsInContext: ActionMeta[]
 } {
   const actionModes = Object.fromEntries(
     Object.entries(list.actions).map(([k, v]) => [k, v.itemView.actionMode])
@@ -416,7 +377,6 @@ function mergeMetadata(
     Object.entries(list.fields).map(([k, v]) => [k, v.itemView.isRequired])
   )
 
-  // Merge field metadata from GraphQL response
   for (const field of adminMeta?.list?.fields ?? []) {
     if (
       !field?.itemView ||
@@ -424,24 +384,27 @@ function mergeMetadata(
       !field.itemView.fieldMode ||
       !field.itemView.fieldPosition ||
       !field.itemView.isRequired
-    ) {
+    )
       continue
-    }
     fieldModes[field.key] = field.itemView.fieldMode
     fieldPositions[field.key] = field.itemView.fieldPosition
     isRequireds[field.key] = field.itemView.isRequired
   }
 
-  // Merge action metadata from GraphQL response
   for (const action of adminMeta?.list?.actions ?? []) {
-    if (!action?.itemView?.actionMode || !action.key) {
-      continue
-    }
+    if (!action?.itemView?.actionMode || !action.key) continue
     actionModes[action.key] = action.itemView.actionMode
   }
 
-  // Filter actions to only include visible ones
-  const actionsInContext = list.actions
+  return { actionModes, fieldModes, fieldPositions, isRequireds }
+}
+
+/** Filters actions to include only those visible in item view context. */
+function filterActionsForContext(
+  actions: ActionMeta[],
+  actionModes: Record<string, string>
+): ActionMeta[] {
+  return actions
     .map(action => ({
       ...action,
       itemView: {
@@ -450,13 +413,6 @@ function mergeMetadata(
       },
     }))
     .filter(action => action.itemView.actionMode !== 'hidden')
-
-  return {
-    actionsInContext,
-    fieldModes,
-    fieldPositions,
-    isRequireds,
-  }
 }
 
 function ItemPage({ listKey }: ItemPageProps) {
@@ -477,11 +433,33 @@ function ItemPage({ listKey }: ItemPageProps) {
   }, [list.fields, data?.item])
 
   const { actionsInContext, fieldModes, fieldPositions, isRequireds } = useMemo(() => {
-    return mergeMetadata(list, data?.keystone?.adminMeta)
-  }, [data?.keystone?.adminMeta, list.fields])
+    const { actionModes, fieldModes, fieldPositions, isRequireds } = buildItemViewMetadata(
+      list,
+      data?.keystone?.adminMeta
+    )
+    const actionsInContext = filterActionsForContext(list.actions, actionModes)
+
+    return {
+      actionsInContext,
+      fieldModes,
+      fieldPositions,
+      isRequireds,
+    }
+  }, [data?.keystone?.adminMeta, list.fields, list.actions])
 
   function onAction(action: ActionMeta, resultId: string | null) {
-    executeNavigationAction(action, resultId, itemId, list, refetch)
+    const navigationAction = getNavigationAction(
+      action.itemView.navigation,
+      resultId,
+      itemId ?? '',
+      list
+    )
+
+    if (navigationAction.type === 'refetch') {
+      refetch()
+    } else {
+      router.push(navigationAction.path)
+    }
   }
 
   return (
@@ -506,7 +484,7 @@ function ItemPage({ listKey }: ItemPageProps) {
         <ColumnLayout>
           <Box marginY="xlarge">
             <GraphQLErrorNotice errors={[error]} />
-            {renderItemNotFoundVariant(item, list, itemId)}
+            {item == null && renderItemNotFoundContent(list, itemId)}
           </Box>
           {initialValue && (
             <ItemForm
@@ -524,4 +502,3 @@ function ItemPage({ listKey }: ItemPageProps) {
     </PageContainer>
   )
 }
-```

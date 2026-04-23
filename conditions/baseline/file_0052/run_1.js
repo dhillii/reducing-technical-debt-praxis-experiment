@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const grunt = require('../grunt');
@@ -93,7 +92,7 @@ file.expand = function() {
   const args = grunt.util.toArray(arguments);
   // If the first argument is an options object, save those options to pass
   // into the file.glob.sync method.
-  const options = grunt.util.kindOf(args[0]) === 'object' ? args.shift() : {};
+  let options = grunt.util.kindOf(args[0]) === 'object' ? args.shift() : {};
   // Use the first argument if it's an Array, otherwise convert the arguments
   // object to an array and use that.
   const patterns = Array.isArray(args[0]) ? args[0] : args;
@@ -459,4 +458,3 @@ file.isPathInCwd = function() {
     return false;
   }
 };
-```

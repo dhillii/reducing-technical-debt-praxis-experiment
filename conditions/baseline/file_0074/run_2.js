@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Abstraction of JavaScript source code.
  * @author Nicholas C. Zakas
@@ -65,29 +64,6 @@ function createIsSpaceBetweenTest(code, expected, firstTokenIndex, secondTokenIn
 			sourceCode.isSpaceBetween(
 				sourceCode.ast.tokens[firstTokenIndex],
 				sourceCode.ast.tokens[secondTokenIndex],
-			),
-			expected,
-		);
-	};
-}
-
-/**
- * Create a test case for isSpaceBetween with reversed token order
- * @param {string} code The code to test
- * @param {boolean} expected The expected result
- * @param {number} firstTokenIndex Index of first token
- * @param {number} secondTokenIndex Index of second token
- * @returns {Function} Test function
- */
-function createReversedIsSpaceBetweenTest(code, expected, firstTokenIndex, secondTokenIndex) {
-	return () => {
-		const ast = espree.parse(code, DEFAULT_CONFIG),
-			sourceCode = new SourceCode(code, ast);
-
-		assert.strictEqual(
-			sourceCode.isSpaceBetween(
-				sourceCode.ast.tokens[secondTokenIndex],
-				sourceCode.ast.tokens[firstTokenIndex],
 			),
 			expected,
 		);
@@ -544,11 +520,33 @@ describe("SourceCode", () => {
 				["let/*\n*/foo", false],
 			].forEach(([code, expected]) => {
 				describe("when the first given is located before the second", () => {
-					it(code, createIsSpaceBetweenTest(code, expected, 0, -1));
+					it(code, () => {
+						const ast = espree.parse(code, DEFAULT_CONFIG),
+							sourceCode = new SourceCode(code, ast);
+
+						assert.strictEqual(
+							sourceCode.isSpaceBetween(
+								sourceCode.ast.tokens[0],
+								sourceCode.ast.tokens.at(-1),
+							),
+							expected,
+						);
+					});
 				});
 
 				describe("when the first given is located after the second", () => {
-					it(code, createReversedIsSpaceBetweenTest(code, expected, 0, -1));
+					it(code, () => {
+						const ast = espree.parse(code, DEFAULT_CONFIG),
+							sourceCode = new SourceCode(code, ast);
+
+						assert.strictEqual(
+							sourceCode.isSpaceBetween(
+								sourceCode.ast.tokens.at(-1),
+								sourceCode.ast.tokens[0],
+							),
+							expected,
+						);
+					});
 				});
 			});
 
@@ -586,11 +584,33 @@ describe("SourceCode", () => {
 				["a/* */+ ` /*\n*/ ` /* */+c", true],
 			].forEach(([code, expected]) => {
 				describe("when the first given is located before the second", () => {
-					it(code, createIsSpaceBetweenTest(code, expected, 0, -2));
+					it(code, () => {
+						const ast = espree.parse(code, DEFAULT_CONFIG),
+							sourceCode = new SourceCode(code, ast);
+
+						assert.strictEqual(
+							sourceCode.isSpaceBetween(
+								sourceCode.ast.tokens[0],
+								sourceCode.ast.tokens.at(-2),
+							),
+							expected,
+						);
+					});
 				});
 
 				describe("when the first given is located after the second", () => {
-					it(code, createReversedIsSpaceBetweenTest(code, expected, 0, -2));
+					it(code, () => {
+						const ast = espree.parse(code, DEFAULT_CONFIG),
+							sourceCode = new SourceCode(code, ast);
+
+						assert.strictEqual(
+							sourceCode.isSpaceBetween(
+								sourceCode.ast.tokens.at(-2),
+								sourceCode.ast.tokens[0],
+							),
+							expected,
+						);
+					});
 				});
 			});
 		});
@@ -4847,4 +4867,3 @@ describe("SourceCode", () => {
 		});
 	});
 });
-```

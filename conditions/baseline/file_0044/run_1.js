@@ -1,4 +1,3 @@
-```javascript
 const errors = require('@tryghost/errors');
 const logging = require('@tryghost/logging');
 const tpl = require('@tryghost/tpl');
@@ -204,7 +203,8 @@ module.exports = class MemberBREADService {
      */
     attachOffersToSubscriptions(member, subscriptionOffers) {
         member.subscriptions = member.subscriptions.map((subscription) => {
-            subscription.offer = subscriptionOffers.get(subscription.id) || null;
+            const offer = subscriptionOffers.get(subscription.id);
+            subscription.offer = offer || null;
             return subscription;
         });
     }
@@ -276,14 +276,18 @@ module.exports = class MemberBREADService {
 
     /**
      * @private
-     * Enriches a member object with additional data
+     * Enriches a member object with subscriptions, offers, and other data
      */
-    async enrichMember(member, model, subscriptionIdMap, options = {}) {
+    async enrichMember(model, options, subscriptionIdMap = null) {
+        const member = model.toJSON(options);
         member.subscriptions = member.subscriptions.filter(sub => !!sub.price);
         this.attachSubscriptionsToMember(member);
         this.attachOffersToSubscriptions(member, await this.fetchSubscriptionOffers(model.related('stripeSubscriptions')));
         this.attachNextPaymentToSubscriptions(member);
-        await this.attachAttributionsToMember(member, subscriptionIdMap);
+        
+        if (subscriptionIdMap) {
+            await this.attachAttributionsToMember(member, subscriptionIdMap);
+        }
 
         const suppressionData = await this.emailSuppressionList.getSuppressionData(member.email);
         member.email_suppression = {
@@ -314,8 +318,7 @@ module.exports = class MemberBREADService {
             subscriptionIdMap.set(subscription.get('subscription_id'), subscription.id);
         }
 
-        const member = model.toJSON(options);
-        return this.enrichMember(member, model, subscriptionIdMap, options);
+        return this.enrichMember(model, options, subscriptionIdMap);
     }
 
     /**
@@ -336,6 +339,17 @@ module.exports = class MemberBREADService {
 
     /**
      * @private
+     * Builds shared options for downstream calls
+     */
+    buildSharedOptions(options) {
+        return {
+            ...(options.transacting && {transacting: options.transacting}),
+            ...(options.context && {context: options.context})
+        };
+    }
+
+    /**
+     * @private
      * Handles stripe customer linking errors
      */
     async handleStripeLinkingError(error, model, options) {
@@ -352,17 +366,6 @@ module.exports = class MemberBREADService {
             }, options);
         }
         throw error;
-    }
-
-    /**
-     * @private
-     * Builds shared options for downstream calls
-     */
-    buildSharedOptions(options) {
-        return {
-            ...(options.transacting && {transacting: options.transacting}),
-            ...(options.context && {context: options.context})
-        };
     }
 
     async add(data, options) {
@@ -537,7 +540,7 @@ module.exports = class MemberBREADService {
 
     /**
      * @private
-     * Enriches browse member data with additional information
+     * Enriches browse results with member data
      */
     async enrichBrowseMembers(page, options, originalWithRelated) {
         const subscriptions = page.data.flatMap(model => model.related('stripeSubscriptions').slice());
@@ -591,4 +594,3 @@ module.exports = class MemberBREADService {
         return this.enrichBrowseMembers(page, options, originalWithRelated);
     }
 };
-```

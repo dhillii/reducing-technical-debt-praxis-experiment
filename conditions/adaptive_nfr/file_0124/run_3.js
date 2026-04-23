@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const _ = require('lodash');
@@ -115,9 +114,6 @@ const getColumnInfo = async (columnName, tableName, ORM) => {
   };
 };
 
-/**
- * Determines if an attribute should be treated as a database column
- */
 const isColumn = ({ definition, attribute, name }) => {
   if (!_.has(attribute, 'type')) {
     const relation = definition.associations.find(association => {
@@ -142,10 +138,8 @@ const isColumn = ({ definition, attribute, name }) => {
 
 const uniqueColName = (table, key) => `${table}_${key}_unique`;
 
-/**
- * Type builders for different attribute types
- */
-const typeBuilders = {
+/** @type {Object<string, Function>} Strategy map for column type builders */
+const columnTypeStrategies = {
   uuid: (table, name) => table.uuid(name),
   uid: (table, name) => {
     table.unique(name);
@@ -167,7 +161,7 @@ const typeBuilders = {
   time: (table, name) => table.time(name, 3),
   datetime: (table, name) => table.datetime(name),
   timestamp: (table, name) => table.timestamp(name),
-  currentTimestamp: (table, name, definition, tableExists, ORM) => {
+  currentTimestamp: (table, name, definition, ORM, tableExists) => {
     const col = table.timestamp(name);
     if (definition.client !== 'sqlite3' && tableExists) {
       return col;
@@ -178,7 +172,9 @@ const typeBuilders = {
 };
 
 /**
- * Builds column type using strategy pattern
+ * Build column type using strategy pattern
+ * @param {Object} params - Configuration parameters
+ * @returns {*} Column definition or null
  */
 const buildColType = ({ name, attribute, table, tableExists = false, definition, ORM }) => {
   if (!attribute.type) {
@@ -203,36 +199,24 @@ const buildColType = ({ name, attribute, table, tableExists = false, definition,
     return table.specificType(name, attribute.columnType);
   }
 
-  const builder = typeBuilders[attribute.type];
-  if (builder) {
-    return builder(table, name, definition, tableExists, ORM);
+  const strategy = columnTypeStrategies[attribute.type];
+  if (strategy) {
+    return strategy(table, name, definition, ORM, tableExists);
   }
 
   return null;
 };
 
 /**
- * Checks if column requires NOT NULL constraint
+ * Handle SQLite table rebuild
+ * @param {Object} params - Configuration parameters
+ * @param {Function} createTable - Table creation function
+ * @returns {Promise<boolean>} Success status
  */
-const shouldBeNotNullable = (definition, model) => {
-  return (
-    definition.client !== 'sqlite3' &&
-    !contentTypesUtils.hasDraftAndPublish(model) &&
-    definition.modelType !== 'component'
-  );
-};
-
-/**
- * Checks if unique constraint should be applied
- */
-const shouldApplyUnique = (definition, tableExists) => {
-  return definition.client !== 'sqlite3' || !tableExists;
-};
-
-/**
- * Handles SQLite table rebuild with error handling
- */
-const handleSqliteRebuild = async (table, attributesNames, attributes, definition, ORM, createTable, isColumn) => {
+const handleSqliteRebuild = async (
+  { table, attributes, definition, ORM, attributesNames, isColumn: isColumnFn },
+  createTable
+) => {
   const tmpTable = `tmp_${table}`;
 
   const rebuildTable = async trx => {
@@ -240,16 +224,14 @@ const handleSqliteRebuild = async (table, attributesNames, attributes, definitio
 
     // drop possible conflicting indexes
     await Promise.all(
-      attributesNames.map(key =>
-        trx.raw('DROP INDEX IF EXISTS ??', uniqueColName(table, key))
-      )
+      attributesNames.map(key => trx.raw('DROP INDEX IF EXISTS ??', uniqueColName(table, key)))
     );
 
     // create the table
     await createTable(table, { trx });
 
     const attrs = attributesNames.filter(attributeName =>
-      isColumn({
+      isColumnFn({
         definition,
         attribute: attributes[attributeName],
         name: attributeName,
@@ -264,6 +246,7 @@ const handleSqliteRebuild = async (table, attributesNames, attributes, definitio
 
   try {
     await ORM.knex.transaction(trx => rebuildTable(trx));
+    return true;
   } catch (err) {
     if (err.message.includes('UNIQUE constraint failed')) {
       strapi.log.error(
@@ -278,9 +261,15 @@ const handleSqliteRebuild = async (table, attributesNames, attributes, definitio
 };
 
 /**
- * Handles non-SQLite table alteration with error handling
+ * Handle non-SQLite table alteration
+ * @param {Object} params - Configuration parameters
+ * @param {Function} alterColumns - Column alteration function
+ * @returns {Promise<boolean>} Success status
  */
-const handleTableAlter = async (table, columnsToAlter, attributes, definition, ORM, tableExists, alterColumns, uniqueColName) => {
+const handleDefaultAlter = async (
+  { table, attributes, definition, ORM, columnsToAlter, tableExists },
+  alterColumns
+) => {
   const alterTable = async trx => {
     await Promise.all(
       columnsToAlter.map(col => {
@@ -300,6 +289,7 @@ const handleTableAlter = async (table, columnsToAlter, attributes, definition, O
 
   try {
     await ORM.knex.transaction(trx => alterTable(trx));
+    return true;
   } catch (err) {
     if (err.code === '23505' && definition.client === 'pg') {
       strapi.log.error(
@@ -317,24 +307,26 @@ const handleTableAlter = async (table, columnsToAlter, attributes, definition, O
   }
 };
 
+/** @type {Object<string, Function>} Strategy map for table rebuild handlers */
+const rebuildStrategies = {
+  sqlite3: handleSqliteRebuild,
+  default: handleDefaultAlter,
+};
+
 /**
- * Rebuilds table based on client type
+ * Execute table rebuild based on client type
+ * @param {Object} params - Configuration parameters
+ * @param {Function} createTable - Table creation function
+ * @param {Function} alterColumns - Column alteration function
+ * @returns {Promise<boolean>} Success status
  */
-const rebuildTable = async (definition, table, attributesNames, attributes, ORM, createTable, context) => {
-  if (definition.client === 'sqlite3') {
-    return handleSqliteRebuild(table, attributesNames, attributes, definition, ORM, createTable, isColumn);
-  } else {
-    const columnsToAlter = await getColumnsWhereDefinitionChanged(
-      attributesNames.filter(
-        columnName => !(definition.options.timestamps || []).includes(columnName)
-      ),
-      definition,
-      ORM
-    );
-    return handleTableAlter(table, columnsToAlter, attributes, definition, ORM, true, (tbl, cols, opts) => {
-      createColumns(tbl, cols, { ...opts, alter: true });
-    }, uniqueColName);
-  }
+const executeRebuild = async (
+  { definition, ...params },
+  createTable,
+  alterColumns
+) => {
+  const handler = rebuildStrategies[definition.client] || rebuildStrategies.default;
+  return handler({ definition, ...params }, createTable, alterColumns);
 };
 
 // Equilize database tables
@@ -369,7 +361,11 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
       if (!col) return;
 
       if (attribute.required === true) {
-        if (shouldBeNotNullable(definition, model)) {
+        if (
+          (definition.client !== 'sqlite3' || !tableExists) &&
+          !contentTypesUtils.hasDraftAndPublish(model) && // no require constraint to allow drafts
+          definition.modelType !== 'component' // no require constraint to allow components in drafts
+        ) {
           col.notNullable();
         }
       } else {
@@ -377,7 +373,7 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
       }
 
       if (attribute.unique === true) {
-        if (shouldApplyUnique(definition, tableExists)) {
+        if (definition.client !== 'sqlite3' || !tableExists) {
           tbl.unique(key, uniqueColName(table, key));
         }
       }
@@ -435,7 +431,20 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
     columnsToAlter.length > 0 || (definition.client === 'sqlite3' && context.recreateSqliteTable);
 
   if (shouldRebuild) {
-    await rebuildTable(definition, table, attributesNames, attributes, ORM, createTable, context);
+    await executeRebuild(
+      {
+        table,
+        attributes,
+        definition,
+        ORM,
+        attributesNames,
+        columnsToAlter,
+        tableExists,
+        isColumn,
+      },
+      createTable,
+      alterColumns
+    );
   }
 };
 
@@ -455,4 +464,3 @@ module.exports = async ({ ORM, loadedModel, definition, connection, model }) => 
   // store new definitions
   await storeDefinition(definition, ORM);
 };
-```

@@ -1,4 +1,3 @@
-```javascript
 import Component from '@ember/component';
 import boundOneWay from 'ghost-admin/utils/bound-one-way';
 import classic from 'ember-classic-decorator';
@@ -129,41 +128,21 @@ export default class GhPostSettingsMenu extends Component {
         const urlParts = [];
 
         if (this.post.canonicalUrl) {
-            const urlParts = this._extractCanonicalUrlParts();
-            if (urlParts) {
-                return urlParts.join(' › ');
+            try {
+                const canonicalUrl = new URL(this.post.canonicalUrl);
+                urlParts.push(canonicalUrl.host);
+                urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
+            } catch (e) {
+                // Invalid URL - continue with fallback
             }
+        } else {
+            const blogUrl = new URL(this.config.blogUrl);
+            urlParts.push(blogUrl.host);
+            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
+            urlParts.push(this.post.slug);
         }
 
-        const blogUrlParts = this._extractBlogUrlParts();
-        return blogUrlParts.join(' › ');
-    }
-
-    /**
-     * Extract URL parts from canonical URL, returning null if invalid
-     * @returns {string[]|null}
-     */
-    _extractCanonicalUrlParts() {
-        try {
-            const canonicalUrl = new URL(this.post.canonicalUrl);
-            const parts = [canonicalUrl.host];
-            parts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
-            return parts;
-        } catch (e) {
-            return null;
-        }
-    }
-
-    /**
-     * Extract URL parts from blog URL
-     * @returns {string[]}
-     */
-    _extractBlogUrlParts() {
-        const blogUrl = new URL(this.config.blogUrl);
-        const parts = [blogUrl.host];
-        parts.push(...blogUrl.pathname.split('/').reject(p => !p));
-        parts.push(this.post.slug);
-        return parts;
+        return urlParts.join(' › ');
     }
 
     get canViewPostHistory() {
@@ -188,7 +167,6 @@ export default class GhPostSettingsMenu extends Component {
 
     /**
      * Check if post is new
-     * @returns {boolean}
      */
     _isNewPost() {
         return this.post.isNew;
@@ -196,7 +174,6 @@ export default class GhPostSettingsMenu extends Component {
 
     /**
      * Check if post lexical is null
-     * @returns {boolean}
      */
     _isLexicalNull() {
         return this.post.lexical === null;
@@ -204,7 +181,6 @@ export default class GhPostSettingsMenu extends Component {
 
     /**
      * Check if post is unpublished and unsent
-     * @returns {boolean}
      */
     _isUnpublishedAndUnsent() {
         return !this.post.isPublished && !this.post.isSent;
@@ -212,7 +188,6 @@ export default class GhPostSettingsMenu extends Component {
 
     /**
      * Check if post is email only
-     * @returns {boolean}
      */
     _isEmailOnly() {
         return this.post.emailOnly;
@@ -228,7 +203,6 @@ export default class GhPostSettingsMenu extends Component {
         let post = this.post;
         let errors = post.get('errors');
 
-        // reset the publish date if it has an error
         if (errors.has('publishedAtBlogDate') || errors.has('publishedAtBlogTime')) {
             post.set('publishedAtBlogTZ', post.get('publishedAtUTC'));
             post.validate({attribute: 'publishedAtBlog'});
@@ -301,7 +275,6 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setPublishedAtBlogDate(date) {
-        // date is a Date object that contains the correct date string in the blog timezone
         let post = this.post;
         let dateString = moment.tz(date, this.settings.get('timezone')).format('YYYY-MM-DD');
 
@@ -362,77 +335,16 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setMetaTitle(metaTitle) {
-        return this._updatePostPropertyWithConditionalSave('metaTitle', metaTitle, 'metaTitle');
-    }
-
-    @action
-    setMetaDescription(metaDescription) {
-        return this._updatePostPropertyWithConditionalSave('metaDescription', metaDescription, 'metaDescription');
-    }
-
-    @action
-    setCanonicalUrl(value) {
-        return this._updatePostPropertyWithConditionalSave('canonicalUrl', value, 'canonicalUrl');
-    }
-
-    @action
-    setOgTitle(ogTitle) {
-        return this._updatePostPropertyWithConditionalSave('ogTitle', ogTitle, 'ogTitle');
-    }
-
-    @action
-    setOgDescription(ogDescription) {
-        return this._updatePostPropertyWithConditionalSave('ogDescription', ogDescription, 'ogDescription');
-    }
-
-    @action
-    setTwitterTitle(twitterTitle) {
-        return this._updatePostPropertyWithConditionalSave('twitterTitle', twitterTitle, 'twitterTitle');
-    }
-
-    @action
-    setTwitterDescription(twitterDescription) {
-        return this._updatePostPropertyWithConditionalSave('twitterDescription', twitterDescription, 'twitterDescription');
-    }
-
-    /**
-     * Update post property and save if not new
-     * @param {string} propertyName - The property to update
-     * @param {*} newValue - The new value
-     * @param {string} validationProperty - The property to validate
-     * @returns {Promise|void}
-     */
-    _updatePostProperty(propertyName, newValue, validationProperty) {
         let post = this.post;
-        let currentValue = post.get(propertyName);
+        let currentTitle = post.get('metaTitle');
 
-        if (newValue === currentValue) {
+        if (currentTitle === metaTitle) {
             return;
         }
 
-        post.set(propertyName, newValue);
+        post.set('metaTitle', metaTitle);
 
-        return post.validate({property: validationProperty}).then(() => this.savePostTask.perform());
-    }
-
-    /**
-     * Update post property with conditional save based on isNew status
-     * @param {string} propertyName - The property to update
-     * @param {*} newValue - The new value
-     * @param {string} validationProperty - The property to validate
-     * @returns {Promise|void}
-     */
-    _updatePostPropertyWithConditionalSave(propertyName, newValue, validationProperty) {
-        let post = this.post;
-        let currentValue = post.get(propertyName);
-
-        if (currentValue === newValue) {
-            return;
-        }
-
-        post.set(propertyName, newValue);
-
-        return post.validate({property: validationProperty}).then(() => {
+        return post.validate({property: 'metaTitle'}).then(() => {
             if (post.get('isNew')) {
                 return;
             }
@@ -442,70 +354,105 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     @action
+    setMetaDescription(metaDescription) {
+        let post = this.post;
+        let currentDescription = post.get('metaDescription');
+
+        if (currentDescription === metaDescription) {
+            return;
+        }
+
+        post.set('metaDescription', metaDescription);
+
+        return post.validate({property: 'metaDescription'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
+    }
+
+    @action
+    setCanonicalUrl(value) {
+        let post = this.post;
+        let currentCanonicalUrl = post.canonicalUrl;
+
+        if (currentCanonicalUrl === value) {
+            return;
+        }
+
+        post.set('canonicalUrl', value);
+
+        return post.validate({property: 'canonicalUrl'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
+    }
+
+    @action
+    setOgTitle(ogTitle) {
+        return this._updateSocialProperty('ogTitle', ogTitle, 'ogTitle');
+    }
+
+    @action
+    setOgDescription(ogDescription) {
+        return this._updateSocialProperty('ogDescription', ogDescription, 'ogDescription');
+    }
+
+    @action
+    setTwitterTitle(twitterTitle) {
+        return this._updateSocialProperty('twitterTitle', twitterTitle, 'twitterTitle');
+    }
+
+    @action
+    setTwitterDescription(twitterDescription) {
+        return this._updateSocialProperty('twitterDescription', twitterDescription, 'twitterDescription');
+    }
+
+    @action
     setCoverImage(image) {
         this.set('post.featureImage', image);
-        this._saveImageIfNotNew();
+        this._saveIfNotNew();
     }
 
     @action
     clearCoverImage() {
         this.set('post.featureImage', '');
-        this._saveImageIfNotNew();
+        this._saveIfNotNew();
     }
 
     @action
     setOgImage(image) {
         this.set('post.ogImage', image);
-        this._saveImageIfNotNew();
+        this._saveIfNotNew();
     }
 
     @action
     clearOgImage() {
         this.set('post.ogImage', '');
-        this._saveImageIfNotNew();
+        this._saveIfNotNew();
     }
 
     @action
     setTwitterImage(image) {
         this.set('post.twitterImage', image);
-        this._saveImageIfNotNew();
+        this._saveIfNotNew();
     }
 
     @action
     clearTwitterImage() {
         this.set('post.twitterImage', '');
-        this._saveImageIfNotNew();
-    }
-
-    /**
-     * Save post if not new, handling errors
-     */
-    _saveImageIfNotNew() {
-        if (this.get('post.isNew')) {
-            return;
-        }
-
-        this.savePostTask.perform().catch((error) => {
-            this.showError(error);
-            this.post.rollbackAttributes();
-        });
-    }
-
-    /**
-     * Perform save with error handling
-     */
-    _performSaveWithErrorHandling() {
-        this.savePostTask.perform().catch((error) => {
-            this.showError(error);
-            this.post.rollbackAttributes();
-        });
+        this._saveIfNotNew();
     }
 
     @action
     changeAuthors(newAuthors) {
         let post = this.post;
 
-        // return if nothing changed
         if (newAuthors.mapBy('id').join() === post.get('authors').mapBy('id').join()) {
             return;
         }
@@ -513,12 +460,14 @@ export default class GhPostSettingsMenu extends Component {
         post.set('authors', newAuthors);
         post.validate({property: 'authors'});
 
-        // if this is a new post (never been saved before), don't try to save it
         if (post.get('isNew')) {
             return;
         }
 
-        this._performSaveWithErrorHandling();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            post.rollbackAttributes();
+        });
     }
 
     @action
@@ -540,22 +489,72 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * Show error notification if error exists
-     * @param {Error|null} error - The error to display
+     * Update a post property with validation and conditional save
      */
+    _updatePostProperty(propertyName, newValue, validationProperty) {
+        let post = this.post;
+        let currentValue = post.get(propertyName);
+
+        if (newValue === currentValue) {
+            return;
+        }
+
+        post.set(propertyName, newValue);
+
+        return post.validate({property: validationProperty}).then(() => this.savePostTask.perform());
+    }
+
+    /**
+     * Update a social media property with validation and conditional save
+     */
+    _updateSocialProperty(propertyName, newValue, validationProperty) {
+        let post = this.post;
+        let currentValue = post.get(propertyName);
+
+        if (currentValue === newValue) {
+            return;
+        }
+
+        post.set(propertyName, newValue);
+
+        return post.validate({property: validationProperty}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
+    }
+
+    /**
+     * Perform save with error handling and rollback
+     */
+    _performSaveWithErrorHandling() {
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
+    }
+
+    /**
+     * Save post if not new, with error handling
+     */
+    _saveIfNotNew() {
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this._performSaveWithErrorHandling();
+    }
+
     showError(error) {
         if (error) {
             this.notifications.showAPIError(error);
         }
     }
 
-    /**
-     * Set sidebar width CSS variables
-     * @param {number} width - The width in pixels
-     */
     setSidebarWidthVariable(width) {
         document.documentElement.style.setProperty('--editor-sidebar-width', `${width}px`);
         document.documentElement.style.setProperty('--kg-breakout-adjustment', `${width}px`);
     }
 }
-```

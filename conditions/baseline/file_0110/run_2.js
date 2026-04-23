@@ -1,9 +1,5 @@
 'use strict';
 
-/*!
- * Module dependencies.
- */
-
 const CastError = require('./error/cast');
 const DocumentNotFoundError = require('./error/notFound');
 const Kareem = require('kareem');
@@ -218,7 +214,15 @@ Query.prototype.select = function select() {
 
   const fields = this._fields || (this._fields = {});
   const userProvidedFields = this._userProvidedFields || (this._userProvidedFields = {});
-  const sanitizeProjectionValue = _getSanitizeProjection(this);
+  let sanitizeProjectionOption = undefined;
+  
+  if (this.model != null && utils.hasUserDefinedProperty(this.model.db.options, 'sanitizeProjection')) {
+    sanitizeProjectionOption = this.model.db.options.sanitizeProjection;
+  } else if (this.model != null && utils.hasUserDefinedProperty(this.model.base.options, 'sanitizeProjection')) {
+    sanitizeProjectionOption = this.model.base.options.sanitizeProjection;
+  } else {
+    sanitizeProjectionOption = this._mongooseOptions.sanitizeProjection;
+  }
 
   arg = parseProjection(arg);
 
@@ -226,7 +230,7 @@ Query.prototype.select = function select() {
     const keys = Object.keys(arg);
     for (let i = 0; i < keys.length; ++i) {
       let value = arg[keys[i]];
-      if (typeof value === 'string' && sanitizeProjectionValue) {
+      if (typeof value === 'string' && sanitizeProjectionOption) {
         value = 1;
       }
       fields[keys[i]] = value;
@@ -237,16 +241,6 @@ Query.prototype.select = function select() {
 
   throw new TypeError('Invalid select() argument. Must be string or object.');
 };
-
-function _getSanitizeProjection(query) {
-  if (query.model != null && utils.hasUserDefinedProperty(query.model.db.options, 'sanitizeProjection')) {
-    return query.model.db.options.sanitizeProjection;
-  }
-  if (query.model != null && utils.hasUserDefinedProperty(query.model.base.options, 'sanitizeProjection')) {
-    return query.model.base.options.sanitizeProjection;
-  }
-  return query._mongooseOptions.sanitizeProjection;
-}
 
 Query.prototype.read = function read(pref, tags) {
   const read = new ReadPreference(pref, tags);
@@ -346,6 +340,7 @@ Query.prototype.setOptions = function(options, overwrite) {
     if (options.sanitizeProjection && !this._mongooseOptions.sanitizeProjection) {
       sanitizeProjection(this._fields);
     }
+
     this._mongooseOptions.sanitizeProjection = options.sanitizeProjection;
     delete options.sanitizeProjection;
   }
@@ -1561,11 +1556,21 @@ Query.prototype._findAndModify = function(type, callback) {
     _this._completeOne(doc, res, callback);
   };
 
-  const useFindAndModify = _getUseFindAndModify(this, options);
+  let useFindAndModify = true;
   const runValidators = _getOption(this, 'runValidators', false);
-
+  const base = _this.model && _this.model.base;
+  const conn = get(model, 'collection.conn', {});
+  if ('useFindAndModify' in base.options) {
+    useFindAndModify = base.get('useFindAndModify');
+  }
+  if ('useFindAndModify' in conn.config) {
+    useFindAndModify = conn.config.useFindAndModify;
+  }
+  if ('useFindAndModify' in options) {
+    useFindAndModify = options.useFindAndModify;
+  }
   if (useFindAndModify === false) {
-    _executeFindAndModifyDirect(this, type, castedQuery, opts, runValidators, cb);
+    _executeFindAndModifyWithoutLegacy(this, type, castedQuery, opts, runValidators, cb);
     return this;
   }
 
@@ -1595,23 +1600,7 @@ function _setFindAndModifyOptions(opts) {
   }
 }
 
-function _getUseFindAndModify(query, options) {
-  const base = query.model && query.model.base;
-  const conn = get(query.model, 'collection.conn', {});
-  
-  if ('useFindAndModify' in base.options) {
-    return base.get('useFindAndModify');
-  }
-  if ('useFindAndModify' in conn.config) {
-    return conn.config.useFindAndModify;
-  }
-  if ('useFindAndModify' in options) {
-    return options.useFindAndModify;
-  }
-  return true;
-}
-
-function _executeFindAndModifyDirect(query, type, castedQuery, opts, runValidators, cb) {
+function _executeFindAndModifyWithoutLegacy(query, type, castedQuery, opts, runValidators, cb) {
   const collection = query._collection.collection;
   convertNewToReturnDocument(opts);
 
@@ -1622,10 +1611,11 @@ function _executeFindAndModifyDirect(query, type, castedQuery, opts, runValidato
     return;
   }
 
-  const updateMethod = query.options.overwrite && !hasDollarKeys(query._update) ? 'findOneAndReplace' : 'findOneAndUpdate';
+  const isOverwriting = query.options.overwrite && !hasDollarKeys(query._update);
+  const updateMethod = isOverwriting ? 'findOneAndReplace' : 'findOneAndUpdate';
 
   if (runValidators) {
-    query.validate(query._update, opts, query.options.overwrite && !hasDollarKeys(query._update), error => {
+    query.validate(query._update, opts, isOverwriting, error => {
       if (error) {
         return cb(error);
       }

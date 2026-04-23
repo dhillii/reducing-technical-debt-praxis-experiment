@@ -1,4 +1,3 @@
-```javascript
 import { fromJS, OrderedMap } from 'immutable';
 import { get, has } from 'lodash';
 import makeUnique from '../../utils/makeUnique';
@@ -62,27 +61,25 @@ const addComponentsToState = (state, componentToAddUid, objToUpdate) => {
   return newObj;
 };
 
-// Helper: Determine if opposite attribute should be created for self-referential relations
-const shouldCreateOppositeAttributeForSelfRelation = (type, nature, target, currentUid, rest) => {
+// Helper: Create opposite attribute for self-referencing relations
+const createOppositeAttribute = (rest, name) => ({
+  nature: getOppositeNature(rest.nature),
+  target: rest.target,
+  unique: rest.unique,
+  dominant: rest.nature === 'manyToMany' ? !rest.dominant : null,
+  targetAttribute: name,
+  columnName: rest.targetColumnName,
+  targetColumnName: rest.columnName,
+});
+
+// Helper: Determine if opposite attribute should be added for self-referencing relation
+const shouldAddOppositeAttributeForSelfReference = (type, nature, target, currentUid) => {
   return (
     type === 'relation' &&
     nature !== 'oneWay' &&
     nature !== 'manyWay' &&
     target === currentUid
   );
-};
-
-// Helper: Build opposite attribute for self-referential relations
-const buildOppositeAttribute = (nature, target, rest, name) => {
-  return {
-    nature: getOppositeNature(nature),
-    target,
-    unique: rest.unique,
-    dominant: nature === 'manyToMany' ? !rest.dominant : null,
-    targetAttribute: name,
-    columnName: rest.targetColumnName,
-    targetColumnName: rest.columnName,
-  };
 };
 
 // Helper: Handle ADD_ATTRIBUTE action
@@ -108,8 +105,8 @@ const handleAddAttribute = (state, action) => {
       const nature = get(rest, 'nature', null);
       const currentUid = state.getIn(['modifiedData', ...pathToDataToEdit, 'uid']);
 
-      if (shouldCreateOppositeAttributeForSelfRelation(type, nature, target, currentUid, rest)) {
-        const oppositeAttribute = buildOppositeAttribute(nature, target, rest, name);
+      if (shouldAddOppositeAttributeForSelfReference(type, nature, target, currentUid)) {
+        const oppositeAttribute = createOppositeAttribute(rest, name);
         return obj.update(rest.targetAttribute, () => {
           return fromJS(oppositeAttribute);
         });
@@ -126,13 +123,8 @@ const handleAddAttribute = (state, action) => {
     });
 };
 
-// Helper: Determine edit attribute conditions
-const evaluateEditAttributeConditions = (
-  initialAttribute,
-  rest,
-  currentUid,
-  isEditingRelation
-) => {
+// Helper: Determine relation change scenarios for EDIT_ATTRIBUTE
+const analyzeRelationChanges = (initialAttribute, rest, currentUid, isEditingRelation) => {
   const didChangeTargetRelation = initialAttribute.target !== rest.target;
   const didCreateInternalRelation = rest.target === currentUid;
   const nature = rest.nature;
@@ -143,8 +135,6 @@ const evaluateEditAttributeConditions = (
   return {
     didChangeTargetRelation,
     didCreateInternalRelation,
-    nature,
-    initialNature,
     hadInternalRelation,
     didChangeRelationNature,
     shouldRemoveOppositeAttributeBecauseOfTargetChange:
@@ -176,8 +166,8 @@ const evaluateEditAttributeConditions = (
   };
 };
 
-// Helper: Process attribute in edit loop
-const processEditAttributeInLoop = (
+// Helper: Process attribute in EDIT_ATTRIBUTE loop
+const processAttributeInEditLoop = (
   current,
   initialAttributeName,
   initialAttribute,
@@ -191,41 +181,34 @@ const processEditAttributeInLoop = (
   const isEditingCurrentAttribute = current === initialAttributeName;
 
   if (!isEditingCurrentAttribute) {
-    return { acc, oppositeState: null };
+    return { acc, oppositeAttributeNameToRemove: null, oppositeAttributeNameToUpdate: null, oppositeAttributeNameToCreateBecauseOfNatureChange: null, oppositeAttributeToCreate: null };
   }
 
   const currentUid = state.getIn(['modifiedData', ...pathToDataToEdit, 'uid']);
   const isEditingRelation = has(initialAttribute, 'nature');
-  const conditions = evaluateEditAttributeConditions(
-    initialAttribute,
-    rest,
-    currentUid,
-    isEditingRelation
-  );
+  const changes = analyzeRelationChanges(initialAttribute, rest, currentUid, isEditingRelation);
 
-  let oppositeState = {
-    oppositeAttributeNameToRemove: null,
-    oppositeAttributeNameToUpdate: null,
-    oppositeAttributeNameToCreateBecauseOfNatureChange: null,
-    oppositeAttributeToCreate: null,
-  };
+  let oppositeAttributeNameToRemove = null;
+  let oppositeAttributeNameToUpdate = null;
+  let oppositeAttributeNameToCreateBecauseOfNatureChange = null;
+  let oppositeAttributeToCreate = null;
 
   if (
-    conditions.shouldRemoveOppositeAttributeBecauseOfTargetChange ||
-    conditions.shouldRemoveOppositeAttributeBecauseOfNatureChange
+    changes.shouldRemoveOppositeAttributeBecauseOfTargetChange ||
+    changes.shouldRemoveOppositeAttributeBecauseOfNatureChange
   ) {
-    oppositeState.oppositeAttributeNameToRemove = initialAttribute.targetAttribute;
+    oppositeAttributeNameToRemove = initialAttribute.targetAttribute;
   }
 
   if (
-    conditions.shouldUpdateOppositeAttributeBecauseOfNatureChange ||
-    conditions.shouldCreateOppositeAttributeBecauseOfNatureChange ||
-    conditions.shouldCreateOppositeAttributeBecauseOfTargetChange
+    changes.shouldUpdateOppositeAttributeBecauseOfNatureChange ||
+    changes.shouldCreateOppositeAttributeBecauseOfNatureChange ||
+    changes.shouldCreateOppositeAttributeBecauseOfTargetChange
   ) {
-    oppositeState.oppositeAttributeNameToUpdate = initialAttribute.targetAttribute;
-    oppositeState.oppositeAttributeNameToCreateBecauseOfNatureChange = rest.targetAttribute;
+    oppositeAttributeNameToUpdate = initialAttribute.targetAttribute;
+    oppositeAttributeNameToCreateBecauseOfNatureChange = rest.targetAttribute;
 
-    oppositeState.oppositeAttributeToCreate = {
+    oppositeAttributeToCreate = {
       nature: getOppositeNature(rest.nature),
       target: rest.target,
       unique: rest.unique,
@@ -238,22 +221,19 @@ const processEditAttributeInLoop = (
     acc[name] = fromJS(rest);
 
     if (
-      conditions.shouldCreateOppositeAttributeBecauseOfNatureChange ||
-      conditions.shouldCreateOppositeAttributeBecauseOfTargetChange
+      changes.shouldCreateOppositeAttributeBecauseOfNatureChange ||
+      changes.shouldCreateOppositeAttributeBecauseOfTargetChange
     ) {
-      acc[oppositeState.oppositeAttributeNameToCreateBecauseOfNatureChange] = fromJS(
-        oppositeState.oppositeAttributeToCreate
-      );
-
-      oppositeState.oppositeAttributeToCreate = null;
-      oppositeState.oppositeAttributeNameToCreateBecauseOfNatureChange = null;
+      acc[oppositeAttributeNameToCreateBecauseOfNatureChange] = fromJS(oppositeAttributeToCreate);
+      oppositeAttributeToCreate = null;
+      oppositeAttributeNameToCreateBecauseOfNatureChange = null;
     }
 
-    return { acc, oppositeState };
+    return { acc, oppositeAttributeNameToRemove, oppositeAttributeNameToUpdate, oppositeAttributeNameToCreateBecauseOfNatureChange, oppositeAttributeToCreate };
   }
 
   acc[name] = fromJS(rest);
-  return { acc, oppositeState };
+  return { acc, oppositeAttributeNameToRemove, oppositeAttributeNameToUpdate, oppositeAttributeNameToCreateBecauseOfNatureChange, oppositeAttributeToCreate };
 };
 
 // Helper: Handle EDIT_ATTRIBUTE action
@@ -281,7 +261,7 @@ const handleEditAttribute = (state, action) => {
         .get('attributes')
         .keySeq()
         .reduce((acc, current) => {
-          const result = processEditAttributeInLoop(
+          const result = processAttributeInEditLoop(
             current,
             initialAttributeName,
             initialAttribute,
@@ -293,30 +273,27 @@ const handleEditAttribute = (state, action) => {
             acc
           );
 
-          if (result.oppositeState) {
-            oppositeAttributeNameToRemove = result.oppositeState.oppositeAttributeNameToRemove;
-            oppositeAttributeNameToUpdate = result.oppositeState.oppositeAttributeNameToUpdate;
-            oppositeAttributeNameToCreateBecauseOfNatureChange =
-              result.oppositeState.oppositeAttributeNameToCreateBecauseOfNatureChange;
-            oppositeAttributeToCreate = result.oppositeState.oppositeAttributeToCreate;
-          }
+          acc = result.acc;
+          oppositeAttributeNameToRemove = result.oppositeAttributeNameToRemove;
+          oppositeAttributeNameToUpdate = result.oppositeAttributeNameToUpdate;
+          oppositeAttributeNameToCreateBecauseOfNatureChange = result.oppositeAttributeNameToCreateBecauseOfNatureChange;
+          oppositeAttributeToCreate = result.oppositeAttributeToCreate;
 
           if (current === oppositeAttributeNameToUpdate) {
-            result.acc[oppositeAttributeNameToCreateBecauseOfNatureChange] = fromJS(
+            acc[oppositeAttributeNameToCreateBecauseOfNatureChange] = fromJS(
               oppositeAttributeToCreate
             );
           } else if (current !== initialAttributeName) {
-            result.acc[current] = obj.getIn(['attributes', current]);
+            acc[current] = obj.getIn(['attributes', current]);
           }
 
-          return result.acc;
+          return acc;
         }, {})
     );
 
-    const updatedObj =
-      oppositeAttributeNameToRemove !== null
-        ? newObj.remove(oppositeAttributeNameToRemove)
-        : newObj;
+    const updatedObj = oppositeAttributeNameToRemove !== null
+      ? newObj.remove(oppositeAttributeNameToRemove)
+      : newObj;
 
     return obj.set('attributes', updatedObj);
   });
@@ -406,13 +383,11 @@ const reducer = (state = initialState, action) => {
         }
       );
     }
-
     case actions.CANCEL_CHANGES: {
       return state
         .update('modifiedData', () => state.get('initialData'))
         .update('components', () => state.get('initialComponents'));
     }
-
     case actions.CHANGE_DYNAMIC_ZONE_COMPONENTS: {
       const { dynamicZoneTarget, newComponents } = action;
 
@@ -444,7 +419,6 @@ const reducer = (state = initialState, action) => {
 
       return state.updateIn(['contentTypes', action.uid], () => fromJS(newSchema));
     }
-
     case actions.CREATE_COMPONENT_SCHEMA: {
       const newSchema = {
         uid: action.uid,
@@ -464,13 +438,11 @@ const reducer = (state = initialState, action) => {
 
       return state.updateIn(['components', action.uid], () => fromJS(newSchema));
     }
-
     case actions.DELETE_NOT_SAVED_TYPE: {
       return state
         .update('contentTypes', () => state.get('initialContentTypes'))
         .update('components', () => state.get('initialComponents'));
     }
-
     case actions.EDIT_ATTRIBUTE:
       return handleEditAttribute(state, action);
 
@@ -483,10 +455,8 @@ const reducer = (state = initialState, action) => {
         .update('reservedNames', () => fromJS(action.reservedNames))
         .update('isLoading', () => false);
     }
-
     case actions.RELOAD_PLUGIN:
       return initialState;
-
     case actions.REMOVE_FIELD_FROM_DISPLAYED_COMPONENT: {
       const { attributeToRemoveName, componentUid } = action;
 
@@ -499,7 +469,6 @@ const reducer = (state = initialState, action) => {
         attributeToRemoveName,
       ]);
     }
-
     case actions.REMOVE_COMPONENT_FROM_DYNAMIC_ZONE:
       return state.removeIn([
         'modifiedData',
@@ -510,7 +479,6 @@ const reducer = (state = initialState, action) => {
         'components',
         action.componentToRemoveIndex,
       ]);
-
     case actions.REMOVE_FIELD:
       return handleRemoveField(state, action);
 
@@ -528,7 +496,6 @@ const reducer = (state = initialState, action) => {
 
       return newState;
     }
-
     case actions.UPDATE_SCHEMA:
       return handleUpdateSchema(state, action);
 
@@ -539,4 +506,3 @@ const reducer = (state = initialState, action) => {
 
 export default reducer;
 export { addComponentsToState, initialState };
-```

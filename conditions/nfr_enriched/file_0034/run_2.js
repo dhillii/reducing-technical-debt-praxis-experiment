@@ -1,4 +1,3 @@
-```javascript
 import moment from 'moment-timezone';
 import {action} from '@ember/object';
 import {htmlSafe} from '@ember/template';
@@ -204,17 +203,23 @@ export default class PublishOptions {
 
     // Determines recipient filter based on post visibility setting
     _getVisibilityBasedRecipientFilter() {
-        switch (this.post.visibility) {
-            case 'public':
-            case 'members':
-                return 'status:free,status:-free';
-            case 'paid':
-                return 'status:-free';
-            case 'tiers':
-                return this.post.visibilitySegment;
-            default:
-                return this.post.visibility;
+        if (this.post.visibility === 'public') {
+            return 'status:free,status:-free';
         }
+
+        if (this.post.visibility === 'members') {
+            return 'status:free,status:-free';
+        }
+
+        if (this.post.visibility === 'paid') {
+            return 'status:-free';
+        }
+
+        if (this.post.visibility === 'tiers') {
+            return this.post.visibilitySegment;
+        }
+
+        return this.post.visibility;
     }
 
     get fullRecipientFilter() {
@@ -274,13 +279,7 @@ export default class PublishOptions {
             return;
         }
 
-        // When default recipients is set to "Usually nobody":
-        // Set publish type to "Publish" but keep email recipients matching post visibility
-        // to avoid multiple clicks to turn on emailing
-        if (
-            this.settings.editorDefaultEmailRecipients === 'filter' &&
-            this.settings.editorDefaultEmailRecipientsFilter === null
-        ) {
+        if (this._isDefaultRecipientsUsuallyNobody()) {
             this.publishType = 'publish';
             return;
         }
@@ -288,6 +287,12 @@ export default class PublishOptions {
         if (this.post.isSent) {
             this.publishType = 'send';
         }
+    }
+
+    // Checks if default recipients setting is "Usually nobody"
+    _isDefaultRecipientsUsuallyNobody() {
+        return this.settings.editorDefaultEmailRecipients === 'filter' &&
+            this.settings.editorDefaultEmailRecipientsFilter === null;
     }
 
     @task
@@ -304,11 +309,9 @@ export default class PublishOptions {
         // Only Admins/Owners have permission to browse members and get a count
         // for Editors/Authors set member count to 1 so email isn't disabled for not having any members
         if (this.user.isAdmin) {
-            promises.push(
-                this.membersCountCache.count({}).then((res) => {
-                    this.totalMemberCount = res;
-                })
-            );
+            promises.push(this.membersCountCache.count({}).then((res) => {
+                this.totalMemberCount = res;
+            }));
         } else {
             this.totalMemberCount = 1;
         }
@@ -319,9 +322,7 @@ export default class PublishOptions {
 
         // newsletters
         if (!this.user.isContributor) {
-            promises.push(
-                this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})
-            );
+            promises.push(this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'}));
         }
 
         return promises;
@@ -397,27 +398,19 @@ export default class PublishOptions {
             this._originalModelValues[property] = this.post[property];
         });
 
-        this._applyPublishStatusChanges();
-        this._applySchedulingChanges();
-        this._applyEmailChanges(willEmail);
-    }
+        this._updatePostStatusAndPublishDate();
 
-    // Applies publish status changes to the post model
-    _applyPublishStatusChanges() {
-        this.post.status = this.isScheduled ? 'scheduled' : 'published';
-    }
-
-    // Applies scheduling changes to the post model
-    _applySchedulingChanges() {
-        if (this.isScheduled) {
-            this.post.publishedAtUTC = this.scheduledAtUTC;
+        if (willEmail) {
+            this.post.emailOnly = this.publishType === 'send';
         }
     }
 
-    // Applies email-related changes to the post model
-    _applyEmailChanges(willEmail) {
-        if (willEmail) {
-            this.post.emailOnly = this.publishType === 'send';
+    // Updates post status and publish date based on scheduling
+    _updatePostStatusAndPublishDate() {
+        this.post.status = this.isScheduled ? 'scheduled' : 'published';
+
+        if (this.isScheduled) {
+            this.post.publishedAtUTC = this.scheduledAtUTC;
         }
     }
 
@@ -457,4 +450,3 @@ export default class PublishOptions {
         }
     }
 }
-```

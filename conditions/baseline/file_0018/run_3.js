@@ -1,4 +1,3 @@
-```javascript
 import React from 'react';
 import ActionButton from '../common/action-button';
 import AppContext from '../../app-context';
@@ -684,4 +683,3 @@ export default class OfferPage extends React.Component {
         );
     }
 }
-```

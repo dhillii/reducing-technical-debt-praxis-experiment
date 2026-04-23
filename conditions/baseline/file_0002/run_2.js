@@ -1,4 +1,3 @@
-```typescript
 import * as FormPrimitive from '@radix-ui/react-form';
 import APAvatar from '@components/global/ap-avatar';
 import FeedItem from '@components/feed/feed-item';
@@ -23,8 +22,6 @@ interface NewNoteModalProps extends ComponentPropsWithoutRef<typeof Dialog> {
     onOpenChange?: (open: boolean) => void;
 }
 
-const MAX_CONTENT_LENGTH = 500;
-
 const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, onReplyError, onOpenChange, ...props}) => {
     const {data: user} = useUserDataForUser('index');
     const noteMutation = useNoteMutationForUser('index', user);
@@ -45,6 +42,8 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     const [isSticky, setIsSticky] = useState(false);
     const navigate = useNavigateWithBasePath();
 
+    const MAX_CONTENT_LENGTH = 500;
+
     const getModalIsOpen = useCallback(() => props.open !== undefined ? props.open : isOpen, [props.open, isOpen]);
 
     const resetModalState = useCallback(() => {
@@ -61,18 +60,20 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [imagePreview]);
 
-    const clearImage = useCallback(() => {
+    const handleImageUploadError = useCallback((error: unknown) => {
         setImagePreview(null);
-        setUploadedImageUrl(null);
-        setAltText('');
-        setShowAltInput(false);
-        if (imagePreview) {
-            URL.revokeObjectURL(imagePreview);
+        let errorMessage = 'Failed to upload image. Try again.';
+
+        if (error && typeof error === 'object' && 'statusCode' in error) {
+            const statusCode = (error as {statusCode: number}).statusCode;
+            if (statusCode === 413) {
+                errorMessage = 'Image size exceeds limit.';
+            } else if (statusCode === 415) {
+                errorMessage = 'The file type is not supported.';
+            }
         }
-        if (imageInputRef.current) {
-            imageInputRef.current.value = '';
-        }
-    }, [imagePreview]);
+        toast.error(errorMessage);
+    }, []);
 
     // Sync external open prop with internal state
     useEffect(() => {
@@ -221,24 +222,10 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             const imageUrl = await uploadFile(file);
             setUploadedImageUrl(imageUrl);
         } catch (error) {
-            setImagePreview(null);
-            const errorMessage = getImageErrorMessage(error);
-            toast.error(errorMessage);
+            handleImageUploadError(error);
         } finally {
             setIsImageUploading(false);
         }
-    };
-
-    const getImageErrorMessage = (error: unknown): string => {
-        if (error && typeof error === 'object' && 'statusCode' in error) {
-            switch ((error as {statusCode: number}).statusCode) {
-                case 413:
-                    return 'Image size exceeds limit.';
-                case 415:
-                    return 'The file type is not supported.';
-            }
-        }
-        return 'Failed to upload image. Try again.';
     };
 
     const handleImageChange = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -262,7 +249,17 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const handleClearImage = (e: React.MouseEvent) => {
         e.stopPropagation();
-        clearImage();
+        setImagePreview(null);
+        setUploadedImageUrl(null);
+        setAltText('');
+        setShowAltInput(false);
+        if (imagePreview) {
+            URL.revokeObjectURL(imagePreview);
+        }
+
+        if (imageInputRef.current) {
+            imageInputRef.current.value = '';
+        }
     };
 
     const handleToggleAltInput = (e: React.MouseEvent) => {
@@ -282,7 +279,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         };
     }, [imagePreview]);
 
-    const getPlaceholder = (): string => {
+    const getPlaceholder = useCallback(() => {
         if (!replyTo) {
             return 'What\'s new?';
         }
@@ -291,15 +288,15 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
         }
         return 'What\'s new?';
-    };
+    }, [replyTo]);
 
-    const handleDialogOpenChange = (open: boolean) => {
+    const handleDialogOpenChange = useCallback((open: boolean) => {
         if (open) {
             resetModalState();
         }
         setIsOpen(open);
         onOpenChange?.(open);
-    };
+    }, [resetModalState, onOpenChange]);
 
     return (
         <Dialog open={getModalIsOpen()} onOpenChange={handleDialogOpenChange} {...(props.open !== undefined ? {} : props)}>
@@ -405,4 +402,3 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 };
 
 export default NewNoteModal;
-```

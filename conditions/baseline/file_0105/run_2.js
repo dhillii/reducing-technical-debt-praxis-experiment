@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /**
@@ -212,7 +211,7 @@ exports.list = function (failures) {
     // explicitly show diff
     if (!exports.hideDiff && showDiff(err)) {
       stringifyDiffObjs(err);
-      let diffFmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
+      let fmt2 = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
       const match = message.match(/^([^:]+): expected/);
       msg = '\n      ' + color('error message', match ? match[1] : msg);
 
@@ -486,4 +485,3 @@ const objToString = Object.prototype.toString;
 function sameType (a, b) {
   return objToString.call(a) === objToString.call(b);
 }
-```

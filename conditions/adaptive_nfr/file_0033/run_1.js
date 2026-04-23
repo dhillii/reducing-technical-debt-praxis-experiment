@@ -1,4 +1,3 @@
-```javascript
 import * as Sentry from '@sentry/ember';
 import AjaxService from 'ember-ajax/services/ajax';
 import classic from 'ember-classic-decorator';
@@ -228,63 +227,93 @@ export function isAcceptedResponse(errorOrStatus) {
  * Error response handler strategy mapping
  * Maps error detection functions to their corresponding error classes
  */
-const errorHandlerStrategies = [
+const errorHandlers = [
     {
-        check: (status, headers, payload) => isTwoFactorTokenRequiredError(status, payload),
+        check: (service, status, headers, payload) => service.isTwoFactorTokenRequiredError(status, headers, payload),
         create: (payload) => new TwoFactorTokenRequiredError(payload)
     },
     {
-        check: (status, headers, payload) => isVersionMismatchError(status, payload),
+        check: (service, status, headers, payload) => service.isVersionMismatchError(status, headers, payload),
         create: (payload) => new VersionMismatchError(payload)
     },
     {
-        check: (status, headers, payload) => isServerUnreachableError(status),
+        check: (service, status, headers, payload) => service.isServerUnreachableError(status, headers, payload),
         create: (payload) => new ServerUnreachableError(payload)
     },
     {
-        check: (status, headers, payload) => isRequestEntityTooLargeError(status),
+        check: (service, status, headers, payload) => service.isRequestEntityTooLargeError(status, headers, payload),
         create: (payload) => new RequestEntityTooLargeError(payload)
     },
     {
-        check: (status, headers, payload) => isUnsupportedMediaTypeError(status),
+        check: (service, status, headers, payload) => service.isUnsupportedMediaTypeError(status, headers, payload),
         create: (payload) => new UnsupportedMediaTypeError(payload)
     },
     {
-        check: (status, headers, payload) => isMaintenanceError(status),
+        check: (service, status, headers, payload) => service.isMaintenanceError(status, headers, payload),
         create: (payload) => new MaintenanceError(payload)
     },
     {
-        check: (status, headers, payload) => isThemeValidationError(status, payload),
+        check: (service, status, headers, payload) => service.isThemeValidationError(status, headers, payload),
         create: (payload) => new ThemeValidationError(payload)
     },
     {
-        check: (status, headers, payload) => isHostLimitError(status, payload),
+        check: (service, status, headers, payload) => service.isHostLimitError(status, headers, payload),
         create: (payload) => new HostLimitError(payload)
     },
     {
-        check: (status, headers, payload) => isEmailError(status, payload),
+        check: (service, status, headers, payload) => service.isEmailError(status, headers, payload),
         create: (payload) => new EmailError(payload)
     },
     {
-        check: (status, headers, payload) => isAcceptedResponse(status),
+        check: (service, status, headers, payload) => service.isAcceptedResponse(status),
         create: (payload) => new AcceptedResponse(payload)
     }
 ];
 
 /**
- * Dispatches to appropriate error handler based on status and payload
- * @param {number} status HTTP status code
- * @param {object} headers Response headers
- * @param {object} payload Response payload
- * @returns {object|null} Error instance or null if no match
+ * Attempts to match and create an error response using registered handlers
+ * @param {Object} service - The ajax service instance
+ * @param {number} status - HTTP status code
+ * @param {Object} headers - Response headers
+ * @param {Object} payload - Response payload
+ * @returns {Object|null} Error instance or null if no handler matches
  */
-function dispatchErrorHandler(status, headers, payload) {
-    for (const strategy of errorHandlerStrategies) {
-        if (strategy.check(status, headers, payload)) {
-            return strategy.create(payload);
+function createErrorResponse(service, status, headers, payload) {
+    for (const handler of errorHandlers) {
+        if (handler.check(service, status, headers, payload)) {
+            return handler.create(payload);
         }
     }
     return null;
+}
+
+/**
+ * Determines if request should be retried based on error type
+ * @param {Object} error - The error object
+ * @param {Array} retryChecks - Array of error check functions
+ * @returns {boolean} True if error is retryable
+ */
+function isRetryableError(error, retryChecks) {
+    return retryChecks.some(check => check(error.response));
+}
+
+/**
+ * Determines if session should be invalidated based on error conditions
+ * @param {boolean} isAuthenticated - Whether user is authenticated
+ * @param {boolean} isGhostRequest - Whether request is to Ghost API
+ * @param {boolean} isUnauthorized - Whether response is 401
+ * @param {boolean} isForbidden - Whether response is 403
+ * @param {Object} payload - Response payload
+ * @returns {boolean} True if session should be invalidated
+ */
+function shouldInvalidateSession(isAuthenticated, isGhostRequest, isUnauthorized, isForbidden, payload) {
+    if (!isAuthenticated || !isGhostRequest) {
+        return false;
+    }
+    if (isUnauthorized) {
+        return true;
+    }
+    return isForbidden && payload.errors?.[0].message === 'Authorization failed';
 }
 
 @classic
@@ -389,7 +418,7 @@ class ajaxService extends AjaxService {
                     throw error;
                 }
 
-                if (retryErrorChecks.some(check => check(error.response)) && retryingMs <= maxRetryingMs) {
+                if (isRetryableError(error, retryErrorChecks) && retryingMs <= maxRetryingMs) {
                     await timeout(retryPeriods[attempts] || retryPeriods[retryPeriods.length - 1]);
                     attempts += 1;
                 } else if (attempts > 0 && this.config.sentry_dsn) {
@@ -400,19 +429,6 @@ class ajaxService extends AjaxService {
                 }
             }
         }
-    }
-
-    /**
-     * Checks if response indicates authorization failure
-     * @param {boolean} isAuthenticated Session authentication state
-     * @param {boolean} isGhostRequest Whether request is to Ghost API
-     * @param {boolean} isUnauthorized Whether response is 401
-     * @param {boolean} isForbidden Whether response is 403
-     * @param {object} payload Response payload
-     * @returns {boolean} True if authorization failed
-     */
-    _isAuthorizationFailure(isAuthenticated, isGhostRequest, isUnauthorized, isForbidden, payload) {
-        return isAuthenticated && isGhostRequest && (isUnauthorized || (isForbidden && payload.errors?.[0].message === 'Authorization failed'));
     }
 
     handleResponse(status, headers, payload, request) {
@@ -435,7 +451,7 @@ class ajaxService extends AjaxService {
             }
         }
 
-        const errorResponse = dispatchErrorHandler(status, headers, payload);
+        const errorResponse = createErrorResponse(this, status, headers, payload);
         if (errorResponse) {
             return errorResponse;
         }
@@ -450,7 +466,7 @@ class ajaxService extends AjaxService {
             this._responseServer = headers.server;
         }
 
-        if (this._isAuthorizationFailure(isAuthenticated, isGhostRequest, isUnauthorized, isForbidden, payload)) {
+        if (shouldInvalidateSession(isAuthenticated, isGhostRequest, isUnauthorized, isForbidden, payload)) {
             this.skipSessionDeletion = true;
             this.session.invalidate();
         }
@@ -531,4 +547,3 @@ ajaxService.reopen({
 });
 
 export default ajaxService;
-```

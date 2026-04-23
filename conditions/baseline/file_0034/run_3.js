@@ -1,4 +1,3 @@
-```javascript
 import moment from 'moment-timezone';
 import {action} from '@ember/object';
 import {htmlSafe} from '@ember/template';
@@ -423,4 +422,3 @@ export default class PublishOptions {
         }
     }
 }
-```

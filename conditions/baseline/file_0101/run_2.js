@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const ngModule = angular.module('woServices');
@@ -366,4 +365,3 @@ Keychain.prototype.saveLocalPrivateKey = function(privkey) {
     const prkLookupKey = DB_PRIVATEKEY + '_' + privkey._id;
     return this._lawnchairDAO.persist(prkLookupKey, privkey);
 };
-```

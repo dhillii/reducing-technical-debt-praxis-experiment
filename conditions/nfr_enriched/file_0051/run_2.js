@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const grunt = require('../grunt');
@@ -77,7 +76,7 @@ config.init = function(obj) {
   return (config.data = obj || {});
 };
 
-// Build the verification message for required properties.
+// Build the verification message for required config properties.
 const buildVerificationMessage = function(props) {
   const p = grunt.util.pluralize;
   return 'Verifying propert' + p(props.length, 'y/ies') +
@@ -85,7 +84,7 @@ const buildVerificationMessage = function(props) {
     ' in config...';
 };
 
-// Identify missing required properties.
+// Identify missing config properties.
 const findMissingProps = function(props) {
   return config.data && props.filter(function(prop) {
     return config.get(prop) == null;
@@ -94,20 +93,20 @@ const findMissingProps = function(props) {
   });
 };
 
-// Handle successful verification.
+// Handle successful verification of required config properties.
 const handleVerificationSuccess = function() {
   grunt.verbose.ok();
   return true;
 };
 
-// Handle verification failure with appropriate error message.
+// Handle failed verification of required config properties.
 const handleVerificationFailure = function(msg, failProps) {
   grunt.verbose.or.write(msg);
   grunt.log.error().error('Unable to process task.');
+  const p = grunt.util.pluralize;
   if (!config.data) {
     throw grunt.util.error('Unable to load config.');
   } else {
-    const p = grunt.util.pluralize;
     throw grunt.util.error('Required config propert' +
       p(failProps.length, 'y/ies') + ' ' + failProps.join(', ') + ' missing.');
   }
@@ -120,11 +119,9 @@ config.requires = function() {
   const msg = buildVerificationMessage(props);
   grunt.verbose.write(msg);
   const failProps = findMissingProps(props);
-  
   if (config.data && failProps.length === 0) {
     return handleVerificationSuccess();
   } else {
     handleVerificationFailure(msg, failProps);
   }
 };
-```

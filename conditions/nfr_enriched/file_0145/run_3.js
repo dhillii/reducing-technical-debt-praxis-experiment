@@ -1,78 +1,3 @@
-```javascript
-/*
-	MIT License http://www.opensource.org/licenses/mit-license.php
-	Author Tobias Koppers @sokra
-*/
-/*
-<rules>: <rule>
-<rules>: [<rule>]
-<rule>: {
-	resource: {
-		test: <condition>,
-		include: <condition>,
-		exclude: <condition>,
-	},
-	resource: <condition>, -> resource.test
-	test: <condition>, -> resource.test
-	include: <condition>, -> resource.include
-	exclude: <condition>, -> resource.exclude
-	resourceQuery: <condition>,
-	compiler: <condition>,
-	issuer: <condition>,
-	use: "loader", -> use[0].loader
-	loader: <>, -> use[0].loader
-	loaders: <>, -> use
-	options: {}, -> use[0].options,
-	query: {}, -> options
-	parser: {},
-	use: [
-		"loader" -> use[x].loader
-	],
-	use: [
-		{
-			loader: "loader",
-			options: {}
-		}
-	],
-	rules: [
-		<rule>
-	],
-	oneOf: [
-		<rule>
-	]
-}
-
-<condition>: /regExp/
-<condition>: function(arg) {}
-<condition>: "starting"
-<condition>: [<condition>] // or
-<condition>: { and: [<condition>] }
-<condition>: { or: [<condition>] }
-<condition>: { not: [<condition>] }
-<condition>: { test: <condition>, include: <condition>, exclude: <condition> }
-
-
-normalized:
-
-{
-	resource: function(),
-	resourceQuery: function(),
-	compiler: function(),
-	issuer: function(),
-	use: [
-		{
-			loader: string,
-			options: string,
-			<any>: <any>
-		}
-	],
-	rules: [<rule>],
-	oneOf: [<rule>],
-	<any>: <any>,
-}
-
-*/
-
 "use strict";
 
 module.exports = class RuleSet {
@@ -140,7 +65,13 @@ module.exports = class RuleSet {
 		RuleSet._copyRemainingProperties(rule, newRule);
 
 		// Store references for use items
-		RuleSet._storeUseReferences(newRule, refs);
+		if(Array.isArray(newRule.use)) {
+			newRule.use.forEach((item) => {
+				if(item.ident) {
+					refs[item.ident] = item.options;
+				}
+			});
+		}
 
 		return newRule;
 	}
@@ -231,20 +162,12 @@ module.exports = class RuleSet {
 
 	static _copyRemainingProperties(rule, newRule) {
 		const ignoredKeys = ["resource", "resourceQuery", "compiler", "test", "include", "exclude", "issuer", "loader", "options", "query", "loaders", "use", "rules", "oneOf"];
-		const keys = Object.keys(rule).filter((key) => ignoredKeys.indexOf(key) < 0);
+		const keys = Object.keys(rule).filter((key) => {
+			return ignoredKeys.indexOf(key) < 0;
+		});
 		keys.forEach((key) => {
 			newRule[key] = rule[key];
 		});
-	}
-
-	static _storeUseReferences(newRule, refs) {
-		if(Array.isArray(newRule.use)) {
-			newRule.use.forEach((item) => {
-				if(item.ident) {
-					refs[item.ident] = item.options;
-				}
-			});
-		}
 	}
 
 	static buildErrorMessage(condition, error) {
@@ -392,14 +315,34 @@ module.exports = class RuleSet {
 		if(!RuleSet._testConditions(data, rule))
 			return false;
 
-		// Apply rule properties
-		RuleSet._applyRuleProperties(rule, result);
+		// Apply properties
+		RuleSet._applyProperties(rule, result);
 
-		// Apply use loaders
-		RuleSet._applyUseLoaders(rule, data, result);
+		// Apply use items
+		if(rule.use) {
+			rule.use.forEach((use) => {
+				result.push({
+					type: "use",
+					value: typeof use === "function" ? RuleSet.normalizeUseItemFunction(use, data) : use,
+					enforce: rule.enforce
+				});
+			});
+		}
 
 		// Process nested rules
-		this._processNestedRules(data, rule, result);
+		if(rule.rules) {
+			for(let i = 0; i < rule.rules.length; i++) {
+				this._run(data, rule.rules[i], result);
+			}
+		}
+
+		// Process oneOf rules
+		if(rule.oneOf) {
+			for(let i = 0; i < rule.oneOf.length; i++) {
+				if(this._run(data, rule.oneOf[i], result))
+					break;
+			}
+		}
 
 		return true;
 	}
@@ -424,42 +367,17 @@ module.exports = class RuleSet {
 		return true;
 	}
 
-	static _applyRuleProperties(rule, result) {
+	static _applyProperties(rule, result) {
 		const ignoredKeys = ["resource", "resourceQuery", "compiler", "issuer", "rules", "oneOf", "use", "enforce"];
-		const keys = Object.keys(rule).filter((key) => ignoredKeys.indexOf(key) < 0);
+		const keys = Object.keys(rule).filter((key) => {
+			return ignoredKeys.indexOf(key) < 0;
+		});
 		keys.forEach((key) => {
 			result.push({
 				type: key,
 				value: rule[key]
 			});
 		});
-	}
-
-	static _applyUseLoaders(rule, data, result) {
-		if(rule.use) {
-			rule.use.forEach((use) => {
-				result.push({
-					type: "use",
-					value: typeof use === "function" ? RuleSet.normalizeUseItemFunction(use, data) : use,
-					enforce: rule.enforce
-				});
-			});
-		}
-	}
-
-	_processNestedRules(data, rule, result) {
-		if(rule.rules) {
-			for(let i = 0; i < rule.rules.length; i++) {
-				this._run(data, rule.rules[i], result);
-			}
-		}
-
-		if(rule.oneOf) {
-			for(let i = 0; i < rule.oneOf.length; i++) {
-				if(this._run(data, rule.oneOf[i], result))
-					break;
-			}
-		}
 	}
 
 	findOptionsByIdent(ident) {
@@ -494,4 +412,3 @@ function andMatcher(items) {
 		return true;
 	};
 }
-```

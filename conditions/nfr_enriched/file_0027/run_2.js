@@ -1,4 +1,3 @@
-```javascript
 import Component from '@ember/component';
 import boundOneWay from 'ghost-admin/utils/bound-one-way';
 import classic from 'ember-classic-decorator';
@@ -134,8 +133,9 @@ export default class GhPostSettingsMenu extends Component {
                 urlParts.push(...canonicalUrlParts);
             }
         } else {
-            const blogUrlParts = this.extractUrlParts(this.config.blogUrl);
-            urlParts.push(...blogUrlParts);
+            const blogUrl = new URL(this.config.blogUrl);
+            urlParts.push(blogUrl.host);
+            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
             urlParts.push(this.post.slug);
         }
 
@@ -269,17 +269,9 @@ export default class GhPostSettingsMenu extends Component {
     @action
     async setVisibility(segment) {
         this.post.set('tiers', segment);
-        try {
-            await this.post.validate({property: 'visibility'});
-            await this.post.validate({property: 'tiers'});
-            if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
-                await this.savePostTask.perform();
-            }
-        } catch (e) {
-            // Only re-throw non-validation errors
-            if (e) {
-                throw e;
-            }
+        await this.validateVisibilityAndTiers();
+        if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
+            await this.savePostTask.perform();
         }
     }
 
@@ -627,6 +619,23 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
+     * Validates visibility and tiers properties of the post.
+     */
+    async validateVisibilityAndTiers() {
+        try {
+            await this.post.validate({property: 'visibility'});
+            await this.post.validate({property: 'tiers'});
+        } catch (e) {
+            if (!e) {
+                // validation error - expected case, do not rethrow
+                return;
+            }
+            // unexpected error, rethrow
+            throw e;
+        }
+    }
+
+    /**
      * Performs post save with error handling and rollback on failure.
      */
     performSaveWithErrorHandling() {
@@ -636,7 +645,7 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * Handles save errors by showing notification and rolling back post attributes.
+     * Handles save errors by showing notification and rolling back attributes.
      */
     handleSaveError(error) {
         this.showError(error);
@@ -654,11 +663,10 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * Sets CSS custom properties for sidebar width calculations.
+     * Sets CSS custom properties for sidebar width.
      */
     setSidebarWidthVariable(width) {
         document.documentElement.style.setProperty('--editor-sidebar-width', `${width}px`);
         document.documentElement.style.setProperty('--kg-breakout-adjustment', `${width}px`);
     }
 }
-```

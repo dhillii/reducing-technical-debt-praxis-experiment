@@ -1,4 +1,3 @@
-```javascript
 import * as Sentry from '@sentry/ember';
 import AjaxService from 'ember-ajax/services/ajax';
 import classic from 'ember-classic-decorator';
@@ -364,7 +363,7 @@ class ajaxService extends AjaxService {
         }
     }
 
-    _handleErrorResponse(status, headers, payload) {
+    _getErrorResponse(status, headers, payload) {
         for (const handler of ERROR_HANDLERS) {
             if (this[handler.check](status, headers, payload)) {
                 return new handler.ErrorClass(payload);
@@ -404,7 +403,7 @@ class ajaxService extends AjaxService {
 
         this._checkVersionMismatch(headers);
 
-        const errorResponse = this._handleErrorResponse(status, headers, payload);
+        const errorResponse = this._getErrorResponse(status, headers, payload);
         if (errorResponse) {
             return errorResponse;
         }
@@ -492,4 +491,3 @@ ajaxService.reopen({
 });
 
 export default ajaxService;
-```

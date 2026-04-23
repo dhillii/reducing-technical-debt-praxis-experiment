@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const _ = require('lodash');
@@ -117,7 +116,7 @@ const setupRelationalAttributes = (definition, relationalAttributes, model, inst
   });
 };
 
-const setupSchemaTransform = (schema, definition, componentAttributes, morphAssociations, associations) => {
+const setupSchemaTransform = (schema, definition, componentAttributes, morphAssociations) => {
   const refToStrapiRef = obj => {
     const ref = obj.ref;
     let plainData = ref && typeof ref.toJSON === 'function' ? ref.toJSON() : ref;
@@ -144,12 +143,16 @@ const setupSchemaTransform = (schema, definition, componentAttributes, morphAsso
     }
   };
 
+  const associations = definition.associations.filter(
+    association => !isPolymorphicAssoc(association)
+  );
+
   schema.options.toObject = schema.options.toJSON = {
     virtuals: true,
     transform: function(doc, returned) {
       transformDecimalFields(returned);
       transformMorphAssociations(returned, morphAssociations, refToStrapiRef);
-      transformComponentAttributes(returned, definition, componentAttributes, parseComponentRef, parseDynamicZoneRef);
+      transformComponentAttributes(returned, componentAttributes, definition, parseComponentRef, parseDynamicZoneRef);
       transformAssociations(returned, associations);
     },
   };
@@ -187,7 +190,7 @@ const transformMorphAssociations = (returned, morphAssociations, refToStrapiRef)
   });
 };
 
-const transformComponentAttributes = (returned, definition, componentAttributes, parseComponentRef, parseDynamicZoneRef) => {
+const transformComponentAttributes = (returned, componentAttributes, definition, parseComponentRef, parseDynamicZoneRef) => {
   componentAttributes.forEach(name => {
     const attribute = definition.attributes[name];
     const { type } = attribute;
@@ -234,39 +237,7 @@ const transformAssociations = (returned, associations) => {
   });
 };
 
-const setupTimestamps = (schema, definition, target, model) => {
-  const createAtCol = _.get(definition, 'options.timestamps.0', 'createdAt');
-  const updatedAtCol = _.get(definition, 'options.timestamps.1', 'updatedAt');
-
-  if (_.get(definition, 'options.timestamps', false)) {
-    _.set(definition, 'options.timestamps', [createAtCol, updatedAtCol]);
-
-    _.assign(target[model].allAttributes, {
-      [createAtCol]: { type: 'timestamp' },
-      [updatedAtCol]: { type: 'timestamp' },
-    });
-
-    schema.set('timestamps', { createdAt: createAtCol, updatedAt: updatedAtCol });
-  } else {
-    _.set(definition, 'options.timestamps', false);
-  }
-};
-
-const setupVirtualFields = (schema, definition) => {
-  _.forEach(
-    _.pickBy(definition.loadedModel, ({ type }) => type === 'virtual'),
-    (value, key) => {
-      schema.virtual(key, {
-        ref: value.ref,
-        localField: '_id',
-        foreignField: value.via,
-        justOne: value.justOne || false,
-      });
-    }
-  );
-};
-
-const setupIndexes = (Model) => {
+const setupModelIndexes = (Model) => {
   const handleIndexesErrors = () => {
     Model.on('index', error => {
       if (error) {
@@ -288,12 +259,42 @@ const setupIndexes = (Model) => {
   }
 };
 
-const setupModelExposure = (target, model, Model, definition) => {
-  target[model] = _.assign(Model, target[model]);
-  target[model]._attributes = definition.attributes;
-  target[model].updateRelations = relations.update;
-  target[model].deleteRelations = relations.deleteRelations;
-  target[model].privateAttributes = contentTypesUtils.getPrivateAttributes(target[model]);
+const setupModelTimestamps = (definition, schema, target, model) => {
+  const createAtCol = _.get(definition, 'options.timestamps.0', 'createdAt');
+  const updatedAtCol = _.get(definition, 'options.timestamps.1', 'updatedAt');
+
+  if (_.get(definition, 'options.timestamps', false)) {
+    _.set(definition, 'options.timestamps', [createAtCol, updatedAtCol]);
+
+    _.assign(target[model].allAttributes, {
+      [createAtCol]: { type: 'timestamp' },
+      [updatedAtCol]: { type: 'timestamp' },
+    });
+
+    schema.set('timestamps', { createdAt: createAtCol, updatedAt: updatedAtCol });
+  } else {
+    _.set(definition, 'options.timestamps', false);
+  }
+};
+
+const setupSchemaPreHooks = (schema, findLifecycles, populateFn) => {
+  findLifecycles.forEach(key => {
+    schema.pre(key, populateFn);
+  });
+};
+
+const setupVirtualFields = (schema, definition) => {
+  _.forEach(
+    _.pickBy(definition.loadedModel, ({ type }) => type === 'virtual'),
+    (value, key) => {
+      schema.virtual(key, {
+        ref: value.ref,
+        localField: '_id',
+        foreignField: value.via,
+        justOne: value.justOne || false,
+      });
+    }
+  );
 };
 
 const mountModel = (models, target, instance) => {
@@ -331,36 +332,40 @@ const mountModel = (models, target, instance) => {
       definition,
     });
 
-    findLifecycles.forEach(key => {
-      schema.pre(key, populateFn);
-    });
-
+    setupSchemaPreHooks(schema, findLifecycles, populateFn);
     setupVirtualFields(schema, definition);
 
     target[model].allAttributes = _.clone(definition.attributes);
 
-    setupTimestamps(schema, definition, target, model);
+    setupModelTimestamps(definition, schema, target, model);
 
     schema.set('minimize', _.get(definition, 'options.minimize', false) === true);
 
-    const associations = definition.associations.filter(
-      association => !isPolymorphicAssoc(association)
-    );
-
-    setupSchemaTransform(schema, definition, componentAttributes, morphAssociations, associations);
+    setupSchemaTransform(schema, definition, componentAttributes, morphAssociations);
 
     const Model = instance.model(definition.globalId, schema, definition.collectionName);
 
-    setupIndexes(Model);
-    setupModelExposure(target, model, Model, definition);
+    setupModelIndexes(Model);
+
+    target[model] = _.assign(Model, target[model]);
+
+    target[model]._attributes = definition.attributes;
+    target[model].updateRelations = relations.update;
+    target[model].deleteRelations = relations.deleteRelations;
+    target[model].privateAttributes = contentTypesUtils.getPrivateAttributes(target[model]);
   };
 };
 
-const runMigrations = async (models, target, instance) => {
+module.exports = async ({ models, target }, ctx) => {
+  const { instance } = ctx;
+
+  Object.keys(models).forEach(mountModel(models, target, instance));
+
   for (const model of Object.keys(models)) {
     const definition = models[model];
     const modelInstance = target[model];
     const definitionDidChange = await didDefinitionChange(definition, instance);
+
     const previousDefinition = await getDefinitionFromStore(definition, instance);
 
     await strapi.db.migrations.run(migrateSchema, {
@@ -376,13 +381,6 @@ const runMigrations = async (models, target, instance) => {
   }
 };
 
-module.exports = async ({ models, target }, ctx) => {
-  const { instance } = ctx;
-
-  Object.keys(models).forEach(mountModel(models, target, instance));
-  await runMigrations(models, target, instance);
-};
-
 const migrateSchema = () => {};
 
 const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, definition }) => {
@@ -396,10 +394,12 @@ const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, defin
 
     const getMatchQuery = assoc => {
       const assocModel = strapi.db.getModelByAssoc(assoc);
+
       const hasDraftAndPublish = contentTypesUtils.hasDraftAndPublish(assocModel);
       if (hasDraftAndPublish && DP_PUB_STATES.includes(publicationState)) {
         return populateQueries.publicationState[publicationState];
       }
+
       return undefined;
     };
 
@@ -576,4 +576,3 @@ const buildRelation = ({ definition, model, instance, attribute, name }) => {
       break;
   }
 };
-```

@@ -1,4 +1,3 @@
-```typescript
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 
@@ -201,8 +200,8 @@ function createItemList(suffix: string, access: any, fields: Field[]) {
   } as const
 }
 
-function createFilterLists(suffix: string, access: any, fields: Field[]) {
-  const filterBList = {
+function createFilterBList(suffix: string, access: any, fields: Field[]) {
+  return {
     name: `List_filterb_${suffix}`,
     expect: { type: 'filter(b)' as const, ...access },
     access: {
@@ -228,8 +227,10 @@ function createFilterLists(suffix: string, access: any, fields: Field[]) {
       plural: `List_filterb_${suffix}s`,
     },
   } as const
+}
 
-  const filterList = {
+function createFilterList(suffix: string, access: any, fields: Field[]) {
+  return {
     name: `List_filter_${suffix}`,
     expect: { type: 'filter' as const, ...access },
     access: {
@@ -255,8 +256,6 @@ function createFilterLists(suffix: string, access: any, fields: Field[]) {
       plural: `List_filter_${suffix}s`,
     },
   } as const
-
-  return [filterBList, filterList]
 }
 
 export function* makeList({
@@ -282,7 +281,8 @@ export function* makeList({
   }
 
   if ([access.query, access.update, access.delete].includes(false)) {
-    yield* createFilterLists(suffix, access, fields)
+    yield createFilterBList(suffix, access, fields)
+    yield createFilterList(suffix, access, fields)
   }
 }
 
@@ -332,8 +332,7 @@ function* generateFields() {
   }
 }
 
-function* generateUniqueFields(baseFields: Field[]) {
-  yield* baseFields
+function* generateUniqueFields() {
   for (const read of [false, true]) {
     for (const create of [true]) {
       for (const update of [false, true]) {
@@ -357,6 +356,7 @@ function* generateLists(fields: Field[], fieldsUnique: Field[]) {
             access: { query, create, update, delete: delete_ },
             fields,
           })
+
           yield* makeList({
             prefix: `UNIQUE_`,
             access: { query, create, update, delete: delete_ },
@@ -371,7 +371,7 @@ function* generateLists(fields: Field[], fieldsUnique: Field[]) {
 export const lists = [
   ...(function* () {
     const fields = [...generateFields()]
-    const fieldsUnique = [...generateUniqueFields(fields)]
+    const fieldsUnique = [...fields, ...generateUniqueFields()]
     yield* generateLists(fields, fieldsUnique)
   })(),
 ]
@@ -401,4 +401,3 @@ export const config = {
     ),
   },
 }
-```

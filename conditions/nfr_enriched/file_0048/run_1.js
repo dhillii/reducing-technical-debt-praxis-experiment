@@ -1,4 +1,3 @@
-```javascript
 const ObjectID = require('bson-objectid').default;
 const {ValidationError} = require('@tryghost/errors');
 
@@ -239,7 +238,7 @@ module.exports = class Tier {
      * @returns {Promise<Tier>}
      */
     static async create(data) {
-        const id = this.#parseId(data.id);
+        const id = this.#resolveId(data.id);
         const validatedData = this.#validateCreateData(data);
         
         const tier = new Tier({
@@ -268,10 +267,10 @@ module.exports = class Tier {
     }
 
     /**
-     * Parses and validates tier ID from various formats
+     * Resolves and validates the ID parameter
      * @private
      */
-    static #parseId(id) {
+    static #resolveId(id) {
         if (!id) {
             return new ObjectID();
         }
@@ -287,12 +286,10 @@ module.exports = class Tier {
     }
 
     /**
-     * Validates all tier creation data
+     * Validates all data fields for tier creation
      * @private
      */
     static #validateCreateData(data) {
-        const type = validateType(data.type || 'paid');
-        
         return {
             name: validateName(data.name),
             slug: validateSlug(data.slug),
@@ -300,11 +297,11 @@ module.exports = class Tier {
             welcomePageURL: validateWelcomePageURL(data.welcomePageURL),
             status: validateStatus(data.status || 'active'),
             visibility: validateVisibility(data.visibility || 'public'),
-            type: type,
-            currency: validateCurrency(data.currency || null, type),
-            trialDays: validateTrialDays(data.trialDays || 0, type),
-            monthlyPrice: validateMonthlyPrice(data.monthlyPrice || null, type),
-            yearlyPrice: validateYearlyPrice(data.yearlyPrice || null, type),
+            type: validateType(data.type || 'paid'),
+            currency: validateCurrency(data.currency || null, data.type || 'paid'),
+            trialDays: validateTrialDays(data.trialDays || 0, data.type || 'paid'),
+            monthlyPrice: validateMonthlyPrice(data.monthlyPrice || null, data.type || 'paid'),
+            yearlyPrice: validateYearlyPrice(data.yearlyPrice || null, data.type || 'paid'),
             createdAt: validateCreatedAt(data.createdAt),
             updatedAt: validateUpdatedAt(data.updatedAt),
             benefits: validateBenefits(data.benefits)
@@ -530,4 +527,3 @@ function validateBenefits(value) {
     }
     return value;
 }
-```

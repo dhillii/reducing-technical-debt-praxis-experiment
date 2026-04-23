@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const http = require('http');
@@ -35,17 +34,17 @@ const LIFECYCLES = {
 };
 
 /**
- * Determines if startup message should be hidden based on environment variable
+ * Determines if startup message should be hidden based on environment variable.
  * @returns {boolean}
  */
-const isStartupMessageHidden = () => {
+const shouldHideStartupMessage = () => {
   return process.env.STRAPI_HIDE_STARTUP_MESSAGE === 'true';
 };
 
 /**
- * Determines if browser should auto-open based on config and initialization state
- * @param {Object} config - Strapi configuration
- * @param {boolean} isInitialised - Whether project is initialized
+ * Determines if browser should auto-open based on environment and initialization state.
+ * @param {Object} config - Strapi configuration object
+ * @param {boolean} isInitialised - Whether the project is initialized
  * @returns {boolean}
  */
 const shouldAutoOpenBrowser = (config, isInitialised) => {
@@ -55,49 +54,26 @@ const shouldAutoOpenBrowser = (config, isInitialised) => {
 };
 
 /**
- * Logs startup information to console
+ * Handles plugin destruction with error handling.
+ * @param {Object} plugin - Plugin instance
+ * @returns {Promise<void>}
  */
-const loggerStrategies = {
-  /**
-   * Logs first startup message for uninitialized projects
-   * @param {Strapi} strapi - Strapi instance
-   */
-  logFirstStartup(strapi) {
-    strapi.logStats();
-    console.log(chalk.bold('One more thing...'));
-    console.log(
-      chalk.grey('Create your first administrator 💻 by going to the administration panel at:')
-    );
-    console.log();
+const destroyPlugin = async (plugin) => {
+  if (_.has(plugin, 'destroy') && typeof plugin.destroy === 'function') {
+    return plugin.destroy();
+  }
+};
 
-    const addressTable = new CLITable();
-    const adminUrl = getAbsoluteAdminUrl(strapi.config);
-    addressTable.push([chalk.bold(adminUrl)]);
-
-    console.log(`${addressTable.toString()}`);
-    console.log();
-  },
-
-  /**
-   * Logs standard startup message for initialized projects
-   * @param {Strapi} strapi - Strapi instance
-   */
-  logStandardStartup(strapi) {
-    strapi.logStats();
-    console.log(chalk.bold('Welcome back!'));
-
-    if (strapi.config.serveAdminPanel === true) {
-      console.log(chalk.grey('To manage your project 🚀, go to the administration panel at:'));
-      const adminUrl = getAbsoluteAdminUrl(strapi.config);
-      console.log(chalk.bold(adminUrl));
-      console.log();
-    }
-
-    console.log(chalk.grey('To access the server ⚡️, go to:'));
-    const serverUrl = getAbsoluteServerUrl(strapi.config);
-    console.log(chalk.bold(serverUrl));
-    console.log();
-  },
+/**
+ * Executes a lifecycle function with error handling.
+ * @param {Function} fn - Lifecycle function to execute
+ * @returns {Promise<void>}
+ */
+const execLifecycle = async (fn) => {
+  if (!fn) {
+    return;
+  }
+  return fn();
 };
 
 /**
@@ -190,11 +166,39 @@ class Strapi {
   }
 
   logFirstStartupMessage() {
-    loggerStrategies.logFirstStartup(this);
+    this.logStats();
+
+    console.log(chalk.bold('One more thing...'));
+    console.log(
+      chalk.grey('Create your first administrator 💻 by going to the administration panel at:')
+    );
+    console.log();
+
+    const addressTable = new CLITable();
+
+    const adminUrl = getAbsoluteAdminUrl(strapi.config);
+    addressTable.push([chalk.bold(adminUrl)]);
+
+    console.log(`${addressTable.toString()}`);
+    console.log();
   }
 
   logStartupMessage() {
-    loggerStrategies.logStandardStartup(this);
+    this.logStats();
+
+    console.log(chalk.bold('Welcome back!'));
+
+    if (this.config.serveAdminPanel === true) {
+      console.log(chalk.grey('To manage your project 🚀, go to the administration panel at:'));
+      const adminUrl = getAbsoluteAdminUrl(strapi.config);
+      console.log(chalk.bold(adminUrl));
+      console.log();
+    }
+
+    console.log(chalk.grey('To access the server ⚡️, go to:'));
+    const serverUrl = getAbsoluteServerUrl(strapi.config);
+    console.log(chalk.bold(serverUrl));
+    console.log();
   }
 
   initServer() {
@@ -250,11 +254,7 @@ class Strapi {
     }
 
     await Promise.all(
-      Object.values(this.plugins).map(plugin => {
-        if (_.has(plugin, 'destroy') && typeof plugin.destroy === 'function') {
-          return plugin.destroy();
-        }
-      })
+      Object.values(this.plugins).map(destroyPlugin)
     );
 
     if (_.has(this, 'admin')) {
@@ -273,40 +273,6 @@ class Strapi {
   }
 
   /**
-   * Handles the listen callback with startup messaging and telemetry
-   * @private
-   */
-  async handleListenCallback(isInitialised, cb) {
-    const hideStartupMessage = isStartupMessageHidden();
-
-    if (!hideStartupMessage) {
-      if (!isInitialised) {
-        this.logFirstStartupMessage();
-      } else {
-        this.logStartupMessage();
-      }
-    }
-
-    // Get database clients
-    const databaseClients = _.map(this.config.get('connections'), _.property('settings.client'));
-
-    // Emit started event.
-    await this.telemetry.send('didStartServer', {
-      database: databaseClients,
-      plugins: this.config.installedPlugins,
-      providers: this.config.installedProviders,
-    });
-
-    if (cb && typeof cb === 'function') {
-      cb();
-    }
-
-    if (shouldAutoOpenBrowser(this.config, isInitialised)) {
-      await utils.openBrowser.call(this);
-    }
-  }
-
-  /**
    * Add behaviors to the server
    */
   async listen(cb) {
@@ -316,7 +282,34 @@ class Strapi {
       // Is the project initialised?
       const isInitialised = await utils.isInitialised(this);
 
-      await this.handleListenCallback(isInitialised, cb);
+      // Should the startup message be displayed?
+      const hideStartupMessage = shouldHideStartupMessage();
+
+      if (hideStartupMessage === false) {
+        if (!isInitialised) {
+          this.logFirstStartupMessage();
+        } else {
+          this.logStartupMessage();
+        }
+      }
+
+      // Get database clients
+      const databaseClients = _.map(this.config.get('connections'), _.property('settings.client'));
+
+      // Emit started event.
+      await this.telemetry.send('didStartServer', {
+        database: databaseClients,
+        plugins: this.config.installedPlugins,
+        providers: this.config.installedProviders,
+      });
+
+      if (cb && typeof cb === 'function') {
+        cb();
+      }
+
+      if (shouldAutoOpenBrowser(this.config, isInitialised)) {
+        await utils.openBrowser.call(this);
+      }
     };
 
     const listenSocket = this.config.get('server.socket');
@@ -469,45 +462,53 @@ class Strapi {
   }
 
   /**
-   * Executes a lifecycle function with error handling
-   * @private
-   * @param {Function} fn - Function to execute
-   * @param {string} lifecycleName - Name of lifecycle for error reporting
-   * @param {string} source - Source identifier (plugin name or 'admin')
+   * Executes plugin lifecycle functions with error handling.
+   * @param {string} lifecycleName - Name of the lifecycle
    * @returns {Promise<void>}
    */
-  async executeLifecycleFunction(fn, lifecycleName, source) {
-    if (!fn) {
-      return;
-    }
+  async runPluginLifecycles(lifecycleName) {
+    const configPath = `functions.${lifecycleName}`;
 
-    try {
-      await fn();
-    } catch (err) {
-      strapi.log.error(`${lifecycleName} function in ${source} failed`);
+    await Promise.all(
+      Object.keys(this.plugins).map(plugin => {
+        const pluginFunc = _.get(this.plugins[plugin], `config.${configPath}`);
+
+        return execLifecycle(pluginFunc).catch(err => {
+          strapi.log.error(`${lifecycleName} function in plugin "${plugin}" failed`);
+          strapi.log.error(err);
+          strapi.stop();
+        });
+      })
+    );
+  }
+
+  /**
+   * Executes admin lifecycle functions with error handling.
+   * @param {string} lifecycleName - Name of the lifecycle
+   * @returns {Promise<void>}
+   */
+  async runAdminLifecycle(lifecycleName) {
+    const configPath = `functions.${lifecycleName}`;
+    const adminFunc = _.get(this.admin.config, configPath);
+
+    return execLifecycle(adminFunc).catch(err => {
+      strapi.log.error(`${lifecycleName} function in admin failed`);
       strapi.log.error(err);
       strapi.stop();
-    }
+    });
   }
 
   async runLifecyclesFunctions(lifecycleName) {
     const configPath = `functions.${lifecycleName}`;
 
     // plugins
-    await Promise.all(
-      Object.keys(this.plugins).map(plugin => {
-        const pluginFunc = _.get(this.plugins[plugin], `config.${configPath}`);
-        return this.executeLifecycleFunction(pluginFunc, lifecycleName, `plugin "${plugin}"`);
-      })
-    );
+    await this.runPluginLifecycles(lifecycleName);
 
     // user
-    const userFunc = _.get(this.config, configPath);
-    await this.executeLifecycleFunction(userFunc, lifecycleName, 'user config');
+    await execLifecycle(_.get(this.config, configPath));
 
     // admin
-    const adminFunc = _.get(this.admin.config, configPath);
-    await this.executeLifecycleFunction(adminFunc, lifecycleName, 'admin');
+    await this.runAdminLifecycle(lifecycleName);
   }
 
   async freeze() {
@@ -537,4 +538,3 @@ module.exports = options => {
   global.strapi = strapi;
   return strapi;
 };
-```

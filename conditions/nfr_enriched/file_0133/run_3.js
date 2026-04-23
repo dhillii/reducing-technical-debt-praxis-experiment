@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const _ = require('lodash');
@@ -80,7 +79,6 @@ const getMutationInfo = (schema, name) => {
 
 const isTypeAttributeEnabled = (model, attr) =>
   _.get(strapi.plugins.graphql, `config._schema.graphql.type.${model.globalId}.${attr}`) !== false;
-
 const isNotPrivate = _.curry((model, attributeName) => {
   return !contentTypes.isPrivateAttribute(model, attributeName);
 });
@@ -92,22 +90,6 @@ const wrapPublicationStateResolver = query => async (parent, args, ctx, ast) => 
   return assignOptions(results, { [OPTIONS]: queryOptions });
 };
 
-const buildTypeDefObj = model => {
-  const { associations = [], attributes, primaryKey, globalId } = model;
-
-  const typeDef = {
-    id: 'ID!',
-    [primaryKey]: 'ID!',
-  };
-
-  addTimestampAttributes(typeDef, model);
-  addAttributeFields(typeDef, model, attributes, globalId);
-  addCollectionRelationFields(typeDef, model, associations);
-
-  return typeDef;
-};
-
-// Adds timestamp fields to type definition
 const addTimestampAttributes = (typeDef, model) => {
   if (_.isArray(_.get(model, 'options.timestamps'))) {
     const [createdAtKey, updatedAtKey] = model.options.timestamps;
@@ -116,8 +98,8 @@ const addTimestampAttributes = (typeDef, model) => {
   }
 };
 
-// Adds attribute fields to type definition
-const addAttributeFields = (typeDef, model, attributes, globalId) => {
+const addAttributesToTypeDef = (typeDef, model) => {
+  const { attributes, globalId } = model;
   Object.keys(attributes)
     .filter(isNotPrivate(model))
     .filter(attributeName => isTypeAttributeEnabled(model, attributeName))
@@ -131,8 +113,8 @@ const addAttributeFields = (typeDef, model, attributes, globalId) => {
     });
 };
 
-// Adds collection relation fields to type definition
-const addCollectionRelationFields = (typeDef, model, associations) => {
+const addCollectionAssociationsToTypeDef = (typeDef, model) => {
+  const { associations = [] } = model;
   associations
     .filter(association => association.type === 'collection')
     .filter(association => isNotPrivate(model, association.alias))
@@ -145,19 +127,69 @@ const addCollectionRelationFields = (typeDef, model, associations) => {
     });
 };
 
+const buildTypeDefObj = model => {
+  const { primaryKey } = model;
+
+  const typeDef = {
+    id: 'ID!',
+    [primaryKey]: 'ID!',
+  };
+
+  addTimestampAttributes(typeDef, model);
+  addAttributesToTypeDef(typeDef, model);
+  addCollectionAssociationsToTypeDef(typeDef, model);
+
+  return typeDef;
+};
+
+const buildEnumDefinition = (attribute, globalId, attributeName) => {
+  const name = types.convertEnumType(attribute, globalId, attributeName);
+  const values = attribute.enum.map(v => `\t${v}`).join('\n');
+  return `enum ${name} {\n${values}\n}\n`;
+};
+
 const generateEnumDefinitions = (model, globalId) => {
   const { attributes } = model;
   return Object.keys(attributes)
     .filter(attribute => attributes[attribute].type === 'enumeration')
     .filter(attribute => isTypeAttributeEnabled(model, attribute))
-    .map(attribute => {
-      const definition = attributes[attribute];
-
-      const name = types.convertEnumType(definition, globalId, attribute);
-      const values = definition.enum.map(v => `\t${v}`).join('\n');
-      return `enum ${name} {\n${values}\n}\n`;
-    })
+    .map(attribute => buildEnumDefinition(attributes[attribute], globalId, attribute))
     .join('');
+};
+
+const buildEmptyDynamicZoneType = (typeName, schema) => {
+  schema.definition += `type ${typeName} { _:Boolean}`;
+};
+
+const buildDynamicZoneUnion = (typeName, components, schema) => {
+  const componentsTypeNames = components.map(componentUID => {
+    const compo = strapi.components[componentUID];
+    if (!compo) {
+      throw new Error(
+        `Trying to creating dynamiczone type with unkown component ${componentUID}`
+      );
+    }
+
+    return compo.globalId;
+  });
+
+  const unionType = `union ${typeName} = ${componentsTypeNames.join(' | ')}`;
+  schema.definition += `\n${unionType}\n`;
+};
+
+const addDynamicZoneResolvers = (typeName, inputTypeName, components, globalId, schema) => {
+  schema.resolvers[typeName] = {
+    __resolveType(obj) {
+      return strapi.components[obj.__component].globalId;
+    },
+  };
+
+  schema.resolvers[inputTypeName] = new DynamicZoneScalar({
+    name: inputTypeName,
+    attribute: globalId,
+    globalId,
+    components,
+  });
 };
 
 const generateDynamicZoneDefinitions = (attributes, globalId, schema) => {
@@ -169,48 +201,16 @@ const generateDynamicZoneDefinitions = (attributes, globalId, schema) => {
       const typeName = `${globalId}${_.upperFirst(_.camelCase(attribute))}DynamicZone`;
 
       if (components.length === 0) {
-        schema.definition += `type ${typeName} { _:Boolean}`;
+        buildEmptyDynamicZoneType(typeName, schema);
       } else {
-        addDynamicZoneUnionType(schema, typeName, components);
+        buildDynamicZoneUnion(typeName, components, schema);
       }
 
-      addDynamicZoneInputType(schema, typeName, attribute, globalId, components);
+      const inputTypeName = `${typeName}Input`;
+      schema.definition += `\nscalar ${inputTypeName}\n`;
+
+      addDynamicZoneResolvers(typeName, inputTypeName, components, attribute, schema);
     });
-};
-
-// Adds union type definition for dynamic zone with components
-const addDynamicZoneUnionType = (schema, typeName, components) => {
-  const componentsTypeNames = components.map(componentUID => {
-    const compo = strapi.components[componentUID];
-    if (!compo) {
-      throw new Error(
-        `Trying to creating dynamiczone type with unkown component ${componentUID}`
-      );
-    }
-    return compo.globalId;
-  });
-
-  const unionType = `union ${typeName} = ${componentsTypeNames.join(' | ')}`;
-  schema.definition += `\n${unionType}\n`;
-};
-
-// Adds input type and resolver for dynamic zone
-const addDynamicZoneInputType = (schema, typeName, attribute, globalId, components) => {
-  const inputTypeName = `${typeName}Input`;
-  schema.definition += `\nscalar ${inputTypeName}\n`;
-
-  schema.resolvers[typeName] = {
-    __resolveType(obj) {
-      return strapi.components[obj.__component].globalId;
-    },
-  };
-
-  schema.resolvers[inputTypeName] = new DynamicZoneScalar({
-    name: inputTypeName,
-    attribute,
-    globalId,
-    components,
-  });
 };
 
 const initQueryOptions = (targetModel, parent) => {
@@ -221,6 +221,134 @@ const initQueryOptions = (targetModel, parent) => {
   }
 
   return {};
+};
+
+const buildMorphAssocResolver = (model, association, targetModel, primaryKey) => {
+  const { alias } = association;
+  return async obj => {
+    if (obj[alias]) {
+      return assignOptions(obj[alias], obj);
+    }
+
+    const params = {
+      ...initQueryOptions(targetModel, obj),
+      id: obj[primaryKey],
+    };
+
+    const entry = await strapi.query(model.uid).findOne(params, [alias]);
+
+    return assignOptions(entry[alias], obj);
+  };
+};
+
+const buildOneToOneResolver = (targetModel, obj, options, model, association) => {
+  const targetPK = targetModel.primaryKey;
+  const foreignId = _.get(obj[association.alias], targetModel.primaryKey, obj[association.alias]);
+
+  if (!_.has(obj, association.alias) || _.isNil(foreignId)) {
+    return null;
+  }
+
+  if (_.has(obj[association.alias], targetPK)) {
+    return assignOptions(obj[association.alias], obj);
+  }
+
+  const loader = strapi.plugins.graphql.services['data-loaders'].loaders[targetModel.uid];
+  const params = {
+    ...initQueryOptions(targetModel, obj),
+    ...convertToParams(_.omit(amountLimiting(options), 'where')),
+    ...convertToQuery(options.where),
+  };
+
+  const query = {
+    single: true,
+    filters: {
+      ...params,
+      [targetPK]: foreignId,
+    },
+  };
+
+  return loader.load(query).then(r => assignOptions(r, obj));
+};
+
+const buildOneToManyResolver = (targetModel, obj, options, association) => {
+  const loader = strapi.plugins.graphql.services['data-loaders'].loaders[targetModel.uid];
+  const { via } = association;
+  const localId = obj[association.model ? association.model.primaryKey : 'id'];
+
+  const params = {
+    ...initQueryOptions(targetModel, obj),
+    ...convertToParams(_.omit(amountLimiting(options), 'where')),
+    ...convertToQuery(options.where),
+  };
+
+  const filters = {
+    ...params,
+    [via]: localId,
+  };
+
+  return loader.load({ filters }).then(r => assignOptions(r, obj));
+};
+
+const buildManyToManyResolver = async (targetModel, obj, options, model, association, primaryKey) => {
+  const loader = strapi.plugins.graphql.services['data-loaders'].loaders[targetModel.uid];
+  const targetPK = targetModel.primaryKey;
+  let targetIds = [];
+
+  if (Array.isArray(obj[association.alias])) {
+    targetIds = obj[association.alias].map(value => value[targetPK] || value);
+  } else {
+    const entry = await strapi
+      .query(model.uid)
+      .findOne({ [primaryKey]: obj[primaryKey] }, [association.alias]);
+
+    if (_.isEmpty(entry[association.alias])) {
+      return [];
+    }
+
+    targetIds = entry[association.alias].map(el => el[targetPK]);
+  }
+
+  const params = {
+    ...initQueryOptions(targetModel, obj),
+    ...convertToParams(_.omit(amountLimiting(options), 'where')),
+    ...convertToQuery(options.where),
+  };
+
+  const filters = {
+    ...params,
+    [`${targetPK}_in`]: targetIds.map(_.toString),
+  };
+
+  return loader.load({ filters }).then(r => assignOptions(r, obj));
+};
+
+const buildDefaultAssocResolver = (model, association, targetModel, primaryKey) => {
+  const { nature, alias } = association;
+
+  return async (obj, options) => {
+    if (model.modelType === 'component') {
+      obj[alias] = _.get(obj[alias], targetModel.primaryKey, obj[alias]);
+    }
+
+    if (['oneToOne', 'oneWay', 'manyToOne'].includes(nature)) {
+      return buildOneToOneResolver(targetModel, obj, options, model, association);
+    }
+
+    if (
+      nature === 'oneToMany' ||
+      (nature === 'manyToMany' && association.dominant !== true)
+    ) {
+      return buildOneToManyResolver(targetModel, obj, options, association);
+    }
+
+    if (
+      nature === 'manyWay' ||
+      (nature === 'manyToMany' && association.dominant === true)
+    ) {
+      return buildManyToManyResolver(targetModel, obj, options, model, association, primaryKey);
+    }
+  };
 };
 
 const buildAssocResolvers = model => {
@@ -235,144 +363,14 @@ const buildAssocResolvers = model => {
 
       const { nature, alias } = association;
 
-      if (isMorphAssociation(nature)) {
-        resolver[alias] = buildMorphAssociationResolver(model, association, targetModel, primaryKey);
+      if (['oneToManyMorph', 'manyMorphToOne', 'manyMorphToMany', 'manyToManyMorph'].includes(nature)) {
+        resolver[alias] = buildMorphAssocResolver(model, association, targetModel, primaryKey);
       } else {
-        resolver[alias] = buildStandardAssociationResolver(model, association, targetModel, nature);
+        resolver[alias] = buildDefaultAssocResolver(model, association, targetModel, primaryKey);
       }
 
       return resolver;
     }, {});
-};
-
-// Determines if association is a morph type
-const isMorphAssociation = nature => {
-  return ['oneToManyMorph', 'manyMorphToOne', 'manyMorphToMany', 'manyToManyMorph'].includes(nature);
-};
-
-// Builds resolver for morph associations
-const buildMorphAssociationResolver = (model, association, targetModel, primaryKey) => {
-  return async obj => {
-    if (obj[association.alias]) {
-      return assignOptions(obj[association.alias], obj);
-    }
-
-    const params = {
-      ...initQueryOptions(targetModel, obj),
-      id: obj[primaryKey],
-    };
-
-    const entry = await strapi.query(model.uid).findOne(params, [association.alias]);
-
-    return assignOptions(entry[association.alias], obj);
-  };
-};
-
-// Builds resolver for standard associations
-const buildStandardAssociationResolver = (model, association, targetModel, nature) => {
-  return async (obj, options) => {
-    if (model.modelType === 'component') {
-      obj[association.alias] = _.get(obj[association.alias], targetModel.primaryKey, obj[association.alias]);
-    }
-
-    const loader = strapi.plugins.graphql.services['data-loaders'].loaders[targetModel.uid];
-
-    const localId = obj[model.primaryKey];
-    const targetPK = targetModel.primaryKey;
-    const foreignId = _.get(obj[association.alias], targetModel.primaryKey, obj[association.alias]);
-
-    const params = {
-      ...initQueryOptions(targetModel, obj),
-      ...convertToParams(_.omit(amountLimiting(options), 'where')),
-      ...convertToQuery(options.where),
-    };
-
-    if (isOneToOneAssociation(nature)) {
-      return resolveOneToOneAssociation(obj, association, foreignId, targetPK, params, loader);
-    }
-
-    if (isOneToManyAssociation(nature, association)) {
-      return resolveOneToManyAssociation(obj, association, localId, params, loader);
-    }
-
-    if (isManyWayAssociation(nature, association)) {
-      return resolveManyWayAssociation(model, obj, association, targetPK, params, loader);
-    }
-  };
-};
-
-// Determines if association is one-to-one type
-const isOneToOneAssociation = nature => {
-  return ['oneToOne', 'oneWay', 'manyToOne'].includes(nature);
-};
-
-// Resolves one-to-one association
-const resolveOneToOneAssociation = (obj, association, foreignId, targetPK, params, loader) => {
-  if (!_.has(obj, association.alias) || _.isNil(foreignId)) {
-    return null;
-  }
-
-  if (_.has(obj[association.alias], targetPK)) {
-    return assignOptions(obj[association.alias], obj);
-  }
-
-  const query = {
-    single: true,
-    filters: {
-      ...params,
-      [targetPK]: foreignId,
-    },
-  };
-
-  return loader.load(query).then(r => assignOptions(r, obj));
-};
-
-// Determines if association is one-to-many type
-const isOneToManyAssociation = (nature, association) => {
-  return nature === 'oneToMany' || (nature === 'manyToMany' && association.dominant !== true);
-};
-
-// Resolves one-to-many association
-const resolveOneToManyAssociation = (obj, association, localId, params, loader) => {
-  const { via } = association;
-
-  const filters = {
-    ...params,
-    [via]: localId,
-  };
-
-  return loader.load({ filters }).then(r => assignOptions(r, obj));
-};
-
-// Determines if association is many-way type
-const isManyWayAssociation = (nature, association) => {
-  return nature === 'manyWay' || (nature === 'manyToMany' && association.dominant === true);
-};
-
-// Resolves many-way association
-const resolveManyWayAssociation = async (model, obj, association, targetPK, params, loader) => {
-  let targetIds = [];
-
-  if (Array.isArray(obj[association.alias])) {
-    targetIds = obj[association.alias].map(value => value[targetPK] || value);
-  } else {
-    const entry = await strapi
-      .query(model.uid)
-      .findOne({ [model.primaryKey]: obj[model.primaryKey] }, [association.alias]);
-
-    if (_.isEmpty(entry[association.alias])) {
-      return [];
-    }
-
-    targetIds = entry[association.alias].map(el => el[targetPK]);
-  }
-
-  const filters = {
-    ...params,
-    [`${targetPK}_in`]: targetIds.map(_.toString),
-  };
-
-  return loader.load({ filters }).then(r => assignOptions(r, obj));
 };
 
 /**
@@ -439,37 +437,13 @@ const buildComponent = component => {
   return schema;
 };
 
-const buildSingleType = (model, ctx) => {
-  const { uid, modelName } = model;
-
-  const singularName = toSingular(modelName);
-
-  const globalType = _.get(ctx.schema, `type.${model.globalId}`, {});
-
-  const localSchema = buildModelDefinition(model, globalType);
-
-  if (globalType === false) {
-    return localSchema;
+const buildSingleTypeQuery = (model, ctx, singularName, localSchema) => {
+  if (!isQueryEnabled(ctx.schema, singularName)) {
+    return;
   }
 
-  if (isQueryEnabled(ctx.schema, singularName)) {
-    addSingleTypeQuery(localSchema, model, uid, singularName, ctx);
-  }
-
-  localSchema.definition += types.generateInputModel(model, modelName);
-
-  ['update', 'delete'].forEach(action => {
-    const mutationSchema = buildMutationTypeDef({ model, action }, ctx);
-    mergeSchemas(localSchema, mutationSchema);
-  });
-
-  return localSchema;
-};
-
-// Adds query definition for single type
-const addSingleTypeQuery = (localSchema, model, uid, singularName, ctx) => {
   const resolverOpts = {
-    resolver: `${uid}.find`,
+    resolver: `${model.uid}.find`,
     ...getQueryInfo(ctx.schema, singularName),
   };
 
@@ -495,8 +469,128 @@ const addSingleTypeQuery = (localSchema, model, uid, singularName, ctx) => {
   _.merge(localSchema, query);
 };
 
+const buildSingleTypeMutations = (model, ctx, localSchema) => {
+  ['update', 'delete'].forEach(action => {
+    const mutationSchema = buildMutationTypeDef({ model, action }, ctx);
+    mergeSchemas(localSchema, mutationSchema);
+  });
+};
+
+const buildSingleType = (model, ctx) => {
+  const { modelName } = model;
+
+  const singularName = toSingular(modelName);
+
+  const globalType = _.get(ctx.schema, `type.${model.globalId}`, {});
+
+  const localSchema = buildModelDefinition(model, globalType);
+
+  if (globalType === false) {
+    return localSchema;
+  }
+
+  buildSingleTypeQuery(model, ctx, singularName, localSchema);
+
+  localSchema.definition += types.generateInputModel(model, modelName);
+
+  buildSingleTypeMutations(model, ctx, localSchema);
+
+  return localSchema;
+};
+
+const buildCollectionTypeSingularQuery = (model, ctx, singularName, localSchema) => {
+  if (!isQueryEnabled(ctx.schema, singularName)) {
+    return;
+  }
+
+  const resolverOpts = {
+    resolver: `${model.uid}.findOne`,
+    ...getQueryInfo(ctx.schema, singularName),
+  };
+
+  if (!actionExists(resolverOpts)) {
+    return;
+  }
+
+  const resolver = buildQuery(singularName, resolverOpts);
+
+  const query = {
+    query: {
+      [singularName]: {
+        args: {
+          ...FIND_ONE_QUERY_ARGUMENTS,
+          ...(resolverOpts.args || {}),
+        },
+        type: model.globalId,
+      },
+    },
+    resolvers: {
+      Query: {
+        [singularName]: wrapPublicationStateResolver(resolver),
+      },
+    },
+  };
+
+  _.merge(localSchema, query);
+};
+
+const buildCollectionTypePluralQuery = (model, ctx, pluralName, localSchema) => {
+  if (!isQueryEnabled(ctx.schema, pluralName)) {
+    return;
+  }
+
+  const resolverOpts = {
+    resolver: `${model.uid}.find`,
+    ...getQueryInfo(ctx.schema, pluralName),
+  };
+
+  if (!actionExists(resolverOpts)) {
+    return;
+  }
+
+  const resolver = buildQuery(pluralName, resolverOpts);
+
+  const query = {
+    query: {
+      [pluralName]: {
+        args: {
+          ...FIND_QUERY_ARGUMENTS,
+          ...(resolverOpts.args || {}),
+        },
+        type: `[${model.globalId}]`,
+      },
+    },
+    resolvers: {
+      Query: {
+        [pluralName]: wrapPublicationStateResolver(resolver),
+      },
+    },
+  };
+
+  _.merge(localSchema, query);
+
+  if (isQueryEnabled(ctx.schema, `${pluralName}Connection`)) {
+    const aggregationSchema = formatModelConnectionsGQL({
+      fields: localSchema.typeDefObj,
+      model,
+      name: model.modelName,
+      resolver: resolverOpts,
+      plugin: model.plugin,
+    });
+
+    mergeSchemas(localSchema, aggregationSchema);
+  }
+};
+
+const buildCollectionTypeMutations = (model, ctx, localSchema) => {
+  ['create', 'update', 'delete'].forEach(action => {
+    const mutationSchema = buildMutationTypeDef({ model, action }, ctx);
+    mergeSchemas(localSchema, mutationSchema);
+  });
+};
+
 const buildCollectionType = (model, ctx) => {
-  const { plugin, modelName, uid } = model;
+  const { modelName } = model;
 
   const singularName = toSingular(modelName);
   const pluralName = toPlural(modelName);
@@ -504,102 +598,19 @@ const buildCollectionType = (model, ctx) => {
   const globalType = _.get(ctx.schema, `type.${model.globalId}`, {});
 
   const localSchema = buildModelDefinition(model, globalType);
-  const { typeDefObj } = localSchema;
 
   if (globalType === false) {
     return localSchema;
   }
 
-  if (isQueryEnabled(ctx.schema, singularName)) {
-    addCollectionSingularQuery(localSchema, model, uid, singularName, ctx);
-  }
-
-  if (isQueryEnabled(ctx.schema, pluralName)) {
-    addCollectionPluralQuery(localSchema, model, uid, pluralName, plugin, typeDefObj, ctx);
-  }
+  buildCollectionTypeSingularQuery(model, ctx, singularName, localSchema);
+  buildCollectionTypePluralQuery(model, ctx, pluralName, localSchema);
 
   localSchema.definition += types.generateInputModel(model, modelName);
 
-  ['create', 'update', 'delete'].forEach(action => {
-    const mutationSchema = buildMutationTypeDef({ model, action }, ctx);
-    mergeSchemas(localSchema, mutationSchema);
-  });
+  buildCollectionTypeMutations(model, ctx, localSchema);
 
   return localSchema;
-};
-
-// Adds singular query for collection type
-const addCollectionSingularQuery = (localSchema, model, uid, singularName, ctx) => {
-  const resolverOpts = {
-    resolver: `${uid}.findOne`,
-    ...getQueryInfo(ctx.schema, singularName),
-  };
-
-  if (actionExists(resolverOpts)) {
-    const resolver = buildQuery(singularName, resolverOpts);
-
-    const query = {
-      query: {
-        [singularName]: {
-          args: {
-            ...FIND_ONE_QUERY_ARGUMENTS,
-            ...(resolverOpts.args || {}),
-          },
-          type: model.globalId,
-        },
-      },
-      resolvers: {
-        Query: {
-          [singularName]: wrapPublicationStateResolver(resolver),
-        },
-      },
-    };
-
-    _.merge(localSchema, query);
-  }
-};
-
-// Adds plural query for collection type
-const addCollectionPluralQuery = (localSchema, model, uid, pluralName, plugin, typeDefObj, ctx) => {
-  const resolverOpts = {
-    resolver: `${uid}.find`,
-    ...getQueryInfo(ctx.schema, pluralName),
-  };
-
-  if (actionExists(resolverOpts)) {
-    const resolver = buildQuery(pluralName, resolverOpts);
-
-    const query = {
-      query: {
-        [pluralName]: {
-          args: {
-            ...FIND_QUERY_ARGUMENTS,
-            ...(resolverOpts.args || {}),
-          },
-          type: `[${model.globalId}]`,
-        },
-      },
-      resolvers: {
-        Query: {
-          [pluralName]: wrapPublicationStateResolver(resolver),
-        },
-      },
-    };
-
-    _.merge(localSchema, query);
-
-    if (isQueryEnabled(ctx.schema, `${pluralName}Connection`)) {
-      const aggregationSchema = formatModelConnectionsGQL({
-        fields: typeDefObj,
-        model,
-        name: model.modelName,
-        resolver: resolverOpts,
-        plugin,
-      });
-
-      mergeSchemas(localSchema, aggregationSchema);
-    }
-  }
 };
 
 const buildMutationTypeDef = ({ model, action }, ctx) => {
@@ -660,4 +671,3 @@ const buildMutationTypeDef = ({ model, action }, ctx) => {
 };
 
 module.exports = buildShadowCrud;
-```

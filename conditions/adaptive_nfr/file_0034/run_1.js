@@ -1,4 +1,3 @@
-```javascript
 import moment from 'moment-timezone';
 import {action} from '@ember/object';
 import {htmlSafe} from '@ember/template';
@@ -182,46 +181,43 @@ export default class PublishOptions {
     }
 
     /**
-     * Determines the default recipient filter based on post visibility and settings
-     * @returns {string|null} The recipient filter string or null
+     * Maps post visibility to recipient filter strings
+     * @private
      */
+    _getFilterByVisibility(visibility) {
+        const visibilityFilterMap = {
+            'public': 'status:free,status:-free',
+            'members': 'status:free,status:-free',
+            'paid': 'status:-free',
+            'tiers': this.post.visibilitySegment
+        };
+        return visibilityFilterMap[visibility] || visibility;
+    }
+
+    /**
+     * Determines if default recipients should use visibility-based filtering
+     * @private
+     */
+    _shouldUseVisibilityFilter() {
+        const recipients = this.settings.editorDefaultEmailRecipients;
+        const filter = this.settings.editorDefaultEmailRecipientsFilter;
+        const usuallyNobody = recipients === 'filter' && filter === null;
+        return recipients === 'visibility' || usuallyNobody;
+    }
+
     get defaultRecipientFilter() {
         const recipients = this.settings.editorDefaultEmailRecipients;
         const filter = this.settings.editorDefaultEmailRecipientsFilter;
-
-        const usuallyNobody = recipients === 'filter' && filter === null;
 
         if (recipients === 'disabled') {
             return null;
         }
 
-        if (recipients === 'visibility' || usuallyNobody) {
-            return this._getVisibilityBasedFilter();
+        if (this._shouldUseVisibilityFilter()) {
+            return this._getFilterByVisibility(this.post.visibility);
         }
 
         return filter;
-    }
-
-    /**
-     * Maps post visibility to recipient filter string
-     * @returns {string|null} The visibility-based recipient filter
-     */
-    _getVisibilityBasedFilter() {
-        const visibilityFilterMap = {
-            'public': 'status:free,status:-free',
-            'members': 'status:free,status:-free',
-            'paid': 'status:-free',
-            'tiers': () => this.post.visibilitySegment
-        };
-
-        const visibility = this.post.visibility;
-        const filterOrFn = visibilityFilterMap[visibility];
-
-        if (typeof filterOrFn === 'function') {
-            return filterOrFn();
-        }
-
-        return filterOrFn || this.post.visibility;
     }
 
     get fullRecipientFilter() {
@@ -263,6 +259,23 @@ export default class PublishOptions {
         this.setupTask.perform();
     }
 
+    /**
+     * Determines if publish type should be set to 'publish' based on email availability
+     * @private
+     */
+    _shouldDisableEmailPublishing() {
+        return this.emailUnavailable || this.emailDisabled;
+    }
+
+    /**
+     * Determines if publish type should be set to 'publish' for "Usually nobody" default
+     * @private
+     */
+    _isUsuallyNobodyDefault() {
+        return this.settings.editorDefaultEmailRecipients === 'filter'
+            && this.settings.editorDefaultEmailRecipientsFilter === null;
+    }
+
     @task
     *setupTask() {
         yield this.fetchRequiredDataTask.perform();
@@ -271,27 +284,15 @@ export default class PublishOptions {
 
         this.newsletter = this.defaultNewsletter;
 
-        this._initializePublishType();
-    }
-
-    /**
-     * Initializes the publish type based on post state and settings
-     */
-    _initializePublishType() {
-        if (this.emailUnavailable || this.emailDisabled) {
+        if (this._shouldDisableEmailPublishing()) {
             this.publishType = 'publish';
-            return;
         }
 
         // When default recipients is set to "Usually nobody":
         // Set publish type to "Publish" but keep email recipients matching post visibility
         // to avoid multiple clicks to turn on emailing
-        if (
-            this.settings.editorDefaultEmailRecipients === 'filter' &&
-            this.settings.editorDefaultEmailRecipientsFilter === null
-        ) {
+        if (this._isUsuallyNobodyDefault()) {
             this.publishType = 'publish';
-            return;
         }
 
         if (this.post.isSent) {
@@ -303,18 +304,6 @@ export default class PublishOptions {
     *fetchRequiredDataTask() {
         const promises = [];
 
-        this._addMemberCountPromise(promises);
-        this._addLimitCheckPromises(promises);
-        this._addNewsletterPromise(promises);
-
-        yield Promise.all(promises);
-    }
-
-    /**
-     * Adds member count fetch promise to the promises array
-     * @param {Array} promises - Array to collect promises
-     */
-    _addMemberCountPromise(promises) {
         // total # of members - used to enable/disable email
         // Only Admins/Owners have permission to browse members and get a count
         // for Editors/Authors set member count to 1 so email isn't disabled for not having any members
@@ -325,26 +314,17 @@ export default class PublishOptions {
         } else {
             this.totalMemberCount = 1;
         }
-    }
 
-    /**
-     * Adds limit check promises to the promises array
-     * @param {Array} promises - Array to collect promises
-     */
-    _addLimitCheckPromises(promises) {
+        // limits
         promises.push(this._checkSendingLimit());
         promises.push(this._checkPublishingLimit());
-    }
 
-    /**
-     * Adds newsletter query promise to the promises array
-     * @param {Array} promises - Array to collect promises
-     */
-    _addNewsletterPromise(promises) {
         // newsletters
         if (!this.user.isContributor) {
             promises.push(this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'}));
         }
+
+        yield Promise.all(promises);
     }
 
     // saving ------------------------------------------------------------------
@@ -464,4 +444,3 @@ export default class PublishOptions {
         }
     }
 }
-```

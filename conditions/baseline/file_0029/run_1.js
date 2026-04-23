@@ -1,4 +1,3 @@
-```javascript
 import Component from '@glimmer/component';
 import DeletePostModal from '../modals/delete-post';
 import PostSuccessModal from '../modal-post-success';
@@ -291,7 +290,8 @@ export default class Analytics extends Component {
         });
 
         const postId = this.post.id;
-        const filter = `post_id:'${postId}'+to:'${currentLink}'`;
+        const currentLinkStr = currentLink.toString();
+        const filter = `post_id:'${postId}'+to:'${currentLinkStr}'`;
         let bulkUpdateUrl = this.ghostPaths.url.api(`links/bulk`) + `?filter=${encodeURIComponent(filter)}`;
         yield this.ajax.put(bulkUpdateUrl, {
             data: {
@@ -395,12 +395,14 @@ export default class Analytics extends Component {
             return;
         }
 
-        const classSelector = Array.from(element.classList).map(className => `.${className}`).join('');
+        const classSelectors = Array.from(element.classList).map(className => `.${className}`).join('');
+        const newNumberSelector = `${classSelectors} .new-number span`;
+        const oldNumberSelector = `${classSelectors} .old-number span`;
 
         anime({
-            targets: `${classSelector} .new-number span`,
-            translateY: [10, 0],
-            opacity: [0, 1],
+            targets: newNumberSelector,
+            translateY: [10,0],
+            opacity: [0,1],
             easing: 'easeOutElastic',
             elasticity: 650,
             duration: 1000,
@@ -408,9 +410,9 @@ export default class Analytics extends Component {
         });
 
         anime({
-            targets: `${classSelector} .old-number span`,
-            translateY: [0, -10],
-            opacity: [1, 0],
+            targets: oldNumberSelector,
+            translateY: [0,-10],
+            opacity: [1,0],
             easing: 'easeOutExpo',
             duration: 400,
             delay: (el, i) => 100 + 10 * i
@@ -433,4 +435,3 @@ export default class Analytics extends Component {
         return this.links !== null && this.souces !== null && this.mentions !== null;
     }
 }
-```

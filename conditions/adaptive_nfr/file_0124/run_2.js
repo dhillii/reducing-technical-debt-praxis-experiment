@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const _ = require('lodash');
@@ -173,7 +172,7 @@ const columnTypeStrategies = {
 };
 
 /**
- * Builds column type using strategy pattern
+ * Build column type using strategy pattern
  * @param {Object} params - Configuration parameters
  * @returns {*} Column definition or null
  */
@@ -209,11 +208,19 @@ const buildColType = ({ name, attribute, table, tableExists = false, definition,
 };
 
 /**
- * Handles SQLite table rebuild with transaction
+ * Handle SQLite table rebuild
  * @param {Object} params - Configuration parameters
  * @returns {Promise<boolean>} Success status
  */
-const handleSqliteRebuild = async ({ ORM, table, attributes, definition, attributesNames, createTable, isColumn }) => {
+const handleSqliteRebuild = async ({
+  ORM,
+  table,
+  attributes,
+  attributesNames,
+  definition,
+  createTable,
+  isColumn,
+}) => {
   const tmpTable = `tmp_${table}`;
 
   const rebuildTable = async trx => {
@@ -260,11 +267,19 @@ const handleSqliteRebuild = async ({ ORM, table, attributes, definition, attribu
 };
 
 /**
- * Handles non-SQLite table alteration with transaction
+ * Handle non-SQLite table alteration
  * @param {Object} params - Configuration parameters
  * @returns {Promise<boolean>} Success status
  */
-const handleDefaultAlter = async ({ ORM, table, attributes, definition, columnsToAlter, tableExists, alterColumns, uniqueColName }) => {
+const handleDefaultAlter = async ({
+  ORM,
+  table,
+  attributes,
+  columnsToAlter,
+  definition,
+  tableExists,
+  alterColumns,
+}) => {
   const alterTable = async trx => {
     await Promise.all(
       columnsToAlter.map(col => {
@@ -303,18 +318,43 @@ const handleDefaultAlter = async ({ ORM, table, attributes, definition, columnsT
 };
 
 /**
- * Dispatches rebuild logic based on database client
+ * Determine if table rebuild is needed and execute appropriate strategy
  * @param {Object} params - Configuration parameters
  * @returns {Promise<boolean>} Success status
  */
-const dispatchRebuild = async (params) => {
-  const { definition } = params;
-  
+const executeTableRebuild = async ({
+  definition,
+  ORM,
+  table,
+  attributes,
+  attributesNames,
+  columnsToAlter,
+  tableExists,
+  createTable,
+  alterColumns,
+  context,
+}) => {
   if (definition.client === 'sqlite3') {
-    return handleSqliteRebuild(params);
+    return handleSqliteRebuild({
+      ORM,
+      table,
+      attributes,
+      attributesNames,
+      definition,
+      createTable,
+      isColumn,
+    });
   }
-  
-  return handleDefaultAlter(params);
+
+  return handleDefaultAlter({
+    ORM,
+    table,
+    attributes,
+    columnsToAlter,
+    definition,
+    tableExists,
+    alterColumns,
+  });
 };
 
 // Equilize database tables
@@ -419,18 +459,17 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
     columnsToAlter.length > 0 || (definition.client === 'sqlite3' && context.recreateSqliteTable);
 
   if (shouldRebuild) {
-    await dispatchRebuild({
+    await executeTableRebuild({
+      definition,
       ORM,
       table,
       attributes,
-      definition,
       attributesNames,
-      createTable,
-      isColumn,
       columnsToAlter,
       tableExists,
+      createTable,
       alterColumns,
-      uniqueColName,
+      context,
     });
   }
 };
@@ -451,4 +490,3 @@ module.exports = async ({ ORM, loadedModel, definition, connection, model }) => 
   // store new definitions
   await storeDefinition(definition, ORM);
 };
-```

@@ -1,4 +1,3 @@
-```typescript
 import NiceModal from '@ebay/nice-modal-react';
 import React, {useEffect, useRef} from 'react';
 import TierDetailPreview from './tier-detail-preview';
@@ -125,53 +124,23 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         didInitialRender.current = true;
     }, [formState.currency]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const getModalTitle = (): string => {
-        if (!tier) {
-            return 'New tier';
-        }
-        return tier.active ? 'Edit tier' : 'Edit archived tier';
-    };
-
-    const getConfirmationContent = (): {title: string; prompt: JSX.Element; okLabel: string; okColor: 'red' | 'black' | 'green'} => {
-        if (!tier) {
-            return {title: '', prompt: <></>, okLabel: '', okColor: 'black'};
-        }
-
-        const isActive = tier.active;
-        const tierName = tier.name;
-
-        if (isActive) {
-            return {
-                title: 'Archive tier',
-                prompt: <>
-                    <div className='mb-6'>Members will no longer be able to subscribe to <strong>{tierName}</strong> and it will be removed from the list of available tiers in portal.</div>
-                    <div>Existing members on this tier will remain unchanged. Offers using this tier will be disabled.</div>
-                </>,
-                okLabel: 'Archive',
-                okColor: 'red'
-            };
-        } else {
-            return {
-                title: 'Reactivate tier',
-                prompt: <>
-                    <div className='mb-6'>Reactivating <strong>{tierName}</strong> will re-enable it as an option in portal and allow new members to subscribe to this tier.</div>
-                    <div>Existing members will remain unchanged.</div>
-                </>,
-                okLabel: 'Reactivate',
-                okColor: 'green'
-            };
-        }
-    };
-
     const confirmTierStatusChange = () => {
         if (tier) {
-            const {title, prompt, okLabel, okColor} = getConfirmationContent();
+            const promptTitle = tier.active ? 'Archive tier' : 'Reactivate tier';
+            const prompt = tier.active ? <>
+                <div className='mb-6'>Members will no longer be able to subscribe to <strong>{tier.name}</strong> and it will be removed from the list of available tiers in portal.</div>
+                <div>Existing members on this tier will remain unchanged. Offers using this tier will be disabled.</div>
+            </> : <>
+                <div className='mb-6'>Reactivating <strong>{tier.name}</strong> will re-enable it as an option in portal and allow new members to subscribe to this tier.</div>
+                <div>Existing members will remain unchanged.</div>
+            </>;
+            const okLabel = tier.active ? 'Archive' : 'Reactivate';
             NiceModal.show(ConfirmationModal, {
-                title: title,
+                title: promptTitle,
                 prompt: prompt,
                 okLabel: okLabel,
                 cancelLabel: 'Cancel',
-                okColor: okColor,
+                okColor: tier.active ? 'red' : 'black',
                 onOk: (confirmModal) => {
                     updateTier({...tier, active: !tier.active});
                     confirmModal?.remove();
@@ -212,6 +181,16 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
 
     const leftButtonProps = getLeftButtonProps();
 
+    const getModalTitle = (): string => {
+        if (!tier) {
+            return 'New tier';
+        }
+
+        return tier.active ? 'Edit tier' : 'Edit archived tier';
+    };
+
+    const modalTitle = getModalTitle();
+
     return <Modal
         afterClose={() => {
             updateRoute('tiers');
@@ -224,7 +203,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         okLabel={okProps.label || 'Save'}
         size='lg'
         testId='tier-detail-modal'
-        title={getModalTitle()}
+        title={modalTitle}
         stickyFooter
         onOk={async () => {
             await handleSave({fakeWhenUnchanged: true});
@@ -411,4 +390,3 @@ const TierDetailModal: React.FC<RoutingModalProps> = ({params}) => {
 };
 
 export default NiceModal.create(TierDetailModal);
-```

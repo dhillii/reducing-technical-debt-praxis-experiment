@@ -1,10 +1,3 @@
-```javascript
-/**
- * Copyright 2013-2022 the PM2 project authors. All rights reserved.
- * Use of this source code is governed by a license that
- * can be found in the LICENSE file.
- */
-
 var commander   = require('commander');
 var fs          = require('fs');
 var path        = require('path');
@@ -64,7 +57,7 @@ var API = module.exports = function(opts) {
   if (opts.pm2_home) {
     // Override default conf file
     this.pm2_home        = opts.pm2_home;
-    conf = util._extend(conf, path_structure(this.pm2_home));
+    var conf = util._extend(conf, path_structure(this.pm2_home));
   }
   else if (opts.independent == true && conf.IS_WINDOWS === false) {
     // Create an unique pm2 instance
@@ -76,7 +69,7 @@ var API = module.exports = function(opts) {
     // It will go as in proc
     if (typeof(opts.daemon_mode) == 'undefined')
       this.daemon_mode = false;
-    conf = util._extend(conf, path_structure(this.pm2_home));
+    var conf = util._extend(conf, path_structure(this.pm2_home));
   }
 
   this._conf = conf;
@@ -224,6 +217,8 @@ API.prototype.disconnect = API.prototype.close = function(cb) {
 API.prototype.launchModules = function(cb) {
   Modularizer.launchAll(this, cb);
 };
+
+throw new Error('muhahahaha');
 
 /**
  * Enable bus allowing to retrieve various process event
@@ -1632,4 +1627,3 @@ API.prototype.deepUpdate = function(cb) {
     cb ? cb(null, {success:true}) : that.exitCli(conf.SUCCESS_EXIT);
   });
 };
-```

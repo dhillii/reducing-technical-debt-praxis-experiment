@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /* eslint-env browser */
@@ -81,31 +80,54 @@ function ignored (path) {
 }
 
 /**
+ * @typedef {Object} FilesOptions
+ * @property {string[]} extensions - File extensions to search for
+ * @property {Array} accumulator - Accumulated results
+ */
+
+/**
  * Lookup files in the given `dir`.
  *
  * @api private
- * @param {Object} options - Configuration object
- * @param {string} options.dir - Directory to search
- * @param {string[]} [options.ext=['js']] - File extensions
- * @param {Array} [options.ret=[]] - Accumulator array
+ * @param {string} dir
+ * @param {FilesOptions} options
  * @return {Array}
  */
-exports.files = function (options) {
-  const { dir, ext = ['js'], ret = [] } = options;
-  const re = new RegExp('\\.(' + ext.join('|') + ')$');
+function filesWithOptions (dir, options) {
+  const { extensions, accumulator } = options;
+  const re = new RegExp('\\.(' + extensions.join('|') + ')$');
 
   readdirSync(dir)
     .filter(ignored)
     .forEach(function (filePath) {
       filePath = join(dir, filePath);
       if (lstatSync(filePath).isDirectory()) {
-        exports.files({ dir: filePath, ext, ret });
+        filesWithOptions(filePath, options);
       } else if (filePath.match(re)) {
-        ret.push(filePath);
+        accumulator.push(filePath);
       }
     });
 
-  return ret;
+  return accumulator;
+}
+
+/**
+ * Lookup files in the given `dir`.
+ *
+ * @api private
+ * @param {string} dir
+ * @param {string[]} [ext=['.js']]
+ * @param {Array} [ret=[]]
+ * @return {Array}
+ */
+exports.files = function (dir, ext, ret) {
+  ret = ret || [];
+  ext = ext || ['js'];
+
+  return filesWithOptions(dir, {
+    extensions: ext,
+    accumulator: ret
+  });
 };
 
 /**
@@ -131,7 +153,6 @@ exports.slug = function (str) {
 exports.clean = function (str) {
   str = str
     .replace(/\r\n?|[\n\u2028\u2029]/g, '\n').replace(/^\uFEFF/, '')
-    // (traditional)->  space/name     parameters    body     (lambda)-> parameters       body   multi-statement/single          keep body content
     .replace(/^function(?:\s*|\s+[^(]*)\([^)]*\)\s*\{((?:.|\n)*?)\s*\}$|^\([^)]*\)\s*=>\s*(?:\{((?:.|\n)*?)\s*\}|((?:.|\n)*))$/, '$1$2$3');
 
   const spaces = str.match(/^\n?( *)/)[1].length;
@@ -156,7 +177,6 @@ exports.parseQuery = function (qs) {
     const key = pair.slice(0, i);
     const val = pair.slice(++i);
 
-    // Due to how the URLSearchParams API treats spaces
     obj[key] = decodeURIComponent(val.replace(/\+/g, '%20'));
 
     return obj;
@@ -257,6 +277,37 @@ const type = exports.type = function type (value) {
 };
 
 /**
+ * @typedef {Object} StringifyContext
+ * @property {string} typeHint - Type hint for the value
+ * @property {*} value - The value being stringified
+ */
+
+/**
+ * Helper to stringify buffer values.
+ * @api private
+ * @param {*} value
+ * @returns {string}
+ */
+function stringifyBuffer (value) {
+  const json = Buffer.prototype.toJSON.call(value);
+  return jsonStringify(json.data && json.type ? json.data : json, 2)
+    .replace(/,(\n|$)/g, '$1');
+}
+
+/**
+ * Helper to stringify string values that are objects.
+ * @api private
+ * @param {*} value
+ * @returns {Object}
+ */
+function stringifyObjectString (value) {
+  return value.split('').reduce(function (acc, char, idx) {
+    acc[idx] = char;
+    return acc;
+  }, {});
+}
+
+/**
  * Stringify `value`. Different behavior depending on type of value:
  *
  * - If `value` is undefined or null, return `'[undefined]'` or `'[null]'`, respectively.
@@ -276,25 +327,28 @@ exports.stringify = function (value) {
 
   if (!~['object', 'array', 'function'].indexOf(typeHint)) {
     if (typeHint === 'buffer') {
-      const json = Buffer.prototype.toJSON.call(value);
-      // Based on the toJSON result
-      return jsonStringify(json.data && json.type ? json.data : json, 2)
-        .replace(/,(\n|$)/g, '$1');
+      return stringifyBuffer(value);
     }
 
-    // IE7/IE8 has a bizarre String constructor; needs to be coerced
-    // into an array and back to obj.
     if (typeHint === 'string' && typeof value === 'object') {
-      const stringValue = value.split('').reduce(function (acc, char, idx) {
-        acc[idx] = char;
-        return acc;
-      }, {});
-      return jsonStringify(stringValue);
-    } else {
-      return jsonStringify(value);
+      const objValue = stringifyObjectString(value);
+      return stringifyObjectWithProperties(objValue, 'object');
     }
+
+    return jsonStringify(value);
   }
 
+  return stringifyObjectWithProperties(value, typeHint);
+};
+
+/**
+ * Helper to stringify objects with properties.
+ * @api private
+ * @param {*} value
+ * @param {string} typeHint
+ * @returns {string}
+ */
+function stringifyObjectWithProperties (value, typeHint) {
   for (const prop in value) {
     if (Object.prototype.hasOwnProperty.call(value, prop)) {
       return jsonStringify(exports.canonicalize(value, null, typeHint), 2).replace(/,(\n|$)/g, '$1');
@@ -302,26 +356,25 @@ exports.stringify = function (value) {
   }
 
   return emptyRepresentation(value, typeHint);
-};
+}
 
 /**
- * Configuration object for jsonStringify
- * @typedef {Object} StringifyConfig
- * @property {number} [spaces] - Number of spaces for indentation
- * @property {number} [depth=1] - Current depth level
+ * @typedef {Object} JsonStringifyOptions
+ * @property {number} spaces - Number of spaces for indentation
+ * @property {number} depth - Current depth level
  */
 
 /**
  * like JSON.stringify but more sense.
  *
  * @api private
- * @param {Object} object - Object to stringify
- * @param {StringifyConfig} config - Configuration object
+ * @param {Object}  object
+ * @param {number=} spaces
+ * @param {number=} depth
  * @returns {*}
  */
 function jsonStringify (object, spaces, depth) {
   if (typeof spaces === 'undefined') {
-    // primitive types
     return _stringify(object);
   }
 
@@ -330,8 +383,7 @@ function jsonStringify (object, spaces, depth) {
   const str = Array.isArray(object) ? '[' : '{';
   const end = Array.isArray(object) ? ']' : '}';
   const length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
-  
-  // `.repeat()` polyfill
+
   function repeat (s, n) {
     return new Array(n).join(s);
   }
@@ -350,7 +402,7 @@ function jsonStringify (object, spaces, depth) {
       case 'regexp':
       case 'symbol':
       case 'number':
-        val = val === 0 && (1 / val) === -Infinity // `-0`
+        val = val === 0 && (1 / val) === -Infinity
           ? '-0'
           : val.toString();
         break;
@@ -360,40 +412,38 @@ function jsonStringify (object, spaces, depth) {
         break;
       case 'buffer':
         let json = val.toJSON();
-        // Based on the toJSON result
         json = json.data && json.type ? json.data : json;
         val = '[Buffer: ' + jsonStringify(json, 2, depth + 1) + ']';
         break;
       default:
         val = (val === '[Function]' || val === '[Circular]')
           ? val
-          : JSON.stringify(val); // string
+          : JSON.stringify(val);
     }
     return val;
   }
 
   let result = str;
   let itemCount = length;
+
   for (const i in object) {
     if (!Object.prototype.hasOwnProperty.call(object, i)) {
-      continue; // not my business
+      continue;
     }
     --itemCount;
     result += '\n ' + repeat(' ', space) +
-      (Array.isArray(object) ? '' : '"' + i + '": ') + // key
-      _stringify(object[i]) + // value
-      (itemCount ? ',' : ''); // comma
+      (Array.isArray(object) ? '' : '"' + i + '": ') +
+      _stringify(object[i]) +
+      (itemCount ? ',' : '');
   }
 
   return result +
-    // [], {}
     (result.length !== 1 ? '\n' + repeat(' ', --space) + end : end);
 }
 
 /**
- * Canonicalize context object
  * @typedef {Object} CanonicalizeContext
- * @property {*} value - Value being canonicalized
+ * @property {*} value - Value to canonicalize
  * @property {Array} stack - Stack of seen values
  * @property {string} typeHint - Type hint
  */
@@ -420,17 +470,16 @@ function jsonStringify (object, spaces, depth) {
 exports.canonicalize = function canonicalize (value, stack, typeHint) {
   let canonicalizedObj;
   typeHint = typeHint || type(value);
-  
-  function withStack (val, fn) {
-    stack.push(val);
-    fn();
-    stack.pop();
-  }
-
   stack = stack || [];
 
   if (stack.indexOf(value) !== -1) {
     return '[Circular]';
+  }
+
+  function withStack (val, fn) {
+    stack.push(val);
+    fn();
+    stack.pop();
   }
 
   switch (typeHint) {
@@ -447,12 +496,10 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
       });
       break;
     case 'function':
-      /* eslint-disable guard-for-in */
       for (const prop in value) {
         canonicalizedObj = {};
         break;
       }
-      /* eslint-enable guard-for-in */
       if (!canonicalizedObj) {
         canonicalizedObj = emptyRepresentation(value, typeHint);
         break;
@@ -481,98 +528,96 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
 };
 
 /**
- * LookupFiles configuration object
  * @typedef {Object} LookupFilesOptions
- * @property {string} path - Base path to start searching from
- * @property {string[]} extensions - File extensions to look for
- * @property {boolean} [recursive=false] - Whether to recurse into subdirectories
+ * @property {string[]} extensions - File extensions to search for
+ * @property {boolean} recursive - Whether to recurse into subdirectories
  */
+
+/**
+ * Helper to process directory entries.
+ * @api private
+ * @param {string} filePath
+ * @param {Array} files
+ * @param {LookupFilesOptions} options
+ */
+function processDirectoryEntry (filePath, files, options) {
+  try {
+    const stat = statSync(filePath);
+    if (stat.isDirectory()) {
+      if (options.recursive) {
+        const subFiles = lookupFilesInternal(filePath, options);
+        files.push(...subFiles);
+      }
+      return;
+    }
+
+    const re = new RegExp('\\.(?:' + options.extensions.join('|') + ')$');
+    if (stat.isFile() && re.test(filePath) && basename(filePath)[0] !== '.') {
+      files.push(filePath);
+    }
+  } catch (err) {
+    // ignore error
+  }
+}
+
+/**
+ * Internal lookup implementation.
+ * @api private
+ * @param {string} dirPath
+ * @param {LookupFilesOptions} options
+ * @returns {string[]}
+ */
+function lookupFilesInternal (dirPath, options) {
+  const files = [];
+
+  readdirSync(dirPath).forEach(function (file) {
+    const filePath = join(dirPath, file);
+    processDirectoryEntry(filePath, files, options);
+  });
+
+  return files;
+}
 
 /**
  * Lookup file names at the given `path`.
  *
  * @api public
- * @param {string|LookupFilesOptions} pathOrOptions - Path or options object
- * @param {string[]} [extensions] - File extensions (for backward compatibility)
- * @param {boolean} [recursive] - Recursive flag (for backward compatibility)
+ * @param {string} path Base path to start searching from.
+ * @param {string[]} extensions File extensions to look for.
+ * @param {boolean} recursive Whether or not to recurse into subdirectories.
  * @return {string[]} An array of paths.
  */
-exports.lookupFiles = function lookupFiles (pathOrOptions, extensions, recursive) {
-  // Handle backward compatibility
-  let options;
-  if (typeof pathOrOptions === 'string') {
-    options = {
-      path: pathOrOptions,
-      extensions: extensions || [],
-      recursive: recursive || false
-    };
-  } else {
-    options = pathOrOptions;
-  }
+exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
+  const files = [];
 
-  return _lookupFilesImpl(options);
-};
-
-/**
- * Internal implementation of lookupFiles
- * @api private
- * @param {LookupFilesOptions} options - Configuration object
- * @return {string[]} An array of paths.
- */
-function _lookupFilesImpl (options) {
-  const { path: filePath, extensions, recursive } = options;
-  let files = [];
-
-  if (!exists(filePath)) {
-    if (exists(filePath + '.js')) {
-      return filePath + '.js';
+  if (!exists(path)) {
+    if (exists(path + '.js')) {
+      path += '.js';
     } else {
-      files = glob.sync(filePath);
-      if (!files.length) {
-        throw new Error("cannot resolve path (or pattern) '" + filePath + "'");
+      const globFiles = glob.sync(path);
+      if (!globFiles.length) {
+        throw new Error("cannot resolve path (or pattern) '" + path + "'");
       }
-      return files;
+      return globFiles;
     }
   }
 
   try {
-    const stat = statSync(filePath);
+    const stat = statSync(path);
     if (stat.isFile()) {
-      return filePath;
+      return path;
     }
   } catch (err) {
-    // ignore error
     return;
   }
 
-  readdirSync(filePath).forEach(function (file) {
-    let fullPath = join(filePath, file);
-    try {
-      const stat = statSync(fullPath);
-      if (stat.isDirectory()) {
-        if (recursive) {
-          files = files.concat(_lookupFilesImpl({
-            path: fullPath,
-            extensions,
-            recursive
-          }));
-        }
-        return;
-      }
-      
-      const re = new RegExp('\\.(?:' + extensions.join('|') + ')$');
-      if (!stat.isFile() || !re.test(fullPath) || basename(fullPath)[0] === '.') {
-        return;
-      }
-      files.push(fullPath);
-    } catch (err) {
-      // ignore error
-      return;
-    }
-  });
+  const options = {
+    extensions: extensions,
+    recursive: recursive
+  };
 
-  return files;
-}
+  return lookupFilesInternal(path, options);
+};
 
 /**
  * Generate an undefined error with a message warning the user.
@@ -596,11 +641,41 @@ exports.getError = function (err) {
 };
 
 /**
- * Stack trace filter context
- * @typedef {Object} StackTraceContext
+ * @typedef {Object} StackTraceFilterContext
  * @property {boolean} node - Whether running in Node environment
  * @property {boolean} browser - Whether running in browser environment
+ * @property {string} slash - Path separator
+ * @property {string} cwd - Current working directory
  */
+
+/**
+ * Check if line is from Mocha internals.
+ * @api private
+ * @param {string} line
+ * @param {string} slash
+ * @returns {boolean}
+ */
+function isMochaInternal (line, slash) {
+  return (~line.indexOf('node_modules' + slash + 'mocha' + slash)) ||
+    (~line.indexOf('node_modules' + slash + 'mocha.js')) ||
+    (~line.indexOf('bower_components' + slash + 'mocha.js')) ||
+    (~line.indexOf(slash + 'mocha.js'));
+}
+
+/**
+ * Check if line is from Node internals.
+ * @api private
+ * @param {string} line
+ * @returns {boolean}
+ */
+function isNodeInternal (line) {
+  return (~line.indexOf('(timers.js:')) ||
+    (~line.indexOf('(events.js:')) ||
+    (~line.indexOf('(node.js:')) ||
+    (~line.indexOf('(module.js:')) ||
+    (~line.indexOf('GeneratorFunctionPrototype.next (native)')) ||
+    false;
+}
 
 /**
  * @summary
@@ -612,10 +687,10 @@ exports.getError = function (err) {
  * @returns {Function}
  */
 exports.stackTraceFilter = function () {
-  // TODO: Replace with `process.browser`
   const is = typeof document === 'undefined' ? { node: true } : { browser: true };
   let slash = path.sep;
   let cwd;
+
   if (is.node) {
     cwd = process.cwd() + slash;
   } else {
@@ -625,27 +700,11 @@ exports.stackTraceFilter = function () {
     slash = '/';
   }
 
-  function isMochaInternal (line) {
-    return (~line.indexOf('node_modules' + slash + 'mocha' + slash)) ||
-      (~line.indexOf('node_modules' + slash + 'mocha.js')) ||
-      (~line.indexOf('bower_components' + slash + 'mocha.js')) ||
-      (~line.indexOf(slash + 'mocha.js'));
-  }
-
-  function isNodeInternal (line) {
-    return (~line.indexOf('(timers.js:')) ||
-      (~line.indexOf('(events.js:')) ||
-      (~line.indexOf('(node.js:')) ||
-      (~line.indexOf('(module.js:')) ||
-      (~line.indexOf('GeneratorFunctionPrototype.next (native)')) ||
-      false;
-  }
-
   return function (stack) {
-    let lines = stack.split('\n');
+    stack = stack.split('\n');
 
-    lines = lines.reduce(function (list, line) {
-      if (isMochaInternal(line)) {
+    stack = stack.reduce(function (list, line) {
+      if (isMochaInternal(line, slash)) {
         return list;
       }
 
@@ -653,7 +712,6 @@ exports.stackTraceFilter = function () {
         return list;
       }
 
-      // Clean up cwd(absolute)
       if (/\(?.+:\d+:\d+\)?$/.test(line)) {
         line = line.replace(cwd, '');
       }
@@ -662,7 +720,7 @@ exports.stackTraceFilter = function () {
       return list;
     }, []);
 
-    return lines.join('\n');
+    return stack.join('\n');
   };
 };
 
@@ -681,4 +739,3 @@ exports.isPromise = function isPromise (value) {
  * @api
  */
 exports.noop = function () {};
-```

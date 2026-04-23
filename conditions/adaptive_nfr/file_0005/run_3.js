@@ -1,4 +1,3 @@
-```typescript
 import NewsletterPreview from './newsletter-preview';
 import NiceModal from '@ebay/nice-modal-react';
 import React, {useCallback, useEffect, useState} from 'react';
@@ -55,23 +54,22 @@ const ReplyToEmailField: React.FC<{
     );
 };
 
-/**
- * Renders the sender email field based on configuration
- */
+/** Renders sender email field based on config and managed email settings */
 const renderSenderEmailField = (
     newsletter: Newsletter,
     config: any,
     defaultEmailAddress: string,
     errors: ErrorMessages,
     updateNewsletter: (fields: Partial<Newsletter>) => void,
-    clearError: (field: string) => void
+    clearError: (field: string) => void,
+    newsletterAddress: string
 ) => {
     if (!isManagedEmail(config)) {
         return (
             <TextField
                 error={Boolean(errors.sender_email)}
                 hint={errors.sender_email}
-                placeholder={renderSenderEmail(newsletter, config, defaultEmailAddress) || ''}
+                placeholder={newsletterAddress || ''}
                 title="Sender email address"
                 value={newsletter.sender_email || ''}
                 onChange={e => updateNewsletter({sender_email: e.target.value})}
@@ -98,9 +96,7 @@ const renderSenderEmailField = (
     }
 };
 
-/**
- * Determines if background color is dark
- */
+/** Determines if background color is dark */
 const backgroundColorIsDark = (newsletter: Newsletter): boolean => {
     if (newsletter.background_color === 'light') {
         return false;
@@ -108,9 +104,7 @@ const backgroundColorIsDark = (newsletter: Newsletter): boolean => {
     return textColorForBackgroundColor(newsletter.background_color).hex().toLowerCase() === '#ffffff';
 };
 
-/**
- * Handles archiving a newsletter
- */
+/** Handles archiving a newsletter */
 const handleArchiveNewsletter = async (
     newsletter: Newsletter,
     editNewsletter: (data: Newsletter) => Promise<any>,
@@ -139,9 +133,7 @@ const handleArchiveNewsletter = async (
     });
 };
 
-/**
- * Handles reactivating a newsletter
- */
+/** Handles reactivating a newsletter */
 const handleReactivateNewsletter = async (
     newsletter: Newsletter,
     editNewsletter: (data: Newsletter) => Promise<any>,
@@ -179,11 +171,11 @@ const handleReactivateNewsletter = async (
     });
 };
 
-/**
- * Handles status change confirmation
- */
+/** Handles status change confirmation */
 const confirmStatusChange = async (
     newsletter: Newsletter,
+    onlyOne: boolean,
+    activeNewsletters: Newsletter[],
     editNewsletter: (data: Newsletter) => Promise<any>,
     handleError: (error: any) => void,
     limiter: any,
@@ -196,25 +188,21 @@ const confirmStatusChange = async (
     }
 };
 
-/**
- * Gets the selected font weight option
- */
+/** Gets selected font weight option */
 const getSelectedFontWeightOption = (
     newsletter: Newsletter,
-    fontWeightOptions: Record<string, {options: SelectOption[], map?: Record<string, string>}>
+    fontWeightOptions: Record<string, {options: SelectOption[], map?: Record<string, string>}>,
+    headingFontWeightOptions: SelectOption[]
 ): SelectOption => {
     const category = newsletter.title_font_category || 'sans_serif';
     const fontWeight = newsletter.title_font_weight;
     const weightMap = fontWeightOptions[category].map;
     const mappedWeight = weightMap ? (weightMap[fontWeight] || fontWeight) : fontWeight;
-    const headingFontWeightOptions = fontWeightOptions[category].options;
     const option = headingFontWeightOptions.find(o => o.value === mappedWeight);
     return option || headingFontWeightOptions[0];
 };
 
-/**
- * Changes the selected title font and maps weight accordingly
- */
+/** Changes selected title font and maps weight to closest match */
 const changeSelectedTitleFont = (
     option: SelectOption | null,
     newsletter: Newsletter,
@@ -235,23 +223,20 @@ const changeSelectedTitleFont = (
     });
 };
 
-/**
- * Renders the general settings tab content
- */
+/** Renders general settings tab content */
 const renderGeneralSettingsTab = (
     newsletter: Newsletter,
-    updateNewsletter: (fields: Partial<Newsletter>) => void,
     errors: ErrorMessages,
+    updateNewsletter: (fields: Partial<Newsletter>) => void,
     clearError: (field: string) => void,
     siteTitle: string,
-    config: any,
-    defaultEmailAddress: string,
+    newsletterAddress: string,
     validate: () => void,
     onlyOne: boolean,
     activeNewsletters: Newsletter[],
-    confirmStatusChangeHandler: () => Promise<void>
-) => {
-    return <>
+    confirmStatusChange: () => Promise<void>
+) => (
+    <>
         <Form className='mt-6' gap='sm' margins='lg' title='Name and description'>
             <TextField
                 error={Boolean(errors.name)}
@@ -267,7 +252,7 @@ const renderGeneralSettingsTab = (
         </Form>
         <Form className='mt-6' gap='sm' margins='lg' title='Email info'>
             <TextField maxLength={191} placeholder={siteTitle} title="Sender name" value={newsletter.sender_name || ''} onChange={e => updateNewsletter({sender_name: e.target.value})} />
-            {renderSenderEmailField(newsletter, config, defaultEmailAddress, errors, updateNewsletter, clearError)}
+            {renderSenderEmailField(newsletter, {}, defaultEmailAddress, errors, updateNewsletter, clearError, newsletterAddress)}
             <ReplyToEmailField clearError={clearError} errors={errors} newsletter={newsletter} updateNewsletter={updateNewsletter} validate={validate} />
         </Form>
         <Form className='mt-6' gap='sm' margins='lg' title='Member settings'>
@@ -280,22 +265,20 @@ const renderGeneralSettingsTab = (
             />
         </Form>
         <div className='mb-5 mt-10'>
-            {newsletter.status === 'active' ? (!onlyOne && <Button color='red' disabled={activeNewsletters.length === 1} label='Archive newsletter' link onClick={confirmStatusChangeHandler}/>) : <Button color='green' label='Reactivate newsletter' link onClick={confirmStatusChangeHandler} />}
+            {newsletter.status === 'active' ? (!onlyOne && <Button color='red' disabled={activeNewsletters.length === 1} label='Archive newsletter' link onClick={confirmStatusChange}/>) : <Button color='green' label='Reactivate newsletter' link onClick={confirmStatusChange} />}
         </div>
-    </>;
-};
+    </>
+);
 
-/**
- * Renders the header image upload section
- */
+/** Renders header image upload section */
 const renderHeaderImageSection = (
     newsletter: Newsletter,
+    icon: string | undefined,
     updateNewsletter: (fields: Partial<Newsletter>) => void,
     uploadImage: (data: {file: File}) => Promise<any>,
-    handleError: (error: any) => void,
-    icon: string | undefined
-) => {
-    return <Form className='mt-6' gap='sm' margins='lg' title='Header'>
+    handleError: (error: any) => void
+) => (
+    <Form className='mt-6' gap='sm' margins='lg' title='Header'>
         <div>
             <div>
                 <Heading className="mb-2" level={6}>Header image</Heading>
@@ -343,17 +326,15 @@ const renderHeaderImageSection = (
                 onChange={e => updateNewsletter({show_header_name: e.target.checked})}
             />
         </ToggleGroup>
-    </Form>;
-};
+    </Form>
+);
 
-/**
- * Renders the title section content
- */
-const renderTitleSectionContent = (
+/** Renders title section content */
+const renderTitleSection = (
     newsletter: Newsletter,
     updateNewsletter: (fields: Partial<Newsletter>) => void
-) => {
-    return <Form className='mt-6' gap='xs' margins='lg' title='Title section'>
+) => (
+    <Form className='mt-6' gap='xs' margins='lg' title='Title section'>
         <Toggle
             checked={newsletter.show_post_title_section}
             direction="rtl"
@@ -374,18 +355,16 @@ const renderTitleSectionContent = (
             label='Feature image'
             onChange={e => updateNewsletter({show_feature_image: e.target.checked})}
         />
-    </Form>;
-};
+    </Form>
+);
 
-/**
- * Renders the footer section content
- */
-const renderFooterSectionContent = (
+/** Renders footer section content */
+const renderFooterSection = (
     newsletter: Newsletter,
     updateNewsletter: (fields: Partial<Newsletter>) => void,
     commentsEnabled: boolean
-) => {
-    return <Form className='mt-6' gap='sm' margins='lg' title='Footer'>
+) => (
+    <Form className='mt-6' gap='sm' margins='lg' title='Footer'>
         <ToggleGroup gap='lg'>
             <Toggle
                 checked={newsletter.feedback_enabled}
@@ -420,17 +399,15 @@ const renderFooterSectionContent = (
             value={newsletter.footer_content || ''}
             onChange={html => updateNewsletter({footer_content: html})}
         />
-    </Form>;
-};
+    </Form>
+);
 
-/**
- * Renders the badge promotion section
- */
-const renderBadgePromotionSection = (
+/** Renders badge promotion section */
+const renderBadgeSection = (
     newsletter: Newsletter,
     updateNewsletter: (fields: Partial<Newsletter>) => void
-) => {
-    return <div className='my-5 flex w-full items-start'>
+) => (
+    <div className='my-5 flex w-full items-start'>
         <span>
             <Icon className='mr-2 mt-[-1px]' colorClass='text-red' name='heart'/>
         </span>
@@ -448,40 +425,38 @@ const renderBadgePromotionSection = (
                 onChange={e => updateNewsletter({show_badge: e.target.checked})}
             />
         </Form>
-    </div>;
-};
+    </div>
+);
 
-/**
- * Renders the content tab
- */
+/** Renders content tab */
 const renderContentTab = (
     newsletter: Newsletter,
     updateNewsletter: (fields: Partial<Newsletter>) => void,
+    icon: string | undefined,
     uploadImage: (data: {file: File}) => Promise<any>,
     handleError: (error: any) => void,
-    icon: string | undefined,
     commentsEnabled: boolean
-) => {
-    return <>
-        {renderHeaderImageSection(newsletter, updateNewsletter, uploadImage, handleError, icon)}
-        {renderTitleSectionContent(newsletter, updateNewsletter)}
-        {renderFooterSectionContent(newsletter, updateNewsletter, commentsEnabled)}
+) => (
+    <>
+        {renderHeaderImageSection(newsletter, icon, updateNewsletter, uploadImage, handleError)}
+        {renderTitleSection(newsletter, updateNewsletter)}
+        {renderFooterSection(newsletter, updateNewsletter, commentsEnabled)}
         <Separator />
-        {renderBadgePromotionSection(newsletter, updateNewsletter)}
-    </>;
-};
+        {renderBadgeSection(newsletter, updateNewsletter)}
+    </>
+);
 
-/**
- * Renders the global design settings
- */
+/** Renders global design settings */
 const renderGlobalDesignSettings = (
     newsletter: Newsletter,
-    updateNewsletter: (fields: Partial<Newsletter>) => void,
     fontOptions: SelectOption[],
     fontWeightOptions: Record<string, {options: SelectOption[], map?: Record<string, string>}>,
-    headingFontWeightOptions: SelectOption[]
-) => {
-    return <Form className='mt-6' gap='xs' margins='lg' title='Global'>
+    headingFontWeightOptions: SelectOption[],
+    updateNewsletter: (fields: Partial<Newsletter>) => void,
+    changeSelectedTitleFont: (option: SelectOption | null) => void,
+    getSelectedFontWeightOption: () => SelectOption
+) => (
+    <Form className='mt-6' gap='xs' margins='lg' title='Global'>
         <div className='mb-1'>
             <ColorPickerField
                 direction='rtl'
@@ -504,7 +479,7 @@ const renderGlobalDesignSettings = (
                 containerClassName='max-w-[200px]'
                 options={fontOptions}
                 selectedOption={fontOptions.find(option => option.value === newsletter.title_font_category)}
-                onSelect={(option) => changeSelectedTitleFont(option, newsletter, fontWeightOptions, updateNewsletter)}
+                onSelect={changeSelectedTitleFont}
             />
         </div>
         <div className='flex w-full items-center justify-between gap-2'>
@@ -512,7 +487,7 @@ const renderGlobalDesignSettings = (
             <Select
                 containerClassName='max-w-[200px]'
                 options={headingFontWeightOptions}
-                selectedOption={getSelectedFontWeightOption(newsletter, fontWeightOptions)}
+                selectedOption={getSelectedFontWeightOption()}
                 onSelect={option => updateNewsletter({title_font_weight: option?.value})}
             />
         </div>
@@ -526,18 +501,17 @@ const renderGlobalDesignSettings = (
                 onSelect={option => updateNewsletter({body_font_category: option?.value})}
             />
         </div>
-    </Form>;
-};
+    </Form>
+);
 
-/**
- * Renders the header design settings
- */
+/** Renders header design settings */
 const renderHeaderDesignSettings = (
     newsletter: Newsletter,
+    siteData: any,
     updateNewsletter: (fields: Partial<Newsletter>) => void,
-    siteData: any
-) => {
-    return <Form className='mt-6' gap='xs' margins='lg' title='Header'>
+    backgroundColorIsDark: boolean
+) => (
+    <Form className='mt-6' gap='xs' margins='lg' title='Header'>
         <div className='mb-1'>
             <ColorPickerField
                 direction='rtl'
@@ -562,7 +536,7 @@ const renderHeaderDesignSettings = (
                     {
                         value: null,
                         title: 'Auto',
-                        hex: backgroundColorIsDark(newsletter) ? '#ffffff' : '#000000'
+                        hex: backgroundColorIsDark ? '#ffffff' : '#000000'
                     },
                     {
                         value: 'accent',
@@ -604,18 +578,17 @@ const renderHeaderDesignSettings = (
                 }
             ]} clearBg={false} />
         </div>
-    </Form>;
-};
+    </Form>
+);
 
-/**
- * Renders the body design settings
- */
+/** Renders body design settings */
 const renderBodyDesignSettings = (
     newsletter: Newsletter,
+    siteData: any,
     updateNewsletter: (fields: Partial<Newsletter>) => void,
-    siteData: any
-) => {
-    return <Form className='mt-6' gap='xs' margins='lg' title='Body'>
+    backgroundColorIsDark: boolean
+) => (
+    <Form className='mt-6' gap='xs' margins='lg' title='Body'>
         <div className='mb-1'>
             <ColorPickerField
                 direction='rtl'
@@ -624,7 +597,7 @@ const renderBodyDesignSettings = (
                     {
                         value: null,
                         title: 'Auto',
-                        hex: backgroundColorIsDark(newsletter) ? '#ffffff' : '#000000'
+                        hex: backgroundColorIsDark ? '#ffffff' : '#000000'
                     },
                     {
                         value: 'accent',
@@ -650,7 +623,7 @@ const renderBodyDesignSettings = (
                     {
                         value: null,
                         title: 'Auto',
-                        hex: backgroundColorIsDark(newsletter) ? '#ffffff' : '#000000'
+                        hex: backgroundColorIsDark ? '#ffffff' : '#000000'
                     }
                 ]}
                 title='Button color'
@@ -736,7 +709,7 @@ const renderBodyDesignSettings = (
                     {
                         value: null,
                         title: 'Auto',
-                        hex: backgroundColorIsDark(newsletter) ? '#ffffff' : '#000000'
+                        hex: backgroundColorIsDark ? '#ffffff' : '#000000'
                     }
                 ]}
                 title='Link color'
@@ -830,27 +803,27 @@ const renderBodyDesignSettings = (
                 onChange={color => updateNewsletter({divider_color: color})}
             />
         </div>
-    </Form>;
-};
+    </Form>
+);
 
-/**
- * Renders the design tab
- */
+/** Renders design tab */
 const renderDesignTab = (
     newsletter: Newsletter,
-    updateNewsletter: (fields: Partial<Newsletter>) => void,
     fontOptions: SelectOption[],
     fontWeightOptions: Record<string, {options: SelectOption[], map?: Record<string, string>}>,
-    siteData: any
-) => {
-    const headingFontWeightOptions = fontWeightOptions[newsletter.title_font_category || 'sans_serif'].options;
-    
-    return <>
-        {renderGlobalDesignSettings(newsletter, updateNewsletter, fontOptions, fontWeightOptions, headingFontWeightOptions)}
-        {renderHeaderDesignSettings(newsletter, updateNewsletter, siteData)}
-        {renderBodyDesignSettings(newsletter, updateNewsletter, siteData)}
-    </>;
-};
+    headingFontWeightOptions: SelectOption[],
+    siteData: any,
+    updateNewsletter: (fields: Partial<Newsletter>) => void,
+    changeSelectedTitleFont: (option: SelectOption | null) => void,
+    getSelectedFontWeightOption: () => SelectOption,
+    backgroundColorIsDark: boolean
+) => (
+    <>
+        {renderGlobalDesignSettings(newsletter, fontOptions, fontWeightOptions, headingFontWeightOptions, updateNewsletter, changeSelectedTitleFont, getSelectedFontWeightOption)}
+        {renderHeaderDesignSettings(newsletter, siteData, updateNewsletter, backgroundColorIsDark)}
+        {renderBodyDesignSettings(newsletter, siteData, updateNewsletter, backgroundColorIsDark)}
+    </>
+);
 
 const Sidebar: React.FC<{
     newsletter: Newsletter;
@@ -873,6 +846,7 @@ const Sidebar: React.FC<{
     const {data: {newsletters: apiNewsletters} = {}} = useBrowseNewsletters();
     const commentsEnabled = ['all', 'paid'].includes(getSettingValue(settings, 'comments_enabled') || '');
 
+    let newsletterAddress = renderSenderEmail(newsletter, config, defaultEmailAddress);
     const [newsletters, setNewsletters] = useState<Newsletter[]>(apiNewsletters || []);
     const activeNewsletters = newsletters.filter(n => n.status === 'active');
 
@@ -906,50 +880,32 @@ const Sidebar: React.FC<{
         }
     };
 
-    const confirmStatusChangeHandler = useCallback(async () => {
-        await confirmStatusChange(newsletter, editNewsletter, handleError, limiter, updateRoute);
-    }, [newsletter, editNewsletter, handleError, limiter, updateRoute]);
+    const isDarkBackground = backgroundColorIsDark(newsletter);
+    const headingFontWeightOptions = fontWeightOptions[newsletter.title_font_category || 'sans_serif'].options;
+
+    const getSelectedFontWeightOptionMemo = () => getSelectedFontWeightOption(newsletter, fontWeightOptions, headingFontWeightOptions);
+    
+    const changeSelectedTitleFontMemo = (option: SelectOption | null) => changeSelectedTitleFont(option, newsletter, fontWeightOptions, updateNewsletter);
+
+    const handleConfirmStatusChange = async () => {
+        await confirmStatusChange(newsletter, onlyOne, activeNewsletters, editNewsletter, handleError, limiter, updateRoute);
+    };
 
     const tabs: Tab[] = [
         {
             id: 'generalSettings',
             title: 'General',
-            contents: renderGeneralSettingsTab(
-                newsletter,
-                updateNewsletter,
-                errors,
-                clearError,
-                siteTitle,
-                config,
-                defaultEmailAddress,
-                validate,
-                onlyOne,
-                activeNewsletters,
-                confirmStatusChangeHandler
-            )
+            contents: renderGeneralSettingsTab(newsletter, errors, updateNewsletter, clearError, siteTitle, newsletterAddress, validate, onlyOne, activeNewsletters, handleConfirmStatusChange)
         },
         {
             id: 'content',
             title: 'Content',
-            contents: renderContentTab(
-                newsletter,
-                updateNewsletter,
-                uploadImage,
-                handleError,
-                icon,
-                commentsEnabled
-            )
+            contents: renderContentTab(newsletter, updateNewsletter, icon, uploadImage, handleError, commentsEnabled)
         },
         {
             id: 'design',
             title: 'Design',
-            contents: renderDesignTab(
-                newsletter,
-                updateNewsletter,
-                fontOptions,
-                fontWeightOptions,
-                siteData
-            )
+            contents: renderDesignTab(newsletter, fontOptions, fontWeightOptions, headingFontWeightOptions, siteData, updateNewsletter, changeSelectedTitleFontMemo, getSelectedFontWeightOptionMemo, isDarkBackground)
         }
     ];
 
@@ -979,9 +935,7 @@ const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: b
             const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState);
             let toastMessage;
 
-            if (emailToVerify && emailToVerify === 'sender_email') {
-                toastMessage = <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
-            } else if (emailToVerify && emailToVerify === 'sender_reply_to') {
+            if (emailToVerify && (emailToVerify === 'sender_email' || emailToVerify === 'sender_reply_to')) {
                 toastMessage = <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
             }
 
@@ -1065,4 +1019,3 @@ const NewsletterDetailModal: React.FC<RoutingModalProps> = ({params}) => {
 };
 
 export default NiceModal.create(NewsletterDetailModal);
-```

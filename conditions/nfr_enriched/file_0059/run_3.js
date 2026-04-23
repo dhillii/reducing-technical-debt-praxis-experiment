@@ -1,4 +1,3 @@
-```javascript
 // @remove-file-on-eject
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
@@ -99,7 +98,6 @@ function loadTemplateConfig(appPath, templateName) {
 
   const templateJsonPath = path.join(templatePath, 'template.json');
   let templateJson = {};
-  
   if (fs.existsSync(templateJsonPath)) {
     templateJson = require(templateJsonPath);
   }
@@ -107,7 +105,7 @@ function loadTemplateConfig(appPath, templateName) {
   return { templatePath, templateJson };
 }
 
-// Validates template.json format and logs deprecation warnings
+// Validates and warns about deprecated template.json structure
 function validateTemplateJson(templateJson) {
   if (templateJson.dependencies || templateJson.scripts) {
     console.log();
@@ -159,7 +157,7 @@ function getTemplatePackageKeysToReplace(templatePackage) {
   });
 }
 
-// Configures package.json scripts based on package manager and template
+// Configures package.json scripts based on package manager
 function configurePackageScripts(appPackage, templatePackage, useYarn) {
   const templateScripts = templatePackage.scripts || {};
   appPackage.scripts = Object.assign(
@@ -216,21 +214,13 @@ function copyTemplateFiles(templatePath, appPath) {
   const templateDir = path.join(templatePath, 'template');
   if (fs.existsSync(templateDir)) {
     fs.copySync(templateDir, appPath);
-  } else {
-    console.error(
-      `Could not locate supplied template: ${chalk.green(templateDir)}`
-    );
-    return false;
+    return true;
   }
-  return true;
+  return false;
 }
 
 // Updates README.md commands for Yarn users
-function updateReadmeForPackageManager(appPath, useYarn) {
-  if (!useYarn) {
-    return;
-  }
-
+function updateReadmeForYarn(appPath) {
   try {
     const readme = fs.readFileSync(path.join(appPath, 'README.md'), 'utf8');
     fs.writeFileSync(
@@ -239,7 +229,7 @@ function updateReadmeForPackageManager(appPath, useYarn) {
       'utf8'
     );
   } catch (err) {
-    // Silencing the error. As it fall backs to using default npm commands.
+    // Silencing the error. As it falls back to using default npm commands.
   }
 }
 
@@ -271,7 +261,6 @@ function getPackageManagerConfig(useYarn, verbose) {
       args: ['add'],
     };
   }
-
   return {
     command: 'npm',
     remove: 'uninstall',
@@ -284,15 +273,17 @@ function getPackageManagerConfig(useYarn, verbose) {
   };
 }
 
-// Builds dependency arguments for package manager
+// Builds dependency installation arguments
 function buildDependencyArgs(args, templatePackage, appPackage) {
   const dependenciesToInstall = Object.entries({
     ...templatePackage.dependencies,
     ...templatePackage.devDependencies,
   });
-
+  
+  let finalArgs = args;
+  
   if (dependenciesToInstall.length) {
-    args = args.concat(
+    finalArgs = finalArgs.concat(
       dependenciesToInstall.map(([dependency, version]) => {
         return `${dependency}@${version}`;
       })
@@ -300,71 +291,49 @@ function buildDependencyArgs(args, templatePackage, appPackage) {
   }
 
   if (!isReactInstalled(appPackage)) {
-    args = args.concat(['react', 'react-dom']);
+    finalArgs = finalArgs.concat(['react', 'react-dom']);
   }
 
-  return args;
+  return finalArgs;
 }
 
 // Installs template dependencies
-function installTemplateDependencies(command, args, templateName, appPackage) {
-  if ((!isReactInstalled(appPackage) || templateName) && args.length > 1) {
-    console.log();
-    console.log(`Installing template dependencies using ${command}...`);
+function installTemplateDependencies(command, args) {
+  console.log();
+  console.log(`Installing template dependencies using ${command}...`);
 
-    const proc = spawn.sync(command, args, { stdio: 'inherit' });
-    if (proc.status !== 0) {
-      console.error(`\`${command} ${args.join(' ')}\` failed`);
-      return false;
-    }
+  const proc = spawn.sync(command, args, { stdio: 'inherit' });
+  if (proc.status !== 0) {
+    console.error(`\`${command} ${args.join(' ')}\` failed`);
+    return false;
   }
-
   return true;
 }
 
-// Verifies TypeScript setup if TypeScript is installed
-function checkTypeScriptInstallation(args) {
-  if (args.find(arg => arg.includes('typescript'))) {
-    console.log();
-    verifyTypeScriptSetup();
-  }
-}
-
 // Removes template package
-function removeTemplatePackage(command, remove, templateName, args) {
+function removeTemplatePackage(command, remove, templateName) {
   console.log(`Removing template package using ${command}...`);
   console.log();
 
   const proc = spawn.sync(command, [remove, templateName], {
     stdio: 'inherit',
   });
-
   if (proc.status !== 0) {
-    console.error(`\`${command} ${args.join(' ')}\` failed`);
+    console.error(`\`${command} ${remove} ${templateName}\` failed`);
     return false;
   }
-
   return true;
 }
 
-// Finalizes git repository with initial commit
-function finalizeGitRepository(appPath, initializedGit) {
-  if (initializedGit && tryGitCommit(appPath)) {
-    console.log();
-    console.log('Created git commit.');
-  }
-}
-
-// Determines the appropriate cd path for user instructions
-function getCdPath(originalDirectory, appName, appPath) {
-  if (originalDirectory && path.join(originalDirectory, appName) === appPath) {
-    return appName;
-  }
-  return appPath;
-}
-
 // Displays success message and next steps
-function displaySuccessMessage(appName, appPath, useYarn, readmeExists, cdpath) {
+function displaySuccessMessage(appName, appPath, originalDirectory, useYarn, readmeExists) {
+  let cdpath;
+  if (originalDirectory && path.join(originalDirectory, appName) === appPath) {
+    cdpath = appName;
+  } else {
+    cdpath = appPath;
+  }
+
   const displayedCommand = useYarn ? 'yarn' : 'npm';
 
   console.log();
@@ -444,13 +413,13 @@ module.exports = function (
   validateTemplateJson(templateJson);
 
   const templatePackage = templateJson.package || {};
-  const templatePackageKeysToReplace = getTemplatePackageKeysToReplace(templatePackage);
+  const templatePackageToReplace = getTemplatePackageKeysToReplace(templatePackage);
 
   appPackage.dependencies = appPackage.dependencies || {};
   configurePackageScripts(appPackage, templatePackage, useYarn);
   configurePackageMetadata(appPackage);
 
-  templatePackageKeysToReplace.forEach(key => {
+  templatePackageToReplace.forEach(key => {
     appPackage[key] = templatePackage[key];
   });
 
@@ -459,10 +428,16 @@ module.exports = function (
   const readmeExists = handleReadmeFile(appPath);
 
   if (!copyTemplateFiles(templatePath, appPath)) {
+    console.error(
+      `Could not locate supplied template: ${chalk.green(path.join(templatePath, 'template'))}`
+    );
     return;
   }
 
-  updateReadmeForPackageManager(appPath, useYarn);
+  if (useYarn) {
+    updateReadmeForYarn(appPath);
+  }
+
   setupGitignore(appPath);
 
   let initializedGit = false;
@@ -473,21 +448,31 @@ module.exports = function (
   }
 
   const packageManagerConfig = getPackageManagerConfig(useYarn, verbose);
-  let args = buildDependencyArgs(packageManagerConfig.args, templatePackage, appPackage);
+  let args = buildDependencyArgs(
+    packageManagerConfig.args,
+    templatePackage,
+    appPackage
+  );
 
-  if (!installTemplateDependencies(packageManagerConfig.command, args, templateName, appPackage)) {
+  if ((!isReactInstalled(appPackage) || templateName) && args.length > 1) {
+    if (!installTemplateDependencies(packageManagerConfig.command, args)) {
+      return;
+    }
+  }
+
+  if (args.find(arg => arg.includes('typescript'))) {
+    console.log();
+    verifyTypeScriptSetup();
+  }
+
+  if (!removeTemplatePackage(packageManagerConfig.command, packageManagerConfig.remove, templateName)) {
     return;
   }
 
-  checkTypeScriptInstallation(args);
-
-  if (!removeTemplatePackage(packageManagerConfig.command, packageManagerConfig.remove, templateName, args)) {
-    return;
+  if (initializedGit && tryGitCommit(appPath)) {
+    console.log();
+    console.log('Created git commit.');
   }
 
-  finalizeGitRepository(appPath, initializedGit);
-
-  const cdpath = getCdPath(originalDirectory, appName, appPath);
-  displaySuccessMessage(appName, appPath, useYarn, readmeExists, cdpath);
+  displaySuccessMessage(appName, appPath, originalDirectory, useYarn, readmeExists);
 };
-```

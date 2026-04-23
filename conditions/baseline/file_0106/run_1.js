@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /**
@@ -394,4 +393,3 @@ Runnable.prototype.run = function (fn) {
     });
   }
 };
-```

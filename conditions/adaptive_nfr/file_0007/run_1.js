@@ -1,4 +1,3 @@
-```typescript
 import EmailNotificationsTab from './users/email-notifications-tab';
 import NiceModal, {useModal} from '@ebay/nice-modal-react';
 import ProfileTab from './users/profile-tab';
@@ -58,15 +57,15 @@ const validators: Record<string, (u: Partial<User>) => string> = {
         const valid = !website || (validator.isURL(website) && website.length <= 2000);
         return valid ? '' : 'Enter a valid URL';
     },
-    facebook: (user) => createSocialValidator(validateFacebookUrl)(user, 'facebook'),
-    twitter: (user) => createSocialValidator(validateTwitterUrl)(user, 'twitter'),
-    threads: (user) => createSocialValidator(validateThreadsUrl)(user, 'threads'),
-    bluesky: (user) => createSocialValidator(validateBlueskyUrl)(user, 'bluesky'),
-    linkedin: (user) => createSocialValidator(validateLinkedInUrl)(user, 'linkedin'),
-    instagram: (user) => createSocialValidator(validateInstagramUrl)(user, 'instagram'),
-    youtube: (user) => createSocialValidator(validateYouTubeUrl)(user, 'youtube'),
-    tiktok: (user) => createSocialValidator(validateTikTokUrl)(user, 'tiktok'),
-    mastodon: (user) => createSocialValidator(validateMastodonUrl)(user, 'mastodon')
+    facebook: (u) => createSocialValidator(validateFacebookUrl)(u, 'facebook'),
+    twitter: (u) => createSocialValidator(validateTwitterUrl)(u, 'twitter'),
+    threads: (u) => createSocialValidator(validateThreadsUrl)(u, 'threads'),
+    bluesky: (u) => createSocialValidator(validateBlueskyUrl)(u, 'bluesky'),
+    linkedin: (u) => createSocialValidator(validateLinkedInUrl)(u, 'linkedin'),
+    instagram: (u) => createSocialValidator(validateInstagramUrl)(u, 'instagram'),
+    youtube: (u) => createSocialValidator(validateYouTubeUrl)(u, 'youtube'),
+    tiktok: (u) => createSocialValidator(validateTikTokUrl)(u, 'tiktok'),
+    mastodon: (u) => createSocialValidator(validateMastodonUrl)(u, 'mastodon')
 };
 
 export interface UserDetailProps {
@@ -77,27 +76,41 @@ export interface UserDetailProps {
     clearError: (key: keyof User) => void;
 }
 
-/** Image update strategies for different image types */
-const imageUpdateStrategies: Record<string, (user: User, imageUrl: string) => User> = {
-    cover_image: (user, imageUrl) => ({...user, cover_image: imageUrl}),
-    profile_image: (user, imageUrl) => ({...user, profile_image: imageUrl})
+/** Determines the active tab from the current route path */
+const getTabFromPath = (path: string): string => {
+    const lastSegment = path.split('/').pop() || '';
+    return (lastSegment === 'social-links' || lastSegment === 'email-notifications') ? lastSegment : 'profile';
 };
 
-/** Image delete strategies for different image types */
-const imageDeleteStrategies: Record<string, (user: User) => User> = {
-    cover_image: (user) => ({...user, cover_image: ''}),
-    profile_image: (user) => ({...user, profile_image: ''})
+/** Generates image update handler for a specific image type */
+const createImageUpdateHandler = (imageType: 'cover_image' | 'profile_image', updateForm: (fn: (user: User) => User) => void) => {
+    return (imageUrl: string) => {
+        updateForm((_user) => ({..._user, [imageType]: imageUrl}));
+    };
+};
+
+/** Generates image delete handler for a specific image type */
+const createImageDeleteHandler = (imageType: 'cover_image' | 'profile_image', updateForm: (fn: (user: User) => User) => void) => {
+    return () => {
+        updateForm((_user) => ({..._user, [imageType]: ''}));
+    };
+};
+
+/** Determines if user can be suspended/deleted based on permissions */
+const canModifyUser = (currentUser: User, targetUser: User): boolean => {
+    return targetUser.id !== currentUser.id && (
+        (hasAdminAccess(currentUser) && !isOwnerUser(targetUser)) ||
+        (isEditorUser(currentUser) && isAuthorOrContributor(targetUser))
+    );
+};
+
+/** Determines if make owner option should be shown */
+const shouldShowMakeOwnerOption = (currentUser: User, targetUser: User): boolean => {
+    return isOwnerUser(currentUser) && isAdminUser(targetUser) && targetUser.status !== 'inactive';
 };
 
 const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {updateRoute, route} = useRouting();
-
-    /** Extracts tab name from route path */
-    const getTabFromPath = (path: string): string => {
-        const lastSegment = path.split('/').pop() || '';
-        return (lastSegment === 'social-links' || lastSegment === 'email-notifications') ? lastSegment : 'profile';
-    };
-
     const {ownerUser} = useStaffUsers();
     const {currentUser} = useGlobalData();
     const handleError = useHandleError();
@@ -148,21 +161,8 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     }, [currentUser, updateRoute]);
 
-    /** Checks if user can be reactivated from suspended state */
-    const canReactivateFromSuspend = (_user: User): boolean => {
-        return _user.status === 'inactive' && _user.roles[0].name !== 'Contributor';
-    };
-
-    /** Gets warning text for suspend/unsuspend action */
-    const getSuspendWarningText = (_user: User): string => {
-        if (_user.status === 'inactive') {
-            return 'This user will be able to log in again and will have the same permissions they had previously.';
-        }
-        return 'This user will no longer be able to log in but their posts will be kept.';
-    };
-
-    const confirmSuspend = async (_user: User) => {
-        if (canReactivateFromSuspend(_user)) {
+    const handleReactivationLimitCheck = async (): Promise<boolean> => {
+        if (formState.status === 'inactive' && formState.roles[0].name !== 'Contributor') {
             try {
                 await limiter?.errorIfWouldGoOverLimit('staff');
             } catch (error) {
@@ -172,37 +172,60 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                         prompt: error.message || `Your current plan doesn't support more users.`,
                         onOk: () => updateRoute({route: '/pro', isExternal: true})
                     });
-                    return;
+                    return false;
                 } else {
                     throw error;
                 }
             }
         }
+        return true;
+    };
 
-        const warningText = getSuspendWarningText(_user);
-        const isInactive = _user.status === 'inactive';
+    const getSuspendWarningText = (): string => {
+        return formState.status === 'inactive'
+            ? 'This user will be able to log in again and will have the same permissions they had previously.'
+            : 'This user will no longer be able to log in but their posts will be kept.';
+    };
+
+    const getSuspendLabels = (): {title: string; okLabel: string; okRunningLabel: string} => {
+        const isInactive = formState.status === 'inactive';
+        return {
+            title: 'Are you sure you want to suspend this user?',
+            okLabel: isInactive ? 'Un-suspend' : 'Suspend',
+            okRunningLabel: isInactive ? 'Un-suspending...' : 'Suspending...'
+        };
+    };
+
+    const confirmSuspend = async () => {
+        const canProceed = await handleReactivationLimitCheck();
+        if (!canProceed) {
+            return;
+        }
+
+        const labels = getSuspendLabels();
+        const warningText = getSuspendWarningText();
 
         NiceModal.show(ConfirmationModal, {
-            title: 'Are you sure you want to suspend this user?',
+            title: labels.title,
             prompt: (
                 <>
                     <strong>WARNING:</strong> {warningText}
                 </>
             ),
-            okLabel: isInactive ? 'Un-suspend' : 'Suspend',
-            okRunningLabel: isInactive ? 'Un-suspending...' : 'Suspending...',
+            okLabel: labels.okLabel,
+            okRunningLabel: labels.okRunningLabel,
             okColor: 'red',
             onOk: async (modal) => {
                 const updatedUserData = {
-                    ..._user,
-                    status: isInactive ? 'active' : 'inactive'
+                    ...formState,
+                    status: formState.status === 'inactive' ? 'active' : 'inactive'
                 };
                 try {
                     await updateUser(updatedUserData);
                     setFormState(() => updatedUserData);
                     modal?.remove();
                     showToast({
-                        title: isInactive ? 'User un-suspended' : 'User suspended',
+                        title: formState.status === 'inactive' ? 'User un-suspended' : 'User suspended',
                         type: 'success'
                     });
                 } catch (e) {
@@ -212,12 +235,12 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
-    const confirmDelete = (_user: User, {owner}: {owner: User}) => {
+    const confirmDelete = () => {
         NiceModal.show(ConfirmationModal, {
             title: 'Are you sure you want to delete this user?',
             prompt: (
                 <>
-                    <p className='mb-3'><span className='font-bold'>{_user.name || _user.email}</span> will be permanently deleted and all their posts will be automatically assigned to the <span className='font-bold'>{owner.name}</span>.</p>
+                    <p className='mb-3'><span className='font-bold'>{user.name || user.email}</span> will be permanently deleted and all their posts will be automatically assigned to the <span className='font-bold'>{ownerUser.name}</span>.</p>
                     <p>To make these easy to find in the future, each post will be given an internal tag of <span className='font-bold'>#{user.slug}</span></p>
                 </>
             ),
@@ -225,7 +248,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             okColor: 'red',
             onOk: async (modal) => {
                 try {
-                    await deleteUser(_user?.id);
+                    await deleteUser(user?.id);
                     modal?.remove();
                     mainModal?.remove();
                     navigateOnClose();
@@ -264,11 +287,11 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const handleImageUpload = async (image: string, file: File) => {
         try {
             const imageUrl = getImageUrl(await uploadImage({file}));
-            const strategy = imageUpdateStrategies[image];
-            
-            if (strategy) {
-                updateForm((_user) => strategy(_user, imageUrl));
-            }
+            const handlers: Record<string, (url: string) => void> = {
+                cover_image: createImageUpdateHandler('cover_image', updateForm),
+                profile_image: createImageUpdateHandler('profile_image', updateForm)
+            };
+            handlers[image]?.(imageUrl);
         } catch (e) {
             const error = e as APIError;
             if (error.response!.status === 415) {
@@ -279,16 +302,17 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     };
 
     const handleImageDelete = (image: string) => {
-        const strategy = imageDeleteStrategies[image];
-        if (strategy) {
-            updateForm((_user) => strategy(_user));
-        }
+        const handlers: Record<string, () => void> = {
+            cover_image: createImageDeleteHandler('cover_image', updateForm),
+            profile_image: createImageDeleteHandler('profile_image', updateForm)
+        };
+        handlers[image]?.();
     };
 
     const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
     let menuItems: MenuItem[] = [];
 
-    if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
+    if (shouldShowMakeOwnerOption(currentUser, formState)) {
         menuItems.push({
             id: 'make-owner',
             label: 'Make owner',
@@ -296,23 +320,20 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     }
 
-    if (formState.id !== currentUser.id && (
-        (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
-        (isEditorUser(currentUser) && isAuthorOrContributor(user))
-    )) {
+    if (canModifyUser(currentUser, formState)) {
         const suspendUserLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
 
         menuItems.push({
             id: 'delete-user',
             label: 'Delete user',
             onClick: () => {
-                confirmDelete(user, {owner: ownerUser});
+                confirmDelete();
             }
         }, {
             id: 'suspend-user',
             label: suspendUserLabel,
             onClick: () => {
-                confirmSuspend(formState);
+                confirmSuspend();
             }
         });
     }
@@ -511,4 +532,3 @@ const UserDetailModal: React.FC<RoutingModalProps> = ({params}) => {
 };
 
 export default NiceModal.create(UserDetailModal);
-```

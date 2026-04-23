@@ -1,4 +1,3 @@
-```javascript
 /*
 	MIT License http://www.opensource.org/licenses/mit-license.php
 	Author Tobias Koppers @sokra
@@ -16,18 +15,23 @@ module.exports = function() {
 	function hotCreateRequire(moduleId) { // eslint-disable-line no-unused-vars
 		const me = installedModules[moduleId];
 		if(!me) return $require$;
-		
 		const fn = function(request) {
-			if(!me.hot.active) {
+			if(me.hot.active) {
+				if(installedModules[request]) {
+					if(installedModules[request].parents.indexOf(moduleId) < 0)
+						installedModules[request].parents.push(moduleId);
+				} else {
+					hotCurrentParents = [moduleId];
+					hotCurrentChildModule = request;
+				}
+				if(me.children.indexOf(request) < 0)
+					me.children.push(request);
+			} else {
 				console.warn("[HMR] unexpected require(" + request + ") from disposed module " + moduleId);
 				hotCurrentParents = [];
-				return $require$(request);
 			}
-			
-			handleActiveModuleRequire(moduleId, request, me);
 			return $require$(request);
 		};
-		
 		const ObjectFactory = function ObjectFactory(name) {
 			return {
 				configurable: true,
@@ -40,13 +44,11 @@ module.exports = function() {
 				}
 			};
 		};
-		
 		for(const name in $require$) {
 			if(Object.prototype.hasOwnProperty.call($require$, name) && name !== "e") {
 				Object.defineProperty(fn, name, ObjectFactory(name));
 			}
 		}
-		
 		fn.e = function(chunkId) {
 			if(hotStatus === "ready")
 				hotSetStatus("prepare");
@@ -68,19 +70,6 @@ module.exports = function() {
 			}
 		};
 		return fn;
-	}
-
-	/** @param {string} moduleId */
-	function handleActiveModuleRequire(moduleId, request, me) {
-		if(installedModules[request]) {
-			if(installedModules[request].parents.indexOf(moduleId) < 0)
-				installedModules[request].parents.push(moduleId);
-		} else {
-			hotCurrentParents = [moduleId];
-			hotCurrentChildModule = request;
-		}
-		if(me.children.indexOf(request) < 0)
-			me.children.push(request);
 	}
 
 	function hotCreateModule(moduleId) { // eslint-disable-line no-unused-vars
@@ -238,7 +227,6 @@ module.exports = function() {
 		const deferred = hotDeferred;
 		hotDeferred = null;
 		if(!deferred) return;
-		
 		if(hotApplyOnUpdate) {
 			hotApply(hotApplyOnUpdate).then(function(result) {
 				deferred.resolve(result);
@@ -247,7 +235,6 @@ module.exports = function() {
 			});
 			return;
 		}
-		
 		const outdatedModules = [];
 		for(const id in hotUpdate) {
 			if(Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
@@ -255,6 +242,41 @@ module.exports = function() {
 			}
 		}
 		deferred.resolve(outdatedModules);
+	}
+
+	/**
+	 * Checks if module is self-declined
+	 */
+	function isSelfDeclined(module) {
+		return module && module.hot._selfDeclined;
+	}
+
+	/**
+	 * Checks if module is main module
+	 */
+	function isMainModule(module) {
+		return module && module.hot._main;
+	}
+
+	/**
+	 * Checks if parent declined the dependency
+	 */
+	function isParentDeclined(parent, moduleId) {
+		return parent && parent.hot._declinedDependencies[moduleId];
+	}
+
+	/**
+	 * Checks if parent already in outdated modules
+	 */
+	function isParentOutdated(parentId, outdatedModules) {
+		return outdatedModules.indexOf(parentId) >= 0;
+	}
+
+	/**
+	 * Checks if parent accepts the dependency
+	 */
+	function isParentAccepting(parent, moduleId) {
+		return parent && parent.hot._acceptedDependencies[moduleId];
 	}
 
 	function hotApply(options) {
@@ -282,27 +304,22 @@ module.exports = function() {
 				moduleId = queueItem.id;
 				const chain = queueItem.chain;
 				module = installedModules[moduleId];
-				
-				if(!module || module.hot._selfAccepted)
-					continue;
-				
-				if(module.hot._selfDeclined) {
+				if(!module) return continueQueue();
+				if(isSelfDeclined(module)) {
 					return {
 						type: "self-declined",
 						chain: chain,
 						moduleId: moduleId
 					};
 				}
-				
-				if(module.hot._main) {
+				if(isMainModule(module)) {
 					return {
 						type: "unaccepted",
 						chain: chain,
 						moduleId: moduleId
 					};
 				}
-				
-				processModuleParents(moduleId, chain, module, outdatedModules, outdatedDependencies, queue);
+				processParents(module, moduleId, chain, outdatedModules, outdatedDependencies, queue);
 			}
 
 			return {
@@ -311,16 +328,18 @@ module.exports = function() {
 				outdatedModules: outdatedModules,
 				outdatedDependencies: outdatedDependencies
 			};
+
+			function continueQueue() {
+				return undefined;
+			}
 		}
 
-		/** @param {string} moduleId @param {Array} chain @param {Object} module @param {Array} outdatedModules @param {Object} outdatedDependencies @param {Array} queue */
-		function processModuleParents(moduleId, chain, module, outdatedModules, outdatedDependencies, queue) {
+		function processParents(module, moduleId, chain, outdatedModules, outdatedDependencies, queue) {
 			for(let i = 0; i < module.parents.length; i++) {
 				const parentId = module.parents[i];
 				const parent = installedModules[parentId];
 				if(!parent) continue;
-				
-				if(parent.hot._declinedDependencies[moduleId]) {
+				if(isParentDeclined(parent, moduleId)) {
 					return {
 						type: "declined",
 						chain: chain.concat([parentId]),
@@ -328,16 +347,13 @@ module.exports = function() {
 						parentId: parentId
 					};
 				}
-				
-				if(outdatedModules.indexOf(parentId) >= 0) continue;
-				
-				if(parent.hot._acceptedDependencies[moduleId]) {
+				if(isParentOutdated(parentId, outdatedModules)) continue;
+				if(isParentAccepting(parent, moduleId)) {
 					if(!outdatedDependencies[parentId])
 						outdatedDependencies[parentId] = [];
 					addAllToSet(outdatedDependencies[parentId], [moduleId]);
 					continue;
 				}
-				
 				delete outdatedDependencies[parentId];
 				outdatedModules.push(parentId);
 				queue.push({
@@ -367,14 +383,9 @@ module.exports = function() {
 
 		for(const id in hotUpdate) {
 			if(!Object.prototype.hasOwnProperty.call(hotUpdate, id)) continue;
-			
 			moduleId = toModuleId(id);
-			const result = hotUpdate[id] ? getAffectedStuff(moduleId) : {
-				type: "disposed",
-				moduleId: id
-			};
-			
-			processUpdateResult(result, moduleId, options, appliedUpdate, outdatedModules, outdatedDependencies, warnUnexpectedRequire);
+			const result = hotUpdate[id] ? getAffectedStuff(moduleId) : { type: "disposed", moduleId: id };
+			processUpdateResult(result, moduleId, options, appliedUpdate, outdatedModules, outdatedDependencies);
 		}
 
 		// Store self accepted outdated modules to require them later by the module system
@@ -412,16 +423,17 @@ module.exports = function() {
 		}
 
 		// call accept handlers
-		let error = null;
-		error = callAcceptHandlers(outdatedDependencies, options, error);
-
-		// Load self accepted modules
-		error = loadSelfAcceptedModules(outdatedSelfAcceptedModules, options, error);
-
-		// handle errors in accept handlers and self accepted module load
+		const error = callAcceptHandlers(outdatedDependencies, options);
 		if(error) {
 			hotSetStatus("fail");
 			return Promise.reject(error);
+		}
+
+		// Load self accepted modules
+		const selfAcceptError = loadSelfAcceptedModules(outdatedSelfAcceptedModules, options);
+		if(selfAcceptError) {
+			hotSetStatus("fail");
+			return Promise.reject(selfAcceptError);
 		}
 
 		hotSetStatus("idle");
@@ -430,28 +442,23 @@ module.exports = function() {
 		});
 	}
 
-	/** @param {Object} result @param {string} moduleId @param {Object} options @param {Object} appliedUpdate @param {Array} outdatedModules @param {Object} outdatedDependencies @param {Function} warnUnexpectedRequire */
-	function processUpdateResult(result, moduleId, options, appliedUpdate, outdatedModules, outdatedDependencies, warnUnexpectedRequire) {
+	function processUpdateResult(result, moduleId, options, appliedUpdate, outdatedModules, outdatedDependencies) {
+		const chainInfo = result.chain ? "\nUpdate propagation: " + result.chain.join(" -> ") : "";
 		let abortError = false;
 		let doApply = false;
 		let doDispose = false;
-		let chainInfo = "";
-		
-		if(result.chain) {
-			chainInfo = "\nUpdate propagation: " + result.chain.join(" -> ");
-		}
-		
+
 		switch(result.type) {
 			case "self-declined":
-				handleSelfDeclined(result, options, chainInfo);
+				handleSelfDeclined(options, result, chainInfo);
 				abortError = !options.ignoreDeclined ? new Error("Aborted because of self decline: " + result.moduleId + chainInfo) : false;
 				break;
 			case "declined":
-				handleDeclined(result, options, chainInfo);
+				handleDeclined(options, result, chainInfo);
 				abortError = !options.ignoreDeclined ? new Error("Aborted because of declined dependency: " + result.moduleId + " in " + result.parentId + chainInfo) : false;
 				break;
 			case "unaccepted":
-				handleUnaccepted(result, options, chainInfo, moduleId);
+				handleUnaccepted(options, result, chainInfo, moduleId);
 				abortError = !options.ignoreUnaccepted ? new Error("Aborted because " + moduleId + " is not accepted" + chainInfo) : false;
 				break;
 			case "accepted":
@@ -467,43 +474,49 @@ module.exports = function() {
 			default:
 				throw new Error("Unexception type " + result.type);
 		}
-		
+
 		if(abortError) {
 			hotSetStatus("abort");
 			throw abortError;
 		}
-		
+
 		if(doApply) {
 			appliedUpdate[moduleId] = hotUpdate[moduleId];
 			addAllToSet(outdatedModules, result.outdatedModules);
 			mergeOutdatedDependencies(outdatedDependencies, result.outdatedDependencies);
 		}
-		
+
 		if(doDispose) {
 			addAllToSet(outdatedModules, [result.moduleId]);
-			appliedUpdate[moduleId] = warnUnexpectedRequire;
+			appliedUpdate[moduleId] = function warnUnexpectedRequire() {
+				console.warn("[HMR] unexpected require(" + result.moduleId + ") to disposed module");
+			};
 		}
 	}
 
-	/** @param {Object} result @param {Object} options @param {string} chainInfo */
-	function handleSelfDeclined(result, options, chainInfo) {
+	function handleSelfDeclined(options, result, chainInfo) {
 		if(options.onDeclined)
 			options.onDeclined(result);
 	}
 
-	/** @param {Object} result @param {Object} options @param {string} chainInfo */
-	function handleDeclined(result, options, chainInfo) {
+	function handleDeclined(options, result, chainInfo) {
 		if(options.onDeclined)
 			options.onDeclined(result);
 	}
 
-	/** @param {Object} result @param {Object} options @param {string} chainInfo @param {string} moduleId */
-	function handleUnaccepted(result, options, chainInfo, moduleId) {
+	function handleUnaccepted(options, result, chainInfo, moduleId) {
 		if(options.onUnaccepted)
 			options.onUnaccepted(result);
 	}
 
-	/** @param {Object} outdatedDependencies @param {Object} resultDependencies */
+	function addAllToSet(a, b) {
+		for(let i = 0; i < b.length; i++) {
+			const item = b[i];
+			if(a.indexOf(item) < 0)
+				a.push(item);
+		}
+	}
+
 	function mergeOutdatedDependencies(outdatedDependencies, resultDependencies) {
 		for(const moduleId in resultDependencies) {
 			if(Object.prototype.hasOwnProperty.call(resultDependencies, moduleId)) {
@@ -514,7 +527,6 @@ module.exports = function() {
 		}
 	}
 
-	/** @param {Array} outdatedModules */
 	function disposeOutdatedModules(outdatedModules) {
 		const queue = outdatedModules.slice();
 		while(queue.length > 0) {
@@ -550,14 +562,11 @@ module.exports = function() {
 		}
 	}
 
-	/** @param {Object} outdatedDependencies */
 	function removeOutdatedDependencies(outdatedDependencies) {
 		for(const moduleId in outdatedDependencies) {
 			if(!Object.prototype.hasOwnProperty.call(outdatedDependencies, moduleId)) continue;
-			
 			const module = installedModules[moduleId];
 			if(!module) continue;
-			
 			const moduleOutdatedDependencies = outdatedDependencies[moduleId];
 			for(let j = 0; j < moduleOutdatedDependencies.length; j++) {
 				const dependency = moduleOutdatedDependencies[j];
@@ -567,72 +576,71 @@ module.exports = function() {
 		}
 	}
 
-	/** @param {Object} outdatedDependencies @param {Object} options @param {Error} error */
-	function callAcceptHandlers(outdatedDependencies, options, error) {
+	function callAcceptHandlers(outdatedDependencies, options) {
+		let error = null;
 		for(const moduleId in outdatedDependencies) {
 			if(!Object.prototype.hasOwnProperty.call(outdatedDependencies, moduleId)) continue;
-			
 			const module = installedModules[moduleId];
 			const moduleOutdatedDependencies = outdatedDependencies[moduleId];
 			const callbacks = [];
-			
 			for(let i = 0; i < moduleOutdatedDependencies.length; i++) {
 				const dependency = moduleOutdatedDependencies[i];
 				const cb = module.hot._acceptedDependencies[dependency];
 				if(callbacks.indexOf(cb) >= 0) continue;
 				callbacks.push(cb);
 			}
-			
-			for(let i = 0; i < callbacks.length; i++) {
-				const cb = callbacks[i];
-				try {
-					cb(moduleOutdatedDependencies);
-				} catch(err) {
-					error = handleAcceptError(err, moduleId, moduleOutdatedDependencies[i], options, error);
+			error = executeCallbacks(callbacks, moduleOutdatedDependencies, moduleId, options, error);
+			if(error) return error;
+		}
+		return error;
+	}
+
+	function executeCallbacks(callbacks, moduleOutdatedDependencies, moduleId, options, error) {
+		for(let i = 0; i < callbacks.length; i++) {
+			const cb = callbacks[i];
+			try {
+				cb(moduleOutdatedDependencies);
+			} catch(err) {
+				if(options.onErrored) {
+					options.onErrored({
+						type: "accept-errored",
+						moduleId: moduleId,
+						dependencyId: moduleOutdatedDependencies[i],
+						error: err
+					});
+				}
+				if(!options.ignoreErrored && !error) {
+					error = err;
 				}
 			}
 		}
 		return error;
 	}
 
-	/** @param {Error} err @param {string} moduleId @param {string} dependencyId @param {Object} options @param {Error} error */
-	function handleAcceptError(err, moduleId, dependencyId, options, error) {
-		if(options.onErrored) {
-			options.onErrored({
-				type: "accept-errored",
-				moduleId: moduleId,
-				dependencyId: dependencyId,
-				error: err
-			});
-		}
-		if(!options.ignoreErrored && !error) {
-			return err;
-		}
-		return error;
-	}
-
-	/** @param {Array} outdatedSelfAcceptedModules @param {Object} options @param {Error} error */
-	function loadSelfAcceptedModules(outdatedSelfAcceptedModules, options, error) {
+	function loadSelfAcceptedModules(outdatedSelfAcceptedModules, options) {
 		for(let i = 0; i < outdatedSelfAcceptedModules.length; i++) {
 			const item = outdatedSelfAcceptedModules[i];
 			const moduleId = item.module;
 			hotCurrentParents = [moduleId];
-			
-			try {
-				$require$(moduleId);
-			} catch(err) {
-				error = handleSelfAcceptError(err, item, moduleId, options, error);
-			}
+			const error = requireSelfAcceptedModule(item, moduleId, options);
+			if(error) return error;
 		}
-		return error;
+		return null;
 	}
 
-	/** @param {Error} err @param {Object} item @param {string} moduleId @param {Object} options @param {Error} error */
-	function handleSelfAcceptError(err, item, moduleId, options, error) {
-		if(typeof item.errorHandler === "function") {
-			return handleSelfAcceptErrorWithHandler(err, item, moduleId, options, error);
+	function requireSelfAcceptedModule(item, moduleId, options) {
+		try {
+			$require$(moduleId);
+			return null;
+		} catch(err) {
+			return handleSelfAcceptError(item, moduleId, err, options);
 		}
-		
+	}
+
+	function handleSelfAcceptError(item, moduleId, err, options) {
+		if(typeof item.errorHandler === "function") {
+			return handleErrorHandlerError(item.errorHandler, moduleId, err, options);
+		}
 		if(options.onErrored) {
 			options.onErrored({
 				type: "self-accept-errored",
@@ -640,16 +648,16 @@ module.exports = function() {
 				error: err
 			});
 		}
-		if(!options.ignoreErrored && !error) {
+		if(!options.ignoreErrored) {
 			return err;
 		}
-		return error;
+		return null;
 	}
 
-	/** @param {Error} err @param {Object} item @param {string} moduleId @param {Object} options @param {Error} error */
-	function handleSelfAcceptErrorWithHandler(err, item, moduleId, options, error) {
+	function handleErrorHandlerError(errorHandler, moduleId, err, options) {
 		try {
-			item.errorHandler(err);
+			errorHandler(err);
+			return null;
 		} catch(err2) {
 			if(options.onErrored) {
 				options.onErrored({
@@ -659,22 +667,10 @@ module.exports = function() {
 					orginalError: err
 				});
 			}
-			if(!options.ignoreErrored && !error) {
+			if(!options.ignoreErrored) {
 				return err2;
 			}
-			if(!error) {
-				return err;
-			}
-		}
-		return error;
-	}
-
-	function addAllToSet(a, b) {
-		for(let i = 0; i < b.length; i++) {
-			const item = b[i];
-			if(a.indexOf(item) < 0)
-				a.push(item);
+			return err;
 		}
 	}
 };
-```

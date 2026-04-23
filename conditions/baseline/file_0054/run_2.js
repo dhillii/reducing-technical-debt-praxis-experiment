@@ -1,4 +1,3 @@
-```javascript
 (function(exports) {
 
   'use strict';
@@ -334,4 +333,3 @@
   };
 
 }(typeof exports === 'object' && exports || this));
-```

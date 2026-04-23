@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const Boom = require('boom');
@@ -16,7 +15,7 @@ exports = module.exports = internals.Auth = function (connection) {
     this._schemes = {};
     this._strategies = {};
     this.settings = {
-        default: null           // Strategy used as default if route has no auth settings
+        default: null
     };
 
     this.api = {};
@@ -67,6 +66,7 @@ internals.Auth.prototype.strategy = function (name, scheme /*, mode, options */)
 };
 
 
+// Validates that strategy has required and properly typed methods
 internals.validateStrategyMethods = function (strategy, name) {
 
     Hoek.assert(strategy.authenticate, 'Invalid scheme:', name, 'missing authenticate() method');
@@ -81,7 +81,7 @@ internals.Auth.prototype.default = function (options) {
     Hoek.assert(!this.settings.default, 'Cannot set default strategy more than once');
     options = Schema.apply('auth', options, 'default strategy');
 
-    this.settings.default = this._setupRoute(Hoek.clone(options));      // Can change options
+    this.settings.default = this._setupRoute(Hoek.clone(options));
 };
 
 
@@ -99,7 +99,7 @@ internals.Auth.prototype.test = function (name, request, next) {
 internals.Auth.prototype._setupRoute = function (options, path) {
 
     if (!options) {
-        return options;         // Preserve the difference between undefined and false
+        return options;
     }
 
     internals.normalizeStrategyOptions(options);
@@ -114,30 +114,23 @@ internals.Auth.prototype._setupRoute = function (options, path) {
 
     options.mode = options.mode || 'required';
 
-    internals.migrateAccessOptions(options);
-
-    if (options.access) {
-        for (let i = 0; i < options.access.length; ++i) {
-            const access = options.access[i];
-            access.scope = internals.setupScope(access);
-        }
-    }
+    internals.normalizeAccessOptions(options);
 
     if (options.payload === true) {
         options.payload = 'required';
     }
 
-    internals.validatePayloadStrategies(this._strategies, options, path);
+    internals.validateStrategiesPayload(this._strategies, options, path);
 
     return options;
 };
 
 
+// Normalizes strategy option format from string or legacy format to standard format
 internals.normalizeStrategyOptions = function (options) {
 
     if (typeof options === 'string') {
-        options.strategies = [options];
-        return;
+        return { strategies: [options] };
     }
 
     if (options.strategy) {
@@ -147,17 +140,26 @@ internals.normalizeStrategyOptions = function (options) {
 };
 
 
-internals.migrateAccessOptions = function (options) {
+// Converts legacy entity/scope options to access format
+internals.normalizeAccessOptions = function (options) {
 
     if (options.entity !== undefined || options.scope !== undefined) {
         options.access = [{ entity: options.entity, scope: options.scope }];
         delete options.entity;
         delete options.scope;
     }
+
+    if (options.access) {
+        for (let i = 0; i < options.access.length; ++i) {
+            const access = options.access[i];
+            access.scope = internals.setupScope(access);
+        }
+    }
 };
 
 
-internals.validatePayloadStrategies = function (strategies, options, path) {
+// Validates that all strategies support required payload authentication
+internals.validateStrategiesPayload = function (strategies, options, path) {
 
     let hasAuthenticatePayload = false;
     for (let i = 0; i < options.strategies.length; ++i) {
@@ -327,13 +329,9 @@ internals.Authenticator = class {
 
         this.request.auth.mode = this.config.mode;
 
-        // Injection bypass
-
         if (this.request.auth.credentials) {
             return this.validate(null, { credentials: this.request.auth.credentials, artifacts: this.request.auth.artifacts }, next);
         }
-
-        // Authenticate
 
         return this.execute(next);
     }
@@ -342,8 +340,6 @@ internals.Authenticator = class {
 
         const config = this.config;
         const request = this.request;
-
-        // Find next strategy
 
         ++this.current;
         if (this.current < config.strategies.length) {
@@ -359,8 +355,6 @@ internals.Authenticator = class {
             return;
         }
 
-        // No more strategies
-
         internals.handleAuthenticationFailure(request, config, this.errors, next);
     }
 
@@ -372,25 +366,20 @@ internals.Authenticator = class {
 
         result = result || {};
 
-        // Invalid
-
         if (!err && !result.credentials) {
             return next(Boom.badImplementation('Authentication response missing both error and credentials'));
         }
 
-        // Unauthenticated
-
         if (err) {
-            return internals.handleValidationError(err, result, request, config, name, this, next);
+            return internals.handleValidationError(err, request, config, result, name, this, next);
         }
 
-        // Authenticated
-
-        return internals.handleAuthenticationSuccess(result, request, config, name, next);
+        return internals.handleAuthenticationSuccess(request, config, result, name, next);
     }
 };
 
 
+// Handles authentication failure when no strategies succeed
 internals.handleAuthenticationFailure = function (request, config, errors, next) {
 
     const err = Boom.unauthorized('Missing authentication', errors);
@@ -407,7 +396,8 @@ internals.handleAuthenticationFailure = function (request, config, errors, next)
 };
 
 
-internals.handleValidationError = function (err, result, request, config, name, authenticator, next) {
+// Handles errors during strategy validation
+internals.handleValidationError = function (err, request, config, result, name, authenticator, next) {
 
     if (err instanceof Error === false) {
         request._log(['auth', 'unauthenticated', 'response', name], err.statusCode);
@@ -435,7 +425,8 @@ internals.handleValidationError = function (err, result, request, config, name, 
 };
 
 
-internals.handleAuthenticationSuccess = function (result, request, config, name, next) {
+// Handles successful authentication and access control checks
+internals.handleAuthenticationSuccess = function (request, config, result, name, next) {
 
     const credentials = result.credentials;
     request.auth.strategy = name;
@@ -447,8 +438,6 @@ internals.handleAuthenticationSuccess = function (result, request, config, name,
         request.auth.isAuthenticated = true;
         return next();
     };
-
-    // Check access rules
 
     const error = internals.access(request, config, credentials, name);
     if (!error) {
@@ -476,17 +465,18 @@ internals.access = function (request, config, credentials, name) {
             continue;
         }
 
-        if (!internals.checkAccessScope(access, credentials, scopeErrors)) {
+        if (!internals.checkAccessScope(request, access, credentials, scopeErrors)) {
             continue;
         }
 
         return null;
     }
 
-    return internals.buildAccessError(scopeErrors, requestEntity, name);
+    return internals.buildAccessError(requestEntity, scopeErrors, name);
 };
 
 
+// Checks if request entity matches access entity requirement
 internals.checkAccessEntity = function (access, requestEntity) {
 
     const entity = access.entity;
@@ -498,7 +488,8 @@ internals.checkAccessEntity = function (access, requestEntity) {
 };
 
 
-internals.checkAccessScope = function (access, credentials, scopeErrors) {
+// Checks if credentials satisfy access scope requirements
+internals.checkAccessScope = function (request, access, credentials, scopeErrors) {
 
     let scope = access.scope;
     if (!scope) {
@@ -510,7 +501,7 @@ internals.checkAccessScope = function (access, credentials, scopeErrors) {
         return false;
     }
 
-    scope = internals.expandScope(null, scope);
+    scope = internals.expandScope(request, scope);
     if (!internals.validateScope(credentials, scope, 'required') ||
         !internals.validateScope(credentials, scope, 'selection') ||
         !internals.validateScope(credentials, scope, 'forbidden')) {
@@ -523,10 +514,11 @@ internals.checkAccessScope = function (access, credentials, scopeErrors) {
 };
 
 
-internals.buildAccessError = function (scopeErrors, requestEntity, name) {
+// Builds appropriate access error based on failure type
+internals.buildAccessError = function (requestEntity, scopeErrors, name) {
 
     if (scopeErrors.length) {
-        const data = { got: null, need: scopeErrors };
+        const data = { got: requestEntity, need: scopeErrors };
         return { err: Boom.forbidden('Insufficient scope', data), tags: ['auth', 'scope', 'error', name], data };
     }
 
@@ -556,7 +548,9 @@ internals.expandScope = function (request, scope) {
 
 internals.expandScopeType = function (request, scope, type) {
 
-    if (!scope[type] || !scope._parameters[type]) {
+    if (!scope[type] ||
+        !scope._parameters[type]) {
+
         return scope[type];
     }
 
@@ -594,4 +588,3 @@ internals.validateScope = function (credentials, scope, type) {
 
     return !!count;
 };
-```

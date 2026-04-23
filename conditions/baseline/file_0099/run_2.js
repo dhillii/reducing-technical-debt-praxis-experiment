@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const util = require('crypto-lib').util;
@@ -508,4 +507,3 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
 };
 
 module.exports = WriteCtrl;
-```

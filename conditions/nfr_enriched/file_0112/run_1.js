@@ -1,4 +1,675 @@
-*
+'use strict';
+
+/*!
+ * Module dependencies.
+ */
+
+const MongooseError = require('./error/index');
+const SchemaTypeOptions = require('./options/SchemaTypeOptions');
+const $exists = require('./schema/operators/exists');
+const $type = require('./schema/operators/type');
+const get = require('./helpers/get');
+const handleImmutable = require('./helpers/schematype/handleImmutable');
+const immediate = require('./helpers/immediate');
+const schemaTypeSymbol = require('./helpers/symbols').schemaTypeSymbol;
+const util = require('util');
+const utils = require('./utils');
+const validatorErrorSymbol = require('./helpers/symbols').validatorErrorSymbol;
+const documentIsModified = require('./helpers/symbols').documentIsModified;
+
+const populateModelSymbol = require('./helpers/symbols').populateModelSymbol;
+
+const CastError = MongooseError.CastError;
+const ValidatorError = MongooseError.ValidatorError;
+
+/**
+ * SchemaType constructor. Do **not** instantiate `SchemaType` directly.
+ * Mongoose converts your schema paths into SchemaTypes automatically.
+ *
+ * ####Example:
+ *
+ *     const schema = new Schema({ name: String });
+ *     schema.path('name') instanceof SchemaType; // true
+ *
+ * @param {String} path
+ * @param {SchemaTypeOptions} [options] See [SchemaTypeOptions docs](/docs/api/schematypeoptions.html)
+ * @param {String} [instance]
+ * @api public
+ */
+
+function SchemaType(path, options, instance) {
+  this[schemaTypeSymbol] = true;
+  this.path = path;
+  this.instance = instance;
+  this.validators = [];
+  this.getters = this.constructor.hasOwnProperty('getters') ?
+    this.constructor.getters.slice() :
+    [];
+  this.setters = [];
+
+  this.splitPath();
+
+  options = options || {};
+  this._applyDefaultOptions(options);
+  this._initializeOptions(options);
+
+  Object.defineProperty(this, '$$context', {
+    enumerable: false,
+    configurable: false,
+    writable: true,
+    value: null
+  });
+}
+
+/*!
+ * Apply default options from constructor to provided options
+ */
+SchemaType.prototype._applyDefaultOptions = function(options) {
+  const defaultOptions = this.constructor.defaultOptions || {};
+  const defaultOptionsKeys = Object.keys(defaultOptions);
+
+  for (const option of defaultOptionsKeys) {
+    if (defaultOptions.hasOwnProperty(option) && !options.hasOwnProperty(option)) {
+      options[option] = defaultOptions[option];
+    }
+  }
+
+  if (options.select == null) {
+    delete options.select;
+  }
+};
+
+/*!
+ * Initialize SchemaType options and process option properties
+ */
+SchemaType.prototype._initializeOptions = function(options) {
+  const Options = this.OptionsConstructor || SchemaTypeOptions;
+  this.options = new Options(options);
+  this._index = null;
+
+  if (utils.hasUserDefinedProperty(this.options, 'immutable')) {
+    this.$immutable = this.options.immutable;
+    handleImmutable(this);
+  }
+
+  this._processOptionProperties(options);
+};
+
+/*!
+ * Process each option property and apply corresponding SchemaType methods
+ */
+SchemaType.prototype._processOptionProperties = function(options) {
+  const keys = Object.keys(this.options);
+  for (const prop of keys) {
+    if (prop === 'cast') {
+      this.castFunction(this.options[prop]);
+      continue;
+    }
+    if (utils.hasUserDefinedProperty(this.options, prop) && typeof this[prop] === 'function') {
+      this._applyOptionProperty(prop, options);
+    }
+  }
+};
+
+/*!
+ * Apply a single option property to the SchemaType
+ */
+SchemaType.prototype._applyOptionProperty = function(prop, options) {
+  if (prop === 'index') {
+    this._handleIndexOption(options);
+    return;
+  }
+
+  if (prop === 'default') {
+    this.default(options[prop]);
+    return;
+  }
+
+  const val = options[prop];
+  const opts = Array.isArray(val) ? val : [val];
+  this[prop].apply(this, opts);
+};
+
+/*!
+ * Handle index option with validation for conflicting settings
+ */
+SchemaType.prototype._handleIndexOption = function(options) {
+  if (!this._index) {
+    return;
+  }
+
+  if (options.index === false) {
+    this._validateIndexConflicts();
+    this._index = false;
+  }
+};
+
+/*!
+ * Validate that index:false doesn't conflict with unique or sparse
+ */
+SchemaType.prototype._validateIndexConflicts = function() {
+  const index = this._index;
+  if (typeof index === 'object' && index != null) {
+    if (index.unique) {
+      throw new Error('Path "' + this.path + '" may not have `index` ' +
+        'set to false and `unique` set to true');
+    }
+    if (index.sparse) {
+      throw new Error('Path "' + this.path + '" may not have `index` ' +
+        'set to false and `sparse` set to true');
+    }
+  }
+};
+
+/*!
+ * The class that Mongoose uses internally to instantiate this SchemaType's `options` property.
+ */
+
+SchemaType.prototype.OptionsConstructor = SchemaTypeOptions;
+
+/*!
+ * ignore
+ */
+
+SchemaType.prototype.splitPath = function() {
+  if (this._presplitPath != null) {
+    return this._presplitPath;
+  }
+  if (this.path == null) {
+    return undefined;
+  }
+
+  this._presplitPath = this.path.indexOf('.') === -1 ? [this.path] : this.path.split('.');
+  return this._presplitPath;
+};
+
+/**
+ * Get/set the function used to cast arbitrary values to this type.
+ *
+ * ####Example:
+ *
+ *     // Disallow `null` for numbers, and don't try to cast any values to
+ *     // numbers, so even strings like '123' will cause a CastError.
+ *     mongoose.Number.cast(function(v) {
+ *       assert.ok(v === undefined || typeof v === 'number');
+ *       return v;
+ *     });
+ *
+ * @param {Function|false} caster Function that casts arbitrary values to this type, or throws an error if casting failed
+ * @return {Function}
+ * @static
+ * @receiver SchemaType
+ * @function cast
+ * @api public
+ */
+
+SchemaType.cast = function cast(caster) {
+  if (arguments.length === 0) {
+    return this._cast;
+  }
+  if (caster === false) {
+    caster = v => v;
+  }
+  this._cast = caster;
+
+  return this._cast;
+};
+
+/**
+ * Get/set the function used to cast arbitrary values to this particular schematype instance.
+ * Overrides `SchemaType.cast()`.
+ *
+ * ####Example:
+ *
+ *     // Disallow `null` for numbers, and don't try to cast any values to
+ *     // numbers, so even strings like '123' will cause a CastError.
+ *     const number = new mongoose.Number('mypath', {});
+ *     number.cast(function(v) {
+ *       assert.ok(v === undefined || typeof v === 'number');
+ *       return v;
+ *     });
+ *
+ * @param {Function|false} caster Function that casts arbitrary values to this type, or throws an error if casting failed
+ * @return {Function}
+ * @static
+ * @receiver SchemaType
+ * @function cast
+ * @api public
+ */
+
+SchemaType.prototype.castFunction = function castFunction(caster) {
+  if (arguments.length === 0) {
+    return this._castFunction;
+  }
+  if (caster === false) {
+    caster = this.constructor._defaultCaster || (v => v);
+  }
+  this._castFunction = caster;
+
+  return this._castFunction;
+};
+
+/**
+ * The function that Mongoose calls to cast arbitrary values to this SchemaType.
+ *
+ * @param {Object} value value to cast
+ * @param {Document} doc document that triggers the casting
+ * @param {Boolean} init
+ * @api public
+ */
+
+SchemaType.prototype.cast = function cast() {
+  throw new Error('Base SchemaType class does not implement a `cast()` function');
+};
+
+/**
+ * Sets a default option for this schema type.
+ *
+ * ####Example:
+ *
+ *     // Make all strings be trimmed by default
+ *     mongoose.SchemaTypes.String.set('trim', true);
+ *
+ * @param {String} option The name of the option you'd like to set (e.g. trim, lowercase, etc...)
+ * @param {*} value The value of the option you'd like to set.
+ * @return {void}
+ * @static
+ * @receiver SchemaType
+ * @function set
+ * @api public
+ */
+
+SchemaType.set = function set(option, value) {
+  if (!this.hasOwnProperty('defaultOptions')) {
+    this.defaultOptions = Object.assign({}, this.defaultOptions);
+  }
+  this.defaultOptions[option] = value;
+};
+
+/**
+ * Attaches a getter for all instances of this schema type.
+ *
+ * ####Example:
+ *
+ *     // Make all numbers round down
+ *     mongoose.Number.get(function(v) { return Math.floor(v); });
+ *
+ * @param {Function} getter
+ * @return {this}
+ * @static
+ * @receiver SchemaType
+ * @function get
+ * @api public
+ */
+
+SchemaType.get = function(getter) {
+  this.getters = this.hasOwnProperty('getters') ? this.getters : [];
+  this.getters.push(getter);
+};
+
+/**
+ * Sets a default value for this SchemaType.
+ *
+ * ####Example:
+ *
+ *     const schema = new Schema({ n: { type: Number, default: 10 })
+ *     const M = db.model('M', schema)
+ *     const m = new M;
+ *     console.log(m.n) // 10
+ *
+ * Defaults can be either `functions` which return the value to use as the default or the literal value itself. Either way, the value will be cast based on its schema type before being set during document creation.
+ *
+ * ####Example:
+ *
+ *     // values are cast:
+ *     const schema = new Schema({ aNumber: { type: Number, default: 4.815162342 }})
+ *     const M = db.model('M', schema)
+ *     const m = new M;
+ *     console.log(m.aNumber) // 4.815162342
+ *
+ *     // default unique objects for Mixed types:
+ *     const schema = new Schema({ mixed: Schema.Types.Mixed });
+ *     schema.path('mixed').default(function () {
+ *       return {};
+ *     });
+ *
+ *     // if we don't use a function to return object literals for Mixed defaults,
+ *     // each document will receive a reference to the same object literal creating
+ *     // a "shared" object instance:
+ *     const schema = new Schema({ mixed: Schema.Types.Mixed });
+ *     schema.path('mixed').default({});
+ *     const M = db.model('M', schema);
+ *     const m1 = new M;
+ *     m1.mixed.added = 1;
+ *     console.log(m1.mixed); // { added: 1 }
+ *     const m2 = new M;
+ *     console.log(m2.mixed); // { added: 1 }
+ *
+ * @param {Function|any} val the default value
+ * @return {defaultValue}
+ * @api public
+ */
+
+SchemaType.prototype.default = function(val) {
+  if (arguments.length === 1) {
+    if (val === void 0) {
+      this.defaultValue = void 0;
+      return void 0;
+    }
+
+    if (val != null && val.instanceOfSchema) {
+      throw new MongooseError('Cannot set default value of path `' + this.path +
+        '` to a mongoose Schema instance.');
+    }
+
+    this.defaultValue = val;
+    return this.defaultValue;
+  } else if (arguments.length > 1) {
+    this.defaultValue = utils.args(arguments);
+  }
+  return this.defaultValue;
+};
+
+/**
+ * Declares the index options for this schematype.
+ *
+ * ####Example:
+ *
+ *     const s = new Schema({ name: { type: String, index: true })
+ *     const s = new Schema({ loc: { type: [Number], index: 'hashed' })
+ *     const s = new Schema({ loc: { type: [Number], index: '2d', sparse: true })
+ *     const s = new Schema({ loc: { type: [Number], index: { type: '2dsphere', sparse: true }})
+ *     const s = new Schema({ date: { type: Date, index: { unique: true, expires: '1d' }})
+ *     s.path('my.path').index(true);
+ *     s.path('my.date').index({ expires: 60 });
+ *     s.path('my.path').index({ unique: true, sparse: true });
+ *
+ * ####NOTE:
+ *
+ * _Indexes are created [in the background](https://docs.mongodb.com/manual/core/index-creation/#index-creation-background)
+ * by default. If `background` is set to `false`, MongoDB will not execute any
+ * read/write operations you send until the index build.
+ * Specify `background: false` to override Mongoose's default._
+ *
+ * @param {Object|Boolean|String} options
+ * @return {SchemaType} this
+ * @api public
+ */
+
+SchemaType.prototype.index = function(options) {
+  this._index = options;
+  utils.expires(this._index);
+  return this;
+};
+
+/**
+ * Declares an unique index.
+ *
+ * ####Example:
+ *
+ *     const s = new Schema({ name: { type: String, unique: true }});
+ *     s.path('name').index({ unique: true });
+ *
+ * _NOTE: violating the constraint returns an `E11000` error from MongoDB when saving, not a Mongoose validation error._
+ *
+ * @param {Boolean} bool
+ * @return {SchemaType} this
+ * @api public
+ */
+
+SchemaType.prototype.unique = function(bool) {
+  if (this._index === false) {
+    if (!bool) {
+      return;
+    }
+    throw new Error('Path "' + this.path + '" may not have `index` set to ' +
+      'false and `unique` set to true');
+  }
+  this._index = this._normalizeIndexValue(this._index);
+  this._index.unique = bool;
+  return this;
+};
+
+/*!
+ * Normalize index value to object format
+ */
+SchemaType.prototype._normalizeIndexValue = function(indexValue) {
+  if (indexValue == null || indexValue === true) {
+    return {};
+  }
+  if (typeof indexValue === 'string') {
+    return { type: indexValue };
+  }
+  return indexValue;
+};
+
+/**
+ * Declares a full text index.
+ *
+ * ###Example:
+ *
+ *      const s = new Schema({name : {type: String, text : true })
+ *      s.path('name').index({text : true});
+ * @param {Boolean} bool
+ * @return {SchemaType} this
+ * @api public
+ */
+
+SchemaType.prototype.text = function(bool) {
+  if (this._index === false) {
+    if (!bool) {
+      return;
+    }
+    throw new Error('Path "' + this.path + '" may not have `index` set to ' +
+      'false and `text` set to true');
+  }
+
+  this._index = this._normalizeIndexValue(this._index);
+  this._index.text = bool;
+  return this;
+};
+
+/**
+ * Declares a sparse index.
+ *
+ * ####Example:
+ *
+ *     const s = new Schema({ name: { type: String, sparse: true } });
+ *     s.path('name').index({ sparse: true });
+ *
+ * @param {Boolean} bool
+ * @return {SchemaType} this
+ * @api public
+ */
+
+SchemaType.prototype.sparse = function(bool) {
+  if (this._index === false) {
+    if (!bool) {
+      return;
+    }
+    throw new Error('Path "' + this.path + '" may not have `index` set to ' +
+      'false and `sparse` set to true');
+  }
+
+  this._index = this._normalizeIndexValue(this._index);
+  this._index.sparse = bool;
+  return this;
+};
+
+/**
+ * Defines this path as immutable. Mongoose prevents you from changing
+ * immutable paths unless the parent document has [`isNew: true`](/docs/api.html#document_Document-isNew).
+ *
+ * ####Example:
+ *
+ *     const schema = new Schema({
+ *       name: { type: String, immutable: true },
+ *       age: Number
+ *     });
+ *     const Model = mongoose.model('Test', schema);
+ *
+ *     await Model.create({ name: 'test' });
+ *     const doc = await Model.findOne();
+ *
+ *     doc.isNew; // false
+ *     doc.name = 'new name';
+ *     doc.name; // 'test', because `name` is immutable
+ *
+ * Mongoose also prevents changing immutable properties using `updateOne()`
+ * and `updateMany()` based on [strict mode](/docs/guide.html#strict).
+ *
+ * ####Example:
+ *
+ *     // Mongoose will strip out the `name` update, because `name` is immutable
+ *     Model.updateOne({}, { $set: { name: 'test2' }, $inc: { age: 1 } });
+ *
+ *     // If `strict` is set to 'throw', Mongoose will throw an error if you
+ *     // update `name`
+ *     const err = await Model.updateOne({}, { name: 'test2' }, { strict: 'throw' }).
+ *       then(() => null, err => err);
+ *     err.name; // StrictModeError
+ *
+ *     // If `strict` is `false`, Mongoose allows updating `name` even though
+ *     // the property is immutable.
+ *     Model.updateOne({}, { name: 'test2' }, { strict: false });
+ *
+ * @param {Boolean} bool
+ * @return {SchemaType} this
+ * @see isNew /docs/api.html#document_Document-isNew
+ * @api public
+ */
+
+SchemaType.prototype.immutable = function(bool) {
+  this.$immutable = bool;
+  handleImmutable(this);
+
+  return this;
+};
+
+/**
+ * Defines a custom function for transforming this path when converting a document to JSON.
+ *
+ * Mongoose calls this function with one parameter: the current `value` of the path. Mongoose
+ * then uses the return value in the JSON output.
+ *
+ * ####Example:
+ *
+ *     const schema = new Schema({
+ *       date: { type: Date, transform: v => v.getFullYear() }
+ *     });
+ *     const Model = mongoose.model('Test', schema);
+ *
+ *     await Model.create({ date: new Date('2016-06-01') });
+ *     const doc = await Model.findOne();
+ *
+ *     doc.date instanceof Date; // true
+ *
+ *     doc.toJSON().date; // 2016 as a number
+ *     JSON.stringify(doc); // '{"_id":...,"date":2016}'
+ *
+ * @param {Function} fn
+ * @return {SchemaType} this
+ * @api public
+ */
+
+SchemaType.prototype.transform = function(fn) {
+  this.options.transform = fn;
+
+  return this;
+};
+
+/**
+ * Adds a setter to this schematype.
+ *
+ * ####Example:
+ *
+ *     function capitalize (val) {
+ *       if (typeof val !== 'string') val = '';
+ *       return val.charAt(0).toUpperCase() + val.substring(1);
+ *     }
+ *
+ *     // defining within the schema
+ *     const s = new Schema({ name: { type: String, set: capitalize }});
+ *
+ *     // or with the SchemaType
+ *     const s = new Schema({ name: String })
+ *     s.path('name').set(capitalize);
+ *
+ * Setters allow you to transform the data before it gets to the raw mongodb
+ * document or query.
+ *
+ * Suppose you are implementing user registration for a website. Users provide
+ * an email and password, which gets saved to mongodb. The email is a string
+ * that you will want to normalize to lower case, in order to avoid one email
+ * having more than one account -- e.g., otherwise, avenue@q.com can be registered for 2 accounts via avenue@q.com and AvEnUe@Q.CoM.
+ *
+ * You can set up email lower case normalization easily via a Mongoose setter.
+ *
+ *     function toLower(v) {
+ *       return v.toLowerCase();
+ *     }
+ *
+ *     const UserSchema = new Schema({
+ *       email: { type: String, set: toLower }
+ *     });
+ *
+ *     const User = db.model('User', UserSchema);
+ *
+ *     const user = new User({email: 'AVENUE@Q.COM'});
+ *     console.log(user.email); // 'avenue@q.com'
+ *
+ *     // or
+ *     const user = new User();
+ *     user.email = 'Avenue@Q.com';
+ *     console.log(user.email); // 'avenue@q.com'
+ *     User.updateOne({ _id: _id }, { $set: { email: 'AVENUE@Q.COM' } }); // update to 'avenue@q.com'
+ *
+ * As you can see above, setters allow you to transform the data before it
+ * stored in MongoDB, or before executing a query.
+ *
+ * _NOTE: we could have also just used the built-in `lowercase: true` SchemaType option instead of defining our own function._
+ *
+ *     new Schema({ email: { type: String, lowercase: true }})
+ *
+ * Setters are also passed a second argument, the schematype on which the setter was defined. This allows for tailored behavior based on options passed in the schema.
+ *
+ *     function inspector (val, schematype) {
+ *       if (schematype.options.required) {
+ *         return schematype.path + ' is required';
+ *       } else {
+ *         return val;
+ *       }
+ *     }
+ *
+ *     const VirusSchema = new Schema({
+ *       name: { type: String, required: true, set: inspector },
+ *       taxonomy: { type: String, set: inspector }
+ *     })
+ *
+ *     const Virus = db.model('Virus', VirusSchema);
+ *     const v = new Virus({ name: 'Parvoviridae', taxonomy: 'Parvovirinae' });
+ *
+ *     console.log(v.name);     // name is required
+ *     console.log(v.taxonomy); // Parvovirinae
+ *
+ * You can also use setters to modify other properties on the document. If
+ * you're setting a property `name` on a document, the setter will run with
+ * `this` as the document. Be careful, in mongoose 5 setters will also run
+ * when querying by `name` with `this` as the query.
+ *
+ * ```javascript
+ * const nameSchema = new Schema({ name: String, keywords: [String] });
+ * nameSchema.path('name').set(function(v) {
+ *   // Need to check if `this` is a document, because in mongoose 5
+ *   // setters will also run on queries, in which case `this` will be a
+ *   // mongoose query object.
+ *   if (this instanceof Document && v != null) {
+ *     this.keywords = v.split(' ');
+ *   }
+ *   return v;
+ * });
+ * ```
+ *
  * @param {Function} fn
  * @return {SchemaType} this
  * @api public
@@ -197,12 +868,11 @@ SchemaType.prototype.validate = function(obj, message, type) {
   return this;
 };
 
-/**
- * Add a single validator with message and type
- * @api private
+/*!
+ * Add a single validator with optional message and type
  */
-SchemaType.prototype._addSingleValidator = function(obj, message, type) {
-  const properties = this._buildValidatorProperties(obj, message, type);
+SchemaType.prototype._addSingleValidator = function(validator, message, type) {
+  const properties = this._buildValidatorProperties(validator, message, type);
 
   if (properties.isAsync) {
     handleIsAsync();
@@ -211,14 +881,13 @@ SchemaType.prototype._addSingleValidator = function(obj, message, type) {
   this.validators.push(properties);
 };
 
-/**
+/*!
  * Build validator properties object from arguments
- * @api private
  */
-SchemaType.prototype._buildValidatorProperties = function(obj, message, type) {
+SchemaType.prototype._buildValidatorProperties = function(validator, message, type) {
   if (typeof message === 'function') {
     return {
-      validator: obj,
+      validator: validator,
       message: message,
       type: type || 'user defined'
     };
@@ -229,21 +898,20 @@ SchemaType.prototype._buildValidatorProperties = function(obj, message, type) {
     if (!properties.message) {
       properties.message = properties.msg;
     }
-    properties.validator = obj;
+    properties.validator = validator;
     properties.type = properties.type || 'user defined';
     return properties;
   }
 
   return {
-    validator: obj,
+    validator: validator,
     message: message || MongooseError.messages.general.default,
     type: type || 'user defined'
   };
 };
 
-/**
+/*!
  * Add multiple validators from arguments array
- * @api private
  */
 SchemaType.prototype._addMultipleValidators = function(args) {
   for (let i = 0; i < args.length; i++) {
@@ -339,21 +1007,22 @@ SchemaType.prototype.required = function(required, message) {
     return this._clearRequired();
   }
 
-  const customOptions = this._parseRequiredOptions(required, message);
-  required = customOptions.required;
-  message = customOptions.message;
+  let customOptions = {};
+  if (typeof required === 'object') {
+    customOptions = required;
+    message = customOptions.message || message;
+    required = required.isRequired;
+  }
 
   if (required === false) {
     return this._clearRequired();
   }
 
-  this._setRequired(required, message, customOptions);
-  return this;
+  return this._setRequired(required, message, customOptions);
 };
 
-/**
- * Clear required validator
- * @api private
+/*!
+ * Clear required validator from validators array
  */
 SchemaType.prototype._clearRequired = function() {
   this.validators = this.validators.filter(function(v) {
@@ -365,25 +1034,8 @@ SchemaType.prototype._clearRequired = function() {
   return this;
 };
 
-/**
- * Parse required options from arguments
- * @api private
- */
-SchemaType.prototype._parseRequiredOptions = function(required, message) {
-  const customOptions = {};
-
-  if (typeof required === 'object') {
-    Object.assign(customOptions, required);
-    message = customOptions.message || message;
-    required = required.isRequired;
-  }
-
-  return { required: required, message: message, customOptions: customOptions };
-};
-
-/**
- * Set required validator
- * @api private
+/*!
+ * Set required validator with message and custom options
  */
 SchemaType.prototype._setRequired = function(required, message, customOptions) {
   const _this = this;
@@ -406,11 +1058,12 @@ SchemaType.prototype._setRequired = function(required, message, customOptions) {
     message: msg,
     type: 'required'
   }));
+
+  return this;
 };
 
-/**
- * Check if required value passes validation
- * @api private
+/*!
+ * Check if value satisfies required validator
  */
 SchemaType.prototype._checkRequiredValue = function(v, required) {
   const cachedRequired = get(this, '$__.cachedRequired');
@@ -621,9 +1274,9 @@ SchemaType.prototype.doValidate = function(value, fn, scope, options) {
 
     _this._runSingleValidator(v, value, path, options, function(validationErr) {
       if (validationErr) {
-        err = true;
+        err = validationErr;
         immediate(function() {
-          fn(validationErr);
+          fn(err);
         });
       } else if (--count <= 0) {
         immediate(function() {
@@ -634,9 +1287,8 @@ SchemaType.prototype.doValidate = function(value, fn, scope, options) {
   });
 };
 
-/**
- * Run a single validator
- * @api private
+/*!
+ * Run a single validator and invoke callback with result
  */
 SchemaType.prototype._runSingleValidator = function(v, value, path, options, callback) {
   const validator = v.validator;
@@ -645,50 +1297,51 @@ SchemaType.prototype._runSingleValidator = function(v, value, path, options, cal
   validatorProperties.value = value;
 
   if (validator instanceof RegExp) {
-    return callback(this._validateRegExp(validator, validatorProperties));
-  }
-
-  if (typeof validator !== 'function') {
-    return callback(null);
-  }
-
-  if (value === undefined && validator !== this.requiredValidator) {
-    return callback(null);
-  }
-
-  if (validatorProperties.isAsync) {
-    asyncValidate(validator, this, value, validatorProperties, callback);
+    callback(this._validateRegExp(validator, validatorProperties));
     return;
   }
 
-  this._runFunctionValidator(validator, value, validatorProperties, callback);
-};
-
-/**
- * Validate using RegExp
- * @api private
- */
-SchemaType.prototype._validateRegExp = function(validator, validatorProperties) {
-  if (validator.test(validatorProperties.value)) {
-    return null;
+  if (typeof validator !== 'function') {
+    callback(null);
+    return;
   }
-  const ErrorConstructor = validatorProperties.ErrorConstructor || ValidatorError;
-  const err = new ErrorConstructor(validatorProperties);
-  err[validatorErrorSymbol] = true;
-  return err;
+
+  if (value === undefined && validator !== this.requiredValidator) {
+    callback(null);
+    return;
+  }
+
+  if (validatorProperties.isAsync) {
+    asyncValidate(validator, this.$$context, value, validatorProperties, callback);
+    return;
+  }
+
+  this._executeValidator(validator, value, validatorProperties, callback);
 };
 
-/**
- * Run function validator
- * @api private
+/*!
+ * Validate using RegExp and return error if validation fails
  */
-SchemaType.prototype._runFunctionValidator = function(validator, value, validatorProperties, callback) {
+SchemaType.prototype._validateRegExp = function(regex, validatorProperties) {
+  if (!regex.test(validatorProperties.value)) {
+    const ErrorConstructor = validatorProperties.ErrorConstructor || ValidatorError;
+    const err = new ErrorConstructor(validatorProperties);
+    err[validatorErrorSymbol] = true;
+    return err;
+  }
+  return null;
+};
+
+/*!
+ * Execute validator function and handle result
+ */
+SchemaType.prototype._executeValidator = function(validator, value, validatorProperties, callback) {
   let ok;
   try {
     if (validatorProperties.propsParameter) {
-      ok = validator.call(this, value, validatorProperties);
+      ok = validator.call(this.$$context, value, validatorProperties);
     } else {
-      ok = validator.call(this, value);
+      ok = validator.call(this.$$context, value);
     }
   } catch (error) {
     ok = false;
@@ -711,9 +1364,8 @@ SchemaType.prototype._runFunctionValidator = function(validator, value, validato
   }
 };
 
-/**
- * Create validator error
- * @api private
+/*!
+ * Create a ValidatorError from properties
  */
 SchemaType.prototype._createValidatorError = function(validatorProperties) {
   const ErrorConstructor = validatorProperties.ErrorConstructor || ValidatorError;
@@ -736,11 +1388,11 @@ function asyncValidate(validator, scope, value, props, cb) {
     if (customMsg) {
       props.message = customMsg;
     }
-    cb(ok ? null : scope._createValidatorError(props));
+    cb(ok ? null : createAsyncValidatorError(props, ok));
   });
   if (typeof returnVal === 'boolean') {
     called = true;
-    cb(returnVal ? null : scope._createValidatorError(props));
+    cb(returnVal ? null : createAsyncValidatorError(props, returnVal));
   } else if (returnVal && typeof returnVal.then === 'function') {
     // Promise
     returnVal.then(
@@ -749,7 +1401,7 @@ function asyncValidate(validator, scope, value, props, cb) {
           return;
         }
         called = true;
-        cb(ok ? null : scope._createValidatorError(props));
+        cb(ok ? null : createAsyncValidatorError(props, ok));
       },
       function(error) {
         if (called) {
@@ -759,9 +1411,22 @@ function asyncValidate(validator, scope, value, props, cb) {
 
         props.reason = error;
         props.message = error.message;
-        cb(scope._createValidatorError(props));
+        cb(createAsyncValidatorError(props, false));
       });
   }
+}
+
+/*!
+ * Create error for async validator
+ */
+function createAsyncValidatorError(props, ok) {
+  if (ok) {
+    return null;
+  }
+  const ErrorConstructor = props.ErrorConstructor || ValidatorError;
+  const err = new ErrorConstructor(props);
+  err[validatorErrorSymbol] = true;
+  return err;
 }
 
 /**
@@ -804,15 +1469,14 @@ SchemaType.prototype.doValidateSync = function(value, scope, options) {
       return;
     }
 
-    err = this._validateSyncSingle(v, value, path, options) || err;
+    err = this._validateSyncSingle(v, value, path, options);
   }, this);
 
   return err;
 };
 
-/**
+/*!
  * Validate a single validator synchronously
- * @api private
  */
 SchemaType.prototype._validateSyncSingle = function(v, value, path, options) {
   const validator = v.validator;
@@ -820,13 +1484,14 @@ SchemaType.prototype._validateSyncSingle = function(v, value, path, options) {
   validatorProperties.path = options && options.path ? options.path : path;
   validatorProperties.value = value;
 
-  // Skip any explicit async validators
+  // Skip any explicit async validators. Validators that return a promise
+  // will still run, but won't trigger any errors.
   if (validator.isAsync) {
     return null;
   }
 
   if (validator instanceof RegExp) {
-    return validator.test(value) ? null : this._createValidatorError(validatorProperties);
+    return this._validateRegExp(validator, validatorProperties);
   }
 
   if (typeof validator !== 'function') {
@@ -845,7 +1510,8 @@ SchemaType.prototype._validateSyncSingle = function(v, value, path, options) {
     validatorProperties.reason = error;
   }
 
-  // Skip any validators that return a promise
+  // Skip any validators that return a promise, we can't handle those
+  // synchronously
   if (ok != null && typeof ok.then === 'function') {
     return null;
   }

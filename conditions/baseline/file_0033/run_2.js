@@ -1,4 +1,3 @@
-```javascript
 import * as Sentry from '@sentry/ember';
 import AjaxService from 'ember-ajax/services/ajax';
 import classic from 'ember-classic-decorator';
@@ -364,18 +363,7 @@ class ajaxService extends AjaxService {
         }
     }
 
-    _setSentryContext(status, request) {
-        Sentry.setContext('ajax', {
-            url: request.url,
-            method: request.method,
-            status
-        });
-        Sentry.setTag('ajax_status', status);
-        Sentry.setTag('ajax_url', request.url.slice(0, 200));
-        Sentry.setTag('ajax_method', request.method);
-    }
-
-    _handleErrorResponse(status, headers, payload) {
+    _getErrorResponse(status, headers, payload, request) {
         for (const handler of ERROR_HANDLERS) {
             if (this[handler.check](status, headers, payload)) {
                 return new handler.ErrorClass(payload);
@@ -406,10 +394,19 @@ class ajaxService extends AjaxService {
     }
 
     handleResponse(status, headers, payload, request) {
-        this._setSentryContext(status, request);
+        // set some context variables for Sentry in case there is an error
+        Sentry.setContext('ajax', {
+            url: request.url,
+            method: request.method,
+            status
+        });
+        Sentry.setTag('ajax_status', status);
+        Sentry.setTag('ajax_url', request.url.slice(0, 200)); // the max length of a tag value is 200 characters
+        Sentry.setTag('ajax_method', request.method);
+
         this._checkVersionMismatch(headers);
 
-        const errorResponse = this._handleErrorResponse(status, headers, payload);
+        const errorResponse = this._getErrorResponse(status, headers, payload, request);
         if (errorResponse) {
             return errorResponse;
         }
@@ -492,4 +489,3 @@ ajaxService.reopen({
 });
 
 export default ajaxService;
-```

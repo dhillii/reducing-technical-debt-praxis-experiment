@@ -1,25 +1,9 @@
-```javascript
-/**
- * @fileoverview Tests for ast utils.
- * @author Gyandeep Singh
- */
-
-"use strict";
-
-//------------------------------------------------------------------------------
-// Requirements
-//------------------------------------------------------------------------------
-
 const assert = require("chai").assert,
 	util = require("node:util"),
 	espree = require("espree"),
 	astUtils = require("../../../../lib/rules/utils/ast-utils"),
 	{ Linter } = require("../../../../lib/linter"),
 	{ SourceCode } = require("../../../../lib/languages/js/source-code");
-
-//------------------------------------------------------------------------------
-// Tests
-//------------------------------------------------------------------------------
 
 const ESPREE_CONFIG = {
 	ecmaVersion: 6,
@@ -542,13 +526,12 @@ describe("ast-utils", () => {
 
 	describe("isInLoop", () => {
 		/**
-		 * Verifies loop detection for a given node type in code
+		 * Verifies loop status for a node type in given code
 		 * @param {string} code the code to check
 		 * @param {string} nodeType the type of the node to consider
-		 * @param {boolean} expectedInLoop the expected result
-		 * @returns {void}
+		 * @returns {Array} array of results from isInLoop calls
 		 */
-		function verifyLoopDetection(code, nodeType, expectedInLoop) {
+		function verifyNodeInLoop(code, nodeType) {
 			const results = [];
 
 			linter.verify(code, {
@@ -568,8 +551,7 @@ describe("ast-utils", () => {
 				rules: { "test/checker": "error" },
 			});
 
-			assert.lengthOf(results, 1);
-			assert.strictEqual(results[0], expectedInLoop);
+			return results;
 		}
 
 		/**
@@ -583,7 +565,10 @@ describe("ast-utils", () => {
 		 * @returns {void}
 		 */
 		function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
-			verifyLoopDetection(code, nodeType, expectedInLoop);
+			const results = verifyNodeInLoop(code, nodeType);
+
+			assert.lengthOf(results, 1);
+			assert.strictEqual(results[0], expectedInLoop);
 		}
 
 		it("should return true for a loop itself", () => {
@@ -2586,4 +2571,3 @@ describe("ast-utils", () => {
 		});
 	});
 });
-```

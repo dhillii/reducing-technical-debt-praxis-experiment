@@ -1,0 +1,34 @@
+Loading: /mnt/c/Users/David Hill/iCloudDrive/GWU/Dissertation/reducing-technical-debt-praxis-experiment/data/together_dataset_llama_70b.csv
+Columns: ['record_id', 'project_id', 'project_name', 'file_name', 'file_path', 'file_key', 'prompt_condition', 'llm_model', 'llm_temperature', 'run_number', 'archetype', 'archetype_label', 'archetype_confidence', 'feature_cognitive_ratio', 'feature_complexity_density', 'feature_has_parameter_smell', 'sonar_issue_key', 'sonar_rule_id', 'sonar_severity', 'sonar_line', 'sonar_tags', 'sonar_creation_date', 'clean_code_attribute', 'software_quality_impacted', 'pre_cyclomatic_complexity', 'pre_cognitive_complexity', 'pre_ncloc', 'refactoring_applied', 'maintainability_index', 'nfr_alignment_score', 'notes', 'git_commit_hash', 'sonar_component_key', 'pre_local_cyclomatic_complexity', 'pre_local_cognitive_complexity', 'pre_local_ncloc', 'pre_local_maintainability_index', 'post_local_cyclomatic_complexity', 'post_local_cognitive_complexity', 'post_local_ncloc', 'post_local_maintainability_index', 'cc_delta_local', 'cognitive_delta_local', 'ncloc_delta_local', 'maintainability_delta_local', 'prompt_tokens', 'completion_tokens', 'llm_tokens_used']
+Total dataset rows: 1314
+Sample row keys: ['record_id', 'project_id', 'project_name', 'file_name', 'file_path', 'file_key', 'prompt_condition', 'llm_model', 'llm_temperature', 'run_number', 'archetype', 'archetype_label', 'archetype_confidence', 'feature_cognitive_ratio', 'feature_complexity_density']
+
+First 3 rows (index-aligned check):
+  index 1: {'record_id': '1', 'project_id': '8403', 'project_name': 'Ghost', 'file_name': 'newsletter-detail-modal.tsx', 'file_path': 'apps/admin-x-settings/src/components/settings/email/newsletters/newsletter-detail-modal.tsx', 'file_key': 'dhillii_Ghost:apps/admin-x-settings/src/components/settings/email/newsletters/newsletter-detail-modal.tsx'}
+  index 2: {'record_id': '2', 'project_id': '8403', 'project_name': 'Ghost', 'file_name': 'newsletter-detail-modal.tsx', 'file_path': 'apps/admin-x-settings/src/components/settings/email/newsletters/newsletter-detail-modal.tsx', 'file_key': 'dhillii_Ghost:apps/admin-x-settings/src/components/settings/email/newsletters/newsletter-detail-modal.tsx'}
+  index 3: {'record_id': '3', 'project_id': '8403', 'project_name': 'Ghost', 'file_name': 'newsletter-detail-modal.tsx', 'file_path': 'apps/admin-x-settings/src/components/settings/email/newsletters/newsletter-detail-modal.tsx', 'file_key': 'dhillii_Ghost:apps/admin-x-settings/src/components/settings/email/newsletters/newsletter-detail-modal.tsx'}
+
+Missing IDs (194), first 20:
+  custom_id=18: {'file_name': 'utils.ts', 'project_name': 'Ghost', 'record_id': '18'}
+  custom_id=19: {'file_name': 'user-detail-modal.tsx', 'project_name': 'Ghost', 'record_id': '19'}
+  custom_id=20: {'file_name': 'user-detail-modal.tsx', 'project_name': 'Ghost', 'record_id': '20'}
+  custom_id=31: {'file_name': 'products-section.js', 'project_name': 'Ghost', 'record_id': '31'}
+  custom_id=32: {'file_name': 'products-section.js', 'project_name': 'Ghost', 'record_id': '32'}
+  custom_id=34: {'file_name': 'products-section.js', 'project_name': 'Ghost', 'record_id': '34'}
+  custom_id=35: {'file_name': 'products-section.js', 'project_name': 'Ghost', 'record_id': '35'}
+  custom_id=38: {'file_name': 'offers-index-retention.tsx', 'project_name': 'Ghost', 'record_id': '38'}
+  custom_id=40: {'file_name': 'offers-index-retention.tsx', 'project_name': 'Ghost', 'record_id': '40'}
+  custom_id=52: {'file_name': 'api.js', 'project_name': 'Ghost', 'record_id': '52'}
+  custom_id=53: {'file_name': 'api.js', 'project_name': 'Ghost', 'record_id': '53'}
+  custom_id=54: {'file_name': 'api.js', 'project_name': 'Ghost', 'record_id': '54'}
+  custom_id=55: {'file_name': 'popup-modal.js', 'project_name': 'Ghost', 'record_id': '55'}
+  custom_id=57: {'file_name': 'popup-modal.js', 'project_name': 'Ghost', 'record_id': '57'}
+  custom_id=58: {'file_name': 'popup-modal.js', 'project_name': 'Ghost', 'record_id': '58'}
+  custom_id=60: {'file_name': 'popup-modal.js', 'project_name': 'Ghost', 'record_id': '60'}
+  custom_id=259: {'file_name': 'stats-filter.tsx', 'project_name': 'Ghost', 'record_id': '259'}
+  custom_id=260: {'file_name': 'stats-filter.tsx', 'project_name': 'Ghost', 'record_id': '260'}
+  custom_id=274: {'file_name': 'global-settings.tsx', 'project_name': 'Ghost', 'record_id': '274'}
+  custom_id=275: {'file_name': 'global-settings.tsx', 'project_name': 'Ghost', 'record_id': '275'}
+
+Missing by condition: {'unknown': 194}
+Missing by project: {'Ghost': 42, 'eslint': 56, 'hapi-16.8.4': 4, 'laverna': 4, 'mail': 5, 'mongoose-5.13.22': 23, 'pm2': 8, 'sequelize-4.44.4': 12, 'strapi-3.6.11': 17, 'webpack-2.7.0': 23}

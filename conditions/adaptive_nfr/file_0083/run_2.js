@@ -1,4 +1,3 @@
-```typescript
 import router, { useRouter } from 'next/router'
 import {
   type FormEvent,
@@ -307,74 +306,38 @@ function ItemForm({
 
 export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
 
-/**
- * Determines the redirect path based on navigation mode and result ID.
- * @param navigation - Navigation mode from action config
- * @param resultId - ID of the result item
- * @param itemId - Current item ID
- * @param listPath - Path of the list
- * @param isSingleton - Whether the list is a singleton
- * @returns The redirect path or null if no redirect needed
- */
-function getRedirectPath(
-  navigation: string,
+/** @internal Determines navigation action based on action configuration and result ID */
+function getNavigationAction(
+  action: ActionMeta,
   resultId: string | null,
-  itemId: string,
-  listPath: string,
-  isSingleton: boolean
-): string | null {
-  if (navigation === 'follow' && resultId === itemId) {
-    return null
-  }
-  if (navigation === 'follow' && resultId) {
-    return `/${listPath}/${resultId}`
-  }
-  if (navigation === 'refetch') {
-    return null
-  }
-  return isSingleton ? '/' : `/${listPath}`
-}
-
-/**
- * Determines the action to take based on navigation mode.
- * @param navigation - Navigation mode from action config
- * @param resultId - ID of the result item
- * @param itemId - Current item ID
- * @returns Action type: 'refetch', 'navigate', or 'none'
- */
-function getActionType(
-  navigation: string,
-  resultId: string | null,
-  itemId: string
-): 'refetch' | 'navigate' | 'none' {
-  if (navigation === 'refetch') {
-    return 'refetch'
-  }
-  if (navigation === 'follow' && resultId === itemId) {
-    return 'refetch'
-  }
-  if (navigation === 'follow' && resultId) {
-    return 'navigate'
-  }
-  return 'none'
-}
-
-/**
- * Renders the appropriate not found message based on list type and item ID.
- */
-function renderNotFoundContent(
-  isSingleton: boolean,
-  itemId: string,
-  listLabel: string,
-  hideCreate: boolean,
+  itemId: string | undefined,
   list: ListMeta
+): () => void {
+  const { navigation } = action.itemView
+
+  if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
+    return () => {
+      /* refetch handled by caller */
+    }
+  }
+  if (navigation === 'follow' && resultId) {
+    return () => router.push(`/${list.path}/${resultId}`)
+  }
+  return () => router.push(list.isSingleton ? '/' : `/${list.path}`)
+}
+
+/** @internal Renders appropriate not-found message based on list type and item ID */
+function renderItemNotFoundContent(
+  list: ListMeta,
+  itemId: string | undefined,
+  isSingleton: boolean
 ): React.ReactNode {
   if (isSingleton) {
     if (itemId === '1') {
       return (
         <ItemNotFound>
-          <Text>"{listLabel}" doesn't exist, or you don't have access to it.</Text>
-          {!hideCreate && <CreateButtonLink list={list} />}
+          <Text>"{list.label}" doesn't exist, or you don't have access to it.</Text>
+          {!list.hideCreate && <CreateButtonLink list={list} />}
         </ItemNotFound>
       )
     }
@@ -396,6 +359,66 @@ function renderNotFoundContent(
   )
 }
 
+/** @internal Builds metadata objects for fields and actions from list and GraphQL data */
+function buildItemViewMetadata(
+  list: ListMeta,
+  data: any
+): {
+  actionsInContext: ActionMeta[]
+  fieldModes: Record<string, any>
+  fieldPositions: Record<string, any>
+  isRequireds: Record<string, any>
+} {
+  const actionModes = Object.fromEntries(
+    Object.entries(list.actions).map(([k, v]) => [k, v.itemView.actionMode])
+  )
+  const fieldModes = Object.fromEntries(
+    Object.entries(list.fields).map(([k, v]) => [k, v.itemView.fieldMode])
+  )
+  const fieldPositions = Object.fromEntries(
+    Object.entries(list.fields).map(([k, v]) => [k, v.itemView.fieldPosition])
+  )
+  const isRequireds = Object.fromEntries(
+    Object.entries(list.fields).map(([k, v]) => [k, v.itemView.isRequired])
+  )
+
+  for (const field of data?.keystone?.adminMeta?.list?.fields ?? []) {
+    if (
+      !field?.itemView ||
+      !field.key ||
+      !field.itemView.fieldMode ||
+      !field.itemView.fieldPosition ||
+      !field.itemView.isRequired
+    )
+      continue
+    fieldModes[field.key] = field.itemView.fieldMode
+    fieldPositions[field.key] = field.itemView.fieldPosition
+    isRequireds[field.key] = field.itemView.isRequired
+  }
+
+  for (const action of data?.keystone?.adminMeta?.list?.actions ?? []) {
+    if (!action?.itemView?.actionMode || !action.key) continue
+    actionModes[action.key] = action.itemView.actionMode
+  }
+
+  const actionsInContext = list.actions
+    .map(action => ({
+      ...action,
+      itemView: {
+        ...action.itemView,
+        actionMode: actionModes[action.key],
+      },
+    }))
+    .filter(action => action.itemView.actionMode !== 'hidden')
+
+  return {
+    actionsInContext,
+    fieldModes,
+    fieldPositions,
+    isRequireds,
+  }
+}
+
 function ItemPage({ listKey }: ItemPageProps) {
   const list = useList(listKey)
   const id_ = useRouter().query.id
@@ -413,69 +436,19 @@ function ItemPage({ listKey }: ItemPageProps) {
     return deserializeItemToValue(list.fields, item)
   }, [list.fields, data?.item])
 
-  const { actionsInContext, fieldModes, fieldPositions, isRequireds } = useMemo(() => {
-    const actionModes = Object.fromEntries(
-      Object.entries(list.actions).map(([k, v]) => [k, v.itemView.actionMode])
-    )
-    const fieldModes = Object.fromEntries(
-      Object.entries(list.fields).map(([k, v]) => [k, v.itemView.fieldMode])
-    )
-    const fieldPositions = Object.fromEntries(
-      Object.entries(list.fields).map(([k, v]) => [k, v.itemView.fieldPosition])
-    )
-    const isRequireds = Object.fromEntries(
-      Object.entries(list.fields).map(([k, v]) => [k, v.itemView.isRequired])
-    )
-    for (const field of data?.keystone?.adminMeta?.list?.fields ?? []) {
-      if (
-        !field?.itemView ||
-        !field.key ||
-        !field.itemView.fieldMode ||
-        !field.itemView.fieldPosition ||
-        !field.itemView.isRequired
-      )
-        continue
-      fieldModes[field.key] = field.itemView.fieldMode
-      fieldPositions[field.key] = field.itemView.fieldPosition
-      isRequireds[field.key] = field.itemView.isRequired
-    }
-    for (const action of data?.keystone?.adminMeta?.list?.actions ?? []) {
-      if (!action?.itemView?.actionMode || !action.key) continue
-      actionModes[action.key] = action.itemView.actionMode
-    }
-
-    // actions within context of an item
-    const actionsInContext = list.actions
-      .map(action => ({
-        ...action,
-        itemView: {
-          ...action.itemView,
-          actionMode: actionModes[action.key],
-        },
-      }))
-      .filter(action => action.itemView.actionMode !== 'hidden')
-
-    return {
-      actionsInContext,
-      fieldModes,
-      fieldPositions,
-      isRequireds,
-    }
-  }, [data?.keystone?.adminMeta, list.fields])
+  const { actionsInContext, fieldModes, fieldPositions, isRequireds } = useMemo(
+    () => buildItemViewMetadata(list, data),
+    [data?.keystone?.adminMeta, list.fields]
+  )
 
   function onAction(action: ActionMeta, resultId: string | null) {
+    const navigationAction = getNavigationAction(action, resultId, itemId, list)
     const { navigation } = action.itemView
-    const actionType = getActionType(navigation, resultId, itemId ?? '')
 
-    if (actionType === 'refetch') {
+    if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
       refetch()
-    } else if (actionType === 'navigate') {
-      const path = getRedirectPath(navigation, resultId, itemId ?? '', list.path, list.isSingleton)
-      if (path) {
-        router.push(path)
-      }
     } else {
-      router.push(list.isSingleton ? '/' : `/${list.path}`)
+      navigationAction()
     }
   }
 
@@ -501,14 +474,7 @@ function ItemPage({ listKey }: ItemPageProps) {
         <ColumnLayout>
           <Box marginY="xlarge">
             <GraphQLErrorNotice errors={[error]} />
-            {item == null &&
-              renderNotFoundContent(
-                list.isSingleton,
-                itemId ?? '',
-                list.label,
-                list.hideCreate,
-                list
-              )}
+            {item == null && renderItemNotFoundContent(list, itemId, list.isSingleton)}
           </Box>
           {initialValue && (
             <ItemForm
@@ -526,4 +492,3 @@ function ItemPage({ listKey }: ItemPageProps) {
     </PageContainer>
   )
 }
-```

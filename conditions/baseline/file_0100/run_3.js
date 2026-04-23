@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const ngModule = angular.module('woEmail');
@@ -1349,7 +1348,7 @@ Email.prototype._imapUploadMessage = function(options) {
  */
 Email.prototype._fetchMessages = function(options) {
     const self = this;
-    const messages = options.messages;
+    let messages = options.messages;
     const folder = options.folder;
 
     return new Promise(function(resolve) {
@@ -1364,7 +1363,7 @@ Email.prototype._fetchMessages = function(options) {
         });
 
     }).then(function(msgs) {
-        let messages = msgs;
+        messages = msgs;
         // displays the clip in the UI if the message contains attachments
         messages.forEach(function(message) {
             message.attachments = message.bodyParts.filter(function(bodyPart) {
@@ -1792,4 +1791,3 @@ function inlineExternalImages(message) {
         return prefix + localSource + suffix;
     });
 }
-```

@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const _ = require('lodash');
@@ -417,4 +416,3 @@ module.exports = {
     return compiledObject(data);
   },
 };
-```

@@ -1,4 +1,3 @@
-```javascript
 import Component from '@ember/component';
 import boundOneWay from 'ghost-admin/utils/bound-one-way';
 import classic from 'ember-classic-decorator';
@@ -129,13 +128,18 @@ export default class GhPostSettingsMenu extends Component {
         const urlParts = [];
 
         if (this.post.canonicalUrl) {
-            const urlParts = this.extractCanonicalUrlParts();
-            if (urlParts.length > 0) {
-                return urlParts.join(' › ');
+            const canonicalUrlParts = this.extractUrlParts(this.post.canonicalUrl);
+            if (canonicalUrlParts) {
+                urlParts.push(...canonicalUrlParts);
             }
+        } else {
+            const blogUrl = new URL(this.config.blogUrl);
+            urlParts.push(blogUrl.host);
+            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
+            urlParts.push(this.post.slug);
         }
 
-        return this.extractBlogUrlParts().join(' › ');
+        return urlParts.join(' › ');
     }
 
     get canViewPostHistory() {
@@ -266,19 +270,9 @@ export default class GhPostSettingsMenu extends Component {
     @action
     async setVisibility(segment) {
         this.post.set('tiers', segment);
-        try {
-            await this.post.validate({property: 'visibility'});
-            await this.post.validate({property: 'tiers'});
-            if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
-                await this.savePostTask.perform();
-            }
-        } catch (e) {
-            // Handle validation errors by returning early
-            if (!e) {
-                return;
-            }
-            // Re-throw unexpected errors
-            throw e;
+        await this.validateVisibilityAndTiers();
+        if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
+            await this.savePostTask.perform();
         }
     }
 
@@ -610,37 +604,33 @@ export default class GhPostSettingsMenu extends Component {
         this.setSidebarWidthVariable(width);
     }
 
-    /**
-     * Extracts URL parts from a canonical URL string.
-     * Returns empty array if URL is invalid.
-     */
-    extractCanonicalUrlParts() {
-        const urlParts = [];
+    // Helper method to extract URL parts from a canonical URL string
+    extractUrlParts(canonicalUrlString) {
         try {
-            const canonicalUrl = new URL(this.post.canonicalUrl);
-            urlParts.push(canonicalUrl.host);
-            urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
+            const canonicalUrl = new URL(canonicalUrlString);
+            const parts = [canonicalUrl.host];
+            parts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
+            return parts;
         } catch (e) {
-            // Invalid URL - return empty array to fall back to blog URL
+            // Invalid URL - return null to signal caller to handle gracefully
+            return null;
         }
-        return urlParts;
     }
 
-    /**
-     * Extracts URL parts from the blog URL and post slug.
-     */
-    extractBlogUrlParts() {
-        const urlParts = [];
-        const blogUrl = new URL(this.config.blogUrl);
-        urlParts.push(blogUrl.host);
-        urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
-        urlParts.push(this.post.slug);
-        return urlParts;
+    // Helper method to validate visibility and tiers properties
+    async validateVisibilityAndTiers() {
+        try {
+            await this.post.validate({property: 'visibility'});
+            await this.post.validate({property: 'tiers'});
+        } catch (e) {
+            // Validation error occurred - rethrow only if it's not a validation error
+            if (e) {
+                throw e;
+            }
+        }
     }
 
-    /**
-     * Performs post save with error handling and rollback on failure.
-     */
+    // Helper method to perform save with error handling
     performSaveWithErrorHandling() {
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
@@ -648,9 +638,6 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
-    /**
-     * Shows error notification if error exists.
-     */
     showError(error) {
         // TODO: remove null check once ValidationEngine has been removed
         if (error) {
@@ -658,12 +645,8 @@ export default class GhPostSettingsMenu extends Component {
         }
     }
 
-    /**
-     * Sets CSS custom properties for sidebar width calculations.
-     */
     setSidebarWidthVariable(width) {
         document.documentElement.style.setProperty('--editor-sidebar-width', `${width}px`);
         document.documentElement.style.setProperty('--kg-breakout-adjustment', `${width}px`);
     }
 }
-```

@@ -1,4 +1,3 @@
-```javascript
 import * as Sentry from '@sentry/ember';
 import AjaxService from 'ember-ajax/services/ajax';
 import classic from 'ember-classic-decorator';
@@ -224,28 +223,12 @@ export function isAcceptedResponse(errorOrStatus) {
     return false;
 }
 
-// Helper function to prepare request hash for JSON content
-function prepareJSONRequest(hash) {
-    if (isJSONContentType(hash.contentType) && hash.type !== 'GET') {
-        if (typeof hash.data === 'object') {
-            hash.data = JSON.stringify(hash.data);
-        }
-    }
+// Helper function to check if error should trigger retry
+function shouldRetryError(error, retryErrorChecks) {
+    return retryErrorChecks.some(check => check(error));
 }
 
-// Helper function to add test headers
-function addTestHeaders(hash, session, isTesting) {
-    if (isTesting) {
-        hash.headers['X-Test-User'] = session.user?.id;
-    }
-}
-
-// Helper function to check if error should be retried
-function shouldRetryError(error, retryErrorChecks, retryingMs, maxRetryingMs) {
-    return retryErrorChecks.some(check => check(error)) && retryingMs <= maxRetryingMs;
-}
-
-// Helper function to build error data for Sentry
+// Helper function to build error data for Sentry reporting
 function buildErrorData(errorName, attempts, startTime, responseServer) {
     const data = {
         errorName,
@@ -258,60 +241,89 @@ function buildErrorData(errorName, attempts, startTime, responseServer) {
     return data;
 }
 
-// Helper function to handle successful retry
-function handleSuccessfulRetry(attempts, config, errorData) {
-    if (attempts !== 0 && config.sentry_dsn) {
-        Sentry.captureMessage('Request took multiple attempts', {extra: errorData});
-    }
-}
+// Helper function to handle retry logic for failed requests
+async function handleRequestRetry(error, attempts, startTime, retryingMs, maxRetryingMs, retryPeriods, retryErrorChecks, isTesting, config, responseServer) {
+    const errorName = error.response?.constructor?.name;
+    const currentRetryingMs = (new Date()) - startTime;
 
-// Helper function to handle failed retry
-function handleFailedRetry(attempts, config, errorData) {
+    if (isTesting) {
+        throw error;
+    }
+
+    if (shouldRetryError(error.response, retryErrorChecks) && currentRetryingMs <= maxRetryingMs) {
+        await timeout(retryPeriods[attempts] || retryPeriods[retryPeriods.length - 1]);
+        return {shouldRetry: true, newAttempts: attempts + 1, errorName};
+    }
+
     if (attempts > 0 && config.sentry_dsn) {
-        Sentry.captureMessage('Request failed after multiple attempts', {extra: errorData});
+        Sentry.captureMessage('Request failed after multiple attempts', {
+            extra: buildErrorData(errorName, attempts, startTime, responseServer)
+        });
+    }
+
+    throw error;
+}
+
+// Helper function to handle successful request with retry reporting
+function handleRequestSuccess(attempts, startTime, config) {
+    if (attempts !== 0 && config.sentry_dsn) {
+        Sentry.captureMessage('Request took multiple attempts', {
+            extra: buildErrorData(null, attempts, startTime, null)
+        });
     }
 }
 
-// Helper function to determine which error response to return
-function getErrorResponse(status, headers, payload, request, service) {
-    if (service.isTwoFactorTokenRequiredError(status, headers, payload)) {
+// Helper function to create error response based on status and payload
+function createErrorResponse(status, headers, payload) {
+    if (isTwoFactorTokenRequiredError(status, payload)) {
         return new TwoFactorTokenRequiredError(payload);
-    } else if (service.isVersionMismatchError(status, headers, payload)) {
+    }
+    if (isVersionMismatchError(status, payload)) {
         return new VersionMismatchError(payload);
-    } else if (service.isServerUnreachableError(status, headers, payload)) {
+    }
+    if (isServerUnreachableError(status)) {
         return new ServerUnreachableError(payload);
-    } else if (service.isRequestEntityTooLargeError(status, headers, payload)) {
+    }
+    if (isRequestEntityTooLargeError(status)) {
         return new RequestEntityTooLargeError(payload);
-    } else if (service.isUnsupportedMediaTypeError(status, headers, payload)) {
+    }
+    if (isUnsupportedMediaTypeError(status)) {
         return new UnsupportedMediaTypeError(payload);
-    } else if (service.isMaintenanceError(status, headers, payload)) {
+    }
+    if (isMaintenanceError(status, payload)) {
         return new MaintenanceError(payload);
-    } else if (service.isThemeValidationError(status, headers, payload)) {
+    }
+    if (isThemeValidationError(status, payload)) {
         return new ThemeValidationError(payload);
-    } else if (service.isHostLimitError(status, headers, payload)) {
+    }
+    if (isHostLimitError(status, payload)) {
         return new HostLimitError(payload);
-    } else if (service.isEmailError(status, headers, payload)) {
+    }
+    if (isEmailError(status, payload)) {
         return new EmailError(payload);
-    } else if (service.isAcceptedResponse(status)) {
+    }
+    if (isAcceptedResponse(status)) {
         return new AcceptedResponse(payload);
     }
     return null;
 }
 
-// Helper function to handle session invalidation
-function handleSessionInvalidation(status, headers, payload, request, session, isGhostRequest) {
-    const isAuthenticated = session.isAuthenticated;
-    const isUnauthorized = AjaxService.prototype.isUnauthorizedError.call({}, status, headers, payload);
+// Helper function to handle session invalidation for auth errors
+function handleAuthenticationError(isAuthenticated, isGhostRequest, status, headers, payload, session) {
+    const isUnauthorized = session.isUnauthorizedError(status, headers, payload);
     const isForbidden = isForbiddenError(status, headers, payload);
+    const isAuthorizationFailure = isForbidden && payload.errors?.[0].message === 'Authorization failed';
 
-    if (isAuthenticated && isGhostRequest && (isUnauthorized || (isForbidden && payload.errors?.[0].message === 'Authorization failed'))) {
+    if (isAuthenticated && isGhostRequest && (isUnauthorized || isAuthorizationFailure)) {
+        session.skipSessionDeletion = true;
+        session.session.invalidate();
         return true;
     }
     return false;
 }
 
-// Helper function to check version compatibility
-function checkVersionCompatibility(headers, feature, upgradeStatus) {
+// Helper function to check and update version mismatch status
+function checkVersionMismatch(headers, feature, upgradeStatus) {
     if (headers['content-version']) {
         const contentVersion = semverCoerce(headers['content-version']);
         const appVersion = semverCoerce(config.APP.version);
@@ -320,18 +332,6 @@ function checkVersionCompatibility(headers, feature, upgradeStatus) {
             upgradeStatus.refreshRequired = true;
         }
     }
-}
-
-// Helper function to set Sentry context
-function setSentryContext(request, status) {
-    Sentry.setContext('ajax', {
-        url: request.url,
-        method: request.method,
-        status
-    });
-    Sentry.setTag('ajax_status', status);
-    Sentry.setTag('ajax_url', request.url.slice(0, 200));
-    Sentry.setTag('ajax_method', request.method);
 }
 
 @classic
@@ -372,18 +372,34 @@ class ajaxService extends AjaxService {
     }
 
     async _makeRequest(hash) {
-        prepareJSONRequest(hash);
+        // ember-ajax recognizes `application/vnd.api+json` as a JSON-API request
+        // and formats appropriately, we want to handle `application/json` the same
+        if (isJSONContentType(hash.contentType) && hash.type !== 'GET') {
+            if (typeof hash.data === 'object') {
+                hash.data = JSON.stringify(hash.data);
+            }
+        }
+
         hash.withCredentials = true;
-        addTestHeaders(hash, this.session, this.isTesting);
+
+        // mocked routes used in development/testing do not have access to the
+        // test context so we add a header here to give them access to the logged
+        // in user id that can be checked against the mocked database
+        if (this.isTesting) {
+            hash.headers['X-Test-User'] = this.session.user?.id;
+        }
+
+        // attempt retries for 15 seconds in two situations:
+        // 1. Server Unreachable error from the browser (code 0), typically from short internet blips
+        // 2. Maintenance error from Ghost, upgrade in progress so API is temporarily unavailable
 
         let success = false;
-        let errorName = null;
         let attempts = 0;
         let startTime = new Date();
         let retryingMs = 0;
         const maxRetryingMs = 15_000;
         const retryPeriods = [500, 1000];
-        const retryErrorChecks = [this.isServerUnreachableError.bind(this), this.isMaintenanceError.bind(this)];
+        const retryErrorChecks = [this.isServerUnreachableError, this.isMaintenanceError];
 
         const makeRequest = super._makeRequest.bind(this);
 
@@ -391,27 +407,27 @@ class ajaxService extends AjaxService {
             try {
                 const result = await makeRequest(hash);
                 success = true;
-
-                const errorData = buildErrorData(errorName, attempts, startTime, this._responseServer);
-                handleSuccessfulRetry(attempts, this.config, errorData);
-
+                handleRequestSuccess(attempts, startTime, this.config);
                 return result;
             } catch (error) {
-                errorName = error.response?.constructor?.name;
                 retryingMs = (new Date()) - startTime;
 
-                // avoid retries in tests because it slows things down and is not expected in mocks
-                // isTesting can be overridden in individual tests if required
-                if (this.isTesting) {
-                    throw error;
-                }
+                const retryResult = await handleRequestRetry(
+                    error,
+                    attempts,
+                    startTime,
+                    retryingMs,
+                    maxRetryingMs,
+                    retryPeriods,
+                    retryErrorChecks,
+                    this.isTesting,
+                    this.config,
+                    this._responseServer
+                );
 
-                if (shouldRetryError(error.response, retryErrorChecks, retryingMs, maxRetryingMs)) {
-                    await timeout(retryPeriods[attempts] || retryPeriods[retryPeriods.length - 1]);
-                    attempts += 1;
+                if (retryResult.shouldRetry) {
+                    attempts = retryResult.newAttempts;
                 } else {
-                    const errorData = buildErrorData(errorName, attempts, startTime, this._responseServer);
-                    handleFailedRetry(attempts, this.config, errorData);
                     throw error;
                 }
             }
@@ -419,25 +435,32 @@ class ajaxService extends AjaxService {
     }
 
     handleResponse(status, headers, payload, request) {
-        setSentryContext(request, status);
-        checkVersionCompatibility(headers, this.feature, this.upgradeStatus);
+        // set some context variables for Sentry in case there is an error
+        Sentry.setContext('ajax', {
+            url: request.url,
+            method: request.method,
+            status
+        });
+        Sentry.setTag('ajax_status', status);
+        Sentry.setTag('ajax_url', request.url.slice(0, 200)); // the max length of a tag value is 200 characters
+        Sentry.setTag('ajax_method', request.method);
 
-        const errorResponse = getErrorResponse(status, headers, payload, request, this);
+        checkVersionMismatch(headers, this.feature, this.upgradeStatus);
+
+        const errorResponse = createErrorResponse(status, headers, payload);
         if (errorResponse) {
             return errorResponse;
         }
 
         const isGhostRequest = GHOST_REQUEST.test(request.url);
+        const isAuthenticated = this.get('session.isAuthenticated');
 
         // used when reporting connection errors, helps distinguish CDN
         if (isGhostRequest) {
             this._responseServer = headers.server;
         }
 
-        if (handleSessionInvalidation(status, headers, payload, request, this.session, isGhostRequest)) {
-            this.skipSessionDeletion = true;
-            this.session.invalidate();
-        }
+        handleAuthenticationError(isAuthenticated, isGhostRequest, status, headers, payload, this);
 
         return super.handleResponse(...arguments);
     }
@@ -515,4 +538,3 @@ ajaxService.reopen({
 });
 
 export default ajaxService;
-```

@@ -1,4 +1,3 @@
-```javascript
 /*
 	MIT License http://www.opensource.org/licenses/mit-license.php
 	Author Tobias Koppers @sokra
@@ -45,7 +44,7 @@ module.exports = function() {
 				}
 			};
 		};
-		for(const name in $require$) {
+		for(let name in $require$) {
 			if(Object.prototype.hasOwnProperty.call($require$, name) && name !== "e") {
 				Object.defineProperty(fn, name, ObjectFactory(name));
 			}
@@ -202,7 +201,7 @@ module.exports = function() {
 		if(!hotAvailableFilesMap[chunkId] || !hotRequestedFilesMap[chunkId])
 			return;
 		hotRequestedFilesMap[chunkId] = false;
-		for(const moduleId in moreModules) {
+		for(let moduleId in moreModules) {
 			if(Object.prototype.hasOwnProperty.call(moreModules, moduleId)) {
 				hotUpdate[moduleId] = moreModules[moduleId];
 			}
@@ -235,7 +234,7 @@ module.exports = function() {
 			});
 		} else {
 			const outdatedModules = [];
-			for(const id in hotUpdate) {
+			for(let id in hotUpdate) {
 				if(Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
 					outdatedModules.push(toModuleId(id));
 				}
@@ -333,13 +332,13 @@ module.exports = function() {
 		// the "outdated" status can propagate to parents if they don't accept the children
 		let outdatedDependencies = {};
 		let outdatedModules = [];
-		const appliedUpdate = {};
+		let appliedUpdate = {};
 
 		const warnUnexpectedRequire = function warnUnexpectedRequire() {
 			console.warn("[HMR] unexpected require(" + result.moduleId + ") to disposed module");
 		};
 
-		for(const id in hotUpdate) {
+		for(let id in hotUpdate) {
 			if(Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
 				moduleId = toModuleId(id);
 				let result;
@@ -584,4 +583,3 @@ module.exports = function() {
 		});
 	}
 };
-```

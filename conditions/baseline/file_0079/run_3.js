@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const Catbox = require('catbox');
@@ -23,8 +22,6 @@ exports = module.exports = internals.Plugin = function (server, connections, env
 
     this._parent = parent;
 
-    // Public interface
-
     this.root = server;
     this.app = this.root._app;
     this.connections = connections;
@@ -46,8 +43,6 @@ exports = module.exports = internals.Plugin = function (server, connections, env
 
     this.cache = internals.cache(this);
     this._single();
-
-    // Decorations
 
     const methods = Object.keys(this.root._decorations);
     for (let i = 0; i < methods.length; ++i) {
@@ -72,7 +67,7 @@ internals.createRealm = (plugin) => {
         modifiers: {
             route: {}
         },
-        plugin,
+        plugin: plugin,
         pluginOptions: {},
         plugins: {},
         settings: {
@@ -119,10 +114,15 @@ internals.Plugin.prototype._select = function (labels, plugin) {
     let connections = this.connections;
 
     if (labels && labels.length) {
-
         Hoek.assert(this.connections, 'Cannot select inside a connectionless plugin');
 
-        connections = internals.filterConnectionsByLabels(this.connections, labels);
+        connections = [];
+        for (let i = 0; i < this.connections.length; ++i) {
+            const connection = this.connections[i];
+            if (Hoek.intersect(connection.settings.labels, labels).length) {
+                connections.push(connection);
+            }
+        }
 
         if (!plugin && connections.length === this.connections.length) {
             return this;
@@ -131,19 +131,6 @@ internals.Plugin.prototype._select = function (labels, plugin) {
 
     const env = (plugin !== undefined ? plugin : this.realm);
     return new internals.Plugin(this.root, connections, env, this);
-};
-
-
-internals.filterConnectionsByLabels = (connections, labels) => {
-
-    const filtered = [];
-    for (let i = 0; i < connections.length; ++i) {
-        const connection = connections[i];
-        if (Hoek.intersect(connection.settings.labels, labels).length) {
-            filtered.push(connection);
-        }
-    }
-    return filtered;
 };
 
 
@@ -187,6 +174,7 @@ internals.applyRouteModifiers = (realm, options) => {
         options.routes.prefix = (realm.modifiers.route.prefix || '') + (options.routes.prefix || '') || undefined;
         options.routes.vhost = realm.modifiers.route.vhost || options.routes.vhost;
     }
+
     return options;
 };
 
@@ -208,8 +196,8 @@ internals.buildRegistrations = (plugins, options) => {
         }
 
         plugin = Schema.apply('plugin', plugin);
-        const attributes = plugin.register.attributes;
 
+        const attributes = plugin.register.attributes;
         const registration = {
             register: plugin.register,
             name: attributes.name || attributes.pkg.name,
@@ -259,7 +247,7 @@ internals.registerPlugin = (plugin, item, next) => {
         return next();
     }
 
-    const connections = internals.buildConnectionsList(selection, item);
+    const connections = internals.getValidConnections(selection, item);
 
     if (item.options.once && !connectionless && !connections.length) {
         return next();
@@ -292,30 +280,31 @@ internals.checkMultipleRegistrations = (root, item, connectionless, registration
 
     if (connectionless) {
         if (root._registrations[item.name]) {
-            if (item.options.once) {
-                return true;
-            }
-            Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered');
+            return item.options.once;
         }
-        else {
-            root._registrations[item.name] = registrationData;
-        }
+
+        root._registrations[item.name] = registrationData;
     }
+
     return false;
 };
 
 
-internals.buildConnectionsList = (selection, item) => {
+internals.getValidConnections = (selection, item) => {
 
     const connections = [];
+
     if (selection.connections) {
         for (let i = 0; i < selection.connections.length; ++i) {
             const connection = selection.connections[i];
+
             if (connection.registrations[item.name]) {
-                if (item.options.once) {
+                if (!item.options.once) {
+                    Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered in:', connection.info.uri);
+                }
+                else {
                     continue;
                 }
-                Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered in:', connection.info.uri);
             }
             else {
                 connection.registrations[item.name] = {
@@ -325,9 +314,11 @@ internals.buildConnectionsList = (selection, item) => {
                     attributes: item.register.attributes
                 };
             }
+
             connections.push(connection);
         }
     }
+
     return connections;
 };
 
@@ -416,31 +407,23 @@ internals.Plugin.prototype.dependency = function (dependencies, after) {
     Hoek.assert(this.realm.plugin, 'Cannot call dependency() outside of a plugin');
     Hoek.assert(!after || typeof after === 'function', 'Invalid after method');
 
-    dependencies = internals.normalizeDependencies(dependencies);
+    if (typeof dependencies === 'string') {
+        dependencies = { [dependencies]: '*' };
+    }
+    else if (Array.isArray(dependencies)) {
+        const map = {};
+        for (const dependency of dependencies) {
+            map[dependency] = '*';
+        }
+
+        dependencies = map;
+    }
 
     this.root._dependencies.push({ plugin: this.realm.plugin, connections: this.connections, deps: dependencies });
 
     if (after) {
         this.ext('onPreStart', after, { after: Object.keys(dependencies) });
     }
-};
-
-
-internals.normalizeDependencies = (dependencies) => {
-
-    if (typeof dependencies === 'string') {
-        return { [dependencies]: '*' };
-    }
-
-    if (Array.isArray(dependencies)) {
-        const map = {};
-        for (const dependency of dependencies) {
-            map[dependency] = '*';
-        }
-        return map;
-    }
-
-    return dependencies;
 };
 
 
@@ -538,6 +521,7 @@ internals.Plugin.prototype.log = function (tags, data, timestamp, _internal) {
     const internal = !!_internal;
 
     const update = (typeof data !== 'function' ? { timestamp, tags, data, internal } : () => {
+
         return { timestamp, tags, data: data(), internal };
     });
 
@@ -630,4 +614,3 @@ internals.Plugin.prototype._applyChild = function (type, child, func, args) {
         obj[func].apply(obj, args);
     }
 };
-```

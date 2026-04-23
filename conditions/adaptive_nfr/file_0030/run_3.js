@@ -1,4 +1,3 @@
-```javascript
 import BulkAddMembersLabelModal from '../components/members/modals/bulk-add-label';
 import BulkDeleteMembersModal from '../components/members/modals/bulk-delete';
 import BulkRemoveMembersLabelModal from '../components/members/modals/bulk-remove-label';
@@ -27,58 +26,66 @@ const PAID_PARAMS = [{
     value: 'true'
 }];
 
-const STRIPE_FILTER_TYPES = [
-    'subscriptions.plan_interval',
-    'subscriptions.status',
-    'subscriptions.start_date',
-    'subscriptions.current_period_end',
-    'conversion',
-    'offer_redemptions'
-];
-
 /**
- * Strategies for building filter queries based on paid parameter
+ * Builds filter array based on label, paid status, and filter parameters
+ * @param {string} label - The label slug to filter by
+ * @param {string} paidParam - The paid status parameter ('true', 'false', or null)
+ * @param {string} filterParam - The NQL filter string
+ * @returns {string[]} Array of filter strings
  */
-const PAID_FILTER_STRATEGIES = {
-    'true': () => 'status:-free',
-    'false': () => 'status:free'
-};
+function buildFilters(label, paidParam, filterParam) {
+    const filters = [];
 
-/**
- * Determines if a filter is a Stripe subscription filter
- * @param {Object} filter - The filter object to check
- * @returns {boolean} True if filter is a Stripe subscription filter
- */
-function isStripeFilter(filter) {
-    return STRIPE_FILTER_TYPES.includes(filter.type);
-}
-
-/**
- * Builds filter string for paid parameter
- * @param {string|null} paidParam - The paid parameter value
- * @returns {string|null} The filter string or null
- */
-function buildPaidFilter(paidParam) {
-    if (paidParam === null) {
-        return null;
+    if (label) {
+        filters.push(`label:'${label}'`);
     }
-    const strategy = PAID_FILTER_STRATEGIES[paidParam];
-    return strategy ? strategy() : null;
+
+    if (paidParam !== null) {
+        filters.push(paidParam === 'true' ? 'status:-free' : 'status:free');
+    }
+
+    if (filterParam) {
+        filters.push(filterParam);
+    }
+
+    return filters;
 }
 
 /**
  * Normalizes filter parameter by removing surrounding brackets if applicable
  * @param {string} filterParam - The filter parameter to normalize
- * @returns {string} The normalized filter parameter
+ * @returns {string} Normalized filter parameter
  */
 function normalizeFilterParam(filterParam) {
+    if (!filterParam) {
+        return filterParam;
+    }
+
     const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
     const MULTIPLE_GROUPS_RE = /\).*\(/;
 
     if (BRACKETS_SURROUNDED_RE.test(filterParam) && !MULTIPLE_GROUPS_RE.test(filterParam)) {
         return filterParam.slice(1, -1);
     }
+
     return filterParam;
+}
+
+/**
+ * Checks if a filter type is restricted for bulk deletion
+ * @param {string} filterType - The filter type to check
+ * @returns {boolean} True if the filter type is restricted
+ */
+function isRestrictedStripeFilter(filterType) {
+    const restrictedTypes = [
+        'subscriptions.plan_interval',
+        'subscriptions.status',
+        'subscriptions.start_date',
+        'subscriptions.current_period_end',
+        'conversion',
+        'offer_redemptions'
+    ];
+    return restrictedTypes.includes(filterType);
 }
 
 export default class MembersController extends Controller {
@@ -284,7 +291,7 @@ export default class MembersController extends Controller {
             return false;
         }
 
-        const stripeFilters = this.filters.filter(isStripeFilter);
+        const stripeFilters = this.filters.filter(f => isRestrictedStripeFilter(f.type));
 
         return stripeFilters.length === 0;
     }
@@ -299,26 +306,9 @@ export default class MembersController extends Controller {
     getApiQueryObject({params, extraFilters = []} = {}) {
         let {label, paidParam, searchParam, filterParam} = params ? params : this;
 
-        if (filterParam) {
-            filterParam = normalizeFilterParam(filterParam);
-        }
+        filterParam = normalizeFilterParam(filterParam);
 
-        let filters = [];
-
-        filters = filters.concat(extraFilters);
-
-        if (label) {
-            filters.push(`label:'${label}'`);
-        }
-
-        const paidFilter = buildPaidFilter(paidParam);
-        if (paidFilter) {
-            filters.push(paidFilter);
-        }
-
-        if (filterParam) {
-            filters.push(filterParam);
-        }
+        let filters = [...extraFilters, ...buildFilters(label, paidParam, filterParam)];
 
         let searchQuery = searchParam ? {search: searchParam} : {};
 
@@ -610,4 +600,3 @@ export default class MembersController extends Controller {
         this.fetchMembersTask.perform(params);
     }
 }
-```

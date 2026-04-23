@@ -1,4 +1,3 @@
-```javascript
 import * as Sentry from '@sentry/ember';
 import Component from '@glimmer/component';
 import React, {Suspense} from 'react';
@@ -158,62 +157,46 @@ const TKCountPlugin = ({editorResource, ...props}) => {
     return <_TKCountPlugin {...props} />;
 };
 
-// Helper: Build default autocomplete links
-function buildDefaultAutocompleteLinks() {
-    return [
-        {label: 'Homepage', value: window.location.origin + '/'},
-        {label: 'Free signup', value: '#/portal/signup/free'}
-    ];
-}
-
-// Helper: Build member-specific links
-function buildMemberLinks(membersUtils) {
-    if (!membersUtils.paidMembersEnabled) {
-        return [];
-    }
-    return [
-        {label: 'Paid signup', value: '#/portal/signup'},
-        {label: 'Upgrade or change plan', value: '#/portal/account/plans'}
-    ];
-}
-
-// Helper: Build donation link if enabled
-function buildDonationLink(settings) {
-    if (!settings.donationsEnabled) {
-        return [];
-    }
-    return [{label: 'Tips and donations', value: '#/portal/support'}];
-}
-
-// Helper: Build recommendation link if enabled
-function buildRecommendationLink(settings) {
-    if (!settings.recommendationsEnabled) {
-        return [];
-    }
-    return [{label: 'Recommendations', value: '#/portal/recommendations'}];
-}
-
 // Helper: Validate file extension
 function validateFileExtension(file, type) {
     if (type === 'file') {
         return true;
     }
 
-    const extensions = fileTypes[type].extensions;
-    const [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
+    let extensions = fileTypes[type].extensions;
+    let [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
 
     if (!extensions) {
         return true;
     }
 
-    const extArray = Array.isArray(extensions) ? extensions : extensions.split(',');
+    if (!Array.isArray(extensions)) {
+        extensions = extensions.split(',');
+    }
 
-    if (!extension || extArray.indexOf(extension.toLowerCase()) === -1) {
-        const validExtensions = `.${extArray.join(', .').toUpperCase()}`;
+    if (!extension || extensions.indexOf(extension.toLowerCase()) === -1) {
+        let validExtensions = `.${extensions.join(', .').toUpperCase()}`;
         return `The file type you uploaded is not supported. Please use ${validExtensions}`;
     }
 
     return true;
+}
+
+// Helper: Validate files array
+function validateFiles(files, type) {
+    const validationResult = [];
+
+    for (let i = 0; i < files.length; i += 1) {
+        let file = files[i];
+        let result = validateFileExtension(file, type);
+        if (result === true) {
+            continue;
+        }
+
+        validationResult.push({fileName: file.name, message: result});
+    }
+
+    return validationResult;
 }
 
 // Helper: Parse upload response
@@ -236,44 +219,62 @@ function parseUploadResponse(response, type) {
         }
     }
 
-    return {
-        url: responseUrl,
-        fileName: null
-    };
+    return responseUrl;
 }
 
 // Helper: Extract error message from response
 function extractErrorMessage(error) {
-    const message = error.payload?.errors?.[0]?.message || error.message || '';
-    const context = error.payload?.errors?.[0]?.context || '';
+    let message = error.payload?.errors?.[0]?.message || '';
+    let context = error.payload?.errors?.[0]?.context || '';
+
+    if (!message) {
+        message = error.message;
+    }
+
     return {message, context};
 }
 
-// Helper: Build unsplash config
-function buildUnsplashConfig() {
-    return {
-        defaultHeaders: {
-            Authorization: `Client-ID 8672af113b0a8573edae3aa3713886265d9bb741d707f6c01a486cde8c278980`,
-            'Accept-Version': 'v1',
-            'Content-Type': 'application/json',
-            'App-Pragma': 'no-cache',
-            'X-Unsplash-Cache': true
-        }
-    };
-}
-
-// Helper: Check if Stripe is enabled
-function checkStripeEnabled(settings, config) {
-    const hasDirectKeys = !!(settings.stripeSecretKey && settings.stripePublishableKey);
-    const hasConnectKeys = !!(settings.stripeConnectSecretKey && settings.stripeConnectPublishableKey);
-
-    if (config.stripeDirect) {
-        return hasDirectKeys;
+// Helper: Build member links
+function buildMemberLinks(membersUtils) {
+    let links = [];
+    if (membersUtils.paidMembersEnabled) {
+        links = [
+            {
+                label: 'Paid signup',
+                value: '#/portal/signup'
+            },
+            {
+                label: 'Upgrade or change plan',
+                value: '#/portal/account/plans'
+            }
+        ];
     }
-    return hasDirectKeys || hasConnectKeys;
+    return links;
 }
 
-// Helper: Filter search results by group type
+// Helper: Build donation link
+function buildDonationLink(settings) {
+    if (settings.donationsEnabled) {
+        return [{
+            label: 'Tips and donations',
+            value: '#/portal/support'
+        }];
+    }
+    return [];
+}
+
+// Helper: Build recommendation link
+function buildRecommendationLink(settings) {
+    if (settings.recommendationsEnabled) {
+        return [{
+            label: 'Recommendations',
+            value: '#/portal/recommendations'
+        }];
+    }
+    return [];
+}
+
+// Helper: Filter search results by group
 function filterSearchResultsByGroup(group, settings) {
     let items = group.options;
 
@@ -300,10 +301,13 @@ function filterSearchResultsByGroup(group, settings) {
 }
 
 // Helper: Build default card config
-function buildDefaultCardConfig(settings, config, session, feature, unsplashConfig, checkStripeEnabledFn) {
+function buildDefaultCardConfig(settings, config, feature, session, unsplashConfig, checkStripeEnabled, fetchAutocompleteLinks, fetchEmbed, fetchLabels, searchLinks) {
     return {
         unsplash: settings.unsplash ? unsplashConfig.defaultHeaders : null,
         tenor: config.tenor?.googleApiKey ? config.tenor : null,
+        fetchAutocompleteLinks,
+        fetchEmbed,
+        fetchLabels,
         renderLabels: !session.user.isContributor,
         feature: {
             transistor: feature.transistor
@@ -312,11 +316,56 @@ function buildDefaultCardConfig(settings, config, session, feature, unsplashConf
             headerV1: true
         },
         membersEnabled: settings.membersSignupAccess === 'all',
+        searchLinks,
         siteTitle: settings.title,
         siteDescription: settings.description,
         siteUrl: config.getSiteUrl('/'),
-        stripeEnabled: checkStripeEnabledFn()
+        stripeEnabled: checkStripeEnabled()
     };
+}
+
+// Helper: Create unsplash config
+function createUnsplashConfig() {
+    return {
+        defaultHeaders: {
+            Authorization: `Client-ID 8672af113b0a8573edae3aa3713886265d9bb741d707f6c01a486cde8c278980`,
+            'Accept-Version': 'v1',
+            'Content-Type': 'application/json',
+            'App-Pragma': 'no-cache',
+            'X-Unsplash-Cache': true
+        }
+    };
+}
+
+// Helper: Check if Stripe is enabled
+function checkStripeEnabled(settings, config) {
+    const hasDirectKeys = !!(settings.stripeSecretKey && settings.stripePublishableKey);
+    const hasConnectKeys = !!(settings.stripeConnectSecretKey && settings.stripeConnectPublishableKey);
+
+    if (config.stripeDirect) {
+        return hasDirectKeys;
+    }
+    return hasDirectKeys || hasConnectKeys;
+}
+
+// Helper: Build latest posts
+async function buildLatestPosts(store, settings) {
+    const posts = await store.query('post', {filter: 'status:published', fields: 'id,url,title,visibility,published_at', order: 'published_at desc', limit: 5});
+    const results = posts.toArray().map(post => ({
+        groupName: 'Latest posts',
+        id: post.id,
+        title: post.title,
+        url: post.url,
+        visibility: post.visibility,
+        publishedAt: post.publishedAtUTC.toISOString()
+    }));
+
+    results.forEach(item => decoratePostSearchResult(item, settings));
+
+    return [{
+        label: 'Latest posts',
+        items: results
+    }];
 }
 
 export default class KoenigLexicalEditor extends Component {
@@ -427,298 +476,255 @@ export default class KoenigLexicalEditor extends Component {
         return this.labels;
     }
 
-    // Helper: Fetch embed data
-    fetchEmbed = async (url, {type}) => {
-        let oembedEndpoint = this.ghostPaths.url.api('oembed');
-        let response = await this.ajax.request(oembedEndpoint, {
-            data: {url, type}
-        });
-        return response;
-    };
-
-    // Helper: Fetch autocomplete links
-    fetchAutocompleteLinks = async () => {
-        const defaults = buildDefaultAutocompleteLinks();
-        const memberLinks = buildMemberLinks(this.membersUtils);
-        const donationLink = buildDonationLink(this.settings);
-        const recommendationLink = buildRecommendationLink(this.settings);
-        const offersLinks = await offerUrls.call(this);
-
-        return [...defaults, ...memberLinks, ...donationLink, ...recommendationLink, ...offersLinks];
-    };
-
-    // Helper: Fetch labels
-    fetchLabels = async () => {
-        let labels = [];
-        try {
-            labels = await this.fetchLabelsTask.perform();
-        } catch (e) {
-            if (didCancel(e)) {
-                return;
-            }
-            throw e;
-        }
-
-        return labels.map(label => label.name);
-    };
-
-    // Helper: Search links
-    searchLinks = async (term) => {
-        if (!term) {
-            return this.getDefaultLinks();
-        }
-
-        let results = [];
-
-        try {
-            results = await this.search.searchTask.perform(term);
-        } catch (error) {
-            if (!didCancel(error)) {
-                throw error;
-            }
-            return;
-        }
-
-        const filteredResults = [];
-        results.forEach((group) => {
-            const filtered = filterSearchResultsByGroup(group, this.settings);
-            if (filtered) {
-                filteredResults.push(filtered);
-            }
-        });
-
-        return filteredResults;
-    };
-
-    // Helper: Get default links
-    getDefaultLinks = async () => {
-        if (this.defaultLinks) {
-            return this.defaultLinks;
-        }
-
-        const posts = await this.store.query('post', {
-            filter: 'status:published',
-            fields: 'id,url,title,visibility,published_at',
-            order: 'published_at desc',
-            limit: 5
-        });
-
-        const results = posts.toArray().map(post => ({
-            groupName: 'Latest posts',
-            id: post.id,
-            title: post.title,
-            url: post.url,
-            visibility: post.visibility,
-            publishedAt: post.publishedAtUTC.toISOString()
-        }));
-
-        results.forEach(item => decoratePostSearchResult(item, this.settings));
-
-        this.defaultLinks = [{
-            label: 'Latest posts',
-            items: results
-        }];
-        return this.defaultLinks;
-    };
-
-    // Helper: Create file upload hook
-    createFileUploadHook = (type = 'image') => {
-        const [progress, setProgress] = React.useState(0);
-        const [isLoading, setLoading] = React.useState(false);
-        const [errors, setErrors] = React.useState([]);
-        const [filesNumber, setFilesNumber] = React.useState(0);
-
-        const progressTracker = React.useRef(new Map());
-
-        const updateProgress = () => {
-            if (progressTracker.current.size === 0) {
-                setProgress(0);
-                return;
-            }
-
-            let totalProgress = 0;
-            progressTracker.current.forEach(value => totalProgress += value);
-            setProgress(Math.round(totalProgress / progressTracker.current.size));
+    ReactComponent = (props) => {
+        const fetchEmbed = async (url, {type}) => {
+            let oembedEndpoint = this.ghostPaths.url.api('oembed');
+            let response = await this.ajax.request(oembedEndpoint, {
+                data: {url, type}
+            });
+            return response;
         };
 
-        const validate = (files = []) => {
-            const validationResult = [];
+        const fetchAutocompleteLinks = async () => {
+            const defaults = [
+                {label: 'Homepage', value: window.location.origin + '/'},
+                {label: 'Free signup', value: '#/portal/signup/free'}
+            ];
 
-            for (let i = 0; i < files.length; i += 1) {
-                const file = files[i];
-                const result = validateFileExtension(file, type);
-                if (result === true) {
-                    continue;
+            const memberLinks = buildMemberLinks(this.membersUtils);
+            const donationLink = buildDonationLink(this.settings);
+            const recommendationLink = buildRecommendationLink(this.settings);
+            const offersLinks = await offerUrls.call(this);
+
+            return [...defaults, ...memberLinks, ...donationLink, ...recommendationLink, ...offersLinks];
+        };
+
+        const fetchLabels = async () => {
+            let labels = [];
+            try {
+                labels = await this.fetchLabelsTask.perform();
+            } catch (e) {
+                if (didCancel(e)) {
+                    return;
                 }
 
-                validationResult.push({fileName: file.name, message: result});
+                throw e;
             }
 
-            return validationResult;
+            return labels.map(label => label.name);
         };
 
-        const uploadFile = async (file, {formData = {}} = {}) => {
-            progressTracker.current[file] = 0;
+        const searchLinks = async (term) => {
+            if (!term) {
+                if (this.defaultLinks) {
+                    return this.defaultLinks;
+                }
 
-            const fileFormData = new FormData();
-            fileFormData.append('file', file, file.name);
+                this.defaultLinks = await buildLatestPosts(this.store, this.settings);
+                return this.defaultLinks;
+            }
 
-            Object.keys(formData || {}).forEach((key) => {
-                fileFormData.append(key, formData[key]);
+            let results = [];
+
+            try {
+                results = await this.search.searchTask.perform(term);
+            } catch (error) {
+                if (!didCancel(error)) {
+                    throw error;
+                }
+                return;
+            }
+
+            const filteredResults = [];
+            results.forEach((group) => {
+                const filtered = filterSearchResultsByGroup(group, this.settings);
+                if (filtered) {
+                    filteredResults.push(filtered);
+                }
             });
 
-            const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
-
-            try {
-                const requestMethod = fileTypes[type].requestMethod || 'post';
-                const response = await this.ajax[requestMethod](url, {
-                    data: fileFormData,
-                    processData: false,
-                    contentType: false,
-                    dataType: 'text',
-                    xhr: () => {
-                        const xhr = new window.XMLHttpRequest();
-
-                        xhr.upload.addEventListener('progress', (event) => {
-                            if (event.lengthComputable) {
-                                progressTracker.current.set(file, (event.loaded / event.total) * 100);
-                                updateProgress();
-                            }
-                        }, false);
-
-                        return xhr;
-                    }
-                });
-
-                progressTracker.current.set(file, 100);
-                updateProgress();
-
-                const parsed = parseUploadResponse(response, type);
-                return {
-                    url: parsed.url,
-                    fileName: file.name
-                };
-            } catch (error) {
-                console.error(error); // eslint-disable-line
-
-                const {message, context} = extractErrorMessage(error);
-
-                const errorResult = {
-                    message,
-                    context,
-                    fileName: file.name
-                };
-
-                throw errorResult;
-            }
+            return filteredResults;
         };
 
-        const upload = async (files = [], options = {}) => {
-            setFilesNumber(files.length);
-            setLoading(true);
+        const unsplashConfig = createUnsplashConfig();
 
-            const validationResult = validate(files);
+        const stripeEnabled = checkStripeEnabled(this.settings, this.config);
 
-            if (validationResult.length) {
-                setErrors(validationResult);
-                setLoading(false);
-                setProgress(100);
-
-                return null;
-            }
-
-            const uploadPromises = [];
-
-            for (let i = 0; i < files.length; i += 1) {
-                const file = files[i];
-                uploadPromises.push(uploadFile(file, options));
-            }
-
-            try {
-                const uploadResult = await Promise.all(uploadPromises);
-                setProgress(100);
-                progressTracker.current.clear();
-
-                setLoading(false);
-                setErrors([]);
-
-                return uploadResult;
-            } catch (error) {
-                console.error(error); // eslint-disable-line no-console
-
-                setErrors([...errors, error]);
-                setLoading(false);
-                setProgress(100);
-                progressTracker.current.clear();
-
-                return null;
-            }
-        };
-
-        return {progress, isLoading, upload, errors, filesNumber};
-    };
-
-    // Helper: Create KG Editor component
-    createKGEditorComponent = (isInitInstance) => {
-        return (
-            <div data-secondary-instance={isInitInstance ? true : false} style={isInitInstance ? {display: 'none'} : {}}>
-                <KoenigComposer
-                    editorResource={this.editorResource}
-                    cardConfig={this.buildCardConfig()}
-                    fileUploader={{useFileUpload: this.createFileUploadHook, fileTypes}}
-                    initialEditorState={this.args.lexical}
-                    onError={this.onError}
-                    darkMode={this.feature.nightShift}
-                    isTKEnabled={true}
-                >
-                    <KoenigEditor
-                        editorResource={this.editorResource}
-                        cursorDidExitAtTop={isInitInstance ? null : this.args.cursorDidExitAtTop}
-                        placeholderText={isInitInstance ? null : this.args.placeholderText}
-                        darkMode={isInitInstance ? null : this.feature.nightShift}
-                        onChange={isInitInstance ? this.args.updateSecondaryInstanceModel : this.args.onChange}
-                        registerAPI={isInitInstance ? this.args.registerSecondaryAPI : this.args.registerAPI}
-                    />
-                    <WordCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updateWordCount} />
-                    <TKCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updatePostTkCount} />
-                </KoenigComposer>
-            </div>
-        );
-    };
-
-    // Helper: Build card config
-    buildCardConfig = () => {
-        const unsplashConfig = buildUnsplashConfig();
-        const checkStripeEnabledFn = () => checkStripeEnabled(this.settings, this.config);
         const defaultCardConfig = buildDefaultCardConfig(
             this.settings,
             this.config,
-            this.session,
             this.feature,
+            this.session,
             unsplashConfig,
-            checkStripeEnabledFn
+            () => stripeEnabled,
+            fetchAutocompleteLinks,
+            fetchEmbed,
+            fetchLabels,
+            searchLinks
         );
 
-        return Object.assign({}, defaultCardConfig, this.args.cardConfig, {
-            fetchAutocompleteLinks: this.fetchAutocompleteLinks,
-            fetchEmbed: this.fetchEmbed,
-            fetchLabels: this.fetchLabels,
-            searchLinks: this.searchLinks,
-            pinturaConfig: this.pinturaConfig
-        });
-    };
+        const cardConfig = Object.assign({}, defaultCardConfig, props.cardConfig, {pinturaConfig: this.pinturaConfig});
 
-    ReactComponent = (props) => {
+        const useFileUpload = (type = 'image') => {
+            const [progress, setProgress] = React.useState(0);
+            const [isLoading, setLoading] = React.useState(false);
+            const [errors, setErrors] = React.useState([]);
+            const [filesNumber, setFilesNumber] = React.useState(0);
+
+            const progressTracker = React.useRef(new Map());
+
+            const updateProgress = () => {
+                if (progressTracker.current.size === 0) {
+                    setProgress(0);
+                    return;
+                }
+
+                let totalProgress = 0;
+
+                progressTracker.current.forEach(value => totalProgress += value);
+
+                setProgress(Math.round(totalProgress / progressTracker.current.size));
+            };
+
+            const _uploadFile = async (file, {formData = {}} = {}) => {
+                progressTracker.current[file] = 0;
+
+                const fileFormData = new FormData();
+                fileFormData.append('file', file, file.name);
+
+                Object.keys(formData || {}).forEach((key) => {
+                    fileFormData.append(key, formData[key]);
+                });
+
+                const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
+
+                try {
+                    const requestMethod = fileTypes[type].requestMethod || 'post';
+                    const response = await this.ajax[requestMethod](url, {
+                        data: fileFormData,
+                        processData: false,
+                        contentType: false,
+                        dataType: 'text',
+                        xhr: () => {
+                            const xhr = new window.XMLHttpRequest();
+
+                            xhr.upload.addEventListener('progress', (event) => {
+                                if (event.lengthComputable) {
+                                    progressTracker.current.set(file, (event.loaded / event.total) * 100);
+                                    updateProgress();
+                                }
+                            }, false);
+
+                            return xhr;
+                        }
+                    });
+
+                    progressTracker.current.set(file, 100);
+                    updateProgress();
+
+                    const responseUrl = parseUploadResponse(response, type);
+
+                    return {
+                        url: responseUrl,
+                        fileName: file.name
+                    };
+                } catch (error) {
+                    console.error(error); // eslint-disable-line
+
+                    const {message, context} = extractErrorMessage(error);
+
+                    const errorResult = {
+                        message,
+                        context,
+                        fileName: file.name
+                    };
+
+                    throw errorResult;
+                }
+            };
+
+            const upload = async (files = [], options = {}) => {
+                setFilesNumber(files.length);
+                setLoading(true);
+
+                const validationResult = validateFiles(files, type);
+
+                if (validationResult.length) {
+                    setErrors(validationResult);
+                    setLoading(false);
+                    setProgress(100);
+
+                    return null;
+                }
+
+                const uploadPromises = [];
+
+                for (let i = 0; i < files.length; i += 1) {
+                    const file = files[i];
+                    uploadPromises.push(_uploadFile(file, options));
+                }
+
+                try {
+                    const uploadResult = await Promise.all(uploadPromises);
+                    setProgress(100);
+                    progressTracker.current.clear();
+
+                    setLoading(false);
+
+                    setErrors([]);
+
+                    return uploadResult;
+                } catch (error) {
+                    console.error(error); // eslint-disable-line no-console
+
+                    setErrors([...errors, error]);
+                    setLoading(false);
+                    setProgress(100);
+                    progressTracker.current.clear();
+
+                    return null;
+                }
+            };
+
+            return {progress, isLoading, upload, errors, filesNumber};
+        };
+
+        const KGEditorComponent = ({isInitInstance}) => {
+            return (
+                <div data-secondary-instance={isInitInstance ? true : false} style={isInitInstance ? {display: 'none'} : {}}>
+                    <KoenigComposer
+                        editorResource={this.editorResource}
+                        cardConfig={cardConfig}
+                        fileUploader={{useFileUpload, fileTypes}}
+                        initialEditorState={this.args.lexical}
+                        onError={this.onError}
+                        darkMode={this.feature.nightShift}
+                        isTKEnabled={true}
+                    >
+                        <KoenigEditor
+                            editorResource={this.editorResource}
+                            cursorDidExitAtTop={isInitInstance ? null : this.args.cursorDidExitAtTop}
+                            placeholderText={isInitInstance ? null : this.args.placeholderText}
+                            darkMode={isInitInstance ? null : this.feature.nightShift}
+                            onChange={isInitInstance ? this.args.updateSecondaryInstanceModel : this.args.onChange}
+                            registerAPI={isInitInstance ? this.args.registerSecondaryAPI : this.args.registerAPI}
+                        />
+                        <WordCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updateWordCount} />
+                        <TKCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updatePostTkCount} />
+                    </KoenigComposer>
+                </div>
+            );
+        };
+
         return (
             <div className={['koenig-react-editor', 'koenig-lexical', this.args.className].filter(Boolean).join(' ')}>
                 <ErrorHandler config={this.config}>
                     <Suspense fallback={<p className="koenig-react-editor-loading">Loading editor...</p>}>
-                        {this.createKGEditorComponent(false)}
-                        {this.createKGEditorComponent(true)}
+                        <KGEditorComponent />
+                        <KGEditorComponent isInitInstance={true} />
                     </Suspense>
                 </ErrorHandler>
             </div>
         );
     };
 }
-```

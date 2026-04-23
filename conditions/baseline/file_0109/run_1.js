@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /*!
@@ -172,11 +171,12 @@ Connection.prototype.get = function(key) {
 Connection.prototype.set = function(key, val) {
   if (this.config.hasOwnProperty(key)) {
     this.config[key] = val;
-  } else {
-    this.options = this.options || {};
-    this.options[key] = val;
+    return this;
   }
-  return val;
+
+  this.options = this.options || {};
+  this.options[key] = val;
+  return this;
 };
 
 /**
@@ -613,11 +613,10 @@ Connection.prototype._shouldBufferCommands = function _shouldBufferCommands() {
 Connection.prototype.error = function(err, callback) {
   if (callback) {
     callback(err);
-    return null;
+    return undefined;
   }
   if (this.listeners('error').length > 0) {
     this.emit('error', err);
-    return Promise.reject(err);
   }
   return Promise.reject(err);
 };
@@ -1509,4 +1508,3 @@ Connection.prototype.setClient = function setClient(client) {
 
 Connection.STATES = STATES;
 module.exports = Connection;
-```

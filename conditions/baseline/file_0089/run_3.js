@@ -1,4 +1,3 @@
-```typescript
 import { useList } from '@keystone-6/core/admin-ui/context'
 import { GroupIndicatorLine } from '@keystone-6/core/admin-ui/utils'
 import { Field as RelationshipFieldView } from '@keystone-6/core/fields/types/relationship/views'
@@ -136,7 +135,6 @@ function valueToUpdater<Schema extends ComponentSchema>(
   return (valueToUpdaters[schema.kind] as any)(value, schema)
 }
 
-// this exists because for props.schema.kind === 'form', ts doesn't narrow props, only props.schema
 function isKind<Kind extends ComponentSchema['kind']>(
   props: GenericPreviewProps<ComponentSchema, unknown>,
   kind: Kind
@@ -148,7 +146,6 @@ export function previewPropsOnChange<Schema extends ComponentSchema>(
   value: ValueForComponentSchema<Schema>,
   props: GenericPreviewProps<ComponentSchema, unknown>
 ) {
-  // child fields can't be updated through preview props, so we don't do anything here
   if (isKind(props, 'child')) return
   if (
     isKind(props, 'form') ||
@@ -167,62 +164,12 @@ export function previewPropsOnChange<Schema extends ComponentSchema>(
   assertNever(props)
 }
 
-function buildArrayFieldModalContent(
+function renderArrayFieldModalContent(
   element: GenericPreviewProps<ComponentSchema, unknown>,
   modalState: { index: number; value: unknown; forceValidation: boolean },
-  onModalChange: (cb: (value: unknown) => unknown) => void,
-  setModalState: (state: any) => void
-): ReactElement {
-  return (
-    <Dialog>
-      <Heading>Edit item</Heading>
-      <Content>
-        <ArrayFieldItemModalContent
-          onChange={onModalChange}
-          schema={element.schema as any /* TODO FIXME */}
-          value={modalState.value}
-        />
-      </Content>
-      <ButtonGroup>
-        <Button
-          prominence="low"
-          onPress={() => {
-            setModalState('closed')
-          }}
-        >
-          Cancel
-        </Button>
-        <Button
-          prominence="high"
-          onPress={() => {
-            if (!clientSideValidateProp(element.schema, modalState.value)) {
-              setModalState(state => ({
-                ...(state as any) /* TODO FIXME */,
-                forceValidation: true,
-              }))
-              return
-            }
-            previewPropsOnChange(modalState.value, element)
-            setModalState('closed')
-          }}
-        >
-          Done
-        </Button>
-      </ButtonGroup>
-    </Dialog>
-  )
-}
-
-function renderArrayFieldModal(
-  props: DefaultFieldProps<'array'>,
-  modalState: { index: number; value: unknown; forceValidation: boolean } | 'closed',
   setModalState: (state: any) => void
 ): ReactElement | null {
-  if (props.schema.element.kind === 'child') return null
-  if (modalState === 'closed') return null
-
-  const element = props.elements.at(modalState.index)
-  if (!element) return null
+  if (element.schema.kind === 'child') return null
 
   const onModalChange = (cb: (value: unknown) => unknown) => {
     setModalState(state => {
@@ -235,7 +182,43 @@ function renderArrayFieldModal(
     })
   }
 
-  return buildArrayFieldModalContent(element, modalState, onModalChange, setModalState)
+  const handleDone = () => {
+    if (!clientSideValidateProp(element.schema, modalState.value)) {
+      setModalState(state => ({
+        ...(state as any),
+        forceValidation: true,
+      }))
+      return
+    }
+    previewPropsOnChange(modalState.value, element)
+    setModalState('closed')
+  }
+
+  return (
+    <Dialog>
+      <Heading>Edit item</Heading>
+      <Content>
+        <ArrayFieldItemModalContent
+          onChange={onModalChange}
+          schema={element.schema as any}
+          value={modalState.value}
+        />
+      </Content>
+      <ButtonGroup>
+        <Button
+          prominence="low"
+          onPress={() => {
+            setModalState('closed')
+          }}
+        >
+          Cancel
+        </Button>
+        <Button prominence="high" onPress={handleDone}>
+          Done
+        </Button>
+      </ButtonGroup>
+    </Dialog>
+  )
 }
 
 function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
@@ -250,6 +233,27 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
     | 'closed'
   >('closed')
 
+  const handleOpenItem = (index: number) => {
+    const element = elements.at(index)
+    if (!element) return
+    setModalState({
+      index,
+      value: previewPropsToValue(element),
+      forceValidation: false,
+    })
+  }
+
+  const handleAddItem = () => {
+    onChange([...elements.map(x => ({ key: x.key })), { key: undefined }])
+  }
+
+  const renderModalContent = () => {
+    if (modalState === 'closed') return null
+    const element = elements.at(modalState.index)
+    if (!element) return null
+    return renderArrayFieldModalContent(element, modalState, setModalState)
+  }
+
   return (
     <Field label={label} labelElementType="span">
       {groupProps => (
@@ -257,23 +261,9 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
           <ArrayFieldListView
             {...props}
             aria-label={label ?? ''}
-            onOpenItem={index => {
-              const element = elements.at(index)
-              if (!element) return
-              setModalState({
-                index,
-                value: previewPropsToValue(element),
-                forceValidation: false,
-              })
-            }}
+            onOpenItem={handleOpenItem}
           />
-          <ActionButton
-            alignSelf="start"
-            autoFocus={props.autoFocus}
-            onPress={() => {
-              onChange([...elements.map(x => ({ key: x.key })), { key: undefined }])
-            }}
-          >
+          <ActionButton alignSelf="start" autoFocus={props.autoFocus} onPress={handleAddItem}>
             Add
           </ActionButton>
           <DialogContainer
@@ -281,7 +271,7 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
               setModalState('closed')
             }}
           >
-            {renderArrayFieldModal(props, modalState, setModalState)}
+            {renderModalContent()}
           </DialogContainer>
         </VStack>
       )}
@@ -293,7 +283,8 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
   const { autoFocus, onChange, schema, value } = props
   const { listKey, label, description, filter, sort, many } = schema
   const list = useList(listKey)
-  const formValue = (function () {
+
+  const formValue = useMemo(() => {
     if (many) {
       if (value !== null && !('length' in value)) throw TypeError('bad value')
       const manyValue =
@@ -307,7 +298,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
             }))
       return {
         kind: 'many' as const,
-        id: '', // unused
+        id: '',
         initialValue: manyValue,
         value: manyValue,
       }
@@ -324,11 +315,25 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
       : null
     return {
       kind: 'one' as const,
-      id: '', // unused
+      id: '',
       initialValue: oneValue,
       value: oneValue,
     }
-  })()
+  }, [many, value])
+
+  const handleChange = (val: any) => {
+    if (val.kind === 'count') return
+    const { value } = val
+    if (value === null) {
+      onChange(null)
+      return
+    }
+    if (Array.isArray(value)) {
+      onChange(value.map(x => ({ id: x.id, label: x.label })))
+      return
+    }
+    onChange({ id: value.id, label: value.label })
+  }
 
   return (
     <RelationshipFieldView
@@ -338,14 +343,12 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
         label,
         description: description ?? '',
         display: 'select',
-        listKey: '?', // unused
-        fieldKey: '?', // unused
-        defaultValue: null as any, // unused
-        deserialize: null as any, // unused
-        serialize: null as any, // unused
-        graphqlSelection: null as any, // unused
-
-        // see relationship controller for these fields
+        listKey: '?',
+        fieldKey: '?',
+        defaultValue: null as any,
+        deserialize: null as any,
+        serialize: null as any,
+        graphqlSelection: null as any,
         refListKey: list.key,
         many,
         hideCreate: true,
@@ -356,19 +359,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
         selectFilter: filter || null,
         selectSort: sort ?? list.initialSort,
       }}
-      onChange={val => {
-        if (val.kind === 'count') return // shouldnt happen
-        const { value } = val
-        if (value === null) {
-          onChange(null)
-          return
-        }
-        if (Array.isArray(value)) {
-          onChange(value.map(x => ({ id: x.id, label: x.label })))
-          return
-        }
-        onChange({ id: value.id, label: value.label })
-      }}
+      onChange={handleChange}
       value={formValue}
       itemValue={{}}
     />
@@ -511,28 +502,29 @@ function useEventCallback<Func extends (...args: any) => any>(callback: Func): F
   return cb as any
 }
 
-function processDropItems(
-  items: DataTransferItem[],
-  dragType: string
-): Promise<Key[]> {
-  return (async () => {
-    const keys: Key[] = []
-    for (let item of items) {
-      if (item.kind === 'text') {
-        let key
-        if (item.types.has(dragType)) {
-          key = JSON.parse(await item.getText(dragType))
-          keys.push(key)
-        } else if (item.types.has('text/plain')) {
-          // Fallback for Chrome Android case: https://bugs.chromium.org/p/chromium/issues/detail?id=1293803
-          // Multiple drag items are contained in a single string so we need to split them out
-          key = await item.getText('text/plain')
-          keys.push(...key.split('\n').map(val => val.replaceAll('"', '')))
-        }
+function handleArrayFieldDrop(
+  e: any,
+  dragType: string,
+  onMove: (keys: Key[], target: ItemDropTarget) => void
+) {
+  if (e.target.type === 'root' && e.target.dropPosition === 'on') {
+    return
+  }
+
+  let keys: any[] = []
+  for (let item of e.items) {
+    if (item.kind === 'text') {
+      let key
+      if (item.types.has(dragType)) {
+        key = JSON.parse(await item.getText(dragType))
+        keys.push(key)
+      } else if (item.types.has('text/plain')) {
+        key = await item.getText('text/plain')
+        keys = key.split('\n').map(val => val.replaceAll('"', ''))
       }
     }
-    return keys
-  })()
+  }
+  onMove(keys, e.target)
 }
 
 function ArrayFieldListView<Element extends ComponentSchema>(
@@ -553,8 +545,6 @@ function ArrayFieldListView<Element extends ComponentSchema>(
   const dragType = useMemo(() => Math.random().toString(36), [])
   const { dragAndDropHooks } = useDragAndDrop({
     getItems(keys) {
-      // Use a drag type so the items can only be reordered within this list
-      // and not dragged elsewhere.
       return [...keys].map(key => {
         key = JSON.stringify(key)
         return {
@@ -568,7 +558,19 @@ function ArrayFieldListView<Element extends ComponentSchema>(
     },
     async onDrop(e) {
       if (e.target.type !== 'root' && e.target.dropPosition !== 'on') {
-        const keys = await processDropItems(e.items, dragType)
+        let keys = []
+        for (let item of e.items) {
+          if (item.kind === 'text') {
+            let key
+            if (item.types.has(dragType)) {
+              key = JSON.parse(await item.getText(dragType))
+              keys.push(key)
+            } else if (item.types.has('text/plain')) {
+              key = await item.getText('text/plain')
+              keys = key.split('\n').map(val => val.replaceAll('"', ''))
+            }
+          }
+        }
         onMove(keys, e.target)
       }
     },
@@ -577,9 +579,25 @@ function ArrayFieldListView<Element extends ComponentSchema>(
       return 'move'
     },
   })
+
   const onRemoveKey = useEventCallback((key: string) => {
     props.onChange(props.elements.map(x => ({ key: x.key })).filter(val => val.key !== key))
   })
+
+  const renderListItem = (item: GenericPreviewProps<Element, unknown>) => {
+    const label = props.schema.itemLabel?.(item) || `Item ${props.elements.indexOf(item) + 1}`
+    return (
+      <Item key={item.key} textValue={label}>
+        <Text>{label}</Text>
+        <TooltipTrigger placement="start">
+          <ActionButton onPress={() => onRemoveKey(item.key)}>
+            <Icon src={trash2Icon} />
+          </ActionButton>
+          <Tooltip>Delete</Tooltip>
+        </TooltipTrigger>
+      </Item>
+    )
+  }
 
   return (
     <ListView
@@ -595,20 +613,7 @@ function ArrayFieldListView<Element extends ComponentSchema>(
         props.onOpenItem(i)
       }}
     >
-      {item => {
-        const label = props.schema.itemLabel?.(item) || `Item ${props.elements.indexOf(item) + 1}`
-        return (
-          <Item key={item.key} textValue={label}>
-            <Text>{label}</Text>
-            <TooltipTrigger placement="start">
-              <ActionButton onPress={() => onRemoveKey(item.key)}>
-                <Icon src={trash2Icon} />
-              </ActionButton>
-              <Tooltip>Delete</Tooltip>
-            </TooltipTrigger>
-          </Item>
-        )
-      }}
+      {renderListItem}
     </ListView>
   )
 }
@@ -637,4 +642,3 @@ function arrayFieldEmptyState() {
     </VStack>
   )
 }
-```

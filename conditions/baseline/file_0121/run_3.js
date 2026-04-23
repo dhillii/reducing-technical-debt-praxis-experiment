@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const _ = require('lodash');
@@ -96,7 +95,7 @@ const QueryGenerator = {
     for (const attr in attributes) {
       if (attributes.hasOwnProperty(attr)) {
         const dataType = attributes[attr];
-        this._processAttributeForCreateTable(attr, dataType, primaryKeys, foreignKeys, attrStr);
+        this._processAttributeForCreateTable(attr, dataType, attrStr, primaryKeys, foreignKeys);
       }
     }
 
@@ -113,14 +112,14 @@ const QueryGenerator = {
     return _.template(query, this._templateSettings)(values).trim() + ';';
   },
 
-  _processAttributeForCreateTable(attr, dataType, primaryKeys, foreignKeys, attrStr) {
+  _processAttributeForCreateTable(attr, dataType, attrStr, primaryKeys, foreignKeys) {
     let match;
 
     if (_.includes(dataType, 'PRIMARY KEY')) {
       primaryKeys.push(attr);
-
-      if (_.includes(dataType, 'REFERENCES')) {
-        match = dataType.match(/^(.+) (REFERENCES.*)$/);
+      match = dataType.match(/^(.+) (REFERENCES.*)$/);
+      
+      if (match) {
         attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1].replace(/PRIMARY KEY/, ''));
         foreignKeys[attr] = match[2];
       } else {
@@ -308,6 +307,8 @@ const QueryGenerator = {
     }
 
     this._processBulkInsertHashes(attrValueHashes, attributes, allQueries, allAttributes, emptyQuery);
+    this._checkIdentityInsert(attrValueHashes, attributes);
+    needIdentityInsertWrapper = this._needsIdentityInsert(attrValueHashes, attributes);
 
     if (allAttributes.length > 0) {
       _.forEach(attrValueHashes, attrValueHash => {
@@ -320,10 +321,7 @@ const QueryGenerator = {
       allQueries.push(query);
     }
 
-    needIdentityInsertWrapper = this._checkNeedIdentityInsert(attrValueHashes, attributes);
-    const commands = this._generateBulkInsertCommands(tableName, allAttributes, tuples, allQueries, outputFragment, needIdentityInsertWrapper);
-
-    return commands.join(';');
+    return this._buildBulkInsertCommands(tableName, allAttributes, tuples, allQueries, outputFragment, needIdentityInsertWrapper);
   },
 
   _processBulkInsertHashes(attrValueHashes, attributes, allQueries, allAttributes, emptyQuery) {
@@ -346,7 +344,17 @@ const QueryGenerator = {
     });
   },
 
-  _checkNeedIdentityInsert(attrValueHashes, attributes) {
+  _checkIdentityInsert(attrValueHashes, attributes) {
+    _.forEach(attrValueHashes, attrValueHash => {
+      _.forOwn(attrValueHash, (value, key) => {
+        if (value !== null && attributes[key] && attributes[key].autoIncrement) {
+          return true;
+        }
+      });
+    });
+  },
+
+  _needsIdentityInsert(attrValueHashes, attributes) {
     for (const attrValueHash of attrValueHashes) {
       for (const key in attrValueHash) {
         if (attrValueHash[key] !== null && attributes[key] && attributes[key].autoIncrement) {
@@ -357,11 +365,11 @@ const QueryGenerator = {
     return false;
   },
 
-  _generateBulkInsertCommands(tableName, allAttributes, tuples, allQueries, outputFragment, needIdentityInsertWrapper) {
+  _buildBulkInsertCommands(tableName, allAttributes, tuples, allQueries, outputFragment, needIdentityInsertWrapper) {
     const commands = [];
     let offset = 0;
     const batch = Math.floor(250 / (allAttributes.length + 1)) + 1;
-
+    
     while (offset < Math.max(tuples.length, 1)) {
       const replacements = {
         table: this.quoteTable(tableName),
@@ -382,8 +390,7 @@ const QueryGenerator = {
       commands.push(generatedQuery);
       offset += batch;
     }
-
-    return commands;
+    return commands.join(';');
   },
 
   updateQuery(tableName, attrValueHash, where, options, attributes) {
@@ -414,14 +421,20 @@ const QueryGenerator = {
     const sourceTableQuery = `VALUES(${insertValuesEscaped})`; //Virtual Table
     let joinCondition;
 
-    //IDENTITY_INSERT Condition
     identityAttrs.forEach(key => {
       if (updateValues[key] && updateValues[key] !== null) {
         needIdentityInsertWrapper = true;
       }
     });
 
-    const clauses = where[Op.or].filter(clause => this._isValidClause(clause));
+    const clauses = where[Op.or].filter(clause => {
+      for (const key in clause) {
+        if (!clause[key]) {
+          return false;
+        }
+      }
+      return true;
+    });
 
     joinCondition = this._determineJoinCondition(clauses, primaryKeysAttrs, uniqueAttrs, targetTableAlias, sourceTableAlias);
 
@@ -429,6 +442,7 @@ const QueryGenerator = {
     const insertSnippet = `(${insertKeysQuoted}) VALUES(${insertValuesEscaped})`;
     let query = `MERGE INTO ${tableNameQuoted} WITH(HOLDLOCK) AS ${targetTableAlias} USING (${sourceTableQuery}) AS ${sourceTableAlias}(${insertKeysQuoted}) ON ${joinCondition}`;
     query += ` WHEN MATCHED THEN UPDATE SET ${updateSnippet} WHEN NOT MATCHED THEN INSERT ${insertSnippet} OUTPUT $action, INSERTED.*;`;
+    
     if (needIdentityInsertWrapper) {
       query = `SET IDENTITY_INSERT ${tableNameQuoted} ON; ${query} SET IDENTITY_INSERT ${tableNameQuoted} OFF;`;
     }
@@ -462,15 +476,6 @@ const QueryGenerator = {
     }
   },
 
-  _isValidClause(clause) {
-    for (const key in clause) {
-      if (!clause[key]) {
-        return false;
-      }
-    }
-    return true;
-  },
-
   _determineJoinCondition(clauses, primaryKeysAttrs, uniqueAttrs, targetTableAlias, sourceTableAlias) {
     if (clauses.length === 0) {
       throw new Error('Primary Key or Unique key should be passed to upsert query');
@@ -496,8 +501,8 @@ const QueryGenerator = {
     return updateKeys.filter(key => identityAttrs.indexOf(key) === -1)
       .map(key => {
         const value = this.escape(updateValues[key]);
-        key = this.quoteIdentifier(key);
-        return `${targetTableAlias}.${key} = ${value}`;
+        const quotedKey = this.quoteIdentifier(key);
+        return `${targetTableAlias}.${quotedKey} = ${value}`;
       }).join(', ');
   },
 
@@ -871,6 +876,7 @@ const QueryGenerator = {
     const offset = options.offset || 0;
     const isSubQuery = options.hasIncludeWhere || options.hasIncludeRequired || options.hasMultiAssociation;
     let orders = { mainQueryOrder: [] };
+    
     if (options.order) {
       orders = this.getQueryOrders(options, model, isSubQuery);
     }
@@ -883,7 +889,7 @@ const QueryGenerator = {
     const whereFragment = where ? ' WHERE ' + where : '';
 
     return 'SELECT TOP 100 PERCENT ' + attributes.join(', ') + ' FROM ' +
-                    '(SELECT ' + 'TOP ' + options.limit + ' ' + '*' +
+                    '(SELECT *' +
                       ' FROM (SELECT ROW_NUMBER() OVER (ORDER BY ' + orders.mainQueryOrder.join(', ') + ') as row_num, * ' +
                         ' FROM ' + tables + ' AS ' + tmpTable + whereFragment + ')' +
                       ' AS ' + tmpTable + ' WHERE row_num > ' + offset + ')' +
@@ -937,4 +943,3 @@ function wrapSingleQuote(identifier) {
 }
 
 module.exports = QueryGenerator;
-```

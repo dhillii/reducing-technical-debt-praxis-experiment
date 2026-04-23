@@ -1,4 +1,3 @@
-```javascript
 import AppContext from '../app-context';
 import Frame from './frame';
 import React, {useContext, useEffect, useMemo, useRef, useState} from 'react';
@@ -325,12 +324,19 @@ function getHighlightParts({text, highlight}) {
 }
 
 /**
- * Checks if excerpt should be truncated based on highlight position
- * @param {number} startIdx - The start index of the first highlight
- * @returns {boolean} True if excerpt should be truncated
+ * Truncates text for excerpt display if highlight is far from start
+ * @param {string} text - The text to potentially truncate
+ * @param {Array} highlightIndexes - Array of highlight match positions
+ * @returns {string} The potentially truncated text
  */
-function shouldTruncateExcerpt(startIdx) {
-    return startIdx > 50;
+function getTruncatedExcerpt(text, highlightIndexes) {
+    if (highlightIndexes?.[0]) {
+        const startIdx = highlightIndexes?.[0]?.startIdx;
+        if (startIdx > 50) {
+            return '...' + text?.slice(startIdx - 20);
+        }
+    }
+    return text;
 }
 
 function HighlightedSection({text = '', highlight = '', isExcerpt}) {
@@ -338,11 +344,10 @@ function HighlightedSection({text = '', highlight = '', isExcerpt}) {
     highlight = highlight || '';
     let {parts, highlightIndexes} = getHighlightParts({text, highlight});
     
-    if (isExcerpt && highlightIndexes?.[0]) {
-        const startIdx = highlightIndexes?.[0]?.startIdx;
-        if (shouldTruncateExcerpt(startIdx)) {
-            text = '...' + text?.slice(startIdx - 20);
-            const {parts: updatedParts} = getHighlightParts({text, highlight});
+    if (isExcerpt) {
+        const truncatedText = getTruncatedExcerpt(text, highlightIndexes);
+        if (truncatedText !== text) {
+            const {parts: updatedParts} = getHighlightParts({text: truncatedText, highlight});
             parts = updatedParts;
         }
     }
@@ -370,22 +375,22 @@ function HighlightedSection({text = '', highlight = '', isExcerpt}) {
 }
 
 /**
- * Highlight word renderer strategy
+ * Renders highlight styling based on context
+ * @param {string} word - The word to highlight
+ * @param {boolean} isExcerpt - Whether this is in an excerpt context
+ * @returns {JSX.Element} The styled highlight element
  */
-const highlightWordStrategies = {
-    excerpt: (word) => (
-        <span className='font-bold'>{word}</span>
-    ),
-    title: (word) => (
-        <span className='font-bold text-neutral-900'>{word}</span>
-    )
-};
+function getHighlightWordElement(word, isExcerpt) {
+    if (isExcerpt) {
+        return <span className='font-bold'>{word}</span>;
+    }
+    return <span className='font-bold text-neutral-900'>{word}</span>;
+}
 
 function HighlightWord({word, isExcerpt}) {
-    const strategy = isExcerpt ? 'excerpt' : 'title';
     return (
         <>
-            {highlightWordStrategies[strategy](word)}
+            {getHighlightWordElement(word, isExcerpt)}
         </>
     );
 }
@@ -460,30 +465,23 @@ function AuthorListItem({author, selectedResult, setSelectedResult}) {
 }
 
 /**
- * Avatar renderer strategy
+ * Determines if an avatar image should be displayed
+ * @param {string} avatar - The avatar URL or data
+ * @returns {boolean} True if avatar exists and should be displayed
  */
-const avatarStrategies = {
-    withImage: (avatar, name) => (
-        <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name}/>
-    ),
-    withInitial: (name) => (
-        <div className='rounded-full bg-neutral-200 w-7 h-7 me-2 flex items-center justify-center font-bold'>
-            <span className="text-neutral-400">{name.charAt(0)}</span>
-        </div>
-    )
-};
+function hasAvatarImage(avatar) {
+    return avatar?.length > 0;
+}
 
 function AuthorAvatar({name, avatar}) {
-    const hasAvatar = avatar?.length;
-    const strategy = hasAvatar ? 'withImage' : 'withInitial';
-    
+    const Character = name.charAt(0);
+    if (hasAvatarImage(avatar)) {
+        return (
+            <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name}/>
+        );
+    }
     return (
-        <>
-            {hasAvatar 
-                ? avatarStrategies.withImage(avatar, name)
-                : avatarStrategies.withInitial(name)
-            }
-        </>
+        <div className='rounded-full bg-neutral-200 w-7 h-7 me-2 flex items-center justify-center font-bold'><span className="text-neutral-400">{Character}</span></div>
     );
 }
 
@@ -513,15 +511,22 @@ function AuthorResults({authors, selectedResult, setSelectedResult}) {
 }
 
 /**
- * Filters results by checking for invalid URLs
- * @param {Array} items - Items to filter
- * @returns {Array} Filtered items
+ * Checks if a URL matches the invalid URL pattern
+ * @param {string} url - The URL to validate
+ * @returns {boolean} True if URL is invalid (404)
+ */
+function isInvalidUrl(url) {
+    const invalidUrlRegex = /\/404\/$/;
+    return url && invalidUrlRegex.test(url);
+}
+
+/**
+ * Filters out results with invalid URLs
+ * @param {Array} items - Array of items with URL properties
+ * @returns {Array} Filtered array without invalid URLs
  */
 function filterValidUrls(items) {
-    const invalidUrlRegex = /\/404\/$/;
-    return items.filter((item) => {
-        return !(item?.url && invalidUrlRegex.test(item?.url));
-    });
+    return items.filter((item) => !isInvalidUrl(item?.url));
 }
 
 function SearchResultBox() {
@@ -691,6 +696,10 @@ export default class PopupModal extends React.Component {
         }
     }
 
+    /**
+     * Renders frame-level styles and meta tags
+     * @returns {JSX.Element} Style and meta elements
+     */
     renderFrameStyles() {
         const styles = `
             :root {
@@ -703,19 +712,22 @@ export default class PopupModal extends React.Component {
         `;
 
         const stylesUrl = this.context.stylesUrl;
+        const commonMeta = <meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1' />;
+        const styleElement = <style dangerouslySetInnerHTML={{__html: styles}} />;
+
         if (stylesUrl) {
             return (
                 <>
                     <link rel='stylesheet' href={stylesUrl} />
-                    <style dangerouslySetInnerHTML={{__html: styles}} />
-                    <meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1' />
+                    {styleElement}
+                    {commonMeta}
                 </>
             );
         }
         return (
             <>
-                <style dangerouslySetInnerHTML={{__html: styles}} />
-                <meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1' />
+                {styleElement}
+                {commonMeta}
             </>
         );
     }
@@ -747,4 +759,3 @@ export default class PopupModal extends React.Component {
         return null;
     }
 }
-```

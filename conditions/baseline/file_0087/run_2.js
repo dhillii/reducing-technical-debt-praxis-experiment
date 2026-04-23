@@ -1,4 +1,3 @@
-```typescript
 import { useListFormatter } from '@react-aria/i18n'
 import { type Key, useMemo, useState } from 'react'
 
@@ -303,4 +302,3 @@ export function controller(config: Config): FieldController<
     },
   }
 }
-```

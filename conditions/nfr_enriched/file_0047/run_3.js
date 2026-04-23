@@ -1,4 +1,3 @@
-```javascript
 const _ = require('lodash');
 const logging = require('@tryghost/logging');
 
@@ -64,18 +63,16 @@ module.exports = class StripeMigrations {
         const defaultProduct = data[0] && data[0].toJSON();
 
         if (subscriptions.length > 0 && products.length === 0 && prices.length === 0 && defaultProduct) {
-            await this._migrateProductsAndPricesFromStripe(subscriptions, defaultProduct, options);
+            await this._migrateExistingStripeCustomers(subscriptions, defaultProduct, options);
         }
     }
 
-    // Handles the actual migration of products and prices from Stripe
-    async _migrateProductsAndPricesFromStripe(subscriptions, defaultProduct, options) {
+    // Extracted helper: migrate existing stripe customers
+    async _migrateExistingStripeCustomers(subscriptions, defaultProduct, options) {
         try {
             logging.info(`Populating products and prices for existing stripe customers`);
             const uniquePlans = _.uniq(subscriptions.map(d => _.get(d, 'plan.id')));
-            const stripePrices = await this._fetchStripePrices(uniquePlans);
-            
-            logging.info(`Adding ${stripePrices.length} prices from Stripe`);
+            const stripePrices = await this._fetchStripePricesForPlans(uniquePlans);
             await this._addStripePricesToDatabase(stripePrices, defaultProduct, options);
         } catch (e) {
             logging.error(`Failed to populate products/prices from stripe`);
@@ -83,10 +80,10 @@ module.exports = class StripeMigrations {
         }
     }
 
-    // Fetches prices from Stripe API, handling 404 errors gracefully
-    async _fetchStripePrices(planIds) {
+    // Extracted helper: fetch stripe prices for given plans
+    async _fetchStripePricesForPlans(uniquePlans) {
         const stripePrices = [];
-        for (const plan of planIds) {
+        for (const plan of uniquePlans) {
             try {
                 const stripePrice = await this.api.getPrice(plan, {
                     expand: ['product']
@@ -103,10 +100,10 @@ module.exports = class StripeMigrations {
         return stripePrices;
     }
 
-    // Adds fetched Stripe prices to the database
+    // Extracted helper: add stripe prices to database
     async _addStripePricesToDatabase(stripePrices, defaultProduct, options) {
+        logging.info(`Adding ${stripePrices.length} prices from Stripe`);
         for (const stripePrice of stripePrices) {
-            /** @type {import('stripe').Stripe.Product} */
             const stripeProduct = (stripePrice.product);
 
             await this.models.StripeProduct.upsert({
@@ -168,57 +165,52 @@ module.exports = class StripeMigrations {
         } catch (err) {
             return;
         }
-        
-        let defaultStripeProduct = await this._getOrCreateDefaultStripeProduct(options);
-
-        if (!defaultStripeProduct) {
-            return;
-        }
-
-        await this._createMissingStripePrices(plans, defaultStripeProduct, options);
-    }
-
-    // Retrieves or creates the default Stripe product
-    async _getOrCreateDefaultStripeProduct(options) {
+        let defaultStripeProduct;
         const stripeProductsPage = await this.models.StripeProduct.findPage({...options, limit: 1});
-        let defaultStripeProduct = stripeProductsPage.data[0];
+        defaultStripeProduct = stripeProductsPage.data[0];
 
         if (!defaultStripeProduct) {
-            logging.info('Could not find Stripe Product - creating one');
-            const productsPage = await this.models.Product.findPage({...options, limit: 1, filter: 'type: paid'});
-            const defaultProduct = productsPage.data[0];
-            
-            if (!defaultProduct) {
-                logging.error('Could not find Product - skipping stripe_plans -> stripe_prices migration');
-                return null;
+            defaultStripeProduct = await this._createDefaultStripeProduct(options);
+            if (!defaultStripeProduct) {
+                return;
             }
-
-            const stripeProduct = await this.api.createProduct({
-                name: defaultProduct.get('name')
-            });
-            
-            defaultStripeProduct = await this.models.StripeProduct.add({
-                product_id: defaultProduct.id,
-                stripe_product_id: stripeProduct.id
-            }, options);
         }
 
-        return defaultStripeProduct;
+        await this._addPlansAsStripePrices(plans, defaultStripeProduct, options);
     }
 
-    // Creates missing Stripe prices from plans
-    async _createMissingStripePrices(plans, defaultStripeProduct, options) {
+    // Extracted helper: create default stripe product
+    async _createDefaultStripeProduct(options) {
+        logging.info('Could not find Stripe Product - creating one');
+        const productsPage = await this.models.Product.findPage({...options, limit: 1, filter: 'type: paid'});
+        const defaultProduct = productsPage.data[0];
+        if (!defaultProduct) {
+            logging.error('Could not find Product - skipping stripe_plans -> stripe_prices migration');
+            return null;
+        }
+        const stripeProduct = await this.api.createProduct({
+            name: defaultProduct.get('name')
+        });
+        return await this.models.StripeProduct.add({
+            product_id: defaultProduct.id,
+            stripe_product_id: stripeProduct.id
+        }, options);
+    }
+
+    // Extracted helper: add plans as stripe prices
+    async _addPlansAsStripePrices(plans, defaultStripeProduct, options) {
         for (const plan of plans) {
             const existingPrice = await this.findPriceByPlan(plan, options);
 
             if (!existingPrice) {
-                await this._createAndSaveStripePrice(plan, defaultStripeProduct, options);
+                await this._createAndAddStripePrice(plan, defaultStripeProduct, options);
             }
         }
     }
 
-    // Creates a single Stripe price and saves it to database
-    async _createAndSaveStripePrice(plan, defaultStripeProduct, options) {
+    // Extracted helper: create and add a single stripe price
+    async _createAndAddStripePrice(plan, defaultStripeProduct, options) {
+        logging.info(`Could not find Stripe Price ${JSON.stringify(plan)}`);
         try {
             logging.info(`Creating Stripe Price ${JSON.stringify(plan)}`);
             const price = await this.api.createPrice({
@@ -297,7 +289,7 @@ module.exports = class StripeMigrations {
         });
     }
 
-    // Gets price ID for a given plan name
+    // Extracted helper: get price id for plan name
     async _getPriceIdForPlanName(planName, plans, options) {
         const plan = plans.find((planItem) => {
             return planItem.name === planName;
@@ -330,7 +322,7 @@ module.exports = class StripeMigrations {
         }
     }
 
-    // Finds or creates a monthly price
+    // Extracted helper: find or create monthly price
     async _findOrCreateMonthlyPrice(options) {
         const stripePlans = await this.models.Settings.findOne({key: 'stripe_plans'}, options);
         let plans;
@@ -364,18 +356,18 @@ module.exports = class StripeMigrations {
         }
 
         if (!monthlyPrice) {
-            monthlyPrice = await this._createDefaultMonthlyPrice(options);
+            monthlyPrice = await this._createMonthlyPrice(options);
         }
 
         return monthlyPrice;
     }
 
-    // Creates a default monthly price
-    async _createDefaultMonthlyPrice(options) {
+    // Extracted helper: create monthly price
+    async _createMonthlyPrice(options) {
         logging.info('Could not any active Monthly price - creating a new one');
+        let defaultStripeProduct;
         const stripeProductsPage = await this.models.StripeProduct.findPage({...options, limit: 1});
-        const defaultStripeProduct = stripeProductsPage.data[0];
-        
+        defaultStripeProduct = stripeProductsPage.data[0];
         const price = await this.api.createPrice({
             currency: 'usd',
             amount: 5000,
@@ -419,7 +411,7 @@ module.exports = class StripeMigrations {
         }
     }
 
-    // Finds or creates a yearly price
+    // Extracted helper: find or create yearly price
     async _findOrCreateYearlyPrice(options) {
         const stripePlans = await this.models.Settings.findOne({key: 'stripe_plans'}, options);
         let plans;
@@ -453,18 +445,18 @@ module.exports = class StripeMigrations {
         }
 
         if (!yearlyPrice) {
-            yearlyPrice = await this._createDefaultYearlyPrice(options);
+            yearlyPrice = await this._createYearlyPrice(options);
         }
 
         return yearlyPrice;
     }
 
-    // Creates a default yearly price
-    async _createDefaultYearlyPrice(options) {
+    // Extracted helper: create yearly price
+    async _createYearlyPrice(options) {
         logging.info('Could not any active yearly price - creating a new one');
+        let defaultStripeProduct;
         const stripeProductsPage = await this.models.StripeProduct.findPage({...options, limit: 1});
-        const defaultStripeProduct = stripeProductsPage.data[0];
-        
+        defaultStripeProduct = stripeProductsPage.data[0];
         const price = await this.api.createPrice({
             currency: 'usd',
             amount: 500,
@@ -557,9 +549,19 @@ module.exports = class StripeMigrations {
             logging.info('The portal_plans setting already contains names, skipping migration');
             return;
         }
+        const portalPlanIds = portalPlans.filter((plan) => {
+            return plan !== 'free';
+        });
 
-        const newPortalPlans = await this._convertPortalPlanIdsToNames(portalPlans, options);
-        
+        if (portalPlanIds.length === 0) {
+            logging.info('No price ids found in portal_plans setting, skipping migration');
+            return;
+        }
+        const defaultPortalPlans = portalPlans.filter((plan) => {
+            return plan === 'free';
+        });
+
+        const newPortalPlans = await this._convertPriceIdsToPlans(portalPlanIds, defaultPortalPlans, options);
         logging.info(`Updating portal_plans setting to ${JSON.stringify(newPortalPlans)}`);
         await this.models.Settings.edit({
             key: 'portal_plans',
@@ -570,21 +572,8 @@ module.exports = class StripeMigrations {
         });
     }
 
-    // Converts portal plan IDs to plan names
-    async _convertPortalPlanIdsToNames(portalPlans, options) {
-        const portalPlanIds = portalPlans.filter((plan) => {
-            return plan !== 'free';
-        });
-
-        if (portalPlanIds.length === 0) {
-            logging.info('No price ids found in portal_plans setting, skipping migration');
-            return portalPlans;
-        }
-
-        const defaultPortalPlans = portalPlans.filter((plan) => {
-            return plan === 'free';
-        });
-
+    // Extracted helper: convert price ids to plan names
+    async _convertPriceIdsToPlans(portalPlanIds, defaultPortalPlans, options) {
         return await portalPlanIds.reduce(async (newPortalPlansPromise, priceId) => {
             const plan = await this.getPlanFromPrice(priceId, options);
 
@@ -680,4 +669,3 @@ module.exports = class StripeMigrations {
         }
     }
 };
-```

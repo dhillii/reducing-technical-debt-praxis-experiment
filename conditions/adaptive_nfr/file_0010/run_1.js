@@ -1,4 +1,3 @@
-```typescript
 import NiceModal from '@ebay/nice-modal-react';
 import React, {useEffect, useRef} from 'react';
 import TierDetailPreview from './tier-detail-preview';
@@ -14,30 +13,13 @@ export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
     trial_days: string;
 };
 
-/**
- * Determines if a tier is the free tier type
- */
-const isFreeTierType = (tier?: Tier): boolean => tier?.type === 'free';
-
-/**
- * Determines if a tier should show the archive button
- */
-const shouldShowArchiveButton = (tier: Tier): boolean => tier.active && tier.type !== 'free';
-
-/**
- * Determines if a tier should show the reactivate button
- */
-const shouldShowReactivateButton = (tier: Tier): boolean => !tier.active;
-
-/**
- * Builds left button props based on tier state
- */
-const buildLeftButtonProps = (tier: Tier | undefined, onStatusChange: () => void): ButtonProps => {
+/** Determines the left button configuration based on tier state */
+const getLeftButtonProps = (tier: Tier | undefined, onStatusChange: () => void): ButtonProps => {
     if (!tier) {
         return {};
     }
 
-    if (shouldShowArchiveButton(tier)) {
+    if (tier.active && tier.type !== 'free') {
         return {
             label: 'Archive tier',
             color: 'red',
@@ -46,7 +28,7 @@ const buildLeftButtonProps = (tier: Tier | undefined, onStatusChange: () => void
         };
     }
 
-    if (shouldShowReactivateButton(tier)) {
+    if (!tier.active) {
         return {
             label: 'Reactivate tier',
             color: 'green',
@@ -58,22 +40,17 @@ const buildLeftButtonProps = (tier: Tier | undefined, onStatusChange: () => void
     return {};
 };
 
-/**
- * Determines the modal title based on tier state
- */
-const getModalTitle = (tier?: Tier): string => {
+/** Determines the modal title based on tier state */
+const getModalTitle = (tier: Tier | undefined): string => {
     if (!tier) {
         return 'New tier';
     }
     return tier.active ? 'Edit tier' : 'Edit archived tier';
 };
 
-/**
- * Builds confirmation modal content for tier status change
- */
-const buildStatusChangeContent = (tier: Tier): {title: string; prompt: React.ReactNode; okLabel: string; okColor: 'red' | 'black'} => {
+/** Generates confirmation modal content for tier status changes */
+const getTierStatusChangeContent = (tier: Tier) => {
     const isArchiving = tier.active;
-    
     return {
         title: isArchiving ? 'Archive tier' : 'Reactivate tier',
         prompt: isArchiving ? (
@@ -92,9 +69,7 @@ const buildStatusChangeContent = (tier: Tier): {title: string; prompt: React.Rea
     };
 };
 
-/**
- * Updates portal plans based on free tier visibility
- */
+/** Updates portal plans based on free tier visibility */
 const updatePortalPlansForFreeTier = async (
     visible: boolean,
     portalPlans: string[],
@@ -123,7 +98,7 @@ const updatePortalPlansForFreeTier = async (
 };
 
 const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
-    const isFreeTier = isFreeTierType(tier);
+    const isFreeTier = tier?.type === 'free';
 
     const {updateRoute} = useRouting();
     const {mutateAsync: updateTier} = useEditTier();
@@ -176,7 +151,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
             } else {
                 await createTier(values);
             }
-            
+
             if (isFreeTier) {
                 const visible = formState.visibility === 'public';
                 await updatePortalPlansForFreeTier(visible, portalPlans, editSettings);
@@ -215,7 +190,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
 
     const confirmTierStatusChange = () => {
         if (tier) {
-            const content = buildStatusChangeContent(tier);
+            const content = getTierStatusChangeContent(tier);
             NiceModal.show(ConfirmationModal, {
                 title: content.title,
                 prompt: content.prompt,
@@ -234,7 +209,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         }
     };
 
-    const leftButtonProps = buildLeftButtonProps(tier, confirmTierStatusChange);
+    const leftButtonProps = getLeftButtonProps(tier, confirmTierStatusChange);
 
     return <Modal
         afterClose={() => {
@@ -435,4 +410,3 @@ const TierDetailModal: React.FC<RoutingModalProps> = ({params}) => {
 };
 
 export default NiceModal.create(TierDetailModal);
-```

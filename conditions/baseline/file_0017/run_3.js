@@ -1,4 +1,3 @@
-```javascript
 import React, {useContext, useState} from 'react';
 import PropTypes from 'prop-types';
 import AppContext from '../../app-context';
@@ -78,6 +77,11 @@ const Header = ({showConfirmation, confirmationType}) => {
     );
 };
 
+Header.propTypes = {
+    showConfirmation: PropTypes.bool,
+    confirmationType: PropTypes.string
+};
+
 const CancelSubscriptionButton = ({member, onCancelSubscription, action, brandColor}) => {
     const {site} = useContext(AppContext);
     if (!member.paid) {
@@ -121,6 +125,13 @@ const CancelSubscriptionButton = ({member, onCancelSubscription, action, brandCo
             />
         </div>
     );
+};
+
+CancelSubscriptionButton.propTypes = {
+    member: PropTypes.object.isRequired,
+    onCancelSubscription: PropTypes.func.isRequired,
+    action: PropTypes.string,
+    brandColor: PropTypes.string
 };
 
 // For confirmation flows
@@ -217,6 +228,12 @@ const PlanConfirmationSection = ({plan, type, onConfirm}) => {
     }
 };
 
+PlanConfirmationSection.propTypes = {
+    plan: PropTypes.object.isRequired,
+    type: PropTypes.string.isRequired,
+    onConfirm: PropTypes.func.isRequired
+};
+
 // For paid members
 const ChangePlanSection = ({plans, selectedPlan, onPlanSelect, onCancelSubscription}) => {
     const {member, action, brandColor} = useContext(AppContext);
@@ -236,6 +253,13 @@ const ChangePlanSection = ({plans, selectedPlan, onPlanSelect, onCancelSubscript
     );
 };
 
+ChangePlanSection.propTypes = {
+    plans: PropTypes.array,
+    selectedPlan: PropTypes.string,
+    onPlanSelect: PropTypes.func,
+    onCancelSubscription: PropTypes.func
+};
+
 function PlansOrProductSection({selectedPlan, onPlanSelect, onPlanCheckout, changePlan = false}) {
     const {site, member} = useContext(AppContext);
     const products = getUpgradeProducts({site, member});
@@ -251,6 +275,13 @@ function PlansOrProductSection({selectedPlan, onPlanSelect, onPlanCheckout, chan
         />
     );
 }
+
+PlansOrProductSection.propTypes = {
+    selectedPlan: PropTypes.string,
+    onPlanSelect: PropTypes.func,
+    onPlanCheckout: PropTypes.func,
+    changePlan: PropTypes.bool
+};
 
 // TODO: Add i18n once copy is finalized
 function getOfferMessage(offer, originalPrice, currency, amountOff) {
@@ -357,19 +388,12 @@ const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineO
             />
         </div>
     );
+    /* eslint-enable i18next/no-literal-string */
 };
 
 RetentionOfferSection.propTypes = {
-    offer: PropTypes.shape({
-        type: PropTypes.string.isRequired,
-        cadence: PropTypes.string.isRequired,
-        duration: PropTypes.string,
-        duration_in_months: PropTypes.number,
-        amount: PropTypes.number
-    }).isRequired,
-    product: PropTypes.shape({
-        name: PropTypes.string.isRequired
-    }).isRequired,
+    offer: PropTypes.object.isRequired,
+    product: PropTypes.object.isRequired,
     price: PropTypes.shape({
         amount: PropTypes.number.isRequired,
         currency: PropTypes.string.isRequired
@@ -382,6 +406,8 @@ RetentionOfferSection.propTypes = {
 const UpgradePlanSection = ({
     plans, selectedPlan, onPlanSelect, onPlanCheckout
 }) => {
+    // const {action, brandColor} = useContext(AppContext);
+    // const isRunning = ['checkoutPlan:running'].includes(action);
     let singlePlanClass = '';
     if (plans.length === 1) {
         singlePlanClass = 'singleplan';
@@ -397,8 +423,23 @@ const UpgradePlanSection = ({
                     onPlanCheckout={onPlanCheckout}
                 />
             </div>
+            {/* <ActionButton
+                onClick={e => onPlanCheckout(e)}
+                isRunning={isRunning}
+                isPrimary={true}
+                brandColor={brandColor}
+                label={'Continue'}
+                style={{height: '40px', width: '100%', marginTop: '24px'}}
+            /> */}
         </section>
     );
+};
+
+UpgradePlanSection.propTypes = {
+    plans: PropTypes.array,
+    selectedPlan: PropTypes.string,
+    onPlanSelect: PropTypes.func,
+    onPlanCheckout: PropTypes.func
 };
 
 const PlansContainer = ({
@@ -453,6 +494,21 @@ const PlansContainer = ({
             {...{plan: confirmationPlan, type: confirmationType, onConfirm}}
         />
     );
+};
+
+PlansContainer.propTypes = {
+    plans: PropTypes.array,
+    selectedPlan: PropTypes.string,
+    confirmationPlan: PropTypes.object,
+    confirmationType: PropTypes.string,
+    showConfirmation: PropTypes.bool,
+    pendingOffer: PropTypes.object,
+    onPlanSelect: PropTypes.func,
+    onPlanCheckout: PropTypes.func,
+    onConfirm: PropTypes.func,
+    onCancelSubscription: PropTypes.func,
+    onAcceptRetentionOffer: PropTypes.func,
+    onDeclineRetentionOffer: PropTypes.func
 };
 
 export default class AccountPlanPage extends React.Component {
@@ -688,4 +744,3 @@ export default class AccountPlanPage extends React.Component {
         );
     }
 }
-```

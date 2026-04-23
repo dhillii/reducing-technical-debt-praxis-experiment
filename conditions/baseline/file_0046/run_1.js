@@ -1,4 +1,3 @@
-```javascript
 // @ts-ignore
 const {VersionMismatchError} = require('@tryghost/errors');
 // @ts-ignore
@@ -132,8 +131,8 @@ module.exports = class StripeAPI {
         this._config = config;
         this._testMode = config.secretKey && config.secretKey.startsWith('sk_test_');
         
-        const rateLimitCapacity = this._testMode ? TEST_MODE_RATE_LIMIT : LIVE_MODE_RATE_LIMIT;
-        this._rateLimitBucket = new LeakyBucket(EXPECTED_API_EFFICIENCY * rateLimitCapacity, 1);
+        const rateLimitCapacity = this._testMode ? EXPECTED_API_EFFICIENCY * TEST_MODE_RATE_LIMIT : EXPECTED_API_EFFICIENCY * LIVE_MODE_RATE_LIMIT;
+        this._rateLimitBucket = new LeakyBucket(rateLimitCapacity, 1);
         this._searchRateLimitBucket = new LeakyBucket(EXPECTED_SEARCH_API_EFFICIENCY * SEARCH_MODE_RATE_LIMIT, 1);
         this._configured = true;
     }
@@ -342,9 +341,10 @@ module.exports = class StripeAPI {
 
     /**
      * Find the customer with the most recent subscription from a list of customers.
-     * @private
+     *
      * @param {Array} customers
      * @returns {string} Customer ID
+     * @private
      */
     _findLatestCustomerId(customers) {
         let latestCustomer = customers[0];
@@ -363,12 +363,13 @@ module.exports = class StripeAPI {
 
     /**
      * Get the most recent subscription time for a customer.
-     * @private
+     *
      * @param {object} customer
      * @returns {number} Unix timestamp
+     * @private
      */
     _getLatestSubscriptionTime(customer) {
-        if (!customer.subscriptions?.data?.length) {
+        if (!customer.subscriptions || !customer.subscriptions.data || customer.subscriptions.data.length === 0) {
             return 0;
         }
 
@@ -533,38 +534,18 @@ module.exports = class StripeAPI {
      * @returns {Promise<ICheckoutSession>}
      */
     async createCheckoutSession(priceId, customer, options) {
-        const metadata = options.metadata || undefined;
+        const metadata = options.metadata || undefined; // https://docs.stripe.com/api/metadata some limits to how much can be passed
         const customerId = customer ? customer.id : undefined;
         const customerEmail = customer ? customer.email : options.customerEmail;
 
         await this._rateLimitBucket.throttle();
-        
-        const discounts = options.coupon ? [{coupon: options.coupon}] : undefined;
-        const subscriptionData = this._buildSubscriptionData(metadata, priceId, options.trialDays);
-
-        const stripeSessionOptions = {
-            payment_method_types: this.PAYMENT_METHOD_TYPES,
-            success_url: options.successUrl || this._config.checkoutSessionSuccessUrl,
-            cancel_url: options.cancelUrl || this._config.checkoutSessionCancelUrl,
-            // @ts-ignore
-            allow_promotion_codes: discounts ? undefined : this._config.enablePromoCodes,
-            automatic_tax: {
-                enabled: this._config.enableAutomaticTax
-            },
-            metadata,
-            discounts,
-            subscription_data: subscriptionData
-        };
-
-        if (customerId) {
-            stripeSessionOptions.customer = customerId;
-        } else {
-            stripeSessionOptions.customer_email = customerEmail;
+        let discounts;
+        if (options.coupon) {
+            discounts = [{coupon: options.coupon}];
         }
 
-        if (customerId && this._config.enableAutomaticTax) {
-            stripeSessionOptions.customer_update = {address: 'auto'};
-        }
+        const subscriptionData = this._buildSubscriptionData(metadata, options.trialDays);
+        const stripeSessionOptions = this._buildCheckoutSessionOptions(priceId, options, customerId, customerEmail, discounts);
 
         // @ts-ignore
         const session = await this._stripe.checkout.sessions.create(stripeSessionOptions);
@@ -574,13 +555,13 @@ module.exports = class StripeAPI {
 
     /**
      * Build subscription data for checkout session.
-     * @private
+     *
      * @param {Object.<String, any>} metadata
-     * @param {string} priceId
      * @param {number} trialDays
      * @returns {object}
+     * @private
      */
-    _buildSubscriptionData(metadata, priceId, trialDays) {
+    _buildSubscriptionData(metadata, trialDays) {
         const subscriptionData = {
             trial_from_plan: true,
             items: [{
@@ -610,6 +591,45 @@ module.exports = class StripeAPI {
     }
 
     /**
+     * Build checkout session options.
+     *
+     * @param {string} priceId
+     * @param {object} options
+     * @param {string} customerId
+     * @param {string} customerEmail
+     * @param {Array} discounts
+     * @returns {object}
+     * @private
+     */
+    _buildCheckoutSessionOptions(priceId, options, customerId, customerEmail, discounts) {
+        const stripeSessionOptions = {
+            payment_method_types: this.PAYMENT_METHOD_TYPES,
+            success_url: options.successUrl || this._config.checkoutSessionSuccessUrl,
+            cancel_url: options.cancelUrl || this._config.checkoutSessionCancelUrl,
+            // @ts-ignore - we need to update to latest stripe library to correctly use newer features
+            allow_promotion_codes: discounts ? undefined : this._config.enablePromoCodes,
+            automatic_tax: {
+                enabled: this._config.enableAutomaticTax
+            },
+            metadata: options.metadata,
+            discounts,
+            subscription_data: this._buildSubscriptionData(options.metadata, options.trialDays)
+        };
+
+        if (customerId) {
+            stripeSessionOptions.customer = customerId;
+        } else {
+            stripeSessionOptions.customer_email = customerEmail;
+        }
+
+        if (customerId && this._config.enableAutomaticTax) {
+            stripeSessionOptions.customer_update = {address: 'auto'};
+        }
+
+        return stripeSessionOptions;
+    }
+
+    /**
      * Create a new Stripe Checkout Session for a donation.
      *
      * @param {object} options
@@ -626,6 +646,12 @@ module.exports = class StripeAPI {
     async createDonationCheckoutSession({priceId, successUrl, cancelUrl, metadata, customer, customerEmail, personalNote}) {
         await this._rateLimitBucket.throttle();
 
+        /**
+         * @type {Stripe.Checkout.SessionCreateParams}
+         */
+
+        // TODO - add it higher up the stack to the metadata object.
+        // add ghost_donation key to metadata object
         metadata = {
             ghost_donation: true,
             ...metadata
@@ -645,6 +671,7 @@ module.exports = class StripeAPI {
             invoice_creation: {
                 enabled: true,
                 invoice_data: {
+                    // Make sure we pass the data through to the invoice
                     metadata: {
                         ghost_donation: true,
                         ...metadata
@@ -1039,4 +1066,3 @@ module.exports = class StripeAPI {
         return await this._stripe.billingPortal.configurations.update(id, options);
     }
 };
-```

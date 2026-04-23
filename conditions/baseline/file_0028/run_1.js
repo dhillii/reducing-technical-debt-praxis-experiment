@@ -1,4 +1,3 @@
-```javascript
 import * as Sentry from '@sentry/ember';
 import Component from '@glimmer/component';
 import React, {Suspense} from 'react';
@@ -283,8 +282,7 @@ export default class KoenigLexicalEditor extends Component {
                 {
                     label: 'Upgrade or change plan',
                     value: '#/portal/account/plans'
-                }
-            ];
+                }];
         }
         return links;
     }
@@ -337,50 +335,6 @@ export default class KoenigLexicalEditor extends Component {
         return labels.map(label => label.name);
     }
 
-    async buildSearchResults(term) {
-        if (!term) {
-            if (this.defaultLinks) {
-                return this.defaultLinks;
-            }
-
-            const posts = await this.store.query('post', {
-                filter: 'status:published',
-                fields: 'id,url,title,visibility,published_at',
-                order: 'published_at desc',
-                limit: 5
-            });
-
-            const results = posts.toArray().map(post => ({
-                groupName: 'Latest posts',
-                id: post.id,
-                title: post.title,
-                url: post.url,
-                visibility: post.visibility,
-                publishedAt: post.publishedAtUTC.toISOString()
-            }));
-
-            results.forEach(item => decoratePostSearchResult(item, this.settings));
-
-            this.defaultLinks = [{
-                label: 'Latest posts',
-                items: results
-            }];
-            return this.defaultLinks;
-        }
-
-        let results = [];
-        try {
-            results = await this.search.searchTask.perform(term);
-        } catch (error) {
-            if (!didCancel(error)) {
-                throw error;
-            }
-            return [];
-        }
-
-        return this.filterSearchResults(results);
-    }
-
     filterSearchResults(results) {
         const filteredResults = [];
         results.forEach((group) => {
@@ -398,6 +352,7 @@ export default class KoenigLexicalEditor extends Component {
                 return;
             }
 
+            // update the group items with metadata
             if (group.groupName === 'Posts' || group.groupName === 'Pages') {
                 items.forEach(item => decoratePostSearchResult(item, this.settings));
             }
@@ -411,86 +366,63 @@ export default class KoenigLexicalEditor extends Component {
         return filteredResults;
     }
 
-    buildUnsplashConfig() {
-        return {
-            defaultHeaders: {
-                Authorization: `Client-ID 8672af113b0a8573edae3aa3713886265d9bb741d707f6c01a486cde8c278980`,
-                'Accept-Version': 'v1',
-                'Content-Type': 'application/json',
-                'App-Pragma': 'no-cache',
-                'X-Unsplash-Cache': true
-            }
-        };
-    }
-
-    checkStripeEnabled() {
-        const hasDirectKeys = !!(this.settings.stripeSecretKey && this.settings.stripePublishableKey);
-        const hasConnectKeys = !!(this.settings.stripeConnectSecretKey && this.settings.stripeConnectPublishableKey);
-
-        if (this.config.stripeDirect) {
-            return hasDirectKeys;
+    async buildDefaultLinks() {
+        if (this.defaultLinks) {
+            return this.defaultLinks;
         }
-        return hasDirectKeys || hasConnectKeys;
+
+        const posts = await this.store.query('post', {filter: 'status:published', fields: 'id,url,title,visibility,published_at', order: 'published_at desc', limit: 5});
+        // NOTE: these posts are Ember Data models, not plain objects like the search results
+        const results = posts.toArray().map(post => ({
+            groupName: 'Latest posts',
+            id: post.id,
+            title: post.title,
+            url: post.url,
+            visibility: post.visibility,
+            publishedAt: post.publishedAtUTC.toISOString()
+        }));
+
+        results.forEach(item => decoratePostSearchResult(item, this.settings));
+
+        this.defaultLinks = [{
+            label: 'Latest posts',
+            items: results
+        }];
+        return this.defaultLinks;
     }
 
-    buildDefaultCardConfig() {
-        const unsplashConfig = this.buildUnsplashConfig();
-        return {
-            unsplash: this.settings.unsplash ? unsplashConfig.defaultHeaders : null,
-            tenor: this.config.tenor?.googleApiKey ? this.config.tenor : null,
-            fetchAutocompleteLinks: () => this.buildAutocompleteLinks(),
-            fetchEmbed: (url, {type}) => this.fetchEmbed(url, type),
-            fetchLabels: () => this.buildLabels(),
-            renderLabels: !this.session.user.isContributor,
-            feature: {
-                transistor: this.feature.transistor
-            },
-            deprecated: {
-                headerV1: true
-            },
-            membersEnabled: this.settings.membersSignupAccess === 'all',
-            searchLinks: (term) => this.buildSearchResults(term),
-            siteTitle: this.settings.title,
-            siteDescription: this.settings.description,
-            siteUrl: this.config.getSiteUrl('/'),
-            stripeEnabled: this.checkStripeEnabled()
-        };
-    }
+    async searchLinks(term) {
+        // when no term is present we should show latest 5 posts
+        if (!term) {
+            return this.buildDefaultLinks();
+        }
 
-    async fetchEmbed(url, type) {
-        let oembedEndpoint = this.ghostPaths.url.api('oembed');
-        let response = await this.ajax.request(oembedEndpoint, {
-            data: {url, type}
-        });
-        return response;
-    }
+        let results = [];
 
-    createFileUploadHook(type = 'image') {
-        const [progress, setProgress] = React.useState(0);
-        const [isLoading, setLoading] = React.useState(false);
-        const [errors, setErrors] = React.useState([]);
-        const [filesNumber, setFilesNumber] = React.useState(0);
-
-        const progressTracker = React.useRef(new Map());
-
-        const updateProgress = () => {
-            if (progressTracker.current.size === 0) {
-                setProgress(0);
-                return;
+        try {
+            results = await this.search.searchTask.perform(term);
+        } catch (error) {
+            // don't surface task cancellation errors
+            if (!didCancel(error)) {
+                throw error;
             }
+            return [];
+        }
 
-            let totalProgress = 0;
-            progressTracker.current.forEach(value => totalProgress += value);
-            setProgress(Math.round(totalProgress / progressTracker.current.size));
-        };
+        // only published posts/pages and staff with posts have URLs
+        return this.filterSearchResults(results);
+    }
 
-        const defaultValidator = (file) => {
+    buildDefaultValidator(type) {
+        return (file) => {
+            // if type is file we don't need to validate since the card can accept any file type
             if (type === 'file') {
                 return true;
             }
             let extensions = fileTypes[type].extensions;
             let [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
 
+            // if extensions is falsy exit early and accept all files
             if (!extensions) {
                 return true;
             }
@@ -506,8 +438,11 @@ export default class KoenigLexicalEditor extends Component {
 
             return true;
         };
+    }
 
-        const validate = (files = []) => {
+    buildValidate(type) {
+        const defaultValidator = this.buildDefaultValidator(type);
+        return (files = []) => {
             const validationResult = [];
 
             for (let i = 0; i < files.length; i += 1) {
@@ -522,9 +457,11 @@ export default class KoenigLexicalEditor extends Component {
 
             return validationResult;
         };
+    }
 
-        const uploadFile = async (file, {formData = {}} = {}) => {
-            progressTracker.current[file] = 0;
+    buildUploadFile(type, progressTracker, updateProgress) {
+        return async (file, {formData = {}} = {}) => {
+            progressTracker.set(file, 0);
 
             const fileFormData = new FormData();
             fileFormData.append('file', file, file.name);
@@ -547,7 +484,7 @@ export default class KoenigLexicalEditor extends Component {
 
                         xhr.upload.addEventListener('progress', (event) => {
                             if (event.lengthComputable) {
-                                progressTracker.current.set(file, (event.loaded / event.total) * 100);
+                                progressTracker.set(file, (event.loaded / event.total) * 100);
                                 updateProgress();
                             }
                         }, false);
@@ -556,7 +493,8 @@ export default class KoenigLexicalEditor extends Component {
                     }
                 });
 
-                progressTracker.current.set(file, 100);
+                // force tracker progress to 100% in case we didn't get a final event
+                progressTracker.set(file, 100);
                 updateProgress();
 
                 let uploadResponse;
@@ -584,13 +522,16 @@ export default class KoenigLexicalEditor extends Component {
             } catch (error) {
                 console.error(error); // eslint-disable-line
 
+                // grab custom error message if present
                 let message = error.payload?.errors?.[0]?.message || '';
                 let context = error.payload?.errors?.[0]?.context || '';
 
+                // fall back to EmberData/ember-ajax default message for error type
                 if (!message) {
                     message = error.message;
                 }
 
+                // TODO: check for or expose known error types?
                 const errorResult = {
                     message,
                     context,
@@ -600,6 +541,31 @@ export default class KoenigLexicalEditor extends Component {
                 throw errorResult;
             }
         };
+    }
+
+    buildFileUpload(type) {
+        const [progress, setProgress] = React.useState(0);
+        const [isLoading, setLoading] = React.useState(false);
+        const [errors, setErrors] = React.useState([]);
+        const [filesNumber, setFilesNumber] = React.useState(0);
+
+        const progressTracker = React.useRef(new Map());
+
+        const updateProgress = () => {
+            if (progressTracker.current.size === 0) {
+                setProgress(0);
+                return;
+            }
+
+            let totalProgress = 0;
+
+            progressTracker.current.forEach(value => totalProgress += value);
+
+            setProgress(Math.round(totalProgress / progressTracker.current.size));
+        };
+
+        const validate = this.buildValidate(type);
+        const _uploadFile = this.buildUploadFile(type, progressTracker.current, updateProgress);
 
         const upload = async (files = [], options = {}) => {
             setFilesNumber(files.length);
@@ -619,7 +585,7 @@ export default class KoenigLexicalEditor extends Component {
 
             for (let i = 0; i < files.length; i += 1) {
                 const file = files[i];
-                uploadPromises.push(uploadFile(file, options));
+                uploadPromises.push(_uploadFile(file, options));
             }
 
             try {
@@ -628,7 +594,8 @@ export default class KoenigLexicalEditor extends Component {
                 progressTracker.current.clear();
 
                 setLoading(false);
-                setErrors([]);
+
+                setErrors([]); // components expect array of objects: { fileName: string, message: string }[]
 
                 return uploadResult;
             } catch (error) {
@@ -646,47 +613,99 @@ export default class KoenigLexicalEditor extends Component {
         return {progress, isLoading, upload, errors, filesNumber};
     }
 
-    KGEditorComponent = ({isInitInstance}) => {
-        return (
-            <div data-secondary-instance={isInitInstance ? true : false} style={isInitInstance ? {display: 'none'} : {}}>
-                <KoenigComposer
-                    editorResource={this.editorResource}
-                    cardConfig={this.cardConfig}
-                    fileUploader={{useFileUpload: (type) => this.createFileUploadHook(type), fileTypes}}
-                    initialEditorState={this.args.lexical}
-                    onError={this.onError}
-                    darkMode={this.feature.nightShift}
-                    isTKEnabled={true}
-                >
-                    <KoenigEditor
+    buildCardConfig(cardConfig) {
+        const unsplashConfig = {
+            defaultHeaders: {
+                Authorization: `Client-ID 8672af113b0a8573edae3aa3713886265d9bb741d707f6c01a486cde8c278980`,
+                'Accept-Version': 'v1',
+                'Content-Type': 'application/json',
+                'App-Pragma': 'no-cache',
+                'X-Unsplash-Cache': true
+            }
+        };
+
+        const checkStripeEnabled = () => {
+            const hasDirectKeys = !!(this.settings.stripeSecretKey && this.settings.stripePublishableKey);
+            const hasConnectKeys = !!(this.settings.stripeConnectSecretKey && this.settings.stripeConnectPublishableKey);
+
+            if (this.config.stripeDirect) {
+                return hasDirectKeys;
+            }
+            return hasDirectKeys || hasConnectKeys;
+        };
+
+        const defaultCardConfig = {
+            unsplash: this.settings.unsplash ? unsplashConfig.defaultHeaders : null,
+            tenor: this.config.tenor?.googleApiKey ? this.config.tenor : null,
+            fetchAutocompleteLinks: () => this.buildAutocompleteLinks(),
+            fetchEmbed: async (url, {type}) => {
+                let oembedEndpoint = this.ghostPaths.url.api('oembed');
+                let response = await this.ajax.request(oembedEndpoint, {
+                    data: {url, type}
+                });
+                return response;
+            },
+            fetchLabels: () => this.buildLabels(),
+            renderLabels: !this.session.user.isContributor,
+            feature: {
+                transistor: this.feature.transistor
+            },
+            deprecated: { // todo fix typo
+                headerV1: true // if false, shows header v1 in the menu
+            },
+            membersEnabled: this.settings.membersSignupAccess === 'all',
+            searchLinks: (term) => this.searchLinks(term),
+            siteTitle: this.settings.title,
+            siteDescription: this.settings.description,
+            siteUrl: this.config.getSiteUrl('/'),
+            stripeEnabled: checkStripeEnabled() // returns a boolean
+        };
+        return Object.assign({}, defaultCardConfig, cardConfig, {pinturaConfig: this.pinturaConfig});
+    }
+
+    buildKGEditorComponent(cardConfig) {
+        const KGEditorComponent = ({isInitInstance}) => {
+            return (
+                <div data-secondary-instance={isInitInstance ? true : false} style={isInitInstance ? {display: 'none'} : {}}>
+                    <KoenigComposer
                         editorResource={this.editorResource}
-                        cursorDidExitAtTop={isInitInstance ? null : this.args.cursorDidExitAtTop}
-                        placeholderText={isInitInstance ? null : this.args.placeholderText}
-                        darkMode={isInitInstance ? null : this.feature.nightShift}
-                        onChange={isInitInstance ? this.args.updateSecondaryInstanceModel : this.args.onChange}
-                        registerAPI={isInitInstance ? this.args.registerSecondaryAPI : this.args.registerAPI}
-                    />
-                    <WordCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updateWordCount} />
-                    <TKCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updatePostTkCount} />
-                </KoenigComposer>
-            </div>
-        );
-    };
+                        cardConfig={cardConfig}
+                        fileUploader={{useFileUpload: (type) => this.buildFileUpload(type), fileTypes}}
+                        initialEditorState={this.args.lexical}
+                        onError={this.onError}
+                        darkMode={this.feature.nightShift}
+                        isTKEnabled={true}
+                    >
+                        <KoenigEditor
+                            editorResource={this.editorResource}
+                            cursorDidExitAtTop={isInitInstance ? null : this.args.cursorDidExitAtTop}
+                            placeholderText={isInitInstance ? null : this.args.placeholderText}
+                            darkMode={isInitInstance ? null : this.feature.nightShift}
+                            onChange={isInitInstance ? this.args.updateSecondaryInstanceModel : this.args.onChange}
+                            registerAPI={isInitInstance ? this.args.registerSecondaryAPI : this.args.registerAPI}
+                        />
+                        <WordCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updateWordCount} />
+                        <TKCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updatePostTkCount} />
+                    </KoenigComposer>
+                </div>
+            );
+        };
+        return KGEditorComponent;
+    }
 
     ReactComponent = (props) => {
-        const defaultCardConfig = this.buildDefaultCardConfig();
-        this.cardConfig = Object.assign({}, defaultCardConfig, props.cardConfig, {pinturaConfig: this.pinturaConfig});
+        const cardConfig = this.buildCardConfig(props.cardConfig);
+        const KGEditorComponent = this.buildKGEditorComponent(cardConfig);
 
         return (
             <div className={['koenig-react-editor', 'koenig-lexical', this.args.className].filter(Boolean).join(' ')}>
                 <ErrorHandler config={this.config}>
                     <Suspense fallback={<p className="koenig-react-editor-loading">Loading editor...</p>}>
-                        <this.KGEditorComponent />
-                        <this.KGEditorComponent isInitInstance={true} />
+                        <KGEditorComponent />
+                        <KGEditorComponent isInitInstance={true} />
                     </Suspense>
                 </ErrorHandler>
             </div>
         );
     };
 }
-```

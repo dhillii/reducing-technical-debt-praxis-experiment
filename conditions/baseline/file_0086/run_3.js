@@ -1,4 +1,3 @@
-```typescript
 import { useListFormatter } from '@react-aria/i18n'
 import { Fragment, useState } from 'react'
 
@@ -234,7 +233,18 @@ export const Cell: CellComponent<typeof controller> = ({ field, item }) => {
   )
 }
 
-function createFilterGraphQL(type: string, value: any, fieldKey: string, many: boolean) {
+function buildGraphqlSelection(fieldKey: string, displayMode: string, many: boolean, refLabelField: string, config: any) {
+  if (displayMode === 'count' || displayMode === 'table') {
+    return `${fieldKey}Count`
+  }
+  const orderBy = many && config.fieldMeta.sort ? `(orderBy: { ${config.fieldMeta.sort.field}: ${config.fieldMeta.sort.direction.toLowerCase()} })` : ''
+  return `${fieldKey}${orderBy} {
+    id
+    label: ${refLabelField}
+  }`
+}
+
+function buildFilterGraphql(type: string, value: any, fieldKey: string, many: boolean) {
   if (type === 'empty' && !many) return { [fieldKey]: { equals: null } }
   if (type === 'empty' && many) return { [fieldKey]: { none: {} } }
   if (type === 'not_empty' && !many) return { [fieldKey]: { not: { equals: null } } }
@@ -244,22 +254,6 @@ function createFilterGraphQL(type: string, value: any, fieldKey: string, many: b
   if (type === 'some') return { [fieldKey]: { some: { id: { in: value } } } }
   if (type === 'not_some') return { [fieldKey]: { not: { some: { id: { in: value } } } } }
   return { [fieldKey]: { [type]: value } }
-}
-
-function createFilterTypes(many: boolean) {
-  return {
-    empty: { label: 'Is empty', initialValue: null },
-    not_empty: { label: 'Is not empty', initialValue: null },
-    ...(many
-      ? {
-          some: { label: 'Is one of', initialValue: [] },
-          not_some: { label: 'Is not one of', initialValue: [] },
-        }
-      : {
-          is: { label: 'Is', initialValue: null },
-          not_is: { label: 'Is not', initialValue: null },
-        }),
-  }
 }
 
 export function controller(
@@ -302,13 +296,7 @@ export function controller(
     refLabelField,
     refSearchFields,
     refListKey,
-    graphqlSelection:
-      displayMode === 'count' || displayMode === 'table'
-        ? `${fieldKey}Count`
-        : `${fieldKey}${many && config.fieldMeta.sort ? `(orderBy: { ${config.fieldMeta.sort.field}: ${config.fieldMeta.sort.direction.toLowerCase()} })` : ''} {
-              id
-              label: ${refLabelField}
-            }`,
+    graphqlSelection: buildGraphqlSelection(fieldKey, displayMode, many, refLabelField, config),
     hideCreate: hideCreate || displayMode === 'table',
     columns: displayMode === 'table' ? config.fieldMeta.columns : null,
     initialSort: displayMode === 'table' ? config.fieldMeta.initialSort : null,
@@ -493,10 +481,21 @@ export function controller(
         if (['is', 'not_is'].includes(type)) return `${label.toLowerCase()} ${value}`
         return `${label.toLowerCase()} (${listFormatter.format(value || [''])})`
       },
-      graphql: ({ type, value }) => createFilterGraphQL(type, value, config.fieldKey, many),
+      graphql: ({ type, value }) => buildFilterGraphql(type, value, config.fieldKey, many),
       parseGraphQL: () => [],
-      types: createFilterTypes(many),
+      types: {
+        empty: { label: 'Is empty', initialValue: null },
+        not_empty: { label: 'Is not empty', initialValue: null },
+        ...(many
+          ? {
+              some: { label: 'Is one of', initialValue: [] },
+              not_some: { label: 'Is not one of', initialValue: [] },
+            }
+          : {
+              is: { label: 'Is', initialValue: null },
+              not_is: { label: 'Is not', initialValue: null },
+            }),
+      },
     },
   }
 }
-```

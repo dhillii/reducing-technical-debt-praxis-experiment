@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /**
@@ -978,4 +977,3 @@ function extraGlobals () {
 
   return [];
 }
-```

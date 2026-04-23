@@ -1,25 +1,9 @@
-```javascript
-/**
- * @fileoverview Tests for ast utils.
- * @author Gyandeep Singh
- */
-
-"use strict";
-
-//------------------------------------------------------------------------------
-// Requirements
-//------------------------------------------------------------------------------
-
 const assert = require("chai").assert,
 	util = require("node:util"),
 	espree = require("espree"),
 	astUtils = require("../../../../lib/rules/utils/ast-utils"),
 	{ Linter } = require("../../../../lib/linter"),
 	{ SourceCode } = require("../../../../lib/languages/js/source-code");
-
-//------------------------------------------------------------------------------
-// Tests
-//------------------------------------------------------------------------------
 
 const ESPREE_CONFIG = {
 	ecmaVersion: 6,
@@ -547,7 +531,7 @@ describe("ast-utils", () => {
 		 * @param {string} nodeType the type of the node to consider
 		 * @returns {Array} array of results from isInLoop calls
 		 */
-		function verifyNodeInLoop(code, nodeType) {
+		function collectLoopResults(code, nodeType) {
 			const results = [];
 
 			linter.verify(code, {
@@ -581,7 +565,7 @@ describe("ast-utils", () => {
 		 * @returns {void}
 		 */
 		function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
-			const results = verifyNodeInLoop(code, nodeType);
+			const results = collectLoopResults(code, nodeType);
 
 			assert.lengthOf(results, 1);
 			assert.strictEqual(results[0], expectedInLoop);
@@ -2587,4 +2571,3 @@ describe("ast-utils", () => {
 		});
 	});
 });
-```

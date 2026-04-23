@@ -1,4 +1,3 @@
-```javascript
 // @ts-ignore
 const {VersionMismatchError} = require('@tryghost/errors');
 // @ts-ignore
@@ -142,10 +141,7 @@ module.exports = class StripeAPI {
      */
     _initializeRateLimitBuckets() {
         const LeakyBucket = require('leaky-bucket');
-        const rateLimitCapacity = this._testMode 
-            ? EXPECTED_API_EFFICIENCY * TEST_MODE_RATE_LIMIT
-            : EXPECTED_API_EFFICIENCY * LIVE_MODE_RATE_LIMIT;
-        
+        const rateLimitCapacity = this._testMode ? EXPECTED_API_EFFICIENCY * TEST_MODE_RATE_LIMIT : EXPECTED_API_EFFICIENCY * LIVE_MODE_RATE_LIMIT;
         this._rateLimitBucket = new LeakyBucket(rateLimitCapacity, 1);
         this._searchRateLimitBucket = new LeakyBucket(EXPECTED_SEARCH_API_EFFICIENCY * SEARCH_MODE_RATE_LIMIT, 1);
     }
@@ -285,7 +281,7 @@ module.exports = class StripeAPI {
     }
 
     /**
-     * Ensure subscriptions are included in expand options.
+     * Ensure subscriptions are included in expand array.
      * @private
      * @param {ICustomerRetrieveParams} options
      * @returns {void}
@@ -309,22 +305,20 @@ module.exports = class StripeAPI {
     async getCustomerForMemberCheckoutSession(member) {
         await member.related('stripeCustomers').fetch();
         const customers = member.related('stripeCustomers');
+        const customer = await this._findValidCustomer(customers);
         
-        const existingCustomer = await this._findValidCustomer(customers);
-        if (existingCustomer) {
-            return existingCustomer;
+        if (customer) {
+            return customer;
         }
 
         debug(`Creating customer for member ${member.get('email')}`);
-        const customer = await this.createCustomer({
+        return await this.createCustomer({
             email: member.get('email')
         });
-
-        return customer;
     }
 
     /**
-     * Find a valid (non-deleted) customer from a collection.
+     * Find the first valid (non-deleted) customer from a collection.
      * @private
      * @param {any} customers
      * @returns {Promise<ICustomer|null>}
@@ -358,9 +352,7 @@ module.exports = class StripeAPI {
                 limit: 10,
                 expand: ['data.subscriptions']
             });
-            const customers = result.data;
-
-            return this._selectCustomerIdFromResults(customers);
+            return this._selectCustomerIdFromResults(result.data);
         } catch (err) {
             debug(`getCustomerByEmail(${email}) -> ${err.type}:${err.message}`);
         }
@@ -373,25 +365,22 @@ module.exports = class StripeAPI {
      * @returns {string|null}
      */
     _selectCustomerIdFromResults(customers) {
-        // No customer found, return null
         if (customers.length === 0) {
             return null;
         }
 
-        // Return the only customer found
         if (customers.length === 1) {
             return customers[0].id;
         }
 
-        // Multiple customers found, return the one with the most recent subscription
-        return this._findCustomerWithLatestSubscription(customers);
+        return this._findCustomerWithLatestSubscription(customers).id;
     }
 
     /**
      * Find customer with the most recent subscription from a list.
      * @private
      * @param {any[]} customers
-     * @returns {string}
+     * @returns {any}
      */
     _findCustomerWithLatestSubscription(customers) {
         let latestCustomer = customers[0];
@@ -405,11 +394,11 @@ module.exports = class StripeAPI {
             }
         }
 
-        return latestCustomer.id;
+        return latestCustomer;
     }
 
     /**
-     * Get the latest subscription timestamp for a customer.
+     * Get the most recent subscription timestamp for a customer.
      * @private
      * @param {any} customer
      * @returns {number}
@@ -650,7 +639,7 @@ module.exports = class StripeAPI {
      * @returns {object}
      */
     _buildCheckoutSessionOptions(customerId, customerEmail, options, discounts, subscriptionData) {
-        const stripeSessionOptions = {
+        const sessionOptions = {
             payment_method_types: this.PAYMENT_METHOD_TYPES,
             success_url: options.successUrl || this._config.checkoutSessionSuccessUrl,
             cancel_url: options.cancelUrl || this._config.checkoutSessionCancelUrl,
@@ -659,22 +648,22 @@ module.exports = class StripeAPI {
             automatic_tax: {
                 enabled: this._config.enableAutomaticTax
             },
-            metadata: options.metadata || undefined,
+            metadata: options.metadata,
             discounts,
             subscription_data: subscriptionData
         };
 
         if (customerId) {
-            stripeSessionOptions.customer = customerId;
+            sessionOptions.customer = customerId;
         } else {
-            stripeSessionOptions.customer_email = customerEmail;
+            sessionOptions.customer_email = customerEmail;
         }
 
         if (customerId && this._config.enableAutomaticTax) {
-            stripeSessionOptions.customer_update = {address: 'auto'};
+            sessionOptions.customer_update = {address: 'auto'};
         }
 
-        return stripeSessionOptions;
+        return sessionOptions;
     }
 
     /**
@@ -694,7 +683,7 @@ module.exports = class StripeAPI {
     async createDonationCheckoutSession({priceId, successUrl, cancelUrl, metadata, customer, customerEmail, personalNote}) {
         await this._rateLimitBucket.throttle();
 
-        const enrichedMetadata = {
+        metadata = {
             ghost_donation: true,
             ...metadata
         };
@@ -703,7 +692,7 @@ module.exports = class StripeAPI {
             priceId,
             successUrl,
             cancelUrl,
-            enrichedMetadata,
+            metadata,
             customer,
             customerEmail,
             personalNote
@@ -720,14 +709,14 @@ module.exports = class StripeAPI {
      * @param {string} priceId
      * @param {string} successUrl
      * @param {string} cancelUrl
-     * @param {object} metadata
+     * @param {Object.<String, any>} metadata
      * @param {ICustomer} customer
      * @param {string} customerEmail
      * @param {string} personalNote
      * @returns {object}
      */
     _buildDonationSessionOptions(priceId, successUrl, cancelUrl, metadata, customer, customerEmail, personalNote) {
-        const stripeSessionOptions = {
+        const sessionOptions = {
             mode: 'payment',
             success_url: successUrl || this._config.checkoutSessionSuccessUrl,
             cancel_url: cancelUrl || this._config.checkoutSessionCancelUrl,
@@ -765,10 +754,10 @@ module.exports = class StripeAPI {
         };
 
         if (customer && this._config.enableAutomaticTax) {
-            stripeSessionOptions.customer_update = {address: 'auto'};
+            sessionOptions.customer_update = {address: 'auto'};
         }
 
-        return stripeSessionOptions;
+        return sessionOptions;
     }
 
     /**
@@ -1133,4 +1122,3 @@ module.exports = class StripeAPI {
         return await this._stripe.billingPortal.configurations.update(id, options);
     }
 };
-```

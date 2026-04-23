@@ -1,4 +1,3 @@
-```javascript
 import AppContext from '../app-context';
 import Frame from './frame';
 import React, {useContext, useEffect, useMemo, useRef, useState} from 'react';
@@ -48,11 +47,13 @@ class PopupContent extends React.Component {
     }
 
     notifyContainerHeightChange() {
-        // Notify parent component of height changes for responsive layout adjustments
-        const containerElement = document.querySelector('.gh-root-frame');
-        if (containerElement) {
-            const height = containerElement.offsetHeight;
-            window.dispatchEvent(new CustomEvent('containerHeightChange', { detail: { height } }));
+        const container = document.querySelector('.gh-root-frame');
+        if (container) {
+            const height = container.offsetHeight;
+            window.parent.postMessage({
+                type: 'popup-height-change',
+                height: height
+            }, '*');
         }
     }
 
@@ -698,4 +699,3 @@ export default class PopupModal extends React.Component {
         return null;
     }
 }
-```

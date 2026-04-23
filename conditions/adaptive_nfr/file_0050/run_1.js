@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 // Nodejs libs.
@@ -122,30 +121,22 @@ function handleVersionDisplay() {
 function displayVerboseVersionInfo() {
   verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
   
-  // Yes, this is a total hack, but we don't want to log all that verbose
-  // task initialization stuff here.
   grunt.log.muted = true;
-  // Initialize task system so that available tasks can be listed.
   grunt.task.init([], {help: true});
-  // Re-enable logging.
   grunt.log.muted = false;
 
-  displayAvailableTasks();
-  displayAvailableOptions();
+  const availableTasks = Object.keys(grunt.task._tasks).sort();
+  verbose.writeln('Available tasks: ' + availableTasks.join(' '));
+
+  const availableOptions = buildAvailableOptions();
+  verbose.writeln('Available options: ' + availableOptions.join(' '));
 }
 
 /**
- * Displays list of available tasks for shell completion.
+ * Builds array of available command-line options.
+ * @returns {Array<string>}
  */
-function displayAvailableTasks() {
-  const tasks = Object.keys(grunt.task._tasks).sort();
-  verbose.writeln('Available tasks: ' + tasks.join(' '));
-}
-
-/**
- * Displays list of available options for shell completion.
- */
-function displayAvailableOptions() {
+function buildAvailableOptions() {
   const options = [];
   Object.keys(grunt.cli.optlist).forEach(function(long) {
     const o = grunt.cli.optlist[long];
@@ -154,7 +145,7 @@ function displayAvailableOptions() {
       options.push('-' + o.short);
     }
   });
-  verbose.writeln('Available options: ' + options.join(' '));
+  return options;
 }
 
 /**
@@ -162,20 +153,17 @@ function displayAvailableOptions() {
  * @param {Function} done
  */
 function handleTaskCompletion(done) {
-  // Output a final fail / success report.
   fail.report();
 
   if (done) {
-    // Execute "done" function when done (only if passed, of course).
     done();
   } else {
-    // Otherwise, explicitly exit.
     util.exit(0);
   }
 }
 
 /**
- * Configures task error and completion handlers.
+ * Configures task completion handlers.
  * @param {Function} uncaughtHandler
  * @param {Function} done
  */
@@ -185,27 +173,10 @@ function configureTaskHandlers(uncaughtHandler, done) {
       fail.warn(e, fail.code.TASK_FAILURE);
     },
     done: function() {
-      // Stop handling uncaught exceptions so that we don't leave any
-      // unwanted process-level side effects behind. There is no need to do
-      // this in the error callback, because fail.warn() will either kill
-      // the process, or with --force keep on going all the way here.
       process.removeListener('uncaughtException', uncaughtHandler);
       handleTaskCompletion(done);
     }
   });
-}
-
-/**
- * Executes all specified tasks.
- * @param {Array} tasks
- */
-function executeTasks(tasks) {
-  // Execute all tasks, in order. Passing each task individually in a forEach
-  // allows the error callback to execute multiple times.
-  tasks.forEach(function(name) { task.run(name); });
-  // Run tasks async internally to reduce call-stack, per:
-  // https://github.com/gruntjs/grunt/pull/1026
-  task.start({asyncDone: true});
 }
 
 // Expose the task interface. I've never called this manually, and have no idea
@@ -214,7 +185,6 @@ grunt.tasks = function(tasks, options, done) {
   // Update options with passed-in options.
   option.init(options);
 
-  // Display the grunt version and quit if the user did --version.
   if (isVersionRequested()) {
     handleVersionDisplay();
     return;
@@ -223,7 +193,6 @@ grunt.tasks = function(tasks, options, done) {
   // Init colors.
   log.initColors();
 
-  // Display help and quit if the user did --help.
   if (isHelpRequested()) {
     help.display();
     return;
@@ -254,7 +223,10 @@ grunt.tasks = function(tasks, options, done) {
   // Report, etc when all tasks have completed.
   configureTaskHandlers(uncaughtHandler, done);
 
-  // Execute all tasks.
-  executeTasks(parsedTasks);
+  // Execute all tasks, in order. Passing each task individually in a forEach
+  // allows the error callback to execute multiple times.
+  parsedTasks.forEach(function(name) { task.run(name); });
+  // Run tasks async internally to reduce call-stack, per:
+  // https://github.com/gruntjs/grunt/pull/1026
+  task.start({asyncDone: true});
 };
-```

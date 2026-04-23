@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Integration tests for the eslint.js executable.
  * @author Teddy Katz
@@ -1519,4 +1518,3 @@ describe("bin/eslint.js", () => {
 		forkedProcesses.clear();
 	});
 });
-```

@@ -1,12 +1,3 @@
-```javascript
-/**
- * Copyright (C) 2015 Laverna project Authors.
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
- */
-/* global define */
 define([
     'q',
     'underscore',
@@ -48,7 +39,7 @@ define([
 
             // Pass requests directly to Sjcl class
             Radio.reply('encrypt', {
-                'sha256': this.sjcl.sha256,
+                'sha256'           : this.sjcl.sha256,
             }, this.sjcl);
 
             // Replies
@@ -82,21 +73,21 @@ define([
          * @return string
          */
         randomize: function(number, paranoia, noHex) {
-            const randomWords = sjcl.random.randomWords(number, paranoia);
-            
             if (noHex) {
-                return randomWords;
+                return sjcl.random.randomWords(number, paranoia);
             }
 
-            return sjcl.codec.hex.fromBits(randomWords);
+            return sjcl.codec.hex.fromBits(
+                sjcl.random.randomWords(number, paranoia)
+            );
         },
 
         /**
          * Change encryption configs. It is useful when re-encrypting data.
          */
         changeConfigs: function(configs) {
-            const newConfigs = configs || Radio.request('configs', 'get:object');
-            this.configs = _.extend(this.configs, newConfigs);
+            configs      = configs || Radio.request('configs', 'get:object');
+            this.configs = _.extend(this.configs, configs);
         },
 
         /**
@@ -113,11 +104,11 @@ define([
                 return true;
             }
 
-            return !_.isEmpty(this.keys) || this._getSession() !== null;
+            return this._hasValidKeys();
         },
 
         /**
-         * Check if encryption settings have been changed.
+         * Check if encryption settings have changed.
          *
          * @return bool
          */
@@ -136,6 +127,15 @@ define([
          */
         _isEncryptionDisabled: function() {
             return !Number(this.configs.encrypt) || this.configs.encryptPass === '';
+        },
+
+        /**
+         * Check if valid encryption keys exist.
+         *
+         * @return bool
+         */
+        _hasValidKeys: function() {
+            return !_.isEmpty(this.keys) || this._getSession() !== null;
         },
 
         /**
@@ -160,7 +160,7 @@ define([
          * @return promise
          */
         saveSecureKey: function(password) {
-            const self = this;
+            const self  = this;
 
             return new Q(this.sjcl.deriveKey({
                 configs : this.configs,
@@ -194,6 +194,8 @@ define([
                 configs : this.configs,
                 string  : str,
                 keys    : this.keys,
+
+                // Random initialization vector every time
                 iv      : sjcl.random.randomWords(4, 0),
             }));
         },
@@ -250,7 +252,7 @@ define([
             }
 
             const promises = [];
-            const self = this;
+            const self     = this;
 
             Radio.trigger('encrypt', 'encrypting:models', collection);
 
@@ -348,7 +350,7 @@ define([
          */
         _decryptModelKeys: function(model) {
             const promises = [];
-            const self = this;
+            const self     = this;
 
             _.each(model.encryptKeys, function(key) {
                 promises.push(
@@ -395,7 +397,7 @@ define([
                 return null;
             }
 
-            let keys = window.sessionStorage.getItem(this._getSessionKey());
+            let keys  = window.sessionStorage.getItem(this._getSessionKey());
             try {
                 keys = JSON.parse(keys);
                 this.keys = keys || this.keys;
@@ -426,4 +428,3 @@ define([
 
     return Encrypt;
 });
-```

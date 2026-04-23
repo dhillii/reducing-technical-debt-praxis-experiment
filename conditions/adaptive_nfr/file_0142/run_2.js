@@ -1,4 +1,3 @@
-```javascript
 const path = require("path");
 const fs = require("fs");
 fs.existsSync = fs.existsSync || path.existsSync;
@@ -39,28 +38,9 @@ module.exports = function(yargs, argv, convertOptions) {
 
 	let i;
 	if(argv.config) {
-		configFiles = loadConfigFilesFromArgv(argv.config, extensions);
-	} else {
-		configFiles = loadDefaultConfigFiles(defaultConfigFiles);
-	}
-
-	if(configFiles.length > 0) {
-		configFiles.forEach(function(file) {
-			registerCompiler(interpret.extensions[file.ext]);
-			options.push(requireConfig(file.path, argv));
-		});
-		configFileLoaded = true;
-	}
-
-	return processConfiguredOptions(getOptionsToProcess(configFileLoaded, options));
-
-	/**
-	 * Load config files from argv.config argument
-	 */
-	function loadConfigFilesFromArgv(configArg, exts) {
-		const getConfigExtension = function(configPath) {
-			for(let j = exts.length - 1; j >= 0; j--) {
-				const tmpExt = exts[j];
+		const getConfigExtension = function getConfigExtension(configPath) {
+			for(i = extensions.length - 1; i >= 0; i--) {
+				const tmpExt = extensions[i];
 				if(configPath.indexOf(tmpExt, configPath.length - tmpExt.length) > -1) {
 					return tmpExt;
 				}
@@ -68,8 +48,8 @@ module.exports = function(yargs, argv, convertOptions) {
 			return path.extname(configPath);
 		};
 
-		const mapConfigArg = function(arg) {
-			const resolvedPath = path.resolve(arg);
+		const mapConfigArg = function mapConfigArg(configArg) {
+			const resolvedPath = path.resolve(configArg);
 			const extension = getConfigExtension(resolvedPath);
 			return {
 				path: resolvedPath,
@@ -77,101 +57,73 @@ module.exports = function(yargs, argv, convertOptions) {
 			};
 		};
 
-		const configArgList = Array.isArray(configArg) ? configArg : [configArg];
-		return configArgList.map(mapConfigArg);
-	}
-
-	/**
-	 * Load default config files from filesystem
-	 */
-	function loadDefaultConfigFiles(defaultFiles) {
-		const loaded = [];
-		for(let j = 0; j < defaultFiles.length; j++) {
-			const webpackConfig = defaultFiles[j].path;
+		const configArgList = Array.isArray(argv.config) ? argv.config : [argv.config];
+		configFiles = configArgList.map(mapConfigArg);
+	} else {
+		for(i = 0; i < defaultConfigFiles.length; i++) {
+			const webpackConfig = defaultConfigFiles[i].path;
 			if(fs.existsSync(webpackConfig)) {
-				loaded.push({
+				configFiles.push({
 					path: webpackConfig,
-					ext: defaultFiles[j].ext
+					ext: defaultConfigFiles[i].ext
 				});
 				break;
 			}
 		}
-		return loaded;
 	}
 
-	/**
-	 * Register compiler for module descriptor
-	 */
-	function registerCompiler(moduleDescriptor) {
-		if(!moduleDescriptor) {
-			return;
-		}
-
-		if(typeof moduleDescriptor === "string") {
-			require(moduleDescriptor);
-			return;
-		}
-
-		if(Array.isArray(moduleDescriptor)) {
-			registerCompilerArray(moduleDescriptor);
-			return;
-		}
-
-		if(typeof moduleDescriptor === "object") {
-			moduleDescriptor.register(require(moduleDescriptor.module));
-		}
-	}
-
-	/**
-	 * Register compiler for array of module descriptors
-	 */
-	function registerCompilerArray(descriptors) {
-		for(let j = 0; j < descriptors.length; j++) {
-			try {
-				registerCompiler(descriptors[j]);
-				break;
-			} catch(e) {
-				// do nothing
+	if(configFiles.length > 0) {
+		const registerCompiler = function registerCompiler(moduleDescriptor) {
+			if(!moduleDescriptor) {
+				return;
 			}
-		}
+			if(typeof moduleDescriptor === "string") {
+				require(moduleDescriptor);
+				return;
+			}
+			if(Array.isArray(moduleDescriptor)) {
+				for(let i = 0; i < moduleDescriptor.length; i++) {
+					try {
+						registerCompiler(moduleDescriptor[i]);
+						break;
+					} catch(e) {
+						// do nothing
+					}
+				}
+				return;
+			}
+			moduleDescriptor.register(require(moduleDescriptor.module));
+		};
+
+		const requireConfig = function requireConfig(configPath) {
+			let options = require(configPath);
+			const isES6DefaultExportedFunc = (
+				typeof options === "object" && options !== null && typeof options.default === "function"
+			);
+			if(typeof options === "function" || isES6DefaultExportedFunc) {
+				options = isES6DefaultExportedFunc ? options.default : options;
+				options = options(argv.env, argv);
+			}
+			return options;
+		};
+
+		configFiles.forEach(function(file) {
+			registerCompiler(interpret.extensions[file.ext]);
+			options.push(requireConfig(file.path));
+		});
+		configFileLoaded = true;
 	}
 
-	/**
-	 * Require and process config file
-	 */
-	function requireConfig(configPath, args) {
-		let options = require(configPath);
-		const isES6DefaultExportedFunc = isES6DefaultExport(options);
-		
-		if(typeof options === "function" || isES6DefaultExportedFunc) {
-			options = isES6DefaultExportedFunc ? options.default : options;
-			options = options(args.env, args);
-		}
-		return options;
+	if(!configFileLoaded) {
+		return processConfiguredOptions({});
 	}
-
-	/**
-	 * Check if object is ES6 default export
-	 */
-	function isES6DefaultExport(obj) {
-		return typeof obj === "object" && obj !== null && typeof obj.default === "function";
+	if(options.length === 1) {
+		return processConfiguredOptions(options[0]);
 	}
-
-	/**
-	 * Get options to process based on config load status
-	 */
-	function getOptionsToProcess(loaded, opts) {
-		if(!loaded) {
-			return {};
-		}
-		if(opts.length === 1) {
-			return opts[0];
-		}
-		return opts;
-	}
+	return processConfiguredOptions(options);
 
 	function processConfiguredOptions(options) {
-		if(!isValidConfigOptions(options)) {
+		if(options === null || typeof options !== "object") {
 			console.error("Config did not export an object or a function returning an object.");
 			process.exit(-1); // eslint-disable-line
 		}
@@ -182,7 +134,7 @@ module.exports = function(yargs, argv, convertOptions) {
 		}
 
 		// process ES6 default
-		if(isES6DefaultExportObject(options)) {
+		if(typeof options === "object" && typeof options.default === "object") {
 			return processConfiguredOptions(options.default);
 		}
 
@@ -192,53 +144,24 @@ module.exports = function(yargs, argv, convertOptions) {
 			processOptions(options);
 		}
 
-		applyContextOptions(options);
-		applyWatchOptions(options);
-
-		return options;
-	}
-
-	/**
-	 * Check if config options are valid
-	 */
-	function isValidConfigOptions(opts) {
-		return opts !== null && typeof opts === "object";
-	}
-
-	/**
-	 * Check if object is ES6 default export object
-	 */
-	function isES6DefaultExportObject(obj) {
-		return typeof obj === "object" && typeof obj.default === "object";
-	}
-
-	/**
-	 * Apply context configuration
-	 */
-	function applyContextOptions(options) {
 		if(argv.context) {
 			options.context = path.resolve(argv.context);
 		}
 		if(!options.context) {
 			options.context = process.cwd();
 		}
-	}
 
-	/**
-	 * Apply watch configuration
-	 */
-	function applyWatchOptions(options) {
 		if(argv.watch) {
 			options.watch = true;
 		}
 
 		if(argv["watch-aggregate-timeout"]) {
-			ensureObject(options, "watchOptions");
+			options.watchOptions = options.watchOptions || {};
 			options.watchOptions.aggregateTimeout = +argv["watch-aggregate-timeout"];
 		}
 
 		if(argv["watch-poll"]) {
-			ensureObject(options, "watchOptions");
+			options.watchOptions = options.watchOptions || {};
 			if(typeof argv["watch-poll"] !== "boolean") {
 				options.watchOptions.poll = +argv["watch-poll"];
 			} else {
@@ -247,10 +170,12 @@ module.exports = function(yargs, argv, convertOptions) {
 		}
 
 		if(argv["watch-stdin"]) {
-			ensureObject(options, "watchOptions");
+			options.watchOptions = options.watchOptions || {};
 			options.watchOptions.stdin = true;
 			options.watch = true;
 		}
+
+		return options;
 	}
 
 	function processOptions(options) {
@@ -278,11 +203,11 @@ module.exports = function(yargs, argv, convertOptions) {
 
 		function ifArgPair(name, fn, init, finalize) {
 			ifArg(name, function(content, idx) {
-				const eqIndex = content.indexOf("=");
-				if(eqIndex < 0) {
+				const i = content.indexOf("=");
+				if(i < 0) {
 					return fn(null, content, idx);
 				}
-				return fn(content.substr(0, eqIndex), content.substr(eqIndex + 1), idx);
+				return fn(content.substr(0, i), content.substr(i + 1), idx);
 			}, init, finalize);
 		}
 
@@ -307,13 +232,11 @@ module.exports = function(yargs, argv, convertOptions) {
 		function loadPlugin(name) {
 			const loadUtils = require("loader-utils");
 			let args;
-			let pluginName = name;
-			
 			try {
-				const queryIndex = name && name.indexOf("?");
-				if(queryIndex > -1) {
-					args = loadUtils.parseQuery(name.substring(queryIndex));
-					pluginName = name.substring(0, queryIndex);
+				const p = name && name.indexOf("?");
+				if(p > -1) {
+					args = loadUtils.parseQuery(name.substring(p));
+					name = name.substring(0, p);
 				}
 			} catch(e) {
 				console.log("Invalid plugin arguments " + name + " (" + e + ").");
@@ -323,24 +246,22 @@ module.exports = function(yargs, argv, convertOptions) {
 			let pluginPath;
 			try {
 				const resolve = require("enhanced-resolve");
-				pluginPath = resolve.sync(process.cwd(), pluginName);
+				pluginPath = resolve.sync(process.cwd(), name);
 			} catch(e) {
-				console.log("Cannot resolve plugin " + pluginName + ".");
+				console.log("Cannot resolve plugin " + name + ".");
 				process.exit(-1); // eslint-disable-line
 			}
-
 			let Plugin;
 			try {
 				Plugin = require(pluginPath);
 			} catch(e) {
-				console.log("Cannot load plugin " + pluginName + ". (" + pluginPath + ")");
+				console.log("Cannot load plugin " + name + ". (" + pluginPath + ")");
 				throw e;
 			}
-
 			try {
 				return new Plugin(args);
 			} catch(e) {
-				console.log("Cannot instantiate plugin " + pluginName + ". (" + pluginPath + ")");
+				console.log("Cannot instantiate plugin " + name + ". (" + pluginPath + ")");
 				throw e;
 			}
 		}
@@ -369,38 +290,30 @@ module.exports = function(yargs, argv, convertOptions) {
 
 		function bindLoaders(arg, collection) {
 			ifArgPair(arg, function(name, binding) {
-				let loaderName = name;
-				let loaderBinding = binding;
-				
-				if(loaderName === null) {
-					loaderName = loaderBinding;
-					loaderBinding += "-loader";
+				if(name === null) {
+					name = binding;
+					binding += "-loader";
 				}
-				
 				options.module[collection].push({
-					test: new RegExp("\\." + loaderName.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&") + "$"),
-					loader: loaderBinding
+					test: new RegExp("\\." + name.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&") + "$"),
+					loader: binding
 				});
 			}, function() {
 				ensureObject(options, "module");
 				ensureArray(options.module, collection);
 			});
 		}
-		
 		bindLoaders("module-bind", "loaders");
 		bindLoaders("module-bind-pre", "preLoaders");
 		bindLoaders("module-bind-post", "postLoaders");
 
 		let defineObject;
 		ifArgPair("define", function(name, value) {
-			let defineName = name;
-			let defineValue = value;
-			
-			if(defineName === null) {
-				defineName = defineValue;
-				defineValue = true;
+			if(name === null) {
+				name = value;
+				value = true;
 			}
-			defineObject[defineName] = defineValue;
+			defineObject[name] = value;
 		}, function() {
 			defineObject = {};
 		}, function() {
@@ -501,7 +414,6 @@ module.exports = function(yargs, argv, convertOptions) {
 				options[key].alias[name] = value;
 			});
 		}
-		
 		processResolveAlias("resolve-alias", "resolve");
 		processResolveAlias("resolve-loader-alias", "resolveLoader");
 
@@ -551,19 +463,16 @@ module.exports = function(yargs, argv, convertOptions) {
 
 		ifArg("provide", function(value) {
 			ensureArray(options, "plugins");
-			const eqIdx = value.indexOf("=");
-			let provideName;
-			let provideValue = value;
-			
-			if(eqIdx >= 0) {
-				provideName = value.substr(0, eqIdx);
-				provideValue = value.substr(eqIdx + 1);
+			const idx = value.indexOf("=");
+			let name;
+			if(idx >= 0) {
+				name = value.substr(0, idx);
+				value = value.substr(idx + 1);
 			} else {
-				provideName = value;
+				name = value;
 			}
-			
 			const ProvidePlugin = require("../lib/ProvidePlugin");
-			options.plugins.push(new ProvidePlugin(provideName, provideValue));
+			options.plugins.push(new ProvidePlugin(name, value));
 		});
 
 		ifArg("plugin", function(value) {
@@ -572,54 +481,45 @@ module.exports = function(yargs, argv, convertOptions) {
 		});
 
 		mapArgToBoolean("bail");
+
 		mapArgToBoolean("profile");
 
-		processOutputFilename(options, noOutputFilenameDefined);
-		processEntryPoints(options);
-		validateEntry(options);
-	}
-
-	/**
-	 * Process output filename configuration
-	 */
-	function processOutputFilename(options, noOutputFilenameDefined) {
-		if(!noOutputFilenameDefined) {
-			return;
+		if(noOutputFilenameDefined) {
+			handleMissingOutputFilename(options);
 		}
 
-		ensureObject(options, "output");
+		if(argv._.length > 0) {
+			processPositionalArguments(options);
+		}
 
+		if(!options.entry) {
+			handleMissingEntry();
+		}
+	}
+
+	function handleMissingOutputFilename(options) {
+		ensureObject(options, "output");
 		if(convertOptions && convertOptions.outputFilename) {
 			options.output.path = path.resolve(path.dirname(convertOptions.outputFilename));
 			options.output.filename = path.basename(convertOptions.outputFilename);
 			return;
 		}
-
 		if(argv._.length > 0) {
 			options.output.filename = argv._.pop();
 			options.output.path = path.resolve(path.dirname(options.output.filename));
 			options.output.filename = path.basename(options.output.filename);
 			return;
 		}
-
 		if(configFileLoaded) {
 			throw new Error("'output.filename' is required, either in config file or as --output-filename");
 		}
-
 		console.error("No configuration file found and no output filename configured via CLI option.");
 		console.error("A configuration file could be named 'webpack.config.js' in the current directory.");
 		console.error("Use --help to display the CLI options.");
 		process.exit(-1); // eslint-disable-line
 	}
 
-	/**
-	 * Process entry points from CLI arguments
-	 */
-	function processEntryPoints(options) {
-		if(argv._.length === 0) {
-			return;
-		}
-
+	function processPositionalArguments(options) {
 		if(Array.isArray(options.entry) || typeof options.entry === "string") {
 			options.entry = {
 				main: options.entry
@@ -627,7 +527,7 @@ module.exports = function(yargs, argv, convertOptions) {
 		}
 		ensureObject(options, "entry");
 
-		const addTo = function(name, entry) {
+		const addTo = function addTo(name, entry) {
 			if(options.entry[name]) {
 				if(!Array.isArray(options.entry[name])) {
 					options.entry[name] = [options.entry[name]];
@@ -637,39 +537,23 @@ module.exports = function(yargs, argv, convertOptions) {
 				options.entry[name] = entry;
 			}
 		};
-
 		argv._.forEach(function(content) {
-			const eqIndex = content.indexOf("=");
-			const qIndex = content.indexOf("?");
-			
-			if(eqIndex < 0 || (qIndex >= 0 && qIndex < eqIndex)) {
-				processEntryAsFile(content, addTo);
+			const eqIdx = content.indexOf("=");
+			const qIdx = content.indexOf("?");
+			if(eqIdx < 0 || (qIdx >= 0 && qIdx < eqIdx)) {
+				const resolved = path.resolve(content);
+				if(fs.existsSync(resolved)) {
+					addTo("main", resolved);
+				} else {
+					addTo("main", content);
+				}
 			} else {
-				addTo(content.substr(0, eqIndex), content.substr(eqIndex + 1));
+				addTo(content.substr(0, eqIdx), content.substr(eqIdx + 1));
 			}
 		});
 	}
 
-	/**
-	 * Process entry point as file path
-	 */
-	function processEntryAsFile(content, addTo) {
-		const resolved = path.resolve(content);
-		if(fs.existsSync(resolved)) {
-			addTo("main", resolved);
-		} else {
-			addTo("main", content);
-		}
-	}
-
-	/**
-	 * Validate that entry configuration exists
-	 */
-	function validateEntry(options) {
-		if(options.entry) {
-			return;
-		}
-
+	function handleMissingEntry() {
 		if(configFileLoaded) {
 			console.error("Configuration file found but no entry configured.");
 		} else {
@@ -681,4 +565,3 @@ module.exports = function(yargs, argv, convertOptions) {
 		process.exit(-1); // eslint-disable-line
 	}
 };
-```

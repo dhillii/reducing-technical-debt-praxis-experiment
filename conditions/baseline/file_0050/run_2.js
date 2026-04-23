@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 // Nodejs libs.
@@ -173,4 +172,3 @@ grunt.tasks = function(tasks, options, done) {
   // https://github.com/gruntjs/grunt/pull/1026
   task.start({asyncDone: true});
 };
-```

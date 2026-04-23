@@ -1,14 +1,3 @@
-```javascript
-/**
- * @fileoverview Abstraction of JavaScript source code.
- * @author Nicholas C. Zakas
- */
-"use strict";
-
-//------------------------------------------------------------------------------
-// Requirements
-//------------------------------------------------------------------------------
-
 const fs = require("node:fs"),
 	path = require("node:path"),
 	assert = require("chai").assert,
@@ -19,10 +8,6 @@ const fs = require("node:fs"),
 	SourceCode = require("../../../../../lib/languages/js/source-code/source-code"),
 	astUtils = require("../../../../../lib/shared/ast-utils"),
 	globals = require("../../../../../conf/globals");
-
-//------------------------------------------------------------------------------
-// Helpers
-//------------------------------------------------------------------------------
 
 const DEFAULT_CONFIG = {
 	ecmaVersion: 6,
@@ -49,7 +34,7 @@ function getVariable(scope, name) {
 }
 
 /**
- * Create a rule that checks if a node type is empty
+ * Create a rule that checks empty declarations
  * @returns {Object} Rule object with checkEmpty handler
  * @private
  */
@@ -115,52 +100,6 @@ function createEmptyCheckRule() {
 
 	return rule;
 }
-
-/**
- * Create assertion handlers for variable checking
- * @param {string} type Node type to check
- * @param {Array<Array<string>>} expectedNamesList Expected variable names
- * @returns {Function} Handler function
- * @private
- */
-function createVariableCheckHandler(type, expectedNamesList, sourceCode) {
-	return function (node) {
-		const expectedNames = expectedNamesList.shift();
-		const variables = sourceCode.getDeclaredVariables(node);
-
-		assert(Array.isArray(expectedNames));
-		assert(Array.isArray(variables));
-		assert.strictEqual(expectedNames.length, variables.length);
-		for (let i = variables.length - 1; i >= 0; i--) {
-			assert.strictEqual(expectedNames[i], variables[i].name);
-		}
-	};
-}
-
-/**
- * Create test cases for isSpaceBetween with given code and expected result
- * @param {string} code Source code
- * @param {boolean} expected Expected result
- * @returns {Array} Test case array
- * @private
- */
-function createSpaceBetweenTestCase(code, expected) {
-	return [code, expected];
-}
-
-/**
- * Create test cases for isSpaceBetween token pairs
- * @param {Array<Array>} testCases Array of [code, expected] pairs
- * @returns {Array} Processed test cases
- * @private
- */
-function processSpaceBetweenTestCases(testCases) {
-	return testCases.map(([code, expected]) => createSpaceBetweenTestCase(code, expected));
-}
-
-//------------------------------------------------------------------------------
-// Tests
-//------------------------------------------------------------------------------
 
 describe("SourceCode", () => {
 	describe("new SourceCode()", () => {
@@ -599,13 +538,13 @@ describe("SourceCode", () => {
 
 	describe("isSpaceBetween()", () => {
 		describe("should return true when there is at least one whitespace character between two tokens", () => {
-			processSpaceBetweenTestCases([
+			[
 				["let foo", true],
 				["let  foo", true],
 				["let /**/ foo", true],
 				["let/**/foo", false],
 				["let/*\n*/foo", false],
-			]).forEach(([code, expected]) => {
+			].forEach(([code, expected]) => {
 				describe("when the first given is located before the second", () => {
 					it(code, () => {
 						const ast = espree.parse(code, DEFAULT_CONFIG),
@@ -637,7 +576,7 @@ describe("SourceCode", () => {
 				});
 			});
 
-			processSpaceBetweenTestCases([
+			[
 				["a+b", false],
 				["a +b", true],
 				["a/**/+b", false],
@@ -669,7 +608,7 @@ describe("SourceCode", () => {
 				["a/* */+ ` /*\n*/ `/* */+c", true],
 				["a/* */+` /*\n*/ ` /* */+c", true],
 				["a/* */+ ` /*\n*/ ` /* */+c", true],
-			]).forEach(([code, expected]) => {
+			].forEach(([code, expected]) => {
 				describe("when the first given is located before the second", () => {
 					it(code, () => {
 						const ast = espree.parse(code, DEFAULT_CONFIG),
@@ -703,7 +642,7 @@ describe("SourceCode", () => {
 		});
 
 		describe("should return true when there is at least one whitespace character between a token and a node", () => {
-			processSpaceBetweenTestCases([
+			[
 				[";let foo = bar", false],
 				[";/**/let foo = bar", false],
 				[";/* */let foo = bar", false],
@@ -731,7 +670,7 @@ describe("SourceCode", () => {
 				[";/* */\nlet foo = bar", true],
 				[";\n/**/\nlet foo = bar", true],
 				[";\n/* */\nlet foo = bar", true],
-			]).forEach(([code, expected]) => {
+			].forEach(([code, expected]) => {
 				describe("when the first given is located before the second", () => {
 					it(code, () => {
 						const ast = espree.parse(code, DEFAULT_CONFIG),
@@ -765,7 +704,7 @@ describe("SourceCode", () => {
 		});
 
 		describe("should return true when there is at least one whitespace character between a node and a token", () => {
-			processSpaceBetweenTestCases([
+			[
 				["let foo = bar;;", false],
 				["let foo = bar;;;", false],
 				["let foo = 1; let bar = 2;;", true],
@@ -793,7 +732,7 @@ describe("SourceCode", () => {
 				["let foo = bar;/* */\n;", true],
 				["let foo = bar;\n/**/\n;", true],
 				["let foo = bar;\n/* */\n;", true],
-			]).forEach(([code, expected]) => {
+			].forEach(([code, expected]) => {
 				describe("when the first given is located before the second", () => {
 					it(code, () => {
 						const ast = espree.parse(code, DEFAULT_CONFIG),
@@ -827,7 +766,7 @@ describe("SourceCode", () => {
 		});
 
 		describe("should return true when there is at least one whitespace character between two nodes", () => {
-			processSpaceBetweenTestCases([
+			[
 				["let foo = bar;let baz = qux;", false],
 				["let foo = bar;/**/let baz = qux;", false],
 				["let foo = bar;/* */let baz = qux;", false],
@@ -853,7 +792,7 @@ describe("SourceCode", () => {
 				["let foo = bar;\n/**/\nlet baz = qux;", true],
 				["let foo = bar;\n/* */\nlet baz = qux;", true],
 				["let foo = 1;let foo2 = 2; let foo3 = 3;", true],
-			]).forEach(([code, expected]) => {
+			].forEach(([code, expected]) => {
 				describe("when the first given is located before the second", () => {
 					it(code, () => {
 						const ast = espree.parse(code, DEFAULT_CONFIG),
@@ -1818,14 +1757,33 @@ describe("SourceCode", () => {
 								create(context) {
 									const sourceCode = context.sourceCode;
 									const baseRule = createEmptyCheckRule();
-									const rule = { ...baseRule };
 
-									rule[type] = createVariableCheckHandler(
-										type,
-										expectedNamesList,
-										sourceCode,
-									);
-									return rule;
+									baseRule[type] = function (node) {
+										const expectedNames =
+											expectedNamesList.shift();
+										const variables =
+											sourceCode.getDeclaredVariables(
+												node,
+											);
+
+										assert(Array.isArray(expectedNames));
+										assert(Array.isArray(variables));
+										assert.strictEqual(
+											expectedNames.length,
+											variables.length,
+										);
+										for (
+											let i = variables.length - 1;
+											i >= 0;
+											i--
+										) {
+											assert.strictEqual(
+												expectedNames[i],
+												variables[i].name,
+											);
+										}
+									};
+									return baseRule;
 								},
 							},
 						},
@@ -4817,4 +4775,3 @@ describe("SourceCode", () => {
 		});
 	});
 });
-```

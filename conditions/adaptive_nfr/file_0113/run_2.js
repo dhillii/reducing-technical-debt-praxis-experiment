@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /*!
@@ -108,76 +107,61 @@ exports.deepEqual = function deepEqual(a, b) {
   }
 
   if (Array.isArray(a) && Array.isArray(b)) {
-    return _deepEqualArrays(a, b);
-  }
-
-  a = _normalizeForDeepEqual(a);
-  b = _normalizeForDeepEqual(b);
-
-  return _deepEqualObjects(a, b);
-};
-
-/**
- * @ignore
- * Compares two arrays for deep equality
- */
-function _deepEqualArrays(a, b) {
-  const len = a.length;
-  if (len !== b.length) {
-    return false;
-  }
-  for (let i = 0; i < len; ++i) {
-    if (!exports.deepEqual(a[i], b[i])) {
+    const len = a.length;
+    if (len !== b.length) {
       return false;
     }
+    for (let i = 0; i < len; ++i) {
+      if (!deepEqual(a[i], b[i])) {
+        return false;
+      }
+    }
+    return true;
   }
-  return true;
-}
 
-/**
- * @ignore
- * Normalizes objects for deep equality comparison
- */
-function _normalizeForDeepEqual(obj) {
-  if (obj.$__ != null) {
-    return obj._doc;
+  if (a.$__ != null) {
+    a = a._doc;
+  } else if (isMongooseObject(a)) {
+    a = a.toObject();
   }
-  if (isMongooseObject(obj)) {
-    return obj.toObject();
-  }
-  return obj;
-}
 
-/**
- * @ignore
- * Compares two objects for deep equality
- */
-function _deepEqualObjects(a, b) {
+  if (b.$__ != null) {
+    b = b._doc;
+  } else if (isMongooseObject(b)) {
+    b = b.toObject();
+  }
+
   const ka = Object.keys(a);
   const kb = Object.keys(b);
   const kaLength = ka.length;
 
+  // having the same number of owned properties (keys incorporates
+  // hasOwnProperty)
   if (kaLength !== kb.length) {
     return false;
   }
 
+  // the same set of keys (although not necessarily the same order),
   ka.sort();
   kb.sort();
 
+  // ~~~cheap key test
   for (let i = kaLength - 1; i >= 0; i--) {
     if (ka[i] !== kb[i]) {
       return false;
     }
   }
 
+  // equivalent values for every corresponding key, and
+  // ~~~possibly expensive deep test
   for (const key of ka) {
-    if (!exports.deepEqual(a[key], b[key])) {
+    if (!deepEqual(a[key], b[key])) {
       return false;
     }
   }
 
   return true;
-}
+};
 
 /*!
  * Get the last element of an array
@@ -255,27 +239,24 @@ exports.random = function() {
 };
 
 /**
- * @ignore
- * Merge options parameter object
+ * MergeContext encapsulates merge operation parameters
+ * @private
  */
-class MergeOptions {
-  constructor(opts = {}) {
-    this.omit = opts.omit || null;
-    this.omitNested = opts.omitNested || {};
-    this.overwrite = opts.overwrite || false;
-    this.isDiscriminatorSchemaMerge = opts.isDiscriminatorSchemaMerge || false;
-  }
+function MergeContext(options, path) {
+  this.options = options || {};
+  this.path = path || '';
+  this.omitNested = this.options.omitNested || {};
 }
 
 /**
- * @ignore
- * Checks if merge should skip a key
+ * Checks if a key should be skipped during merge
+ * @private
  */
-function _shouldSkipMergeKey(key, options, path) {
+function shouldSkipKey(key, context, options) {
   if (options.omit && options.omit[key]) {
     return true;
   }
-  if (options.omitNested[path]) {
+  if (context.omitNested[context.path]) {
     return true;
   }
   if (specialProperties.has(key)) {
@@ -285,31 +266,48 @@ function _shouldSkipMergeKey(key, options, path) {
 }
 
 /**
- * @ignore
  * Handles schema merge logic
+ * @private
  */
-function _mergeSchemaProperty(to, from, options) {
-  if (from.instanceOfSchema) {
-    if (to.instanceOfSchema) {
-      schemaMerge(to, from.clone(), options.isDiscriminatorSchemaMerge);
+function handleSchemaMerge(toVal, fromVal, options) {
+  if (fromVal.instanceOfSchema) {
+    if (toVal.instanceOfSchema) {
+      schemaMerge(toVal, fromVal.clone(), options.isDiscriminatorSchemaMerge);
     } else {
-      to = from.clone();
+      return fromVal.clone();
     }
-    return { merged: true, value: to };
+    return toVal;
   }
-  if (from instanceof ObjectId) {
-    return { merged: true, value: new ObjectId(from) };
-  }
-  return { merged: false };
+  return null;
 }
 
 /**
- * @ignore
- * Checks if discriminator schema merge should be skipped
+ * Checks if schema merge should be skipped
+ * @private
  */
-function _shouldSkipDiscriminatorMerge(from, to) {
-  return (from.$isSingleNested && to.$isMongooseDocumentArray) ||
-         (from.$isMongooseDocumentArray && to.$isSingleNested);
+function shouldSkipSchemaMerge(fromVal, toVal) {
+  if (fromVal.$isSingleNested && toVal.$isMongooseDocumentArray) {
+    return true;
+  }
+  if (fromVal.$isMongooseDocumentArray && toVal.$isSingleNested) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Handles nested object merge
+ * @private
+ */
+function mergeNestedObject(toVal, fromVal, context) {
+  if (!exports.isObject(toVal)) {
+    return {};
+  }
+  
+  const nextPath = context.path ? context.path + '.' + Object.keys(fromVal)[0] : Object.keys(fromVal)[0];
+  const nextContext = new MergeContext(context.options, nextPath);
+  
+  return { obj: toVal, context: nextContext };
 }
 
 /*!
@@ -317,28 +315,31 @@ function _shouldSkipDiscriminatorMerge(from, to) {
  *
  * @param {Object} to
  * @param {Object} from
- * @param {MergeOptions} options
- * @param {String} path
+ * @param {Object} options
  * @api private
  */
 
-exports.merge = function merge(to, from, options, path) {
-  if (!(options instanceof MergeOptions)) {
-    options = new MergeOptions(options);
-  }
+exports.merge = function merge(to, from, options) {
+  const context = new MergeContext(options, '');
+  _mergeImpl(to, from, context);
+};
 
+/**
+ * Internal merge implementation
+ * @private
+ */
+function _mergeImpl(to, from, context) {
   const keys = Object.keys(from);
   let i = 0;
   const len = keys.length;
-  let key;
-
-  path = path || '';
 
   while (i < len) {
-    key = keys[i++];
-    if (_shouldSkipMergeKey(key, options, path)) {
+    const key = keys[i++];
+    
+    if (shouldSkipKey(key, context, context.options)) {
       continue;
     }
+    
     if (to[key] == null) {
       to[key] = from[key];
     } else if (exports.isObject(from[key])) {
@@ -346,21 +347,30 @@ exports.merge = function merge(to, from, options, path) {
         to[key] = {};
       }
       if (from[key] != null) {
-        if (options.isDiscriminatorSchemaMerge && _shouldSkipDiscriminatorMerge(from[key], to[key])) {
+        if (context.options.isDiscriminatorSchemaMerge && shouldSkipSchemaMerge(from[key], to[key])) {
           continue;
         }
-        const schemaResult = _mergeSchemaProperty(to[key], from[key], options);
-        if (schemaResult.merged) {
-          to[key] = schemaResult.value;
+        
+        const schemaResult = handleSchemaMerge(to[key], from[key], context.options);
+        if (schemaResult !== null) {
+          to[key] = schemaResult;
+          continue;
+        }
+        
+        if (from[key] instanceof ObjectId) {
+          to[key] = new ObjectId(from[key]);
           continue;
         }
       }
-      merge(to[key], from[key], options, path ? path + '.' + key : key);
-    } else if (options.overwrite) {
+      
+      const nextPath = context.path ? context.path + '.' + key : key;
+      const nextContext = new MergeContext(context.options, nextPath);
+      _mergeImpl(to[key], from[key], nextContext);
+    } else if (context.options.overwrite) {
       to[key] = from[key];
     }
   }
-};
+}
 
 /*!
  * Applies toObject recursively.
@@ -546,52 +556,56 @@ exports.expires = function expires(object) {
 };
 
 /**
- * @ignore
- * Populate options parameter object
+ * PopulateConfig encapsulates populate operation parameters
+ * @private
  */
-class PopulateParams {
-  constructor(path, select, model, match, options, subPopulate, justOne, count) {
-    this.path = path;
-    this.select = select;
-    this.model = model;
-    this.match = match;
-    this.options = options;
-    this.subPopulate = subPopulate;
-    this.justOne = justOne;
-    this.count = count;
-  }
+function PopulateConfig(path, select, model, match, options, subPopulate, justOne, count) {
+  this.path = path;
+  this.select = select;
+  this.model = model;
+  this.match = match;
+  this.options = options;
+  this.populate = subPopulate;
+  this.justOne = justOne;
+  this.count = count;
 }
 
 /**
- * @ignore
- * Builds populate object from parameters
+ * Normalizes populate arguments into a config object
+ * @private
  */
-function _buildPopulateObject(params) {
-  if (params.model != null && typeof params.model === 'object') {
+function normalizePopulateArgs(args) {
+  if (args.length === 1) {
+    const path = args[0];
+    if (path instanceof PopulateOptions) {
+      return path;
+    }
+    if (Array.isArray(path)) {
+      return { isArray: true, value: path };
+    }
+    if (exports.isObject(path)) {
+      return Object.assign({}, path);
+    }
+    return { path: path };
+  }
+  
+  if (args.length >= 3 && typeof args[2] === 'object' && !(args[2] instanceof ObjectId)) {
     return {
-      path: params.path,
-      select: params.select,
-      match: params.model,
-      options: params.match
+      path: args[0],
+      select: args[1],
+      match: args[2],
+      options: args[3]
     };
   }
-  return {
-    path: params.path,
-    select: params.select,
-    model: params.model,
-    match: params.match,
-    options: params.options,
-    populate: params.subPopulate,
-    justOne: params.justOne,
-    count: params.count
-  };
+  
+  return new PopulateConfig(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
 }
 
 /**
- * @ignore
  * Splits space-separated paths into individual populate objects
+ * @private
  */
-function _makeSingles(arr) {
+function makeSingles(arr) {
   const ret = [];
   arr.forEach(function(obj) {
     if (/[\s]/.test(obj.path)) {
@@ -613,33 +627,18 @@ function _makeSingles(arr) {
  */
 
 exports.populate = function populate(path, select, model, match, options, subPopulate, justOne, count) {
-  // might have passed an object specifying all arguments
-  let obj = null;
-  if (arguments.length === 1) {
-    if (path instanceof PopulateOptions) {
-      return [path];
-    }
-
-    if (Array.isArray(path)) {
-      const singles = _makeSingles(path);
-      return singles.map(o => exports.populate(o)[0]);
-    }
-
-    if (exports.isObject(path)) {
-      obj = Object.assign({}, path);
-    } else {
-      obj = { path: path };
-    }
-  } else {
-    const params = new PopulateParams(path, select, model, match, options, subPopulate, justOne, count);
-    obj = _buildPopulateObject(params);
+  const config = normalizePopulateArgs(Array.from(arguments));
+  
+  if (config.isArray) {
+    const singles = makeSingles(config.value);
+    return singles.map(o => exports.populate(o)[0]);
   }
 
-  if (typeof obj.path !== 'string') {
+  if (typeof config.path !== 'string') {
     throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof path + '`');
   }
 
-  return _populateObj(obj);
+  return _populateObj(config);
 };
 
 function _populateObj(obj) {
@@ -911,41 +910,41 @@ exports.decorate = function(destination, source) {
 };
 
 /**
- * @ignore
- * Clone options for mergeClone operations
+ * ToObjectOptions encapsulates toObject transformation parameters
+ * @private
  */
-const MERGE_CLONE_OPTIONS = {
-  transform: false,
-  virtuals: false,
-  depopulate: true,
-  getters: false,
-  flattenDecimals: false
-};
-
-/**
- * @ignore
- * Processes a value for mergeClone
- */
-function _processMergeCloneValue(val) {
-  if (val != null && val.valueOf && !(val instanceof Date)) {
-    return val.valueOf();
-  }
-  return val;
+function ToObjectOptions() {
+  this.transform = false;
+  this.virtuals = false;
+  this.depopulate = true;
+  this.getters = false;
+  this.flattenDecimals = false;
 }
 
 /**
- * @ignore
- * Converts value to object for mergeClone
+ * Creates standard toObject options
+ * @private
  */
-function _toMergeCloneObject(val) {
-  let obj = val;
+function createToObjectOptions(overrides) {
+  const opts = new ToObjectOptions();
+  if (overrides) {
+    Object.assign(opts, overrides);
+  }
+  return opts;
+}
+
+/**
+ * Converts a value to object representation
+ * @private
+ */
+function convertToObject(val, opts) {
   if (isMongooseObject(val) && !val.isMongooseBuffer) {
-    obj = obj.toObject(MERGE_CLONE_OPTIONS);
+    return val.toObject(opts);
   }
   if (val.isMongooseBuffer) {
-    obj = Buffer.from(obj);
+    return Buffer.from(val);
   }
-  return obj;
+  return val;
 }
 
 /**
@@ -957,32 +956,47 @@ function _toMergeCloneObject(val) {
  */
 
 exports.mergeClone = function(to, fromObj) {
+  const opts = createToObjectOptions();
+  
   if (isMongooseObject(fromObj)) {
-    fromObj = fromObj.toObject(MERGE_CLONE_OPTIONS);
+    fromObj = fromObj.toObject(opts);
   }
+  
   const keys = Object.keys(fromObj);
   const len = keys.length;
   let i = 0;
-  let key;
 
   while (i < len) {
-    key = keys[i++];
+    const key = keys[i++];
+    
     if (specialProperties.has(key)) {
       continue;
     }
+    
     if (typeof to[key] === 'undefined') {
-      to[key] = exports.clone(fromObj[key], MERGE_CLONE_OPTIONS);
+      to[key] = exports.clone(fromObj[key], { flattenDecimals: false });
     } else {
-      let val = _processMergeCloneValue(fromObj[key]);
-      if (exports.isObject(val)) {
-        const obj = _toMergeCloneObject(val);
-        exports.mergeClone(to[key], obj);
-      } else {
-        to[key] = exports.clone(val, { flattenDecimals: false });
-      }
+      _mergeCloneValue(to, key, fromObj[key], opts);
     }
   }
 };
+
+/**
+ * Merges a single value during mergeClone
+ * @private
+ */
+function _mergeCloneValue(to, key, val, opts) {
+  if (val != null && val.valueOf && !(val instanceof Date)) {
+    val = val.valueOf();
+  }
+  
+  if (exports.isObject(val)) {
+    const obj = convertToObject(val, opts);
+    exports.mergeClone(to[key], obj);
+  } else {
+    to[key] = exports.clone(val, { flattenDecimals: false });
+  }
+}
 
 /**
  * Executes a function on each element of an array (like _.each)
@@ -1036,4 +1050,3 @@ exports.errorToPOJO = function errorToPOJO(error) {
 exports.nodeMajorVersion = function nodeMajorVersion() {
   return parseInt(process.versions.node.split('.')[0], 10);
 };
-```

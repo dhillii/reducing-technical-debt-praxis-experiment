@@ -1,4 +1,3 @@
-```javascript
 import Ember from 'ember';
 import Model, {attr, belongsTo, hasMany} from '@ember-data/model';
 import ValidationEngine from 'ghost-admin/mixins/validation-engine';
@@ -453,4 +452,3 @@ export default Model.extend(Comparable, ValidationEngine, {
         });
     }
 });
-```

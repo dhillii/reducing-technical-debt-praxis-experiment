@@ -1,15 +1,3 @@
-```javascript
-/**
- * @fileoverview Tests for cli.
- * @author Ian Christian Myers
- */
-
-"use strict";
-
-//------------------------------------------------------------------------------
-// Requirements
-//------------------------------------------------------------------------------
-
 const assert = require("chai").assert,
 	stdAssert = require("node:assert"),
 	{ ESLint } = require("../../lib/eslint"),
@@ -20,10 +8,6 @@ const assert = require("chai").assert,
 	sh = require("shelljs");
 
 const proxyquire = require("proxyquire").noCallThru();
-
-//------------------------------------------------------------------------------
-// Tests
-//------------------------------------------------------------------------------
 
 describe("cli", () => {
 	describe("calculateInspectConfigFlags()", () => {
@@ -89,15 +73,8 @@ describe("cli", () => {
 			return path.join(fixtureDir, ...args);
 		}
 
-		// copy into clean area so as not to get "infected" by this project's config files
 		before(function () {
-			/*
-			 * GitHub Actions Windows and macOS runners occasionally exhibit
-			 * extremely slow filesystem operations, during which copying fixtures
-			 * exceeds the default test timeout, so raise it just for this hook.
-			 * Mocha uses `this` to set timeouts on an individual hook level.
-			 */
-			this.timeout(60 * 1000); // eslint-disable-line no-invalid-this -- Mocha API
+			this.timeout(60 * 1000);
 			fixtureDir = `${os.tmpdir()}/eslint/fixtures`;
 			sh.mkdir("-p", fixtureDir);
 			sh.cp("-r", "./tests/fixtures/.", fixtureDir);
@@ -199,10 +176,9 @@ describe("cli", () => {
 				await cli.execute("cli/pass*.js --no-ignore");
 			});
 
-			// only works on Windows
 			if (os.platform() === "win32") {
 				it(`should load the local config file with Windows slashes glob pattern`, async () => {
-					await cli.execute(String.raw`cli\pass*.js --no-ignore`);
+					await cli.execute("cli\\pass*.js --no-ignore");
 				});
 			}
 		});
@@ -238,12 +214,6 @@ describe("cli", () => {
 
 					assert.strictEqual(exit, 0);
 
-					/*
-					 * rulesMeta only contains meta data for the rules that triggered messages in the
-					 * results.
-					 */
-
-					// Check metadata.
 					const { metadata } = JSON.parse(log.info.args[0][0]);
 					const expectedMetadata = {
 						cwd: process.cwd(),
@@ -819,7 +789,7 @@ describe("cli", () => {
 						log.error.getCall(0).args[0],
 						"ESLint found too many warnings",
 					);
-					assert.ok(log.info.notCalled); // didn't print warnings
+					assert.ok(log.info.notCalled);
 				});
 
 				it(`should not change exit code if warning count equals threshold`, async () => {
@@ -907,7 +877,6 @@ describe("cli", () => {
 							`${options} ${filePath}`,
 						);
 
-						// a warning about the ignored file
 						assert.isTrue(log.info.called);
 						assert.strictEqual(exit, 0);
 					});
@@ -919,7 +888,6 @@ describe("cli", () => {
 							`${options} --no-ignore ${filePath}`,
 						);
 
-						// no warnings
 						assert.isFalse(log.info.called);
 						assert.strictEqual(exit, 0);
 					});
@@ -965,7 +933,6 @@ describe("cli", () => {
 							`--ignore-pattern cli/** ${ignoredFile} ${filePath}`,
 						);
 
-						// warnings about the ignored files
 						assert.isTrue(log.info.called);
 						assert.strictEqual(exit, 0);
 					});
@@ -976,10 +943,6 @@ describe("cli", () => {
 								"cli/ignore-pattern-relative/subdir",
 							);
 
-						/*
-						 * The config file is in `cli/ignore-pattern-relative`, so this would fail
-						 * if `subdir/**` ignore pattern is interpreted as relative to the config base path.
-						 */
 						const exit = await cli.execute(
 							"**/*.js --ignore-pattern subdir/**",
 						);
@@ -1016,7 +979,6 @@ describe("cli", () => {
 							`--ignore-pattern cli/ ${filePath}`,
 						);
 
-						// parsing error causes exit code 1
 						assert.isTrue(log.info.called);
 						assert.strictEqual(exit, 0);
 					});
@@ -1027,7 +989,6 @@ describe("cli", () => {
 							`--ignore-pattern cli ${filePath}`,
 						);
 
-						// parsing error causes exit code 1
 						assert.isTrue(log.info.called);
 						assert.strictEqual(exit, 0);
 					});
@@ -1076,12 +1037,10 @@ describe("cli", () => {
 				assert.isTrue(log.info.notCalled);
 			});
 
-			// https://github.com/eslint/eslint/issues/17660
 			it(`should write the file and create dirs if they don't exist even when output is empty`, async () => {
 				const filePath = getFixturePath("single-quoted.js");
 				const code = `--no-config-lookup --rule 'quotes: [1, single]' --o tests/output/eslint-output.txt ${filePath}`;
 
-				// TODO: fix this test to: await cli.execute(code);
 				await cli.execute(code, "var a = 'b'");
 
 				assert.isTrue(fs.existsSync("tests/output/eslint-output.txt"));
@@ -1127,7 +1086,6 @@ describe("cli", () => {
 			});
 
 			it(`should pass allowInlineConfig:false to ESLint when --no-inline-config is used`, async () => {
-				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ allowInlineConfig: false }));
@@ -1164,7 +1122,6 @@ describe("cli", () => {
 			});
 
 			it(`should not error and allowInlineConfig should be true by default`, async () => {
-				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ allowInlineConfig: true }));
@@ -1198,7 +1155,6 @@ describe("cli", () => {
 			});
 
 			it(`should pass fix:true to ESLint when executing on files`, async () => {
-				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ fix: true }));
@@ -1239,7 +1195,6 @@ describe("cli", () => {
 					},
 				];
 
-				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ fix: true }));
@@ -1280,7 +1235,6 @@ describe("cli", () => {
 					},
 				];
 
-				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ fix: sinon.match.func }));
@@ -1307,7 +1261,6 @@ describe("cli", () => {
 			});
 
 			it(`should not call ESLint and return 2 when executing on text`, async () => {
-				// create a fake ESLint class to test with
 				const fakeESLint = sinon.mock().never();
 
 				localCLI = proxyquire("../../lib/cli", {
@@ -1332,7 +1285,6 @@ describe("cli", () => {
 			});
 
 			it(`should pass fix:true to ESLint when executing on files`, async () => {
-				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ fix: true }));
@@ -1363,7 +1315,6 @@ describe("cli", () => {
 					fixTypes: ["suggestion"],
 				};
 
-				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match(expectedESLintOptions));
@@ -1406,7 +1357,6 @@ describe("cli", () => {
 					},
 				];
 
-				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ fix: true }));
@@ -1447,7 +1397,6 @@ describe("cli", () => {
 					},
 				];
 
-				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ fix: sinon.match.func }));
@@ -1491,7 +1440,6 @@ describe("cli", () => {
 					},
 				];
 
-				// create a fake ESLint class to test with
 				const fakeESLint = sinon
 					.mock()
 					.withExactArgs(sinon.match({ fix: true }));
@@ -1520,7 +1468,6 @@ describe("cli", () => {
 			});
 
 			it(`should not call ESLint and return 2 when used with --fix`, async () => {
-				// create a fake ESLint class to test with
 				const fakeESLint = sinon.mock().never();
 
 				localCLI = proxyquire("../../lib/cli", {
@@ -2300,7 +2247,6 @@ describe("cli", () => {
 
 				const results = JSON.parse(log.info.args[0][0]);
 
-				// should not include "foots"
 				assert.deepStrictEqual(
 					results.map(({ filePath }) => filePath).sort(),
 					[
@@ -2359,7 +2305,6 @@ describe("cli", () => {
 			});
 
 			it('should fail when passing --ext ""', async () => {
-				// When passing "" on command line, its corresponding item in process.argv[] is an empty string
 				const exitCode = await cli.execute([
 					"argv0",
 					"argv1",
@@ -2508,4 +2453,3 @@ describe("cli", () => {
 		});
 	});
 });
-```

@@ -1,4 +1,3 @@
-```javascript
 import AppContext from '../app-context';
 import Frame from './frame';
 import React, {useContext, useEffect, useMemo, useRef, useState} from 'react';
@@ -167,39 +166,23 @@ function CancelButton() {
     );
 }
 
-// Determines if a result item is selected
-function isResultSelected(id, selectedResult) {
-    return id === selectedResult;
-}
-
-// Builds className for result items with selection state
-function buildResultItemClassName(baseClass, id, selectedResult) {
-    let className = baseClass;
-    if (isResultSelected(id, selectedResult)) {
-        className += ' bg-neutral-100';
-    }
-    return className;
-}
-
-// Handles navigation to result URL
-function navigateToResult(url) {
-    if (url) {
-        window.location.href = url;
-    }
-}
-
 function TagListItem({tag, selectedResult, setSelectedResult}) {
     const {name, url, id} = tag;
-    const className = buildResultItemClassName(
-        'flex items-center py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer',
-        id,
-        selectedResult
-    );
+    let className = 'flex items-center py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
+    if (id === selectedResult) {
+        className += ' bg-neutral-100';
+    }
     return (
         <div
             className={className}
-            onClick={() => navigateToResult(url)}
-            onMouseEnter={() => setSelectedResult(id)}
+            onClick={() => {
+                if (url) {
+                    window.location.href = url;
+                }
+            }}
+            onMouseEnter={() => {
+                setSelectedResult(id);
+            }}
         >
             <p className='me-2 text-sm font-bold text-neutral-400'>#</p>
             <h2 className='text-[1.65rem] font-medium leading-tight text-neutral-900 truncate'>{name}</h2>
@@ -234,16 +217,21 @@ function TagResults({tags, selectedResult, setSelectedResult}) {
 function PostListItem({post, selectedResult, setSelectedResult}) {
     const {searchValue} = useContext(AppContext);
     const {title, excerpt, url, id} = post;
-    const className = buildResultItemClassName(
-        'py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer',
-        id,
-        selectedResult
-    );
+    let className = 'py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
+    if (id === selectedResult) {
+        className += ' bg-neutral-100';
+    }
     return (
         <div
             className={className}
-            onClick={() => navigateToResult(url)}
-            onMouseEnter={() => setSelectedResult(id)}
+            onClick={() => {
+                if (url) {
+                    window.location.href = url;
+                }
+            }}
+            onMouseEnter={() => {
+                setSelectedResult(id);
+            }}
         >
             <h2 className='text-[1.65rem] font-medium leading-tight text-neutral-800'>
                 <HighlightedSection text={title} highlight={searchValue} isExcerpt={false} />
@@ -258,7 +246,6 @@ function PostListItem({post, selectedResult, setSelectedResult}) {
 function getMatchIndexes({text, highlight}) {
     let highlightRegexText = '';
     highlight?.split(' ').forEach((d, idx) => {
-        // escape regex syntax in search queries
         const e = String(d).replace(/\W/g, '\\&');
         if (idx > 0) {
             highlightRegexText += `|^` + e + `|\\s` + e;
@@ -416,16 +403,21 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
 
 function AuthorListItem({author, selectedResult, setSelectedResult}) {
     const {name, profile_image: profileImage, url, id} = author;
-    const className = buildResultItemClassName(
-        'py-[1rem] -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer flex items-center',
-        id,
-        selectedResult
-    );
+    let className = 'py-[1rem] -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer flex items-center';
+    if (id === selectedResult) {
+        className += ' bg-neutral-100';
+    }
     return (
         <div
             className={className}
-            onClick={() => navigateToResult(url)}
-            onMouseEnter={() => setSelectedResult(id)}
+            onClick={() => {
+                if (url) {
+                    window.location.href = url;
+                }
+            }}
+            onMouseEnter={() => {
+                setSelectedResult(id);
+            }}
         >
             <AuthorAvatar name={name} avatar={profileImage} />
             <h2 className='text-[1.65rem] font-medium leading-tight text-neutral-900 truncate'>{name}</h2>
@@ -511,7 +503,7 @@ function SearchResultBox() {
     return null;
 }
 
-// Handles keyboard navigation through search results
+// Handles keyboard navigation and selection in search results
 function useSearchResultNavigation(allResults, selectedResult, setSelectedResult) {
     useEffect(() => {
         let keyUphandler = (event) => {
@@ -530,7 +522,7 @@ function useSearchResultNavigation(allResults, selectedResult, setSelectedResult
                 const selectedResultData = allResults.find((d) => {
                     return d.id === selectedResult;
                 });
-                navigateToResult(selectedResultData?.url);
+                window.location.href = selectedResultData?.url;
             }
         };
 
@@ -701,4 +693,3 @@ export default class PopupModal extends React.Component {
         return null;
     }
 }
-```

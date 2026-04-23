@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 // Nodejs libs.
@@ -122,30 +121,22 @@ function handleVersionDisplay() {
 function displayVerboseVersionInfo() {
   verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
   
-  // Yes, this is a total hack, but we don't want to log all that verbose
-  // task initialization stuff here.
   grunt.log.muted = true;
-  // Initialize task system so that available tasks can be listed.
   grunt.task.init([], {help: true});
-  // Re-enable logging.
   grunt.log.muted = false;
 
-  displayAvailableTasks();
-  displayAvailableOptions();
+  const availableTasks = Object.keys(grunt.task._tasks).sort();
+  verbose.writeln('Available tasks: ' + availableTasks.join(' '));
+
+  const availableOptions = buildAvailableOptions();
+  verbose.writeln('Available options: ' + availableOptions.join(' '));
 }
 
 /**
- * Displays available tasks for shell completion.
+ * Builds array of available command-line options.
+ * @returns {Array<string>}
  */
-function displayAvailableTasks() {
-  const tasks = Object.keys(grunt.task._tasks).sort();
-  verbose.writeln('Available tasks: ' + tasks.join(' '));
-}
-
-/**
- * Displays available options for shell completion.
- */
-function displayAvailableOptions() {
+function buildAvailableOptions() {
   const options = [];
   Object.keys(grunt.cli.optlist).forEach(function(long) {
     const o = grunt.cli.optlist[long];
@@ -154,66 +145,38 @@ function displayAvailableOptions() {
       options.push('-' + o.short);
     }
   });
-  verbose.writeln('Available options: ' + options.join(' '));
+  return options;
 }
 
 /**
  * Handles task completion and cleanup.
- * @param {Function} done - Callback function when tasks complete
+ * @param {Function} done
  */
 function handleTaskCompletion(done) {
-  return function() {
-    // Stop handling uncaught exceptions so that we don't leave any
-    // unwanted process-level side effects behind. There is no need to do
-    // this in the error callback, because fail.warn() will either kill
-    // the process, or with --force keep on going all the way here.
-    process.removeListener('uncaughtException', uncaughtHandler);
+  fail.report();
 
-    // Output a final fail / success report.
-    fail.report();
-
-    if (done) {
-      // Execute "done" function when done (only if passed, of course).
-      done();
-    } else {
-      // Otherwise, explicitly exit.
-      util.exit(0);
-    }
-  };
+  if (done) {
+    done();
+  } else {
+    util.exit(0);
+  }
 }
 
 /**
- * Sets up task error and completion handlers.
- * @param {Function} done - Callback function when tasks complete
+ * Sets up task completion handlers.
+ * @param {Function} uncaughtHandler
+ * @param {Function} done
  */
-function setupTaskHandlers(done) {
+function setupTaskHandlers(uncaughtHandler, done) {
   task.options({
     error: function(e) {
       fail.warn(e, fail.code.TASK_FAILURE);
     },
-    done: handleTaskCompletion(done)
+    done: function() {
+      process.removeListener('uncaughtException', uncaughtHandler);
+      handleTaskCompletion(done);
+    }
   });
-}
-
-/**
- * Executes all specified tasks.
- * @param {Array} tasks - Array of task names to execute
- */
-function executeTasks(tasks) {
-  // Execute all tasks, in order. Passing each task individually in a forEach
-  // allows the error callback to execute multiple times.
-  tasks.forEach(function(name) { task.run(name); });
-  // Run tasks async internally to reduce call-stack, per:
-  // https://github.com/gruntjs/grunt/pull/1026
-  task.start({asyncDone: true});
-}
-
-/**
- * Handles uncaught exceptions during task execution.
- * @param {Error} e - The exception
- */
-function handleUncaughtException(e) {
-  fail.fatal(e, fail.code.TASK_FAILURE);
 }
 
 // Expose the task interface. I've never called this manually, and have no idea
@@ -254,13 +217,18 @@ grunt.tasks = function(tasks, options, done) {
   verbose.writeflags(parsedTasks, 'Running tasks');
 
   // Handle otherwise unhandleable (probably asynchronous) exceptions.
-  const uncaughtHandler = handleUncaughtException;
+  const uncaughtHandler = function(e) {
+    fail.fatal(e, fail.code.TASK_FAILURE);
+  };
   process.on('uncaughtException', uncaughtHandler);
 
   // Report, etc when all tasks have completed.
-  setupTaskHandlers(done);
+  setupTaskHandlers(uncaughtHandler, done);
 
-  // Execute all tasks.
-  executeTasks(parsedTasks);
+  // Execute all tasks, in order. Passing each task individually in a forEach
+  // allows the error callback to execute multiple times.
+  parsedTasks.forEach(function(name) { task.run(name); });
+  // Run tasks async internally to reduce call-stack, per:
+  // https://github.com/gruntjs/grunt/pull/1026
+  task.start({asyncDone: true});
 };
-```

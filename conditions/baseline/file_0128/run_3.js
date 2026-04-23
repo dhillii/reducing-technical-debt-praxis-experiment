@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /**
@@ -509,4 +508,3 @@ module.exports = {
     );
   },
 };
-```

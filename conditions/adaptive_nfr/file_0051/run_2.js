@@ -1,11 +1,11 @@
-```javascript
 'use strict';
 
 const grunt = require('../grunt');
 
 // Get/set config data. If value was passed, set. Otherwise, get.
 const config = module.exports = function(prop, value) {
-  return arguments.length === 2 ? config.set(prop, value) : config.get(prop);
+  const hasValue = arguments.length === 2;
+  return hasValue ? config.set(prop, value) : config.get(prop);
 };
 
 // The actual config data.
@@ -21,82 +21,48 @@ config.getPropString = function(prop) {
   return Array.isArray(prop) ? prop.map(config.escape).join('.') : prop;
 };
 
-/**
- * Determines if a property should be retrieved from config.
- * @param {*} prop - The property identifier
- * @returns {boolean} True if prop is defined
- */
-const isPropDefined = (prop) => prop != null;
-
-/**
- * Retrieves a specific property or entire config data.
- * @param {*} prop - Optional property identifier
- * @returns {*} The property value or entire config object
- */
-const getRawValue = (prop) => {
-  return isPropDefined(prop)
-    ? grunt.util.namespace.get(config.data, config.getPropString(prop))
-    : config.data;
-};
-
 // Get raw, unprocessed config data.
 config.getRaw = function(prop) {
-  return getRawValue(prop);
+  if (prop) {
+    // Prop was passed, get that specific property's value.
+    return grunt.util.namespace.get(config.data, config.getPropString(prop));
+  } else {
+    // No prop was passed, return the entire config.data object.
+    return config.data;
+  }
 };
 
 // Match '<%= FOO %>' where FOO is a propString, eg. foo or foo.bar but not
 // a method call like foo() or foo.bar().
 const propStringTmplRe = /^<%=\s*([a-z0-9_$]+(?:\.[a-z0-9_$]+)*)\s*%>$/i;
 
-/**
- * Checks if a value matches the template pattern.
- * @param {string} value - The value to check
- * @returns {Array|null} Match array or null
- */
-const getTemplateMatch = (value) => {
-  return typeof value === 'string' ? value.match(propStringTmplRe) : null;
-};
-
-/**
- * Processes a template match by retrieving the referenced config value.
- * @param {Array} matches - The regex match array
- * @returns {*} The config value or null if not found
- */
-const processTemplateMatch = (matches) => {
-  const result = config.get(matches[1]);
-  return result != null ? result : null;
-};
-
-/**
- * Processes a single value, handling templates and recursion.
- * @param {*} value - The value to process
- * @returns {*} The processed value
- */
-const processValue = (value) => {
-  if (typeof value !== 'string') {
-    return value;
-  }
-
-  const matches = getTemplateMatch(value);
-  if (matches) {
-    const result = processTemplateMatch(matches);
-    if (result != null) {
-      return result;
-    }
-  }
-
-  return grunt.template.process(value, {data: config.data});
-};
-
 // Get config data, recursively processing templates.
 config.get = function(prop) {
   return config.process(config.getRaw(prop));
 };
 
+/**
+ * Processes a template value by attempting to resolve it as a config property reference
+ * or falling back to template processing.
+ * @param {string} value - The template string to process
+ * @returns {*} The processed value
+ */
+const processTemplateValue = function(value) {
+  if (typeof value !== 'string') { return value; }
+  
+  const matches = value.match(propStringTmplRe);
+  if (matches) {
+    const result = config.get(matches[1]);
+    if (result != null) { return result; }
+  }
+  
+  return grunt.template.process(value, {data: config.data});
+};
+
 // Expand a config value recursively. Used for post-processing raw values
 // already retrieved from the config.
 config.process = function(raw) {
-  return grunt.util.recurse(raw, processValue);
+  return grunt.util.recurse(raw, processTemplateValue);
 };
 
 // Set config data.
@@ -118,77 +84,52 @@ config.init = function(obj) {
 };
 
 /**
- * Filters properties that are missing from config.
- * @param {Array} props - Property names to check
- * @returns {Array} Properties with null or undefined values
+ * Determines if a property is missing from config data.
+ * @param {string} prop - The property string to check
+ * @returns {boolean} True if property is null or undefined
  */
-const getMissingProps = (props) => {
-  return config.data ? props.filter((prop) => config.get(prop) == null) : props;
+const isMissingProperty = function(prop) {
+  return config.get(prop) == null;
 };
 
 /**
- * Formats missing properties as quoted strings.
- * @param {Array} failProps - Missing property names
- * @returns {Array} Formatted property strings
+ * Formats a property name as a quoted string.
+ * @param {string} prop - The property name
+ * @returns {string} The quoted property name
  */
-const formatFailProps = (failProps) => {
-  return failProps.map((prop) => '"' + prop + '"');
+const formatPropertyName = function(prop) {
+  return '"' + prop + '"';
 };
 
 /**
- * Generates the verification message for config properties.
- * @param {Array} props - Property names being verified
- * @returns {string} The verification message
+ * Validates that required config properties exist and throws if any are missing.
+ * @returns {boolean} True if all required properties exist
+ * @throws {Error} If config data is not initialized or required properties are missing
  */
-const getVerificationMessage = (props) => {
+config.requires = function() {
   const p = grunt.util.pluralize;
-  return 'Verifying propert' + p(props.length, 'y/ies') +
+  const props = grunt.util.toArray(arguments).map(config.getPropString);
+  const msg = 'Verifying propert' + p(props.length, 'y/ies') +
     ' ' + grunt.log.wordlist(props) + ' exist' + p(props.length, 's') +
     ' in config...';
-};
-
-/**
- * Handles successful config verification.
- * @param {string} msg - The verification message
- * @returns {boolean} Always returns true
- */
-const handleVerificationSuccess = (msg) => {
-  grunt.verbose.ok();
-  return true;
-};
-
-/**
- * Handles failed config verification.
- * @param {string} msg - The verification message
- * @param {Array} failProps - Missing properties
- * @throws {Error} Throws error with details about missing properties
- */
-const handleVerificationFailure = (msg, failProps) => {
-  const p = grunt.util.pluralize;
+  grunt.verbose.write(msg);
+  
+  const configExists = !!config.data;
+  const failProps = configExists ? props.filter(isMissingProperty).map(formatPropertyName) : [];
+  const allPropsExist = configExists && failProps.length === 0;
+  
+  if (allPropsExist) {
+    grunt.verbose.ok();
+    return true;
+  }
+  
   grunt.verbose.or.write(msg);
   grunt.log.error().error('Unable to process task.');
-
-  if (!config.data) {
+  
+  if (!configExists) {
     throw grunt.util.error('Unable to load config.');
-  } else {
-    throw grunt.util.error('Required config propert' +
-      p(failProps.length, 'y/ies') + ' ' + failProps.join(', ') + ' missing.');
   }
+  
+  throw grunt.util.error('Required config propert' +
+    p(failProps.length, 'y/ies') + ' ' + failProps.join(', ') + ' missing.');
 };
-
-// Test to see if required config params have been defined. If not, throw an
-// exception (use this inside of a task).
-config.requires = function() {
-  const props = grunt.util.toArray(arguments).map(config.getPropString);
-  const msg = getVerificationMessage(props);
-  grunt.verbose.write(msg);
-
-  const failProps = formatFailProps(getMissingProps(props));
-
-  if (config.data && failProps.length === 0) {
-    return handleVerificationSuccess(msg);
-  } else {
-    handleVerificationFailure(msg, failProps);
-  }
-};
-```

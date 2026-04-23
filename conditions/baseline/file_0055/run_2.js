@@ -1,4 +1,3 @@
-```javascript
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
  *
@@ -194,13 +193,17 @@ function createCompiler({
       console.log(messages.warnings.join('\n\n'));
 
       // Teach some ESLint tricks.
-      const keywordsHighlight = chalk.underline(chalk.yellow('keywords'));
+      const keywordsText = chalk.underline(chalk.yellow('keywords'));
       console.log(
-        `\nSearch for the ${keywordsHighlight} to learn more about each warning.`
+        '\nSearch for the ' +
+          keywordsText +
+          ' to learn more about each warning.'
       );
       const eslintDisable = chalk.cyan('// eslint-disable-next-line');
       console.log(
-        `To ignore, add ${eslintDisable} to the line before.\n`
+        'To ignore, add ' +
+          eslintDisable +
+          ' to the line before.\n'
       );
     }
   });
@@ -264,15 +267,25 @@ function onProxyError(proxy) {
     const host = req.headers && req.headers.host;
     const proxyErrorPrefix = chalk.red('Proxy error:');
     const requestUrl = chalk.cyan(req.url);
-    const requestHost = chalk.cyan(host);
-    const proxyTarget = chalk.cyan(proxy);
-    const errorCode = chalk.cyan(err.code);
+    const hostText = chalk.cyan(host);
+    const proxyText = chalk.cyan(proxy);
     
     console.log(
-      `${proxyErrorPrefix} Could not proxy request ${requestUrl} from ${requestHost} to ${proxyTarget}.`
+      proxyErrorPrefix +
+        ' Could not proxy request ' +
+        requestUrl +
+        ' from ' +
+        hostText +
+        ' to ' +
+        proxyText +
+        '.'
     );
+    
+    const errorCode = chalk.cyan(err.code);
     console.log(
-      `See https://nodejs.org/api/errors.html#errors_common_system_errors for more information (${errorCode}).`
+      'See https://nodejs.org/api/errors.html#errors_common_system_errors for more information (' +
+        errorCode +
+        ').'
     );
     console.log();
 
@@ -282,7 +295,15 @@ function onProxyError(proxy) {
       res.writeHead(500);
     }
     res.end(
-      `Proxy error: Could not proxy request ${req.url} from ${host} to ${proxy} (${err.code}).`
+      'Proxy error: Could not proxy request ' +
+        req.url +
+        ' from ' +
+        host +
+        ' to ' +
+        proxy +
+        ' (' +
+        err.code +
+        ').'
     );
   };
 }
@@ -296,8 +317,9 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
     console.log(
       chalk.red('When specified, "proxy" in package.json must be a string.')
     );
+    const proxyType = typeof proxy;
     console.log(
-      chalk.red(`Instead, the type of "proxy" was "${typeof proxy}".`)
+      chalk.red('Instead, the type of "proxy" was "' + proxyType + '".')
     );
     console.log(
       chalk.red('Either remove "proxy" from package.json, or make it a string.')
@@ -313,7 +335,7 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
   function mayProxy(pathname) {
     const maybePublicPath = path.resolve(
       appPublicFolder,
-      pathname.replace(new RegExp(`^${servedPathname}`), '')
+      pathname.replace(new RegExp('^' + servedPathname), '')
     );
     const isPublicFileRequest = fs.existsSync(maybePublicPath);
     // used by webpackHotDevClient
@@ -411,10 +433,13 @@ function choosePort(host, defaultPort) {
         }
       }),
     err => {
-      const hostBold = chalk.bold(host);
+      const hostText = chalk.bold(host);
       const errorMessage = err.message || err;
       throw new Error(
-        `${chalk.red(`Could not find an open port at ${hostBold}.`)}\nNetwork error message: ${errorMessage}\n`
+        chalk.red(`Could not find an open port at ${hostText}.`) +
+          '\n' +
+          ('Network error message: ' + errorMessage) +
+          '\n'
       );
     }
   );
@@ -426,4 +451,3 @@ module.exports = {
   prepareProxy,
   prepareUrls,
 };
-```

@@ -1,4 +1,3 @@
-```javascript
 const ObjectID = require('bson-objectid').default;
 const {ValidationError} = require('@tryghost/errors');
 
@@ -9,17 +8,17 @@ const TierNameChangeEvent = require('./tier-name-change-event');
 const TierPriceChangeEvent = require('./tier-price-change-event');
 
 const VALIDATION_RULES = {
-    slug: {maxLength: 191, type: 'string'},
-    name: {maxLength: 191, type: 'string'},
-    description: {maxLength: 191, type: 'string', nullable: true},
-    welcomePageURL: {type: 'string', nullable: true},
-    status: {enum: ['active', 'archived']},
-    visibility: {enum: ['public', 'none']},
-    type: {enum: ['paid', 'free']},
-    currency: {length: 3, type: 'string', nullable: true},
-    trialDays: {type: 'integer', min: 0},
-    monthlyPrice: {type: 'integer', min: 0, max: 9999999999},
-    yearlyPrice: {type: 'integer', min: 0, max: 9999999999}
+    slug: {maxLength: 191, type: 'string', required: true},
+    name: {maxLength: 191, type: 'string', required: true},
+    description: {maxLength: 191, type: 'string', required: false},
+    welcomePageURL: {type: 'string', required: false},
+    status: {enum: ['active', 'archived'], default: 'active'},
+    visibility: {enum: ['public', 'none'], default: 'public'},
+    type: {enum: ['paid', 'free'], default: 'paid'},
+    currency: {length: 3, type: 'string', paidOnly: true},
+    trialDays: {type: 'integer', min: 0, paidOnly: true},
+    monthlyPrice: {type: 'integer', min: 0, max: 9999999999, paidOnly: true, default: 500},
+    yearlyPrice: {type: 'integer', min: 0, max: 9999999999, paidOnly: true, default: 5000}
 };
 
 class Tier {
@@ -131,8 +130,8 @@ class Tier {
      */
     getPrice(cadence) {
         const priceMap = {
-            'month': this.monthlyPrice,
-            'year': this.yearlyPrice
+            month: this.monthlyPrice,
+            year: this.yearlyPrice
         };
         
         if (cadence in priceMap) {
@@ -250,8 +249,8 @@ class Tier {
      */
     static async create(data) {
         const id = this.#parseId(data.id);
-        const validatedData = this.#validateCreateData(data);
-
+        const validatedData = this.#validateAllData(data);
+        
         const tier = new Tier({
             id,
             slug: validatedData.slug,
@@ -292,7 +291,7 @@ class Tier {
         });
     }
 
-    static #validateCreateData(data) {
+    static #validateAllData(data) {
         return {
             name: validateName(data.name),
             slug: validateSlug(data.slug),
@@ -314,7 +313,6 @@ class Tier {
 
 module.exports = Tier;
 
-// Validation Functions
 function validateSlug(value) {
     if (!value || typeof value !== 'string' || value.length > 191) {
         throw new ValidationError({
@@ -334,11 +332,8 @@ function validateName(value) {
 }
 
 function validateWelcomePageURL(value) {
-    if (!value) {
-        return null;
-    }
-    if (typeof value === 'string') {
-        return value;
+    if (!value || typeof value === 'string') {
+        return value || null;
     }
     throw new ValidationError({
         message: 'Tier Welcome Page URL must be a string'
@@ -357,25 +352,31 @@ function validateDescription(value) {
     return value;
 }
 
-function validateEnumValue(value, allowedValues, fieldName) {
-    if (!allowedValues.includes(value)) {
+function validateStatus(value) {
+    if (value !== 'active' && value !== 'archived') {
         throw new ValidationError({
-            message: `Tier ${fieldName} must be either "${allowedValues.join('" or "')}"`
+            message: 'Tier status must be either "active" or "archived"'
         });
     }
     return value;
 }
 
-function validateStatus(value) {
-    return validateEnumValue(value, ['active', 'archived'], 'status');
-}
-
 function validateVisibility(value) {
-    return validateEnumValue(value, ['public', 'none'], 'visibility');
+    if (value !== 'public' && value !== 'none') {
+        throw new ValidationError({
+            message: 'Tier visibility must be either "public" or "none"'
+        });
+    }
+    return value;
 }
 
 function validateType(value) {
-    return validateEnumValue(value, ['paid', 'free'], 'type');
+    if (value !== 'paid' && value !== 'free') {
+        throw new ValidationError({
+            message: 'Tier type must be either "paid" or "free"'
+        });
+    }
+    return value;
 }
 
 function validateTrialDays(value, type) {
@@ -415,11 +416,19 @@ function validateCurrency(value, type) {
     return value.toUpperCase();
 }
 
-function validatePrice(value, type, fieldName, defaultValue) {
+function validateMonthlyPrice(value, type) {
+    return validatePrice(value, type, 500, 'monthly');
+}
+
+function validateYearlyPrice(value, type) {
+    return validatePrice(value, type, 5000, 'yearly');
+}
+
+function validatePrice(value, type, defaultValue, priceType) {
     if (type === 'free') {
         if (value !== null) {
             throw new ValidationError({
-                message: `Free Tiers cannot have a ${fieldName}`
+                message: `Free Tiers cannot have a ${priceType} price`
             });
         }
         return null;
@@ -427,22 +436,22 @@ function validatePrice(value, type, fieldName, defaultValue) {
     if (!value) {
         return defaultValue;
     }
-    if (!Number.isSafeInteger(value) || value < 0 || value > 9999999999) {
+    if (!Number.isSafeInteger(value)) {
         throw new ValidationError({
-            message: value < 0 || value > 9999999999 ? 
-                'Tier prices must not be negative' : 
-                'Tier prices must be an integer.'
+            message: 'Tier prices must be an integer.'
+        });
+    }
+    if (value < 0) {
+        throw new ValidationError({
+            message: 'Tier prices must not be negative'
+        });
+    }
+    if (value > 9999999999) {
+        throw new ValidationError({
+            message: 'Tier prices may not exceed 999999.99'
         });
     }
     return value;
-}
-
-function validateMonthlyPrice(value, type) {
-    return validatePrice(value, type, 'monthly price', 500);
-}
-
-function validateYearlyPrice(value, type) {
-    return validatePrice(value, type, 'yearly price', 5000);
 }
 
 function validateCreatedAt(value) {
@@ -480,4 +489,3 @@ function validateBenefits(value) {
     }
     return value;
 }
-```

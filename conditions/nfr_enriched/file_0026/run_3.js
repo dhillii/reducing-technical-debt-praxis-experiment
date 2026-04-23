@@ -1,4 +1,3 @@
-```typescript
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import countries from 'i18n-iso-countries';
 import enLocale from 'i18n-iso-countries/langs/en.json';
@@ -40,16 +39,24 @@ interface FilterFieldDefinition {
     filterItem?: (item: Record<string, unknown>) => boolean;
 }
 
-// Helper to transform device value to display label
+// Transform device value to display label
 const transformDeviceLabel = (value: string): string => {
-    const deviceLabelMap: Record<string, string> = {
-        'mobile-ios': 'iOS',
-        'mobile-android': 'Android',
-        'desktop': 'Desktop',
-        'bot': 'Bot',
-        'unknown': 'Unknown'
-    };
-    return deviceLabelMap[value] || value;
+    if (value === 'mobile-ios') {
+        return 'iOS';
+    }
+    if (value === 'mobile-android') {
+        return 'Android';
+    }
+    if (value === 'desktop') {
+        return 'Desktop';
+    }
+    if (value === 'bot') {
+        return 'Bot';
+    }
+    if (value === 'unknown') {
+        return 'Unknown';
+    }
+    return value;
 };
 
 const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
@@ -282,7 +289,7 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
     return {options, loading: isLoading};
 };
 
-// Helper to determine if a filter field should fetch options
+// Determine if a filter field should fetch options
 // Enable fetching when the field is active OR has an applied filter value (for label display)
 const shouldFetchFilterOptions = (fieldKey: string, activeFilterField: string | null, filters: Filter[]): boolean => {
     const isActive = activeFilterField === fieldKey;
@@ -290,8 +297,8 @@ const shouldFetchFilterOptions = (fieldKey: string, activeFilterField: string | 
     return isActive || hasAppliedFilter;
 };
 
-// Helper to build audience options based on site settings
-const buildAudienceOptions = (paidMembersEnabled: boolean): Array<{value: string; label: string; icon: React.ReactNode}> => {
+// Build audience options based on site settings
+const buildAudienceOptions = (paidMembersEnabled: boolean) => {
     const options = [
         {value: 'undefined', label: 'Public visitors', icon: <LucideIcon.Globe className='text-gray-700'/>},
         {value: 'free', label: 'Free members', icon: <LucideIcon.User className='text-green'/>},
@@ -300,7 +307,7 @@ const buildAudienceOptions = (paidMembersEnabled: boolean): Array<{value: string
     return paidMembersEnabled ? options : options.filter(opt => opt.value !== 'paid');
 };
 
-// Helper to build UTM filter field configurations
+// Build UTM filter field configurations
 const buildUtmFields = (
     supportedOperators: Array<{value: string; label: string}>,
     utmSourceOptions: Array<{label: string; value: string; icon: React.ReactNode}>,
@@ -396,7 +403,7 @@ const buildUtmFields = (
     ];
 };
 
-// Helper to build basic filter field configurations
+// Build basic filter field configurations
 const buildBasicFields = (
     supportedOperators: Array<{value: string; label: string}>,
     audienceOptions: Array<{value: string; label: string; icon: React.ReactNode}>,
@@ -481,7 +488,7 @@ const buildBasicFields = (
     ];
 };
 
-// Helper to build grouped filter field configurations
+// Build grouped filter field configurations
 const buildGroupedFields = (
     supportedOperators: Array<{value: string; label: string}>,
     audienceOptions: Array<{value: string; label: string; icon: React.ReactNode}>,
@@ -573,26 +580,20 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
         return buildAudienceOptions(appSettings?.paidMembersEnabled || false);
     }, [appSettings?.paidMembersEnabled]);
 
-    // Helper: determine if a filter field should fetch options
-    // Enable fetching when the field is active OR has an applied filter value (for label display)
-    const shouldFetchOptions = useCallback((fieldKey: string) => {
-        return shouldFetchFilterOptions(fieldKey, activeFilterField, filters);
-    }, [activeFilterField, filters]);
-
     // Fetch options for all Tinybird-backed fields using the generic hook
     // Options are contextual - filtered based on currently applied filters
     // Lazy loading: only fetch when field is active or has applied filter
-    const {options: utmSourceOptions, loading: utmSourceLoading} = useTinybirdFilterOptions('utm_source', filters, {enabled: shouldFetchOptions('utm_source')});
-    const {options: utmMediumOptions, loading: utmMediumLoading} = useTinybirdFilterOptions('utm_medium', filters, {enabled: shouldFetchOptions('utm_medium')});
-    const {options: utmCampaignOptions, loading: utmCampaignLoading} = useTinybirdFilterOptions('utm_campaign', filters, {enabled: shouldFetchOptions('utm_campaign')});
-    const {options: utmContentOptions, loading: utmContentLoading} = useTinybirdFilterOptions('utm_content', filters, {enabled: shouldFetchOptions('utm_content')});
-    const {options: utmTermOptions, loading: utmTermLoading} = useTinybirdFilterOptions('utm_term', filters, {enabled: shouldFetchOptions('utm_term')});
-    const {options: sourceOptions, loading: sourceLoading} = useTinybirdFilterOptions('source', filters, {enabled: shouldFetchOptions('source')});
-    const {options: deviceOptions, loading: deviceLoading} = useTinybirdFilterOptions('device', filters, {enabled: shouldFetchOptions('device')});
-    const {options: locationOptions, loading: locationLoading} = useTinybirdFilterOptions('location', filters, {enabled: shouldFetchOptions('location')});
+    const {options: utmSourceOptions, loading: utmSourceLoading} = useTinybirdFilterOptions('utm_source', filters, {enabled: shouldFetchFilterOptions('utm_source', activeFilterField, filters)});
+    const {options: utmMediumOptions, loading: utmMediumLoading} = useTinybirdFilterOptions('utm_medium', filters, {enabled: shouldFetchFilterOptions('utm_medium', activeFilterField, filters)});
+    const {options: utmCampaignOptions, loading: utmCampaignLoading} = useTinybirdFilterOptions('utm_campaign', filters, {enabled: shouldFetchFilterOptions('utm_campaign', activeFilterField, filters)});
+    const {options: utmContentOptions, loading: utmContentLoading} = useTinybirdFilterOptions('utm_content', filters, {enabled: shouldFetchFilterOptions('utm_content', activeFilterField, filters)});
+    const {options: utmTermOptions, loading: utmTermLoading} = useTinybirdFilterOptions('utm_term', filters, {enabled: shouldFetchFilterOptions('utm_term', activeFilterField, filters)});
+    const {options: sourceOptions, loading: sourceLoading} = useTinybirdFilterOptions('source', filters, {enabled: shouldFetchFilterOptions('source', activeFilterField, filters)});
+    const {options: deviceOptions, loading: deviceLoading} = useTinybirdFilterOptions('device', filters, {enabled: shouldFetchFilterOptions('device', activeFilterField, filters)});
+    const {options: locationOptions, loading: locationLoading} = useTinybirdFilterOptions('location', filters, {enabled: shouldFetchFilterOptions('location', activeFilterField, filters)});
 
     // Fetch options for posts - data is contextual based on current filters
-    const {options: postOptions, loading: postLoading} = usePostOptions(filters, {enabled: shouldFetchOptions('post')});
+    const {options: postOptions, loading: postLoading} = usePostOptions(filters, {enabled: shouldFetchFilterOptions('post', activeFilterField, filters)});
 
     // Note: Only 'is' operator supported - Tinybird pipes only support exact match
     const supportedOperators = useMemo(() => [
@@ -600,7 +601,7 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
     ], []);
 
     // Grouped fields - memoized to avoid recreation on every render
-    const groupedFields: Array<{group: string; fields: FilterFieldConfig[]}> = useMemo(() => {
+    const groupedFields: FilterFieldConfig[] = useMemo(() => {
         return buildGroupedFields(
             supportedOperators,
             audienceOptions,
@@ -634,8 +635,6 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
         }
     }, [onChange]);
 
-    const popoverAlign = isMobile ? 'start' : (hasFilters ? 'start' : 'end');
-
     return (
         <div className="mt-3 flex w-full justify-between gap-2 lg:mt-0" data-testid="stats-filter-container">
             <Filters
@@ -646,7 +645,7 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
                 fields={groupedFields}
                 filters={filters}
                 keyboardShortcut="f"
-                popoverAlign={popoverAlign}
+                popoverAlign={isMobile ? 'start' : (hasFilters ? 'start' : 'end')}
                 showSearchInput={false}
                 onActiveFieldChange={setActiveFilterField}
                 onChange={onChange || (() => {})}
@@ -668,4 +667,3 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
 }
 
 export default StatsFilter;
-```

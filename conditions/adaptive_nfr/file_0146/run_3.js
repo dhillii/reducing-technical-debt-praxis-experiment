@@ -1,4 +1,3 @@
-```javascript
 /*
 	MIT License http://www.opensource.org/licenses/mit-license.php
 	Author Tobias Koppers @sokra
@@ -64,6 +63,56 @@ class Stats {
 		return true;
 	}
 
+	/** @private Check if module should be excluded from filter */
+	_isModuleExcluded(module, excludeModules, requestShortener) {
+		if(excludeModules.length === 0) return false;
+		const ident = requestShortener.shorten(module.resource);
+		return excludeModules.some(regExp => regExp.test(ident));
+	}
+
+	/** @private Check if module passes the cache filter */
+	_shouldIncludeModule(module, showCachedModules) {
+		return showCachedModules || module.built;
+	}
+
+	/** @private Format error chunk information */
+	_formatErrorChunk(e) {
+		if(!e.chunk) return "";
+		const chunkType = e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : "";
+		return `chunk ${e.chunk.name || e.chunk.id}${chunkType}\n`;
+	}
+
+	/** @private Format error module information */
+	_formatErrorModule(e, requestShortener) {
+		if(!e.module || !e.module.readableIdentifier || typeof e.module.readableIdentifier !== "function") {
+			return "";
+		}
+		return `${e.module.readableIdentifier(requestShortener)}\n`;
+	}
+
+	/** @private Format error dependency trace */
+	_formatErrorDependencyTrace(e, requestShortener) {
+		if(!e.dependencies || !e.origin) return "";
+		let text = `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
+		e.dependencies.forEach(dep => {
+			if(!dep.loc || typeof dep.loc === "string") return;
+			const locInfo = formatLocation(dep.loc);
+			if(locInfo) text += ` ${locInfo}`;
+		});
+		return text;
+	}
+
+	/** @private Format error issuer chain */
+	_formatErrorIssuerChain(e, requestShortener) {
+		let text = "";
+		let current = e.origin;
+		while(current.issuer) {
+			current = current.issuer;
+			text += `\n @ ${current.readableIdentifier(requestShortener)}`;
+		}
+		return text;
+	}
+
 	toJson(options, forToString) {
 		if(typeof options === "boolean" || typeof options === "string") {
 			options = Stats.presetToOptions(options);
@@ -109,14 +158,11 @@ class Stats {
 		const createModuleFilter = () => {
 			let i = 0;
 			return module => {
-				if(!showCachedModules && !module.built) {
+				if(!this._shouldIncludeModule(module, showCachedModules)) {
 					return false;
 				}
-				if(excludeModules.length > 0) {
-					const ident = requestShortener.shorten(module.resource);
-					const excluded = excludeModules.some(regExp => regExp.test(ident));
-					if(excluded)
-						return false;
+				if(this._isModuleExcluded(module, excludeModules, requestShortener)) {
+					return false;
 				}
 				return i++ < maxModules;
 			};
@@ -143,17 +189,21 @@ class Stats {
 
 		const formatError = (e) => {
 			let text = "";
-			if(typeof e === "string")
-				e = {
-					message: e
-				};
+			if(typeof e === "string") {
+				e = { message: e };
+			}
 			text += this._formatErrorChunk(e);
-			text += this._formatErrorFile(e);
-			text += this._formatErrorModule(e);
+			if(e.file) {
+				text += `${e.file}\n`;
+			}
+			text += this._formatErrorModule(e, requestShortener);
 			text += e.message;
-			text += this._formatErrorDetails(e, showErrorDetails);
-			text += this._formatErrorMissing(e, showErrorDetails);
-			text += this._formatErrorTrace(e, showModuleTrace, requestShortener);
+			if(showErrorDetails && e.details) text += `\n${e.details}`;
+			if(showErrorDetails && e.missing) text += e.missing.map(item => `\n[${item}]`).join("");
+			if(showModuleTrace && e.dependencies && e.origin) {
+				text += this._formatErrorDependencyTrace(e, requestShortener);
+				text += this._formatErrorIssuerChain(e, requestShortener);
+			}
 			return text;
 		};
 
@@ -195,86 +245,29 @@ class Stats {
 			this._processEntrypoints(obj, compilation, showPerformance);
 		}
 
-		const fnModule = this._createModuleFormatter(requestShortener, showReasons, showUsedExports, showProvidedExports, showDepth, showSource);
+		const fnModule = (module) => this._formatModule(module, requestShortener, showReasons, showUsedExports, showProvidedExports, showDepth, showSource);
 
 		if(showChunks) {
-			this._processChunks(obj, compilation, showChunkModules, showChunkOrigins, createModuleFilter, fnModule, sortModules, sortChunks);
+			this._processChunks(obj, compilation, showChunkModules, showChunkOrigins, createModuleFilter, fnModule, sortByField, sortModules, sortChunks);
 		}
 		if(showModules) {
-			this._processModules(obj, compilation, createModuleFilter, fnModule, sortModules);
+			this._processModules(obj, compilation, createModuleFilter, fnModule, sortByField, sortModules);
 		}
 		if(showChildren) {
-			this._processChildren(obj, options, forToString);
+			obj.children = compilation.children.map((child, idx) => {
+				const childOptions = Stats.getChildOptions(options, idx);
+				const obj = new Stats(child).toJson(childOptions, forToString);
+				delete obj.hash;
+				delete obj.version;
+				obj.name = child.name;
+				return obj;
+			});
 		}
 
 		return obj;
 	}
 
-	/**
-	 * Format error chunk information
-	 */
-	_formatErrorChunk(e) {
-		if(!e.chunk) return "";
-		const chunkType = e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : "";
-		return `chunk ${e.chunk.name || e.chunk.id}${chunkType}\n`;
-	}
-
-	/**
-	 * Format error file information
-	 */
-	_formatErrorFile(e) {
-		return e.file ? `${e.file}\n` : "";
-	}
-
-	/**
-	 * Format error module information
-	 */
-	_formatErrorModule(e) {
-		if(!e.module || !e.module.readableIdentifier || typeof e.module.readableIdentifier !== "function") {
-			return "";
-		}
-		return `${e.module.readableIdentifier(this._requestShortener)}\n`;
-	}
-
-	/**
-	 * Format error details
-	 */
-	_formatErrorDetails(e, showErrorDetails) {
-		if(!showErrorDetails || !e.details) return "";
-		return `\n${e.details}`;
-	}
-
-	/**
-	 * Format error missing dependencies
-	 */
-	_formatErrorMissing(e, showErrorDetails) {
-		if(!showErrorDetails || !e.missing) return "";
-		return e.missing.map(item => `\n[${item}]`).join("");
-	}
-
-	/**
-	 * Format error trace information
-	 */
-	_formatErrorTrace(e, showModuleTrace, requestShortener) {
-		if(!showModuleTrace || !e.dependencies || !e.origin) return "";
-		let text = `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
-		e.dependencies.forEach(dep => {
-			if(!dep.loc || typeof dep.loc === "string") return;
-			const locInfo = formatLocation(dep.loc);
-			if(!locInfo) return;
-			text += ` ${locInfo}`;
-		});
-		let current = e.origin;
-		while(current.issuer) {
-			current = current.issuer;
-			text += `\n @ ${current.readableIdentifier(requestShortener)}`;
-		}
-		return text;
-	}
-
-	/**
-	 * Process assets section
-	 */
+	/** @private Process assets section */
 	_processAssets(obj, compilation, showPerformance, showCachedAssets, sortAssets) {
 		const assetsByFile = {};
 		obj.assetsByChunkName = {};
@@ -301,28 +294,19 @@ class Stats {
 				chunk.ids.forEach(id => {
 					assetsByFile[asset].chunks.push(id);
 				});
-				this._addChunkNameToAsset(obj, assetsByFile, asset, chunk);
+				if(!chunk.name) return;
+				assetsByFile[asset].chunkNames.push(chunk.name);
+				if(obj.assetsByChunkName[chunk.name]) {
+					obj.assetsByChunkName[chunk.name] = [].concat(obj.assetsByChunkName[chunk.name]).concat([asset]);
+				} else {
+					obj.assetsByChunkName[chunk.name] = asset;
+				}
 			});
 		});
-		obj.assets.sort(this._createSortByField(sortAssets));
+		obj.assets.sort(sortByField(sortAssets));
 	}
 
-	/**
-	 * Add chunk name to asset
-	 */
-	_addChunkNameToAsset(obj, assetsByFile, asset, chunk) {
-		if(!chunk.name) return;
-		assetsByFile[asset].chunkNames.push(chunk.name);
-		if(obj.assetsByChunkName[chunk.name]) {
-			obj.assetsByChunkName[chunk.name] = [].concat(obj.assetsByChunkName[chunk.name]).concat([asset]);
-		} else {
-			obj.assetsByChunkName[chunk.name] = asset;
-		}
-	}
-
-	/**
-	 * Process entrypoints section
-	 */
+	/** @private Process entrypoints section */
 	_processEntrypoints(obj, compilation, showPerformance) {
 		obj.entrypoints = {};
 		Object.keys(compilation.entrypoints).forEach(name => {
@@ -337,74 +321,61 @@ class Stats {
 		});
 	}
 
-	/**
-	 * Create module formatter function
-	 */
-	_createModuleFormatter(requestShortener, showReasons, showUsedExports, showProvidedExports, showDepth, showSource) {
-		return (module) => {
-			const obj = {
-				id: module.id,
-				identifier: module.identifier(),
-				name: module.readableIdentifier(requestShortener),
-				index: module.index,
-				index2: module.index2,
-				size: module.size(),
-				cacheable: !!module.cacheable,
-				built: !!module.built,
-				optional: !!module.optional,
-				prefetched: !!module.prefetched,
-				chunks: module.chunks.map(chunk => chunk.id),
-				assets: Object.keys(module.assets || {}),
-				issuer: module.issuer && module.issuer.identifier(),
-				issuerId: module.issuer && module.issuer.id,
-				issuerName: module.issuer && module.issuer.readableIdentifier(requestShortener),
-				profile: module.profile,
-				failed: !!module.error,
-				errors: module.errors && module.dependenciesErrors && (module.errors.length + module.dependenciesErrors.length),
-				warnings: module.errors && module.dependenciesErrors && (module.warnings.length + module.dependenciesWarnings.length)
-			};
-			if(showReasons) {
-				obj.reasons = this._formatModuleReasons(module, requestShortener);
-			}
-			if(showUsedExports) {
-				obj.usedExports = module.used ? module.usedExports : false;
-			}
-			if(showProvidedExports) {
-				obj.providedExports = Array.isArray(module.providedExports) ? module.providedExports : null;
-			}
-			if(showDepth) {
-				obj.depth = module.depth;
-			}
-			if(showSource && module._source) {
-				obj.source = module._source.source();
-			}
-			return obj;
+	/** @private Format a single module object */
+	_formatModule(module, requestShortener, showReasons, showUsedExports, showProvidedExports, showDepth, showSource) {
+		const obj = {
+			id: module.id,
+			identifier: module.identifier(),
+			name: module.readableIdentifier(requestShortener),
+			index: module.index,
+			index2: module.index2,
+			size: module.size(),
+			cacheable: !!module.cacheable,
+			built: !!module.built,
+			optional: !!module.optional,
+			prefetched: !!module.prefetched,
+			chunks: module.chunks.map(chunk => chunk.id),
+			assets: Object.keys(module.assets || {}),
+			issuer: module.issuer && module.issuer.identifier(),
+			issuerId: module.issuer && module.issuer.id,
+			issuerName: module.issuer && module.issuer.readableIdentifier(requestShortener),
+			profile: module.profile,
+			failed: !!module.error,
+			errors: module.errors && module.dependenciesErrors && (module.errors.length + module.dependenciesErrors.length),
+			warnings: module.errors && module.dependenciesErrors && (module.warnings.length + module.dependenciesWarnings.length)
 		};
+		if(showReasons) {
+			obj.reasons = module.reasons.filter(reason => reason.dependency && reason.module).map(reason => {
+				const reasonObj = {
+					moduleId: reason.module.id,
+					moduleIdentifier: reason.module.identifier(),
+					module: reason.module.readableIdentifier(requestShortener),
+					moduleName: reason.module.readableIdentifier(requestShortener),
+					type: reason.dependency.type,
+					userRequest: reason.dependency.userRequest
+				};
+				const locInfo = formatLocation(reason.dependency.loc);
+				if(locInfo) reasonObj.loc = locInfo;
+				return reasonObj;
+			}).sort((a, b) => a.moduleId - b.moduleId);
+		}
+		if(showUsedExports) {
+			obj.usedExports = module.used ? module.usedExports : false;
+		}
+		if(showProvidedExports) {
+			obj.providedExports = Array.isArray(module.providedExports) ? module.providedExports : null;
+		}
+		if(showDepth) {
+			obj.depth = module.depth;
+		}
+		if(showSource && module._source) {
+			obj.source = module._source.source();
+		}
+		return obj;
 	}
 
-	/**
-	 * Format module reasons
-	 */
-	_formatModuleReasons(module, requestShortener) {
-		return module.reasons.filter(reason => reason.dependency && reason.module).map(reason => {
-			const obj = {
-				moduleId: reason.module.id,
-				moduleIdentifier: reason.module.identifier(),
-				module: reason.module.readableIdentifier(requestShortener),
-				moduleName: reason.module.readableIdentifier(requestShortener),
-				type: reason.dependency.type,
-				userRequest: reason.dependency.userRequest
-			};
-			const locInfo = formatLocation(reason.dependency.loc);
-			if(locInfo) obj.loc = locInfo;
-			return obj;
-		}).sort((a, b) => a.moduleId - b.moduleId);
-	}
-
-	/**
-	 * Process chunks section
-	 */
-	_processChunks(obj, compilation, showChunkModules, showChunkOrigins, createModuleFilter, fnModule, sortModules, sortChunks) {
+	/** @private Process chunks section */
+	_processChunks(obj, compilation, showChunkModules, showChunkOrigins, createModuleFilter, fnModule, sortByField, sortModules, sortChunks) {
 		obj.chunks = compilation.chunks.map(chunk => {
 			const chunkObj = {
 				id: chunk.id,
@@ -420,91 +391,39 @@ class Stats {
 				parents: chunk.parents.map(c => c.id)
 			};
 			if(showChunkModules) {
-				this._addChunkModules(chunkObj, chunk, createModuleFilter, fnModule, sortModules);
+				chunkObj.modules = chunk.modules
+					.slice()
+					.sort(sortByField("depth"))
+					.filter(createModuleFilter())
+					.map(fnModule);
+				chunkObj.filteredModules = chunk.modules.length - chunkObj.modules.length;
+				chunkObj.modules.sort(sortByField(sortModules));
 			}
 			if(showChunkOrigins) {
-				this._addChunkOrigins(chunkObj, chunk, requestShortener);
+				chunkObj.origins = chunk.origins.map(origin => ({
+					moduleId: origin.module ? origin.module.id : undefined,
+					module: origin.module ? origin.module.identifier() : "",
+					moduleIdentifier: origin.module ? origin.module.identifier() : "",
+					moduleName: origin.module ? origin.module.readableIdentifier(requestShortener) : "",
+					loc: formatLocation(origin.loc),
+					name: origin.name,
+					reasons: origin.reasons || []
+				}));
 			}
 			return chunkObj;
 		});
-		obj.chunks.sort(this._createSortByField(sortChunks));
+		obj.chunks.sort(sortByField(sortChunks));
 	}
 
-	/**
-	 * Add modules to chunk object
-	 */
-	_addChunkModules(chunkObj, chunk, createModuleFilter, fnModule, sortModules) {
-		chunkObj.modules = chunk.modules
-			.slice()
-			.sort(this._createSortByField("depth"))
-			.filter(createModuleFilter())
-			.map(fnModule);
-		chunkObj.filteredModules = chunk.modules.length - chunkObj.modules.length;
-		chunkObj.modules.sort(this._createSortByField(sortModules));
-	}
-
-	/**
-	 * Add origins to chunk object
-	 */
-	_addChunkOrigins(chunkObj, chunk, requestShortener) {
-		chunkObj.origins = chunk.origins.map(origin => ({
-			moduleId: origin.module ? origin.module.id : undefined,
-			module: origin.module ? origin.module.identifier() : "",
-			moduleIdentifier: origin.module ? origin.module.identifier() : "",
-			moduleName: origin.module ? origin.module.readableIdentifier(requestShortener) : "",
-			loc: formatLocation(origin.loc),
-			name: origin.name,
-			reasons: origin.reasons || []
-		}));
-	}
-
-	/**
-	 * Process modules section
-	 */
-	_processModules(obj, compilation, createModuleFilter, fnModule, sortModules) {
+	/** @private Process modules section */
+	_processModules(obj, compilation, createModuleFilter, fnModule, sortByField, sortModules) {
 		obj.modules = compilation.modules
 			.slice()
-			.sort(this._createSortByField("depth"))
+			.sort(sortByField("depth"))
 			.filter(createModuleFilter())
 			.map(fnModule);
 		obj.filteredModules = compilation.modules.length - obj.modules.length;
-		obj.modules.sort(this._createSortByField(sortModules));
-	}
-
-	/**
-	 * Process children section
-	 */
-	_processChildren(obj, options, forToString) {
-		obj.children = this.compilation.children.map((child, idx) => {
-			const childOptions = Stats.getChildOptions(options, idx);
-			const childObj = new Stats(child).toJson(childOptions, forToString);
-			delete childObj.hash;
-			delete childObj.version;
-			childObj.name = child.name;
-			return childObj;
-		});
-	}
-
-	/**
-	 * Create sort by field function
-	 */
-	_createSortByField(field) {
-		return (a, b) => {
-			if(!field) {
-				return 0;
-			}
-
-			const fieldKey = this.normalizeFieldKey(field);
-			const sortIsRegular = this.sortOrderRegular(field);
-			const aVal = sortIsRegular ? a : b;
-			const bVal = sortIsRegular ? b : a;
-
-			if(aVal[fieldKey] === null && bVal[fieldKey] === null) return 0;
-			if(aVal[fieldKey] === null) return 1;
-			if(bVal[fieldKey] === null) return -1;
-			if(aVal[fieldKey] === bVal[fieldKey]) return 0;
-			return aVal[fieldKey] < bVal[fieldKey] ? -1 : 1;
-		};
+		obj.modules.sort(sortByField(sortModules));
 	}
 
 	toString(options) {
@@ -556,16 +475,17 @@ class Stats {
 			if(obj.time) {
 				times = [obj.time / 2, obj.time / 4, obj.time / 8, obj.time / 16];
 			}
-			if(time < times[3])
+			if(time < times[3]) {
 				colors.normal(`${time}ms`);
-			else if(time < times[2])
+			} else if(time < times[2]) {
 				colors.bold(`${time}ms`);
-			else if(time < times[1])
+			} else if(time < times[1]) {
 				colors.green(`${time}ms`);
-			else if(time < times[0])
+			} else if(time < times[0]) {
 				colors.yellow(`${time}ms`);
-			else
+			} else {
 				colors.red(`${time}ms`);
+			}
 		};
 
 		const newline = () => buf.push("\n");
@@ -1014,4 +934,3 @@ class Stats {
 }
 
 module.exports = Stats;
-```

@@ -1,4 +1,3 @@
-```typescript
 import { useState } from 'react'
 
 import { ContextualHelp } from '@keystar/ui/contextual-help'
@@ -15,7 +14,6 @@ import type {
 } from '../../../../types'
 import { entriesTyped } from '../../../../lib/core/utils'
 
-// TODO: extract
 const TYPE_OPERATOR_MAP = {
   equals: '=',
   not: '≠',
@@ -36,40 +34,40 @@ type Validation = {
 
 /** Check if value should skip validation due to auto-increment default on create */
 function shouldSkipAutoIncrementValidation(
-  kind: string,
-  input: number | null,
+  value: Value,
   hasAutoIncrementDefault: boolean
 ): boolean {
-  return kind === 'create' && hasAutoIncrementDefault && input === null
+  return value.kind === 'create' && hasAutoIncrementDefault && value.value === null
 }
 
-/** Check if value should skip validation due to null initial and current on update */
-function shouldSkipNullUpdateValidation(
-  kind: string,
-  initial: number | null | undefined,
-  input: number | null
-): boolean {
-  return kind === 'update' && initial === null && input === null
+/** Check if value should skip validation due to unchanged null on update */
+function shouldSkipUnchangedNullValidation(value: Value): boolean {
+  return value.kind === 'update' && value.initial === null && value.value === null
 }
 
 /** Check if required field is missing value */
-function isRequiredFieldMissing(isRequired: boolean, input: number | null): boolean {
-  return isRequired && input === null
+function isRequiredFieldMissing(value: Value, isRequired: boolean): boolean {
+  return isRequired && value.value === null
 }
 
-/** Check if input is not a valid integer */
-function isInvalidInteger(input: unknown): boolean {
-  return typeof input === 'number' && !Number.isInteger(input)
+/** Check if value is not a valid integer */
+function isInvalidInteger(value: Value): boolean {
+  if (typeof value.value !== 'number') return false
+  return !Number.isInteger(value.value)
 }
 
 /** Check if value violates minimum constraint */
-function violatesMinConstraint(value: number, min: number | undefined): boolean {
-  return min !== undefined && value < min
+function violatesMinConstraint(value: Value, validation: Validation): boolean {
+  if (typeof value.value !== 'number') return false
+  if (validation.min === undefined) return false
+  return value.value < validation.min
 }
 
 /** Check if value violates maximum constraint */
-function violatesMaxConstraint(value: number, max: number | undefined): boolean {
-  return max !== undefined && value > max
+function violatesMaxConstraint(value: Value, validation: Validation): boolean {
+  if (typeof value.value !== 'number') return false
+  if (validation.max === undefined) return false
+  return value.value > validation.max
 }
 
 function validate_(
@@ -79,33 +77,27 @@ function validate_(
   label: string,
   hasAutoIncrementDefault: boolean
 ): string | undefined {
-  const { value: input, kind } = value
-
-  if (shouldSkipAutoIncrementValidation(kind, input, hasAutoIncrementDefault)) {
+  if (shouldSkipAutoIncrementValidation(value, hasAutoIncrementDefault)) {
     return
   }
 
-  if (shouldSkipNullUpdateValidation(kind, 'initial' in value ? value.initial : undefined, input)) {
+  if (shouldSkipUnchangedNullValidation(value)) {
     return
   }
 
-  if (isRequiredFieldMissing(isRequired, input)) {
+  if (isRequiredFieldMissing(value, isRequired)) {
     return `${label} is required`
   }
 
-  if (typeof input !== 'number') {
-    return
-  }
-
-  if (isInvalidInteger(input)) {
+  if (isInvalidInteger(value)) {
     return `${label} is not a valid integer`
   }
 
-  if (violatesMinConstraint(input, validation.min)) {
+  if (violatesMinConstraint(value, validation)) {
     return `${label} must be greater than or equal to ${validation.min}`
   }
 
-  if (violatesMaxConstraint(input, validation.max)) {
+  if (violatesMaxConstraint(value, validation)) {
     return `${label} must be less than or equal to ${validation.max}`
   }
 }
@@ -149,15 +141,14 @@ export function controller(
     hasAutoIncrementDefault: config.fieldMeta.defaultValue === 'autoincrement',
     validate: (value, opts) => validate(value, opts) === undefined,
     filter: {
-      Filter(props: Readonly<{
+      Filter(props: Readonly<Parameters<typeof NumberField>[0] & {
         autoFocus?: boolean
         context?: string
         forceValidation?: boolean
         typeLabel?: string
         onChange?: (value: number | null) => void
-        type: string
-        value: number | null
-        [key: string]: unknown
+        type?: string
+        value?: number | null
       }>) {
         const {
           autoFocus,
@@ -201,12 +192,15 @@ export function controller(
         if (type === 'empty') {
           return { [config.fieldKey]: { equals: null } }
         }
+
         if (type === 'not_empty') {
           return { [config.fieldKey]: { not: { equals: null } } }
         }
+
         if (type === 'not') {
           return { [config.fieldKey]: { not: { equals: value } } }
         }
+
         return { [config.fieldKey]: { [type]: value } }
       },
 
@@ -215,36 +209,40 @@ export function controller(
           if (type === 'equals' && value === null) {
             return [{ type: 'empty', value: null }]
           }
+
           if (!value) {
             return []
           }
+
           if (type === 'equals') {
             return { type: 'equals', value }
           }
+
           if (type === 'not') {
             if (value?.equals === null) {
               return { type: 'not_empty', value: null }
             }
+
             if (value?.equals === undefined) {
               return []
             }
+
             return { type: 'not', value: value.equals }
           }
+
           if (type === 'gt' || type === 'gte' || type === 'lt' || type === 'lte') {
             return { type, value }
           }
+
           return []
         })
       },
 
-      Label({ label, type, value }: Readonly<{
-        label: string
-        type: string
-        value: number | null
-      }>) {
+      Label({ label, type, value }: Readonly<{ label: string; type: string; value: number }>) {
         if (type === 'empty' || type === 'not_empty') {
           return label.toLocaleLowerCase()
         }
+
         const operator = TYPE_OPERATOR_MAP[type as keyof typeof TYPE_OPERATOR_MAP]
         return `${operator} ${value}`
       },
@@ -346,4 +344,3 @@ export function Field({
     />
   )
 }
-```

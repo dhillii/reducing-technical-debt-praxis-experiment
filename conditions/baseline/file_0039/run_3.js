@@ -1,4 +1,3 @@
-```javascript
 const _ = require('lodash');
 const tpl = require('@tryghost/tpl');
 const errors = require('@tryghost/errors');
@@ -51,33 +50,7 @@ function addAuthorsIfForUpdate(options, fnName) {
     }
 }
 
-function processHandleOptions(proto, self, fnName, model, attrs, options) {
-    model._originalOptions = _.cloneDeep(_.pick(options, ['withRelated']));
-    normalizeWithRelated(options);
-    addAuthorsIfForUpdate(options, fnName);
-    return proto[fnName].call(self, model, attrs, options);
-}
-
-function processAuthorsMapping(authors, ownerUser, options) {
-    const authorsToSet = [];
-    const ghostBookshelf = require('@tryghost/bookshelf');
-
-    return Promise.all(authors.map((author, index) => {
-        return findAuthorUser(author, options)
-            .then((user) => {
-                const userId = user ? user.id : ownerUser.id;
-                const userExists = _.find(authorsToSet, {id: userId.id});
-
-                if (!userExists) {
-                    authorsToSet[index] = {};
-                    authorsToSet[index].id = userId;
-                }
-            });
-    })).then(() => authorsToSet);
-}
-
-function findAuthorUser(author, options) {
-    const ghostBookshelf = require('@tryghost/bookshelf');
+function processAuthorQuery(author, ownerUser, authorsToSet, index) {
     const query = {};
 
     if (author.id) {
@@ -88,17 +61,17 @@ function findAuthorUser(author, options) {
         query.email = author.email;
     }
 
-    return ghostBookshelf
-        .model('User')
-        .where(query)
-        .fetch(Object.assign({columns: ['id']}, _.pick(options, 'transacting')));
+    return query;
 }
 
-function getOwnerUser(options) {
-    const ghostBookshelf = require('@tryghost/bookshelf');
-    return ghostBookshelf
-        .model('User')
-        .getOwnerUser(Object.assign({}, _.pick(options, 'transacting')));
+function handleAuthorQueryResult(user, ownerUser, authorsToSet, index) {
+    const userId = user ? user.id : ownerUser.id;
+    const userExists = _.find(authorsToSet, {id: userId.id});
+
+    if (!userExists) {
+        authorsToSet[index] = {};
+        authorsToSet[index].id = userId;
+    }
 }
 
 function isChangingAuthors(unsafeAttrs, postModel) {
@@ -114,15 +87,21 @@ function isChangingAuthors(unsafeAttrs, postModel) {
 }
 
 function isOwner(unsafeAttrs, context) {
+    let isCorrectOwner = true;
+
     if (!unsafeAttrs.authors) {
         return false;
     }
 
-    return unsafeAttrs.authors.length && unsafeAttrs.authors[0].id === context.user;
+    if (unsafeAttrs.authors) {
+        isCorrectOwner = isCorrectOwner && unsafeAttrs.authors.length && unsafeAttrs.authors[0].id === context.user;
+    }
+
+    return isCorrectOwner;
 }
 
 function isPrimaryAuthor(context, postModel) {
-    return context.user === postModel.related('authors').models[0].id;
+    return (context.user === postModel.related('authors').models[0].id);
 }
 
 function isCoAuthor(context, postModel) {
@@ -157,7 +136,16 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             const self = this;
 
             return function innerHandleOptions(model, attrs, options) {
-                return processHandleOptions(proto, self, fnName, model, attrs, options);
+                model._originalOptions = _.cloneDeep(_.pick(options, ['withRelated']));
+
+                if (!options.withRelated) {
+                    options.withRelated = [];
+                }
+
+                normalizeWithRelated(options);
+                addAuthorsIfForUpdate(options, fnName);
+
+                return proto[fnName].call(self, model, attrs, options);
             };
         },
 
@@ -242,7 +230,9 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             const ops = [];
 
             ops.push(() => {
-                return getOwnerUser(options)
+                return ghostBookshelf
+                    .model('User')
+                    .getOwnerUser(Object.assign({}, _.pick(options, 'transacting')))
                     .then((_ownerUser) => {
                         ownerUser = _ownerUser;
                     });
@@ -250,11 +240,21 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
 
             ops.push(() => {
                 const authors = model.get('authors');
+                const authorsToSet = [];
 
-                return processAuthorsMapping(authors, ownerUser, options)
-                    .then((authorsToSet) => {
-                        model.set('authors', authorsToSet);
-                    });
+                return Promise.all(authors.map((author, index) => {
+                    const query = processAuthorQuery(author, ownerUser, authorsToSet, index);
+
+                    return ghostBookshelf
+                        .model('User')
+                        .where(query)
+                        .fetch(Object.assign({columns: ['id']}, _.pick(options, 'transacting')))
+                        .then((user) => {
+                            handleAuthorQueryResult(user, ownerUser, authorsToSet, index);
+                        });
+                })).then(() => {
+                    model.set('authors', authorsToSet);
+                });
             });
 
             return sequence(ops);
@@ -394,4 +394,3 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
 
     return Model;
 };
-```

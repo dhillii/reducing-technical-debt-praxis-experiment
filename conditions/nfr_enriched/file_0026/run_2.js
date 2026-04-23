@@ -1,4 +1,3 @@
-```typescript
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import countries from 'i18n-iso-countries';
 import enLocale from 'i18n-iso-countries/langs/en.json';
@@ -40,16 +39,24 @@ interface FilterFieldDefinition {
     filterItem?: (item: Record<string, unknown>) => boolean;
 }
 
-// Helper to transform device value to display label
+// Transform device value to human-readable label
 const transformDeviceLabel = (value: string): string => {
-    const deviceLabelMap: Record<string, string> = {
-        'mobile-ios': 'iOS',
-        'mobile-android': 'Android',
-        'desktop': 'Desktop',
-        'bot': 'Bot',
-        'unknown': 'Unknown'
-    };
-    return deviceLabelMap[value] || value;
+    if (value === 'mobile-ios') {
+        return 'iOS';
+    }
+    if (value === 'mobile-android') {
+        return 'Android';
+    }
+    if (value === 'desktop') {
+        return 'Desktop';
+    }
+    if (value === 'bot') {
+        return 'Bot';
+    }
+    if (value === 'unknown') {
+        return 'Unknown';
+    }
+    return value;
 };
 
 const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
@@ -214,6 +221,16 @@ interface UsePostOptionsConfig {
     enabled?: boolean;
 }
 
+// Determine if a post item has a valid UUID
+const hasValidPostUuid = (postUuid: unknown): boolean => {
+    return postUuid !== null && postUuid !== undefined && postUuid !== '' && postUuid !== 'undefined';
+};
+
+// Get the filter value for a post item (prefer UUID over pathname)
+const getPostFilterValue = (item: {post_uuid?: string; pathname: string}): string => {
+    return hasValidPostUuid(item.post_uuid) ? item.post_uuid! : item.pathname;
+};
+
 // Hook to fetch posts/pages options from Ghost API (which queries Tinybird and enriches with titles)
 // This uses a different API pattern so it can't use the generic hook
 const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsConfig = {}) => {
@@ -256,8 +273,7 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
         return (stats || [])
             .filter((item) => {
                 // Create a unique key - prefer post_uuid if available, otherwise use pathname
-                const hasValidPostUuid = item.post_uuid && item.post_uuid !== '' && item.post_uuid !== 'undefined';
-                const uniqueKey = hasValidPostUuid ? `uuid:${item.post_uuid}` : `path:${item.pathname}`;
+                const uniqueKey = hasValidPostUuid(item.post_uuid) ? `uuid:${item.post_uuid}` : `path:${item.pathname}`;
 
                 if (seen.has(uniqueKey)) {
                     return false;
@@ -267,9 +283,7 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
             })
             .map((item) => {
                 const visits = item.visits || 0;
-                // Use post_uuid as the filter value if available, otherwise use pathname
-                const hasValidPostUuid = item.post_uuid && item.post_uuid !== '' && item.post_uuid !== 'undefined';
-                const filterValue = hasValidPostUuid ? item.post_uuid! : item.pathname;
+                const filterValue = getPostFilterValue(item);
 
                 return {
                     label: item.title || item.pathname || '(Untitled)',
@@ -282,25 +296,7 @@ const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsCon
     return {options, loading: isLoading};
 };
 
-// Helper to build audience options based on site settings
-const buildAudienceOptions = (paidMembersEnabled: boolean) => {
-    const allOptions = [
-        {value: 'undefined', label: 'Public visitors', icon: <LucideIcon.Globe className='text-gray-700'/>},
-        {value: 'free', label: 'Free members', icon: <LucideIcon.User className='text-green'/>},
-        {value: 'paid', label: 'Paid members', icon: <LucideIcon.UserPlus className='text-orange'/>}
-    ];
-    return paidMembersEnabled ? allOptions : allOptions.filter(opt => opt.value !== 'paid');
-};
-
-// Helper to determine if a filter field should fetch options
-// Enable fetching when the field is active OR has an applied filter value (for label display)
-const shouldFetchFilterOptions = (fieldKey: string, activeField: string | null, appliedFilters: Filter[]): boolean => {
-    const isActive = activeField === fieldKey;
-    const hasAppliedFilter = appliedFilters.some(f => f.field === fieldKey);
-    return isActive || hasAppliedFilter;
-};
-
-// Helper to build UTM filter field configurations
+// Build UTM filter field configurations
 const buildUtmFields = (
     supportedOperators: Array<{value: string; label: string}>,
     utmSourceOptions: Array<{label: string; value: string; icon: React.ReactNode}>,
@@ -396,7 +392,7 @@ const buildUtmFields = (
     ];
 };
 
-// Helper to build basic filter field configurations
+// Build basic filter field configurations
 const buildBasicFields = (
     supportedOperators: Array<{value: string; label: string}>,
     audienceOptions: Array<{value: string; label: string; icon: React.ReactNode}>,
@@ -415,7 +411,7 @@ const buildBasicFields = (
             label: 'Audience',
             type: 'multiselect',
             icon: <LucideIcon.Users />,
-            options: audienceOptions,
+            options: audienceOptions.map(({value, label, icon}) => ({value, label, icon})),
             defaultOperator: 'is any of',
             hideOperatorSelect: true,
             autoCloseOnSelect: true
@@ -508,13 +504,20 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
 
     // Filter audience options based on site settings
     const audienceOptions = useMemo(() => {
-        return buildAudienceOptions(appSettings?.paidMembersEnabled || false);
+        const options = [
+            {value: 'undefined', label: 'Public visitors', icon: <LucideIcon.Globe className='text-gray-700'/>},
+            {value: 'free', label: 'Free members', icon: <LucideIcon.User className='text-green'/>},
+            {value: 'paid', label: 'Paid members', icon: <LucideIcon.UserPlus className='text-orange'/>}
+        ];
+        return appSettings?.paidMembersEnabled ? options : options.filter(opt => opt.value !== 'paid');
     }, [appSettings?.paidMembersEnabled]);
 
     // Helper: determine if a filter field should fetch options
     // Enable fetching when the field is active OR has an applied filter value (for label display)
     const shouldFetchOptions = useCallback((fieldKey: string) => {
-        return shouldFetchFilterOptions(fieldKey, activeFilterField, filters);
+        const isActive = activeFilterField === fieldKey;
+        const hasAppliedFilter = filters.some(f => f.field === fieldKey);
+        return isActive || hasAppliedFilter;
     }, [activeFilterField, filters]);
 
     // Fetch options for all Tinybird-backed fields using the generic hook
@@ -555,7 +558,7 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
 
         const basicFields = buildBasicFields(
             supportedOperators,
-            audienceOptions.map(({value, label, icon}) => ({value, label, icon})),
+            audienceOptions,
             postOptions,
             postLoading,
             sourceOptions,
@@ -619,4 +622,3 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
 }
 
 export default StatsFilter;
-```

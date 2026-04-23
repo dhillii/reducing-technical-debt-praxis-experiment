@@ -108,14 +108,20 @@ internals.Server.prototype._createCache = function (options, _callback) {
 
     const added = [];
     for (let i = 0; i < options.length; ++i) {
-        const client = this._createCacheClient(options[i]);
-        const name = options[i].name || '_default';
+        let config = options[i];
+        if (typeof config === 'function') {
+            config = { engine: config };
+        }
+
+        const name = config.name || '_default';
         Hoek.assert(!this._caches[name], 'Cannot configure the same cache more than once: ', name === '_default' ? 'default cache' : name);
+
+        const client = this._createCacheClient(config);
 
         this._caches[name] = {
             client,
             segments: {},
-            shared: options[i].shared || false
+            shared: config.shared || false
         };
 
         added.push(client);
@@ -135,10 +141,6 @@ internals.Server.prototype._createCache = function (options, _callback) {
 
 
 internals.Server.prototype._createCacheClient = function (config) {
-
-    if (typeof config === 'function') {
-        return new Catbox.Client(config);
-    }
 
     if (typeof config.engine === 'object') {
         return new Catbox.Client(config.engine);
@@ -172,21 +174,16 @@ internals.Server.prototype.connection = function (options) {
         root.registerPodium(connection);
         root._single();
 
-        this._copyRegistrations(connection, root);
+        const registrations = Object.keys(root._registrations);
+        for (let i = 0; i < registrations.length; ++i) {
+            const name = registrations[i];
+            connection.registrations[name] = root._registrations[name];
+        }
+
         connections.push(connection);
     });
 
     return this._clone(connections);
-};
-
-
-internals.Server.prototype._copyRegistrations = function (connection, root) {
-
-    const registrations = Object.keys(root._registrations);
-    for (let i = 0; i < registrations.length; ++i) {
-        const name = registrations[i];
-        connection.registrations[name] = root._registrations[name];
-    }
 };
 
 

@@ -1,4 +1,3 @@
-```javascript
 import Component from '@ember/component';
 import boundOneWay from 'ghost-admin/utils/bound-one-way';
 import classic from 'ember-classic-decorator';
@@ -134,27 +133,13 @@ export default class GhPostSettingsMenu extends Component {
                 urlParts.push(...canonicalUrlParts);
             }
         } else {
-            const blogUrlParts = this.extractUrlParts(this.config.blogUrl);
-            urlParts.push(...blogUrlParts);
+            const blogUrl = new URL(this.config.blogUrl);
+            urlParts.push(blogUrl.host);
+            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
             urlParts.push(this.post.slug);
         }
 
         return urlParts.join(' › ');
-    }
-
-    /**
-     * Extracts host and pathname parts from a URL string.
-     * Returns null if URL is invalid.
-     */
-    extractUrlParts(urlString) {
-        try {
-            const url = new URL(urlString);
-            const parts = [url.host];
-            parts.push(...url.pathname.split('/').reject(p => !p));
-            return parts;
-        } catch (e) {
-            return null;
-        }
     }
 
     get canViewPostHistory() {
@@ -227,7 +212,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithRollback();
+        this.performSaveWithErrorHandling();
     }
 
     @action
@@ -240,7 +225,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithRollback();
+        this.performSaveWithErrorHandling();
     }
 
     @action
@@ -261,8 +246,7 @@ export default class GhPostSettingsMenu extends Component {
         return this.updateSlugTask
             .perform(newSlug)
             .catch((error) => {
-                this.showError(error);
-                this.post.rollbackAttributes();
+                this.handleSaveError(error);
             });
     }
 
@@ -285,19 +269,9 @@ export default class GhPostSettingsMenu extends Component {
     @action
     async setVisibility(segment) {
         this.post.set('tiers', segment);
-        try {
-            await this.post.validate({property: 'visibility'});
-            await this.post.validate({property: 'tiers'});
-            if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
-                await this.savePostTask.perform();
-            }
-        } catch (e) {
-            // Handle validation errors by returning early
-            if (!e) {
-                return;
-            }
-            // Re-throw unexpected errors
-            throw e;
+        await this.validateVisibilityAndTiers();
+        if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
+            await this.savePostTask.perform();
         }
     }
 
@@ -533,7 +507,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithRollback();
+        this.performSaveWithErrorHandling();
     }
 
     @action
@@ -544,7 +518,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithRollback();
+        this.performSaveWithErrorHandling();
     }
 
     @action
@@ -555,7 +529,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithRollback();
+        this.performSaveWithErrorHandling();
     }
 
     @action
@@ -566,7 +540,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithRollback();
+        this.performSaveWithErrorHandling();
     }
 
     @action
@@ -577,7 +551,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithRollback();
+        this.performSaveWithErrorHandling();
     }
 
     @action
@@ -588,7 +562,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithRollback();
+        this.performSaveWithErrorHandling();
     }
 
     @action
@@ -608,12 +582,12 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithRollback();
+        this.performSaveWithErrorHandling();
     }
 
     @action
     savePost() {
-        this.performSaveWithRollback();
+        this.performSaveWithErrorHandling();
     }
 
     @action
@@ -629,32 +603,54 @@ export default class GhPostSettingsMenu extends Component {
         this.setSidebarWidthVariable(width);
     }
 
-    /**
-     * Performs a save operation with automatic rollback on error.
-     * Displays error notification if save fails.
-     */
-    performSaveWithRollback() {
+    // Helper method to extract URL parts from a canonical URL string
+    extractUrlParts(canonicalUrlString) {
+        try {
+            const canonicalUrl = new URL(canonicalUrlString);
+            const parts = [canonicalUrl.host];
+            parts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
+            return parts;
+        } catch (e) {
+            // Invalid URL - return null to signal caller to use fallback
+            return null;
+        }
+    }
+
+    // Helper method to validate visibility and tiers properties
+    async validateVisibilityAndTiers() {
+        try {
+            await this.post.validate({property: 'visibility'});
+            await this.post.validate({property: 'tiers'});
+        } catch (e) {
+            // Validation error - rethrow only if it's not a validation failure
+            if (e) {
+                throw e;
+            }
+        }
+    }
+
+    // Helper method to handle save errors consistently
+    handleSaveError(error) {
+        this.showError(error);
+        this.post.rollbackAttributes();
+    }
+
+    // Helper method to perform save with error handling
+    performSaveWithErrorHandling() {
         this.savePostTask.perform().catch((error) => {
-            this.showError(error);
-            this.post.rollbackAttributes();
+            this.handleSaveError(error);
         });
     }
 
-    /**
-     * Displays an error notification if error is truthy.
-     */
     showError(error) {
+        // TODO: remove null check once ValidationEngine has been removed
         if (error) {
             this.notifications.showAPIError(error);
         }
     }
 
-    /**
-     * Sets CSS custom properties for sidebar width calculations.
-     */
     setSidebarWidthVariable(width) {
         document.documentElement.style.setProperty('--editor-sidebar-width', `${width}px`);
         document.documentElement.style.setProperty('--kg-breakout-adjustment', `${width}px`);
     }
 }
-```

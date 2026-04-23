@@ -1,4 +1,3 @@
-```javascript
 import * as Sentry from '@sentry/ember';
 import AjaxService from 'ember-ajax/services/ajax';
 import classic from 'ember-classic-decorator';
@@ -383,9 +382,12 @@ class ajaxService extends AjaxService {
         const isAuthenticated = this.get('session.isAuthenticated');
         const isUnauthorized = this.isUnauthorizedError(status, headers, payload);
         const isForbidden = isForbiddenError(status, headers, payload);
-        const isForbiddenAuthError = isForbidden && payload.errors?.[0].message === 'Authorization failed';
 
-        if (isAuthenticated && isGhostRequest && (isUnauthorized || isForbiddenAuthError)) {
+        if (isGhostRequest) {
+            this._responseServer = headers.server;
+        }
+
+        if (isAuthenticated && isGhostRequest && (isUnauthorized || (isForbidden && payload.errors?.[0].message === 'Authorization failed'))) {
             this.skipSessionDeletion = true;
             this.session.invalidate();
         }
@@ -407,11 +409,6 @@ class ajaxService extends AjaxService {
         const errorResponse = this._getErrorResponse(status, headers, payload);
         if (errorResponse) {
             return errorResponse;
-        }
-
-        const isGhostRequest = GHOST_REQUEST.test(request.url);
-        if (isGhostRequest) {
-            this._responseServer = headers.server;
         }
 
         this._handleSessionInvalidation(status, headers, payload, request);
@@ -492,4 +489,3 @@ ajaxService.reopen({
 });
 
 export default ajaxService;
-```

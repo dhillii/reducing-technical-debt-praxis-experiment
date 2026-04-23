@@ -1,12 +1,3 @@
-```javascript
-/**
- * Copyright (C) 2015 Laverna project Authors.
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
- */
-/* global define */
 define([
     'underscore',
     'backbone',
@@ -208,7 +199,7 @@ define([
             }
 
             const model  = this.get(id);
-            let index  = model ? this.indexOf(model) + 1 : 0;
+            const index  = model ? this.indexOf(model) + 1 : 0;
 
             // It is the last model on this page
             if (index >= this.models.length) {
@@ -227,7 +218,7 @@ define([
             }
 
             const model = this.get(id);
-            let index = model ? this.indexOf(model) - 1 : this.models.length - 1;
+            const index = model ? this.indexOf(model) - 1 : this.models.length - 1;
 
             // It is the first model on this page
             if (index < 0) {
@@ -332,4 +323,3 @@ define([
 
     return PageableCollection;
 });
-```

@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /**
@@ -23,11 +22,11 @@ exports = module.exports = Base;
  */
 
 /* eslint-disable no-unused-vars, no-native-reassign */
-const GlobalDate = global.Date;
-const GlobalSetTimeout = global.setTimeout;
-const GlobalSetInterval = global.setInterval;
-const GlobalClearTimeout = global.clearTimeout;
-const GlobalClearInterval = global.clearInterval;
+const DateRef = global.Date;
+const setTimeoutRef = global.setTimeout;
+const setIntervalRef = global.setInterval;
+const clearTimeoutRef = global.clearTimeout;
+const clearIntervalRef = global.clearInterval;
 /* eslint-enable no-unused-vars, no-native-reassign */
 
 /**
@@ -159,19 +158,19 @@ exports.cursor = {
 /**
  * Check if error should display a diff.
  *
+ * @api private
  * @param {Error} err
  * @return {boolean}
- * @api private
  */
 function showDiff (err) {
   return err && err.showDiff !== false && sameType(err.actual, err.expected) && err.expected !== undefined;
 }
 
 /**
- * Stringify actual and expected values if not already strings.
+ * Convert error actual/expected to strings if needed.
  *
- * @param {Error} err
  * @api private
+ * @param {Error} err
  */
 function stringifyDiffObjs (err) {
   if (!utils.isString(err.actual) || !utils.isString(err.expected)) {
@@ -183,9 +182,9 @@ function stringifyDiffObjs (err) {
 /**
  * Extract error message from error object.
  *
+ * @api private
  * @param {Error} err
  * @return {string}
- * @api private
  */
 function extractErrorMessage (err) {
   if (err.message && typeof err.message.toString === 'function') {
@@ -198,14 +197,14 @@ function extractErrorMessage (err) {
 }
 
 /**
- * Parse error message and stack into separate components.
+ * Parse error message and stack.
  *
+ * @api private
  * @param {string} message
  * @param {string} stack
  * @return {Object} with msg and stack properties
- * @api private
  */
-function parseErrorStack (message, stack) {
+function parseErrorMessageAndStack (message, stack) {
   const index = message ? stack.indexOf(message) : -1;
 
   if (index === -1) {
@@ -220,25 +219,54 @@ function parseErrorStack (message, stack) {
 }
 
 /**
- * Format error title with test number and title.
+ * Format uncaught error message.
  *
- * @param {number} testNumber
- * @param {string} testTitle
- * @return {string}
  * @api private
+ * @param {string} msg
+ * @param {boolean} isUncaught
+ * @return {string}
  */
-function formatErrorTitle (testNumber, testTitle) {
-  return color('error title', '  %s) %s:\n') +
-    color('error message', '     %s') +
-    color('error stack', '\n%s\n');
+function formatUncaughtMessage (msg, isUncaught) {
+  return isUncaught ? 'Uncaught ' + msg : msg;
 }
 
 /**
- * Build formatted test title from title path.
+ * Build diff format string and message.
  *
+ * @api private
+ * @param {Error} err
+ * @param {string} message
+ * @return {Object} with fmt and msg properties
+ */
+function buildDiffFormat (err, message) {
+  const fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
+  const match = message.match(/^([^:]+): expected/);
+  const msg = '\n      ' + color('error message', match ? match[1] : message);
+
+  return { fmt: fmt, msg: msg };
+}
+
+/**
+ * Append diff to error message.
+ *
+ * @api private
+ * @param {string} msg
+ * @param {Error} err
+ * @return {string}
+ */
+function appendDiff (msg, err) {
+  if (exports.inlineDiffs) {
+    return msg + inlineDiff(err);
+  }
+  return msg + unifiedDiff(err);
+}
+
+/**
+ * Build test title path string.
+ *
+ * @api private
  * @param {Array} titlePath
  * @return {string}
- * @api private
  */
 function buildTestTitle (titlePath) {
   let testTitle = '';
@@ -255,28 +283,6 @@ function buildTestTitle (titlePath) {
 }
 
 /**
- * Format diff output for error message.
- *
- * @param {Error} err
- * @param {string} message
- * @return {Object} with fmt and msg properties
- * @api private
- */
-function formatDiffOutput (err, message) {
-  const fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
-  const match = message.match(/^([^:]+): expected/);
-  let msg = '\n      ' + color('error message', match ? match[1] : message);
-
-  if (exports.inlineDiffs) {
-    msg += inlineDiff(err);
-  } else {
-    msg += unifiedDiff(err);
-  }
-
-  return { fmt: fmt, msg: msg };
-}
-
-/**
  * Output the given `failures` as a list.
  *
  * @param {Array} failures
@@ -286,128 +292,66 @@ function formatDiffOutput (err, message) {
 exports.list = function (failures) {
   console.log();
   failures.forEach(function (test, i) {
+    let fmt = color('error title', '  %s) %s:\n') +
+      color('error message', '     %s') +
+      color('error stack', '\n%s\n');
+
     const err = test.err;
     const message = extractErrorMessage(err);
     const stack = err.stack || message;
+    const parsed = parseErrorMessageAndStack(message, stack);
 
-    const parsed = parseErrorStack(message, stack);
     let msg = parsed.msg;
-    let formattedStack = parsed.stack;
-    let fmt = formatErrorTitle(i + 1, test.titlePath()[0]);
+    let displayStack = parsed.stack;
 
-    if (err.uncaught) {
-      msg = 'Uncaught ' + msg;
-    }
+    msg = formatUncaughtMessage(msg, err.uncaught);
 
     if (!exports.hideDiff && showDiff(err)) {
       stringifyDiffObjs(err);
-      const diffOutput = formatDiffOutput(err, message);
-      fmt = diffOutput.fmt;
-      msg = diffOutput.msg;
+      const diffFormat = buildDiffFormat(err, message);
+      fmt = diffFormat.fmt;
+      msg = diffFormat.msg;
+      msg = appendDiff(msg, err);
     }
 
-    formattedStack = formattedStack.replace(/^/gm, '  ');
+    displayStack = displayStack.replace(/^/gm, '  ');
     const testTitle = buildTestTitle(test.titlePath());
 
-    console.log(fmt, (i + 1), testTitle, msg, formattedStack);
+    console.log(fmt, (i + 1), testTitle, msg, displayStack);
   });
 };
 
 /**
- * Initialize stats object with default values.
+ * Initialize runner event handlers for statistics tracking.
  *
- * @return {Object}
  * @api private
- */
-function createStatsObject () {
-  return { suites: 0, tests: 0, passes: 0, pending: 0, failures: 0 };
-}
-
-/**
- * Determine test speed based on duration.
- *
- * @param {number} duration
- * @param {number} slowThreshold
- * @return {string}
- * @api private
- */
-function determineTestSpeed (duration, slowThreshold) {
-  if (duration > slowThreshold) {
-    return 'slow';
-  }
-  if (duration > slowThreshold / 2) {
-    return 'medium';
-  }
-  return 'fast';
-}
-
-/**
- * Attach start event handler to runner.
- *
  * @param {Runner} runner
  * @param {Object} stats
- * @api private
+ * @param {Array} failures
  */
-function attachStartHandler (runner, stats) {
+function initializeRunnerHandlers (runner, stats, failures) {
   runner.on('start', function () {
-    stats.start = new GlobalDate();
+    stats.start = new DateRef();
   });
-}
 
-/**
- * Attach suite event handler to runner.
- *
- * @param {Runner} runner
- * @param {Object} stats
- * @api private
- */
-function attachSuiteHandler (runner, stats) {
   runner.on('suite', function (suite) {
     stats.suites = stats.suites || 0;
     if (!suite.root) {
       stats.suites++;
     }
   });
-}
 
-/**
- * Attach test end event handler to runner.
- *
- * @param {Runner} runner
- * @param {Object} stats
- * @api private
- */
-function attachTestEndHandler (runner, stats) {
   runner.on('test end', function () {
     stats.tests = stats.tests || 0;
     stats.tests++;
   });
-}
 
-/**
- * Attach pass event handler to runner.
- *
- * @param {Runner} runner
- * @param {Object} stats
- * @api private
- */
-function attachPassHandler (runner, stats) {
   runner.on('pass', function (test) {
     stats.passes = stats.passes || 0;
-    test.speed = determineTestSpeed(test.duration, test.slow());
+    assignTestSpeed(test);
     stats.passes++;
   });
-}
 
-/**
- * Attach fail event handler to runner.
- *
- * @param {Runner} runner
- * @param {Object} stats
- * @param {Array} failures
- * @api private
- */
-function attachFailHandler (runner, stats, failures) {
   runner.on('fail', function (test, err) {
     stats.failures = stats.failures || 0;
     stats.failures++;
@@ -417,51 +361,31 @@ function attachFailHandler (runner, stats, failures) {
     test.err = err;
     failures.push(test);
   });
-}
 
-/**
- * Attach end event handler to runner.
- *
- * @param {Runner} runner
- * @param {Object} stats
- * @api private
- */
-function attachEndHandler (runner, stats) {
   runner.on('end', function () {
-    stats.end = new GlobalDate();
-    stats.duration = new GlobalDate() - stats.start;
+    stats.end = new DateRef();
+    stats.duration = new DateRef() - stats.start;
   });
-}
 
-/**
- * Attach pending event handler to runner.
- *
- * @param {Runner} runner
- * @param {Object} stats
- * @api private
- */
-function attachPendingHandler (runner, stats) {
   runner.on('pending', function () {
     stats.pending++;
   });
 }
 
 /**
- * Attach all event handlers to runner.
+ * Assign speed category to test based on duration.
  *
- * @param {Runner} runner
- * @param {Object} stats
- * @param {Array} failures
  * @api private
+ * @param {Object} test
  */
-function attachAllHandlers (runner, stats, failures) {
-  attachStartHandler(runner, stats);
-  attachSuiteHandler(runner, stats);
-  attachTestEndHandler(runner, stats);
-  attachPassHandler(runner, stats);
-  attachFailHandler(runner, stats, failures);
-  attachEndHandler(runner, stats);
-  attachPendingHandler(runner, stats);
+function assignTestSpeed (test) {
+  if (test.duration > test.slow()) {
+    test.speed = 'slow';
+  } else if (test.duration > test.slow() / 2) {
+    test.speed = 'medium';
+  } else {
+    test.speed = 'fast';
+  }
 }
 
 /**
@@ -477,7 +401,7 @@ function attachAllHandlers (runner, stats, failures) {
  */
 
 function Base (runner) {
-  const stats = this.stats = createStatsObject();
+  const stats = this.stats = { suites: 0, tests: 0, passes: 0, pending: 0, failures: 0 };
   const failures = this.failures = [];
 
   if (!runner) {
@@ -486,57 +410,7 @@ function Base (runner) {
 
   this.runner = runner;
   runner.stats = stats;
-
-  attachAllHandlers(runner, stats, failures);
-}
-
-/**
- * Format passes epilogue section.
- *
- * @param {Object} stats
- * @return {string}
- * @api private
- */
-function formatPassesEpilogue (stats) {
-  const fmt = color('bright pass', ' ') +
-    color('green', ' %d passing') +
-    color('light', ' (%s)');
-
-  return { fmt: fmt, passes: stats.passes || 0, duration: ms(stats.duration) };
-}
-
-/**
- * Format pending epilogue section.
- *
- * @param {Object} stats
- * @return {string|null}
- * @api private
- */
-function formatPendingEpilogue (stats) {
-  if (!stats.pending) {
-    return null;
-  }
-
-  const fmt = color('pending', ' ') +
-    color('pending', ' %d pending');
-
-  return { fmt: fmt, pending: stats.pending };
-}
-
-/**
- * Format failures epilogue section.
- *
- * @param {Object} stats
- * @return {string|null}
- * @api private
- */
-function formatFailuresEpilogue (stats) {
-  if (!stats.failures) {
-    return null;
-  }
-
-  const fmt = color('fail', '  %d failing');
-  return { fmt: fmt, failures: stats.failures };
+  initializeRunnerHandlers(runner, stats, failures);
 }
 
 /**
@@ -550,17 +424,29 @@ Base.prototype.epilogue = function () {
 
   console.log();
 
-  const passesOutput = formatPassesEpilogue(stats);
-  console.log(passesOutput.fmt, passesOutput.passes, passesOutput.duration);
+  // passes
+  let fmt = color('bright pass', ' ') +
+    color('green', ' %d passing') +
+    color('light', ' (%s)');
 
-  const pendingOutput = formatPendingEpilogue(stats);
-  if (pendingOutput) {
-    console.log(pendingOutput.fmt, pendingOutput.pending);
+  console.log(fmt,
+    stats.passes || 0,
+    ms(stats.duration));
+
+  // pending
+  if (stats.pending) {
+    fmt = color('pending', ' ') +
+      color('pending', ' %d pending');
+
+    console.log(fmt, stats.pending);
   }
 
-  const failuresOutput = formatFailuresEpilogue(stats);
-  if (failuresOutput) {
-    console.log(failuresOutput.fmt, failuresOutput.failures);
+  // failures
+  if (stats.failures) {
+    fmt = color('fail', '  %d failing');
+
+    console.log(fmt, stats.failures);
+
     Base.list(this.failures);
     console.log();
   }
@@ -584,9 +470,9 @@ function pad (str, len) {
 /**
  * Add line numbers to diff output.
  *
+ * @api private
  * @param {string} msg
  * @return {string}
- * @api private
  */
 function addLineNumbers (msg) {
   const lines = msg.split('\n');
@@ -612,6 +498,7 @@ function inlineDiff (err) {
 
   msg = addLineNumbers(msg);
 
+  // legend
   msg = '\n' +
     color('diff removed', 'actual') +
     ' ' +
@@ -620,19 +507,20 @@ function inlineDiff (err) {
     msg +
     '\n';
 
+  // indent
   msg = msg.replace(/^/gm, '      ');
   return msg;
 }
 
 /**
- * Clean up diff line for unified diff output.
+ * Clean up diff line for unified format.
  *
- * @param {string} line
- * @param {string} indent
- * @return {string|null}
  * @api private
+ * @param {string} line
+ * @return {string|null}
  */
-function cleanDiffLine (line, indent) {
+function cleanDiffLine (line) {
+  const indent = '      ';
   if (line[0] === '+') {
     return indent + colorLines('diff added', line);
   }
@@ -649,13 +537,13 @@ function cleanDiffLine (line, indent) {
 }
 
 /**
- * Check if line is not blank.
+ * Filter out blank lines.
  *
+ * @api private
  * @param {string} line
  * @return {boolean}
- * @api private
  */
-function notBlank (line) {
+function isNotBlank (line) {
   return typeof line !== 'undefined' && line !== null;
 }
 
@@ -667,17 +555,13 @@ function notBlank (line) {
  * @return {string} The diff.
  */
 function unifiedDiff (err) {
-  const indent = '      ';
   const msg = diff.createPatch('string', err.actual, err.expected);
   const lines = msg.split('\n').splice(5);
-
   return '\n      ' +
     colorLines('diff added', '+ expected') + ' ' +
     colorLines('diff removed', '- actual') +
     '\n\n' +
-    lines.map(function (line) {
-      return cleanDiffLine(line, indent);
-    }).filter(notBlank).join('\n');
+    lines.map(cleanDiffLine).filter(isNotBlank).join('\n');
 }
 
 /**
@@ -729,4 +613,3 @@ const objToString = Object.prototype.toString;
 function sameType (a, b) {
   return objToString.call(a) === objToString.call(b);
 }
-```

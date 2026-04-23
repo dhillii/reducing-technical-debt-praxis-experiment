@@ -1,4 +1,3 @@
-```javascript
 import * as Sentry from '@sentry/ember';
 import Component from '@glimmer/component';
 import React, {Suspense} from 'react';
@@ -283,8 +282,7 @@ export default class KoenigLexicalEditor extends Component {
                 {
                     label: 'Upgrade or change plan',
                     value: '#/portal/account/plans'
-                }
-            ];
+                }];
         }
         return links;
     }
@@ -416,7 +414,193 @@ export default class KoenigLexicalEditor extends Component {
         return this.filterSearchResults(results);
     }
 
-    buildUnsplashConfig() {
+    defaultValidator(file, type) {
+        // if type is file we don't need to validate since the card can accept any file type
+        if (type === 'file') {
+            return true;
+        }
+        let extensions = fileTypes[type].extensions;
+        let [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
+
+        // if extensions is falsy exit early and accept all files
+        if (!extensions) {
+            return true;
+        }
+
+        if (!Array.isArray(extensions)) {
+            extensions = extensions.split(',');
+        }
+
+        if (!extension || extensions.indexOf(extension.toLowerCase()) === -1) {
+            let validExtensions = `.${extensions.join(', .').toUpperCase()}`;
+            return `The file type you uploaded is not supported. Please use ${validExtensions}`;
+        }
+
+        return true;
+    }
+
+    validateFiles(files, type) {
+        const validationResult = [];
+
+        for (let i = 0; i < files.length; i += 1) {
+            let file = files[i];
+            let result = this.defaultValidator(file, type);
+            if (result === true) {
+                continue;
+            }
+
+            validationResult.push({fileName: file.name, message: result});
+        }
+
+        return validationResult;
+    }
+
+    buildFileFormData(file, formData) {
+        const fileFormData = new FormData();
+        fileFormData.append('file', file, file.name);
+
+        Object.keys(formData || {}).forEach((key) => {
+            fileFormData.append(key, formData[key]);
+        });
+
+        return fileFormData;
+    }
+
+    createXhrWithProgress(file, progressTracker, updateProgress) {
+        const xhr = new window.XMLHttpRequest();
+
+        xhr.upload.addEventListener('progress', (event) => {
+            if (event.lengthComputable) {
+                progressTracker.set(file, (event.loaded / event.total) * 100);
+                updateProgress();
+            }
+        }, false);
+
+        return xhr;
+    }
+
+    parseUploadResponse(response, type) {
+        let uploadResponse;
+        let responseUrl;
+
+        try {
+            uploadResponse = JSON.parse(response);
+        } catch (error) {
+            if (!(error instanceof SyntaxError)) {
+                throw error;
+            }
+        }
+
+        if (uploadResponse) {
+            const resource = uploadResponse[fileTypes[type].resourceName];
+            if (resource && Array.isArray(resource) && resource[0]) {
+                responseUrl = resource[0].url;
+            }
+        }
+
+        return responseUrl;
+    }
+
+    buildErrorResult(error, fileName) {
+        // grab custom error message if present
+        let message = error.payload?.errors?.[0]?.message || '';
+        let context = error.payload?.errors?.[0]?.context || '';
+
+        // fall back to EmberData/ember-ajax default message for error type
+        if (!message) {
+            message = error.message;
+        }
+
+        return {
+            message,
+            context,
+            fileName
+        };
+    }
+
+    createUseFileUpload(type, progressTracker, updateProgress) {
+        return async (file, {formData = {}} = {}) => {
+            progressTracker.set(file, 0);
+
+            const fileFormData = this.buildFileFormData(file, formData);
+            const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
+
+            try {
+                const requestMethod = fileTypes[type].requestMethod || 'post';
+                const response = await this.ajax[requestMethod](url, {
+                    data: fileFormData,
+                    processData: false,
+                    contentType: false,
+                    dataType: 'text',
+                    xhr: () => this.createXhrWithProgress(file, progressTracker, updateProgress)
+                });
+
+                // force tracker progress to 100% in case we didn't get a final event
+                progressTracker.set(file, 100);
+                updateProgress();
+
+                const responseUrl = this.parseUploadResponse(response, type);
+
+                return {
+                    url: responseUrl,
+                    fileName: file.name
+                };
+            } catch (error) {
+                console.error(error); // eslint-disable-line
+
+                const errorResult = this.buildErrorResult(error, file.name);
+                throw errorResult;
+            }
+        };
+    }
+
+    createUploadFunction(type, progressTracker, updateProgress, setFilesNumber, setLoading, setErrors, setProgress, errors) {
+        return async (files = [], options = {}) => {
+            setFilesNumber(files.length);
+            setLoading(true);
+
+            const validationResult = this.validateFiles(files, type);
+
+            if (validationResult.length) {
+                setErrors(validationResult);
+                setLoading(false);
+                setProgress(100);
+
+                return null;
+            }
+
+            const uploadFile = this.createUseFileUpload(type, progressTracker, updateProgress);
+            const uploadPromises = [];
+
+            for (let i = 0; i < files.length; i += 1) {
+                const file = files[i];
+                uploadPromises.push(uploadFile(file, options));
+            }
+
+            try {
+                const uploadResult = await Promise.all(uploadPromises);
+                setProgress(100);
+                progressTracker.clear();
+
+                setLoading(false);
+
+                setErrors([]); // components expect array of objects: { fileName: string, message: string }[]
+
+                return uploadResult;
+            } catch (error) {
+                console.error(error); // eslint-disable-line no-console
+
+                setErrors([...errors, error]);
+                setLoading(false);
+                setProgress(100);
+                progressTracker.clear();
+
+                return null;
+            }
+        };
+    }
+
+    createUnsplashConfig() {
         return {
             defaultHeaders: {
                 Authorization: `Client-ID 8672af113b0a8573edae3aa3713886265d9bb741d707f6c01a486cde8c278980`,
@@ -438,171 +622,42 @@ export default class KoenigLexicalEditor extends Component {
         return hasDirectKeys || hasConnectKeys;
     }
 
-    buildCardConfig(props) {
-        const unsplashConfig = this.buildUnsplashConfig();
-        const defaultCardConfig = {
+    buildDefaultCardConfig(fetchAutocompleteLinks, fetchEmbed, fetchLabels) {
+        const unsplashConfig = this.createUnsplashConfig();
+        return {
             unsplash: this.settings.unsplash ? unsplashConfig.defaultHeaders : null,
             tenor: this.config.tenor?.googleApiKey ? this.config.tenor : null,
-            fetchAutocompleteLinks: this.fetchAutocompleteLinks.bind(this),
-            fetchEmbed: this.fetchEmbed.bind(this),
-            fetchLabels: this.fetchLabels.bind(this),
+            fetchAutocompleteLinks,
+            fetchEmbed,
+            fetchLabels,
             renderLabels: !this.session.user.isContributor,
             feature: {
                 transistor: this.feature.transistor
             },
-            deprecated: {
-                headerV1: true
+            deprecated: { // todo fix typo
+                headerV1: true // if false, shows header v1 in the menu
             },
             membersEnabled: this.settings.membersSignupAccess === 'all',
             searchLinks: this.searchLinks.bind(this),
             siteTitle: this.settings.title,
             siteDescription: this.settings.description,
             siteUrl: this.config.getSiteUrl('/'),
-            stripeEnabled: this.checkStripeEnabled()
-        };
-        return Object.assign({}, defaultCardConfig, props.cardConfig, {pinturaConfig: this.pinturaConfig});
-    }
-
-    async fetchEmbed(url, {type}) {
-        let oembedEndpoint = this.ghostPaths.url.api('oembed');
-        let response = await this.ajax.request(oembedEndpoint, {
-            data: {url, type}
-        });
-        return response;
-    }
-
-    buildDefaultValidator(type) {
-        return (file) => {
-            // if type is file we don't need to validate since the card can accept any file type
-            if (type === 'file') {
-                return true;
-            }
-            let extensions = fileTypes[type].extensions;
-            let [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
-
-            // if extensions is falsy exit early and accept all files
-            if (!extensions) {
-                return true;
-            }
-
-            if (!Array.isArray(extensions)) {
-                extensions = extensions.split(',');
-            }
-
-            if (!extension || extensions.indexOf(extension.toLowerCase()) === -1) {
-                let validExtensions = `.${extensions.join(', .').toUpperCase()}`;
-                return `The file type you uploaded is not supported. Please use ${validExtensions}`;
-            }
-
-            return true;
+            stripeEnabled: this.checkStripeEnabled() // returns a boolean
         };
     }
 
-    buildValidate(type) {
-        const defaultValidator = this.buildDefaultValidator(type);
-        return (files = []) => {
-            const validationResult = [];
-
-            for (let i = 0; i < files.length; i += 1) {
-                let file = files[i];
-                let result = defaultValidator(file);
-                if (result === true) {
-                    continue;
-                }
-
-                validationResult.push({fileName: file.name, message: result});
-            }
-
-            return validationResult;
-        };
-    }
-
-    buildUploadFile(type, progressTracker, updateProgress) {
-        return async (file, {formData = {}} = {}) => {
-            progressTracker.current[file] = 0;
-
-            const fileFormData = new FormData();
-            fileFormData.append('file', file, file.name);
-
-            Object.keys(formData || {}).forEach((key) => {
-                fileFormData.append(key, formData[key]);
+    createFetchEmbed() {
+        return async (url, {type}) => {
+            let oembedEndpoint = this.ghostPaths.url.api('oembed');
+            let response = await this.ajax.request(oembedEndpoint, {
+                data: {url, type}
             });
-
-            const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
-
-            try {
-                const requestMethod = fileTypes[type].requestMethod || 'post';
-                const response = await this.ajax[requestMethod](url, {
-                    data: fileFormData,
-                    processData: false,
-                    contentType: false,
-                    dataType: 'text',
-                    xhr: () => {
-                        const xhr = new window.XMLHttpRequest();
-
-                        xhr.upload.addEventListener('progress', (event) => {
-                            if (event.lengthComputable) {
-                                progressTracker.current.set(file, (event.loaded / event.total) * 100);
-                                updateProgress();
-                            }
-                        }, false);
-
-                        return xhr;
-                    }
-                });
-
-                // force tracker progress to 100% in case we didn't get a final event
-                progressTracker.current.set(file, 100);
-                updateProgress();
-
-                let uploadResponse;
-                let responseUrl;
-
-                try {
-                    uploadResponse = JSON.parse(response);
-                } catch (error) {
-                    if (!(error instanceof SyntaxError)) {
-                        throw error;
-                    }
-                }
-
-                if (uploadResponse) {
-                    const resource = uploadResponse[fileTypes[type].resourceName];
-                    if (resource && Array.isArray(resource) && resource[0]) {
-                        responseUrl = resource[0].url;
-                    }
-                }
-
-                return {
-                    url: responseUrl,
-                    fileName: file.name
-                };
-            } catch (error) {
-                console.error(error); // eslint-disable-line
-
-                // grab custom error message if present
-                let message = error.payload?.errors?.[0]?.message || '';
-                let context = error.payload?.errors?.[0]?.context || '';
-
-                // fall back to EmberData/ember-ajax default message for error type
-                if (!message) {
-                    message = error.message;
-                }
-
-                // TODO: check for or expose known error types?
-                const errorResult = {
-                    message,
-                    context,
-                    fileName: file.name
-                };
-
-                throw errorResult;
-            }
+            return response;
         };
     }
 
-    buildUseFileUpload(type) {
-        return () => {
+    createUseFileUploadHook(type) {
+        return (type = 'image') => {
             const [progress, setProgress] = React.useState(0);
             const [isLoading, setLoading] = React.useState(false);
             const [errors, setErrors] = React.useState([]);
@@ -623,64 +678,20 @@ export default class KoenigLexicalEditor extends Component {
                 setProgress(Math.round(totalProgress / progressTracker.current.size));
             };
 
-            const validate = this.buildValidate(type);
-            const _uploadFile = this.buildUploadFile(type, progressTracker, updateProgress);
-
-            const upload = async (files = [], options = {}) => {
-                setFilesNumber(files.length);
-                setLoading(true);
-
-                const validationResult = validate(files);
-
-                if (validationResult.length) {
-                    setErrors(validationResult);
-                    setLoading(false);
-                    setProgress(100);
-
-                    return null;
-                }
-
-                const uploadPromises = [];
-
-                for (let i = 0; i < files.length; i += 1) {
-                    const file = files[i];
-                    uploadPromises.push(_uploadFile(file, options));
-                }
-
-                try {
-                    const uploadResult = await Promise.all(uploadPromises);
-                    setProgress(100);
-                    progressTracker.current.clear();
-
-                    setLoading(false);
-
-                    setErrors([]);
-
-                    return uploadResult;
-                } catch (error) {
-                    console.error(error); // eslint-disable-line no-console
-
-                    setErrors([...errors, error]);
-                    setLoading(false);
-                    setProgress(100);
-                    progressTracker.current.clear();
-
-                    return null;
-                }
-            };
+            const upload = this.createUploadFunction(type, progressTracker.current, updateProgress, setFilesNumber, setLoading, setErrors, setProgress, errors);
 
             return {progress, isLoading, upload, errors, filesNumber};
         };
     }
 
-    buildKGEditorComponent(cardConfig) {
+    createKGEditorComponent(cardConfig) {
         const KGEditorComponent = ({isInitInstance}) => {
             return (
                 <div data-secondary-instance={isInitInstance ? true : false} style={isInitInstance ? {display: 'none'} : {}}>
                     <KoenigComposer
                         editorResource={this.editorResource}
                         cardConfig={cardConfig}
-                        fileUploader={{useFileUpload: this.buildUseFileUpload('image')(), fileTypes}}
+                        fileUploader={{useFileUpload: this.createUseFileUploadHook('image'), fileTypes}}
                         initialEditorState={this.args.lexical}
                         onError={this.onError}
                         darkMode={this.feature.nightShift}
@@ -704,8 +715,15 @@ export default class KoenigLexicalEditor extends Component {
     }
 
     ReactComponent = (props) => {
-        const cardConfig = this.buildCardConfig(props);
-        const KGEditorComponent = this.buildKGEditorComponent(cardConfig);
+        const fetchEmbed = this.createFetchEmbed();
+        const fetchAutocompleteLinks = this.fetchAutocompleteLinks.bind(this);
+        const fetchLabels = this.fetchLabels.bind(this);
+        const useFileUpload = this.createUseFileUploadHook('image');
+
+        const defaultCardConfig = this.buildDefaultCardConfig(fetchAutocompleteLinks, fetchEmbed, fetchLabels);
+        const cardConfig = Object.assign({}, defaultCardConfig, props.cardConfig, {pinturaConfig: this.pinturaConfig});
+
+        const KGEditorComponent = this.createKGEditorComponent(cardConfig);
 
         return (
             <div className={['koenig-react-editor', 'koenig-lexical', this.args.className].filter(Boolean).join(' ')}>
@@ -719,4 +737,3 @@ export default class KoenigLexicalEditor extends Component {
         );
     };
 }
-```

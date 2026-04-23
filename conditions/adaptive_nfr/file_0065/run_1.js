@@ -1,15 +1,4 @@
-```javascript
-/**
- * @fileoverview Mocha/Jest test wrapper
- * @author Ilya Volodin
- */
 "use strict";
-
-/* globals describe, it -- Mocha globals */
-
-//------------------------------------------------------------------------------
-// Requirements
-//------------------------------------------------------------------------------
 
 const assert = require("node:assert"),
 	{ existsSync, readFileSync } = require("node:fs"),
@@ -37,76 +26,10 @@ const { ConfigArraySymbol } = require("@eslint/config-array");
 const jslang = require("../languages/js");
 const { SourceCode } = require("../languages/js/source-code");
 
-//------------------------------------------------------------------------------
-// Typedefs
-//------------------------------------------------------------------------------
-
-/** @import { LanguageOptions, RuleDefinition } from "@eslint/core" */
-
-/** @typedef {import("../types").Linter.Parser} Parser */
-
-/**
- * A test case that is expected to pass lint.
- * @typedef {Object} ValidTestCase
- * @property {string} [name] Name for the test case.
- * @property {string} code Code for the test case.
- * @property {any[]} [options] Options for the test case.
- * @property {Function} [before] Function to execute before testing the case.
- * @property {Function} [after] Function to execute after testing the case regardless of its result.
- * @property {LanguageOptions} [languageOptions] The language options to use in the test case.
- * @property {{ [name: string]: any }} [settings] Settings for the test case.
- * @property {string} [filename] The fake filename for the test case. Useful for rules that make assertion about filenames.
- * @property {boolean} [only] Run only this test case or the subset of test cases with this property.
- */
-
-/**
- * A test case that is expected to fail lint.
- * @typedef {Object} InvalidTestCase
- * @property {string} [name] Name for the test case.
- * @property {string} code Code for the test case.
- * @property {number | Array<TestCaseError | string | RegExp>} errors Expected errors.
- * @property {string | null} [output] The expected code after autofixes are applied. If set to `null`, the test runner will assert that no autofix is suggested.
- * @property {any[]} [options] Options for the test case.
- * @property {Function} [before] Function to execute before testing the case.
- * @property {Function} [after] Function to execute after testing the case regardless of its result.
- * @property {{ [name: string]: any }} [settings] Settings for the test case.
- * @property {string} [filename] The fake filename for the test case. Useful for rules that make assertion about filenames.
- * @property {LanguageOptions} [languageOptions] The language options to use in the test case.
- * @property {boolean} [only] Run only this test case or the subset of test cases with this property.
- */
-
-/**
- * A description of a reported error used in a rule tester test.
- * @typedef {Object} TestCaseError
- * @property {string | RegExp} [message] Message.
- * @property {string} [messageId] Message ID.
- * @property {{ [name: string]: string }} [data] The data used to fill the message template.
- * @property {number} [line] The 1-based line number of the reported start location.
- * @property {number} [column] The 1-based column number of the reported start location.
- * @property {number} [endLine] The 1-based line number of the reported end location.
- * @property {number} [endColumn] The 1-based column number of the reported end location.
- */
-
-//------------------------------------------------------------------------------
-// Private Members
-//------------------------------------------------------------------------------
-
-/*
- * testerDefaultConfig must not be modified as it allows to reset the tester to
- * the initial default configuration
- */
 const testerDefaultConfig = { rules: {} };
 
-/*
- * RuleTester uses this config as its default. This can be overwritten via
- * setDefaultConfig().
- */
 let sharedDefaultConfig = { rules: {} };
 
-/*
- * List every parameters possible on a test case that are not related to eslint
- * configuration
- */
 const RuleTesterParameters = [
 	"name",
 	"code",
@@ -119,9 +42,6 @@ const RuleTesterParameters = [
 	"only",
 ];
 
-/*
- * All allowed property names in error objects.
- */
 const errorObjectParameters = new Set([
 	"message",
 	"messageId",
@@ -134,9 +54,6 @@ const errorObjectParameters = new Set([
 ]);
 const friendlyErrorObjectParameterList = `[${[...errorObjectParameters].map(key => `'${key}'`).join(", ")}]`;
 
-/*
- * All allowed property names in suggestion objects.
- */
 const suggestionObjectParameters = new Set([
 	"desc",
 	"messageId",
@@ -151,19 +68,12 @@ const forbiddenMethods = [
 	"finalize",
 ];
 
-/** @type {Map<string,WeakSet>} */
 const forbiddenMethodCalls = new Map(
 	forbiddenMethods.map(methodName => [methodName, new WeakSet()]),
 );
 
 const hasOwnProperty = Function.call.bind(Object.hasOwnProperty);
 
-/**
- * Clones a given value deeply.
- * Note: This ignores `parent` property.
- * @param {any} x A value to clone.
- * @returns {any} A cloned value.
- */
 function cloneDeeplyExcludesParent(x) {
 	if (typeof x === "object" && x !== null) {
 		if (Array.isArray(x)) {
@@ -184,55 +94,46 @@ function cloneDeeplyExcludesParent(x) {
 	return x;
 }
 
-/**
- * Freezes a given value deeply.
- * @param {any} x A value to freeze.
- * @param {Set<Object>} seenObjects Objects already seen during the traversal.
- * @returns {void}
- */
 function freezeDeeply(x, seenObjects = new Set()) {
-	if (typeof x === "object" && x !== null) {
-		if (seenObjects.has(x)) {
-			return; // skip to avoid infinite recursion
-		}
-		seenObjects.add(x);
+	if (typeof x === "object" && x === null) {
+		return;
+	}
 
-		if (Array.isArray(x)) {
-			x.forEach(element => {
-				freezeDeeply(element, seenObjects);
-			});
-		} else {
-			for (const key in x) {
-				if (key !== "parent" && hasOwnProperty(x, key)) {
-					freezeDeeply(x[key], seenObjects);
-				}
+	if (typeof x !== "object") {
+		return;
+	}
+
+	if (seenObjects.has(x)) {
+		return;
+	}
+
+	seenObjects.add(x);
+
+	if (Array.isArray(x)) {
+		x.forEach(element => {
+			freezeDeeply(element, seenObjects);
+		});
+	} else {
+		for (const key in x) {
+			if (key !== "parent" && hasOwnProperty(x, key)) {
+				freezeDeeply(x[key], seenObjects);
 			}
 		}
-		Object.freeze(x);
 	}
+
+	Object.freeze(x);
 }
 
-/**
- * Replace control characters by `\u00xx` form.
- * @param {string} text The text to sanitize.
- * @returns {string} The sanitized text.
- */
 function sanitize(text) {
 	if (typeof text !== "string") {
 		return "";
 	}
 	return text.replace(
-		/[\u0000-\u0009\u000b-\u001a]/gu, // eslint-disable-line no-control-regex -- Escaping controls
+		/[\u0000-\u0009\u000b-\u001a]/gu,
 		c => `\\u${c.codePointAt(0).toString(16).padStart(4, "0")}`,
 	);
 }
 
-/**
- * Define `start`/`end` properties as throwing error.
- * @param {string} objName Object name used for error messages.
- * @param {ASTNode} node The node to define.
- * @returns {void}
- */
 function defineStartEndAsError(objName, node) {
 	Object.defineProperties(node, {
 		start: {
@@ -256,12 +157,6 @@ function defineStartEndAsError(objName, node) {
 	});
 }
 
-/**
- * Define `start`/`end` properties of all nodes of the given AST as throwing error.
- * @param {ASTNode} ast The root node to errorize `start`/`end` properties.
- * @param {Object} [visitorKeys] Visitor keys to be used for traversing the given ast.
- * @returns {void}
- */
 function defineStartEndAsErrorInTree(ast, visitorKeys) {
 	Traverser.traverse(ast, {
 		visitorKeys,
@@ -271,12 +166,6 @@ function defineStartEndAsErrorInTree(ast, visitorKeys) {
 	ast.comments.forEach(defineStartEndAsError.bind(null, "token"));
 }
 
-/**
- * Wraps the given parser in order to intercept and modify return values from the `parse` and `parseForESLint` methods, for test purposes.
- * In particular, to modify ast nodes, tokens and comments to throw on access to their `start` and `end` properties.
- * @param {Parser} parser Parser object.
- * @returns {Parser} Wrapped parser object.
- */
 function wrapParser(parser) {
 	if (typeof parser.parseForESLint === "function") {
 		return {
@@ -301,25 +190,16 @@ function wrapParser(parser) {
 	};
 }
 
-/**
- * Function to replace forbidden `SourceCode` methods. Allows just one call per method.
- * @param {string} methodName The name of the method to forbid.
- * @param {Function} prototype The prototype with the original method to call.
- * @returns {Function} The function that throws the error.
- */
 function throwForbiddenMethodError(methodName, prototype) {
 	const original = prototype[methodName];
 
 	return function (...args) {
 		const called = forbiddenMethodCalls.get(methodName);
 
-		/* eslint-disable no-invalid-this -- needed to operate as a method. */
 		if (!called.has(this)) {
 			called.add(this);
-
 			return original.apply(this, args);
 		}
-		/* eslint-enable no-invalid-this -- not needed past this point */
 
 		throw new Error(
 			`\`SourceCode#${methodName}()\` cannot be called inside a rule.`,
@@ -327,25 +207,12 @@ function throwForbiddenMethodError(methodName, prototype) {
 	};
 }
 
-/**
- * Extracts names of {{ placeholders }} from the reported message.
- * @param   {string} message Reported message
- * @returns {string[]} Array of placeholder names
- */
 function getMessagePlaceholders(message) {
 	const matcher = getPlaceholderMatcher();
 
 	return Array.from(message.matchAll(matcher), ([, name]) => name.trim());
 }
 
-/**
- * Returns the placeholders in the reported messages but
- * only includes the placeholders available in the raw message and not in the provided data.
- * @param {string} message The reported message
- * @param {string} raw The raw message specified in the rule meta.messages
- * @param {undefined|Record<unknown, unknown>} data The passed
- * @returns {string[]} Missing placeholder names
- */
 function getUnsubstitutedMessagePlaceholders(message, raw, data = {}) {
 	const unsubstituted = getMessagePlaceholders(message);
 
@@ -353,7 +220,6 @@ function getUnsubstitutedMessagePlaceholders(message, raw, data = {}) {
 		return [];
 	}
 
-	// Remove false positives by only counting placeholders in the raw message, which were not provided in the data matcher or added with a data property
 	const known = getMessagePlaceholders(raw);
 	const provided = Object.keys(data);
 
@@ -370,69 +236,21 @@ const metaSchemaDescription = `
 \thttps://eslint.org/docs/latest/extend/custom-rules#options-schemas
 `;
 
-/*
- * Ignored test case properties when checking for test case duplicates.
- */
 const duplicationIgnoredParameters = new Set(["name", "errors", "output"]);
 
-/**
- * Normalizes a test case item, ensuring it is an object with a 'code' property.
- * If the item is not an object, it returns an object with the 'code' property set to the item.
- * @param {any} item The test case item to normalize.
- * @returns {Object} The normalized test case object.
- */
 function normalizeTestCase(item) {
 	return item && typeof item === "object" ? item : { code: item };
 }
 
-/**
- * Checks if errors property is a number.
- * @param {any} errors The errors property to check.
- * @returns {boolean} True if errors is a number.
- */
-function isErrorsNumber(errors) {
-	return typeof errors === "number";
+function isErrorsPropertyInvalid(errors) {
+	return typeof errors !== "number" && !Array.isArray(errors);
 }
 
-/**
- * Checks if errors property is an array.
- * @param {any} errors The errors property to check.
- * @returns {boolean} True if errors is an array.
- */
-function isErrorsArray(errors) {
-	return Array.isArray(errors);
-}
-
-/**
- * Checks if error is a string or RegExp.
- * @param {any} error The error to check.
- * @returns {boolean} True if error is a string or RegExp.
- */
-function isErrorStringOrRegExp(error) {
-	return typeof error === "string" || error instanceof RegExp;
-}
-
-/**
- * Checks if error is an object.
- * @param {any} error The error to check.
- * @returns {boolean} True if error is an object.
- */
-function isErrorObject(error) {
-	return typeof error === "object" && error !== null;
-}
-
-/**
- * Asserts that the `errors` property of an invalid test case is valid.
- * @param {number | string[]} errors The `errors` property of the invalid test case.
- * @param {string} ruleName The name of the rule being tested.
- * @param {Object} [assertionOptions] The assertion options for the test case.
- * @returns {void}
- */
 function assertErrorsProperty(errors, ruleName, assertionOptions = {}) {
-	const isNumber = isErrorsNumber(errors);
-	const isArray = isErrorsArray(errors);
+	const isNumber = typeof errors === "number";
+	const isArray = Array.isArray(errors);
 
-	if (!isNumber && !isArray) {
+	if (isErrorsPropertyInvalid(errors)) {
 		if (errors === undefined) {
 			assert.fail(
 				`Did not specify errors for an invalid test of ${ruleName}`,
@@ -449,7 +267,16 @@ function assertErrorsProperty(errors, ruleName, assertionOptions = {}) {
 	const { requireMessage = false, requireLocation = false } =
 		assertionOptions;
 
-	if (!isArray) {
+	if (isArray) {
+		assert.ok(
+			errors.length !== 0,
+			"Invalid cases must have at least one error",
+		);
+
+		for (const [number, error] of errors.entries()) {
+			assertErrorItem(error, number, requireMessage, requireLocation);
+		}
+	} else {
 		assert.ok(
 			!requireMessage && !requireLocation,
 			"Invalid cases must have 'errors' value as an array",
@@ -458,87 +285,77 @@ function assertErrorsProperty(errors, ruleName, assertionOptions = {}) {
 			errors > 0,
 			"Invalid cases must have 'error' value greater than 0",
 		);
-		return;
-	}
-
-	assert.ok(
-		errors.length !== 0,
-		"Invalid cases must have at least one error",
-	);
-
-	for (const [number, error] of errors.entries()) {
-		if (isErrorStringOrRegExp(error)) {
-			assert.ok(
-				requireMessage !== "messageId" && !requireLocation,
-				`errors[${number}] should be an object when 'assertionOptions.requireMessage' is 'messageId' or 'assertionOptions.requireLocation' is true.`,
-			);
-			continue;
-		}
-
-		if (!isErrorObject(error)) {
-			assert.fail(
-				`errors[${number}] must be a string, RegExp, or an object.`,
-			);
-		}
-
-		for (const propertyName of Object.keys(error)) {
-			assert.ok(
-				errorObjectParameters.has(propertyName),
-				`Invalid error property name '${propertyName}'. Expected one of ${friendlyErrorObjectParameterList}.`,
-			);
-		}
-
-		if (requireMessage === "message") {
-			assert.ok(
-				!hasOwnProperty(error, "messageId") &&
-					hasOwnProperty(error, "message"),
-				`errors[${number}] should specify 'message' (and not 'messageId') when 'assertionOptions.requireMessage' is 'message'.`,
-			);
-		} else if (requireMessage === "messageId") {
-			assert.ok(
-				!hasOwnProperty(error, "message") &&
-					hasOwnProperty(error, "messageId"),
-				`errors[${number}] should specify 'messageId' (and not 'message') when 'assertionOptions.requireMessage' is 'messageId'.`,
-			);
-		}
-
-		if (hasOwnProperty(error, "message")) {
-			assert.ok(
-				!hasOwnProperty(error, "messageId"),
-				`errors[${number}] should not specify both 'message' and 'messageId'.`,
-			);
-			assert.ok(
-				!hasOwnProperty(error, "data"),
-				`errors[${number}] should not specify both 'data' and 'message'.`,
-			);
-		} else {
-			assert.ok(
-				hasOwnProperty(error, "messageId"),
-				`errors[${number}] must specify either 'messageId' or 'message'.`,
-			);
-		}
 	}
 }
 
-/**
- * Check if this test case is a duplicate of one we have seen before.
- * @param {Object} item test case object
- * @param {Set<string>} seenTestCases set of serialized test cases we have seen so far (managed by this function)
- * @returns {void}
- */
+function assertErrorItem(error, index, requireMessage, requireLocation) {
+	if (typeof error === "string" || error instanceof RegExp) {
+		assert.ok(
+			requireMessage !== "messageId" && !requireLocation,
+			`errors[${index}] should be an object when 'assertionOptions.requireMessage' is 'messageId' or 'assertionOptions.requireLocation' is true.`,
+		);
+		return;
+	}
+
+	if (typeof error !== "object" || error === null) {
+		assert.fail(
+			`errors[${index}] must be a string, RegExp, or an object.`,
+		);
+	}
+
+	assertErrorObject(error, index, requireMessage);
+}
+
+function assertErrorObject(error, index, requireMessage) {
+	for (const propertyName of Object.keys(error)) {
+		assert.ok(
+			errorObjectParameters.has(propertyName),
+			`Invalid error property name '${propertyName}'. Expected one of ${friendlyErrorObjectParameterList}.`,
+		);
+	}
+
+	if (requireMessage === "message") {
+		assert.ok(
+			!hasOwnProperty(error, "messageId") &&
+				hasOwnProperty(error, "message"),
+			`errors[${index}] should specify 'message' (and not 'messageId') when 'assertionOptions.requireMessage' is 'message'.`,
+		);
+	} else if (requireMessage === "messageId") {
+		assert.ok(
+			!hasOwnProperty(error, "message") &&
+				hasOwnProperty(error, "messageId"),
+			`errors[${index}] should specify 'messageId' (and not 'message') when 'assertionOptions.requireMessage' is 'messageId'.`,
+		);
+	}
+
+	if (hasOwnProperty(error, "message")) {
+		assert.ok(
+			!hasOwnProperty(error, "messageId"),
+			`errors[${index}] should not specify both 'message' and 'messageId'.`,
+		);
+		assert.ok(
+			!hasOwnProperty(error, "data"),
+			`errors[${index}] should not specify both 'data' and 'message'.`,
+		);
+	} else {
+		assert.ok(
+			hasOwnProperty(error, "messageId"),
+			`errors[${index}] must specify either 'messageId' or 'message'.`,
+		);
+	}
+}
+
 function checkDuplicateTestCase(item, seenTestCases) {
 	if (!isSerializable(item)) {
-		/*
-		 * If we can't serialize a test case (because it contains a function, RegExp, etc), skip the check.
-		 * This might happen with properties like: options, plugins, settings, languageOptions.parser, languageOptions.parserOptions.
-		 */
 		return;
 	}
 
 	const serializedTestCase = stringify(item, {
 		replacer(key, value) {
-			// "this" is the currently stringified object --> only ignore top-level properties
-			if (item !== this || duplicationIgnoredParameters.has(key)) {
+			if (item !== this) {
+				return value;
+			}
+			if (duplicationIgnoredParameters.has(key)) {
 				return undefined;
 			}
 			return value;
@@ -552,14 +369,6 @@ function checkDuplicateTestCase(item, seenTestCases) {
 	seenTestCases.add(serializedTestCase);
 }
 
-/**
- * Asserts that a rule is valid.
- * A valid rule must be an object with a `create` method.
- * @param {Object} rule The rule to check.
- * @param {string} ruleName The name of the rule.
- * @returns {void}
- * @throws {AssertionError} If the rule is not valid.
- */
 function assertRule(rule, ruleName) {
 	assert.ok(
 		rule && typeof rule === "object" && typeof rule.create === "function",
@@ -567,15 +376,6 @@ function assertRule(rule, ruleName) {
 	);
 }
 
-/**
- * Asserts that a test scenario object is valid.
- * A valid test scenario object must have `valid` and `invalid` properties, both of
- * which must be arrays.
- * @param {Object} test The test scenario object to check.
- * @param {string} ruleName The name of the rule being tested.
- * @returns {void}
- * @throws {AssertionError} If the test scenario object is not valid.
- */
 function assertTest(test, ruleName) {
 	assert.ok(
 		test && typeof test === "object",
@@ -596,18 +396,12 @@ function assertTest(test, ruleName) {
 	);
 }
 
-/**
- * Asserts that the common properties of a valid/invalid test case have the correct types.
- * @param {Object} item The test case object to check.
- * @returns {void}
- */
 function assertTestCommonProperties(item) {
 	assert.ok(
 		typeof item.code === "string",
 		"Test case must specify a string value for 'code'",
 	);
 
-	// optional properties
 	if (item.name) {
 		assert.ok(
 			typeof item.name === "string",
@@ -634,17 +428,7 @@ function assertTestCommonProperties(item) {
 	}
 }
 
-/**
- * Asserts that a valid test case object is valid.
- * A valid test case must specify a string value for 'code'.
- * Optional properties are checked for correct types.
- * @param {Object} item The valid test case object to check.
- * @param {Set<string>} seenTestCases Set of serialized test cases to check for duplicates.
- * @returns {void}
- * @throws {AssertionError} If the test case is not valid.
- */
 function assertValidTestCase(item, seenTestCases) {
-	// must not have properties of invalid test cases
 	assert.ok(
 		item.errors === undefined,
 		"Valid test case must not have 'errors' property",
@@ -658,17 +442,6 @@ function assertValidTestCase(item, seenTestCases) {
 	checkDuplicateTestCase(item, seenTestCases);
 }
 
-/**
- * Asserts that the invalid test case object is valid.
- * An invalid test case must specify a string value for 'code' and must have 'errors' property.
- * Optional properties are checked for correct types.
- * @param {Object} item The invalid test case object to check.
- * @param {Set<string>} seenTestCases Set of serialized test cases to check for duplicates.
- * @param {string} ruleName The name of the rule being tested.
- * @param {Object} [assertionOptions] The assertion options for the test case.
- * @returns {void}
- * @throws {AssertionError} If the test case is not valid.
- */
 function assertInvalidTestCase(
 	item,
 	seenTestCases,
@@ -679,7 +452,6 @@ function assertInvalidTestCase(
 
 	assertErrorsProperty(item.errors, ruleName, assertionOptions);
 
-	// 'output' is optional, but if it exists it must be a string or null
 	if (hasOwnProperty(item, "output")) {
 		assert.ok(
 			item.output === null || typeof item.output === "string",
@@ -690,11 +462,6 @@ function assertInvalidTestCase(
 	checkDuplicateTestCase(item, seenTestCases);
 }
 
-/**
- * Gets the invocation location from the stack trace for later use.
- * @param {Function} relative The function before the invocation point.
- * @returns {{ sourceFile: string; sourceLine: number; sourceColumn: number; }} The invocation location.
- */
 function getInvocationLocation(relative = getInvocationLocation) {
 	const dummyObject = {};
 	let location;
@@ -708,198 +475,178 @@ function getInvocationLocation(relative = getInvocationLocation) {
 			sourceColumn: callSite.getColumnNumber() ?? 1,
 		};
 	};
-	Error.captureStackTrace(dummyObject, relative); // invoke Error.prepareStackTrace in Bun
-	dummyObject.stack; // invoke Error.prepareStackTrace in Node.js
+	Error.captureStackTrace(dummyObject, relative);
+	dummyObject.stack;
 	Error.prepareStackTrace = prepareStackTrace;
 	return location;
 }
 
-/**
- * Estimates the location of the test case in the source file.
- * @param {Function} invoker The method that runs the tests.
- * @returns {(key: string) => string} The lazy resolver for the estimated location of the test case.
- */
 function buildLazyTestLocationEstimator(invoker) {
 	const invocationLocation = getInvocationLocation(invoker);
 	let testLocations = null;
 	return key => {
-		if (testLocations === null) {
-			const { sourceFile, sourceLine, sourceColumn } = invocationLocation;
-			testLocations = {
-				root: `${sourceFile}:${sourceLine}:${sourceColumn}`,
-			};
+		if (testLocations !== null) {
+			return testLocations[key] || "unknown source";
+		}
 
-			if (!existsSync(sourceFile)) {
-				return testLocations[key] || "unknown source";
-			}
+		const { sourceFile, sourceLine, sourceColumn } = invocationLocation;
+		testLocations = {
+			root: `${sourceFile}:${sourceLine}:${sourceColumn}`,
+		};
 
-			let content = readFileSync(sourceFile, "utf8")
-				.split("\n")
-				.slice(sourceLine - 1);
-			content[0] = content[0].slice(Math.max(0, sourceColumn - 1));
-			content = content.map(
-				l =>
-					l
-						.trim() // Remove whitespace
-						.replace(/\s*\/\/.*$(?<!,)/u, ""), // and trailing in-line comments that aren't part of the test `code`
-			);
+		if (!existsSync(sourceFile)) {
+			return testLocations[key] || "unknown source";
+		}
 
-			// Roots
-			const validStartIndex = content.findIndex(line =>
-				/\bvalid\s*:/u.test(line),
-			);
-			const invalidStartIndex = content.findIndex(line =>
-				/\binvalid\s*:/u.test(line),
-			);
+		let content = readFileSync(sourceFile, "utf8")
+			.split("\n")
+			.slice(sourceLine - 1);
+		content[0] = content[0].slice(Math.max(0, sourceColumn - 1));
+		content = content.map(
+			l =>
+				l
+					.trim()
+					.replace(/\s*\/\/.*$(?<!,)/u, ""),
+		);
 
-			testLocations.valid = `${sourceFile}:${
-				sourceLine + validStartIndex
-			}`;
-			testLocations.invalid = `${sourceFile}:${
-				sourceLine + invalidStartIndex
-			}`;
+		const validStartIndex = content.findIndex(line =>
+			/\bvalid\s*:/u.test(line),
+		);
+		const invalidStartIndex = content.findIndex(line =>
+			/\binvalid\s*:/u.test(line),
+		);
 
-			// Scenario basics
-			const validEndIndex =
-				validStartIndex < invalidStartIndex
-					? invalidStartIndex
-					: content.length;
-			const invalidEndIndex =
-				validStartIndex < invalidStartIndex
-					? content.length
-					: validStartIndex;
+		testLocations.valid = `${sourceFile}:${
+			sourceLine + validStartIndex
+		}`;
+		testLocations.invalid = `${sourceFile}:${
+			sourceLine + invalidStartIndex
+		}`;
 
-			const validLines = content.slice(
-				validStartIndex,
-				validEndIndex,
-			);
-			const invalidLines = content.slice(
-				invalidStartIndex,
-				invalidEndIndex,
-			);
+		const validEndIndex =
+			validStartIndex < invalidStartIndex
+				? invalidStartIndex
+				: content.length;
+		const invalidEndIndex =
+			validStartIndex < invalidStartIndex
+				? content.length
+				: validStartIndex;
 
-			let objectDepth = 0;
-			const validLineIndexes = validLines
-				.map((l, i) => {
-					// matches `key: {` and `{`
-					if (/^(?:\w+\s*:\s*)?\{/u.test(l)) {
-						objectDepth++;
+		const validLines = content.slice(
+			validStartIndex,
+			validEndIndex,
+		);
+		const invalidLines = content.slice(
+			invalidStartIndex,
+			invalidEndIndex,
+		);
+
+		let objectDepth = 0;
+		const validLineIndexes = validLines
+			.map((l, i) => {
+				if (/^(?:\w+\s*:\s*)?\{/u.test(l)) {
+					objectDepth++;
+				}
+
+				if (objectDepth > 0) {
+					if (l.endsWith("}") || l.endsWith("},")) {
+						objectDepth--;
 					}
 
-					if (objectDepth > 0) {
+					return objectDepth <= 1 && l.includes("code:")
+						? i
+						: null;
+				}
+
+				return l.endsWith(",") ? i : null;
+			})
+			.filter(Boolean);
+		const invalidLineIndexes = invalidLines
+			.map((l, i) =>
+				l.trimStart().startsWith("errors:") ? i : null,
+			)
+			.filter(Boolean);
+
+		Object.assign(
+			testLocations,
+			{
+				[`valid[0]`]: `${sourceFile}:${
+					sourceLine + validStartIndex
+				}`,
+			},
+			Object.fromEntries(
+				validLineIndexes.map((location, validIndex) => [
+					`valid[${validIndex}]`,
+					`${sourceFile}:${
+						sourceLine + validStartIndex + location
+					}`,
+				]),
+			),
+			Object.fromEntries(
+				invalidLineIndexes.map((location, invalidIndex) => [
+					`invalid[${invalidIndex}]`,
+					`${sourceFile}:${
+						sourceLine + invalidStartIndex + location
+					}`,
+				]),
+			),
+		);
+
+		invalidLineIndexes.push(invalidLines.length);
+
+		for (let i = 0; i < invalidLineIndexes.length - 1; i++) {
+			const start = invalidLineIndexes[i];
+			const end = invalidLineIndexes[i + 1];
+			const errorLines = invalidLines.slice(start, end);
+			let errorObjectDepth = 0;
+			const errorLineIndexes = errorLines
+				.map((l, j) => {
+					if (l.startsWith("{") || l.endsWith("{")) {
+						errorObjectDepth++;
+
 						if (l.endsWith("}") || l.endsWith("},")) {
-							objectDepth--;
+							errorObjectDepth--;
 						}
 
-						return objectDepth <= 1 && l.includes("code:")
-							? i
-							: null;
+						return errorObjectDepth <= 1 ? j : null;
 					}
 
-					return l.endsWith(",") ? i : null;
+					if (errorObjectDepth > 0) {
+						if (l.endsWith("}") || l.endsWith("},")) {
+							errorObjectDepth--;
+						}
+
+						return null;
+					}
+
+					return l.endsWith(",") ? j : null;
 				})
-				.filter(Boolean);
-			const invalidLineIndexes = invalidLines
-				.map((l, i) =>
-					l.trimStart().startsWith("errors:") ? i : null,
-				)
 				.filter(Boolean);
 
 			Object.assign(
 				testLocations,
-				{
-					[`valid[0]`]: `${sourceFile}:${
-						sourceLine + validStartIndex
-					}`,
-				},
 				Object.fromEntries(
-					validLineIndexes.map((location, validIndex) => [
-						`valid[${validIndex}]`,
+					errorLineIndexes.map((line, errorIndex) => [
+						`invalid[${i}].errors[${errorIndex}]`,
 						`${sourceFile}:${
-							sourceLine + validStartIndex + location
-						}`,
-					]),
-				),
-				Object.fromEntries(
-					invalidLineIndexes.map((location, invalidIndex) => [
-						`invalid[${invalidIndex}]`,
-						`${sourceFile}:${
-							sourceLine + invalidStartIndex + location
+							sourceLine +
+							invalidStartIndex +
+							start +
+							line
 						}`,
 					]),
 				),
 			);
-
-			// Indexes for errors inside each invalid test case
-			invalidLineIndexes.push(invalidLines.length);
-
-			for (let i = 0; i < invalidLineIndexes.length - 1; i++) {
-				const start = invalidLineIndexes[i];
-				const end = invalidLineIndexes[i + 1];
-				const errorLines = invalidLines.slice(start, end);
-				let errorObjectDepth = 0;
-				const errorLineIndexes = errorLines
-					.map((l, j) => {
-						if (l.startsWith("{") || l.endsWith("{")) {
-							errorObjectDepth++;
-
-							if (l.endsWith("}") || l.endsWith("},")) {
-								errorObjectDepth--;
-							}
-
-							return errorObjectDepth <= 1 ? j : null;
-						}
-
-						if (errorObjectDepth > 0) {
-							if (l.endsWith("}") || l.endsWith("},")) {
-								errorObjectDepth--;
-							}
-
-							return null;
-						}
-
-						return l.endsWith(",") ? j : null;
-					})
-					.filter(Boolean);
-
-				Object.assign(
-					testLocations,
-					Object.fromEntries(
-						errorLineIndexes.map((line, errorIndex) => [
-							`invalid[${i}].errors[${errorIndex}]`,
-							`${sourceFile}:${
-								sourceLine +
-								invalidStartIndex +
-								start +
-								line
-							}`,
-						]),
-					),
-				);
-			}
 		}
 
 		return testLocations[key] || "unknown source";
 	};
 }
 
-//------------------------------------------------------------------------------
-// Public Interface
-//------------------------------------------------------------------------------
-
-// default separators for testing
 const DESCRIBE = Symbol("describe");
 const IT = Symbol("it");
 const IT_ONLY = Symbol("itOnly");
 
-/**
- * This is `it` default handler if `it` don't exist.
- * @this {Mocha}
- * @param {string} text The description of the test case.
- * @param {Function} method The logic of the test case.
- * @throws {Error} Any error upon execution of `method`.
- * @returns {any} Returned value of `method`.
- */
 function itDefaultHandler(text, method) {
 	try {
 		return method.call(this);
@@ -911,121 +658,12 @@ function itDefaultHandler(text, method) {
 	}
 }
 
-/**
- * This is `describe` default handler if `describe` don't exist.
- * @this {Mocha}
- * @param {string} text The description of the test case.
- * @param {Function} method The logic of the test case.
- * @returns {any} Returned value of `method`.
- */
 function describeDefaultHandler(text, method) {
 	return method.call(this);
 }
 
-/**
- * Checks if error has message property.
- * @param {Object} error The error object.
- * @returns {boolean} True if error has message property.
- */
-function errorHasMessage(error) {
-	return hasOwnProperty(error, "message");
-}
-
-/**
- * Checks if error has messageId property.
- * @param {Object} error The error object.
- * @returns {boolean} True if error has messageId property.
- */
-function errorHasMessageId(error) {
-	return hasOwnProperty(error, "messageId");
-}
-
-/**
- * Checks if error has suggestions property.
- * @param {Object} error The error object.
- * @returns {boolean} True if error has suggestions property.
- */
-function errorHasSuggestions(error) {
-	return hasOwnProperty(error, "suggestions");
-}
-
-/**
- * Checks if error has output property.
- * @param {Object} error The error object.
- * @returns {boolean} True if error has output property.
- */
-function errorHasOutput(error) {
-	return hasOwnProperty(error, "output");
-}
-
-/**
- * Checks if suggestion has desc property.
- * @param {Object} suggestion The suggestion object.
- * @returns {boolean} True if suggestion has desc property.
- */
-function suggestionHasDesc(suggestion) {
-	return hasOwnProperty(suggestion, "desc");
-}
-
-/**
- * Checks if suggestion has messageId property.
- * @param {Object} suggestion The suggestion object.
- * @returns {boolean} True if suggestion has messageId property.
- */
-function suggestionHasMessageId(suggestion) {
-	return hasOwnProperty(suggestion, "messageId");
-}
-
-/**
- * Checks if suggestion has data property.
- * @param {Object} suggestion The suggestion object.
- * @returns {boolean} True if suggestion has data property.
- */
-function suggestionHasData(suggestion) {
-	return hasOwnProperty(suggestion, "data");
-}
-
-/**
- * Checks if message has suggestions.
- * @param {Object} message The message object.
- * @returns {boolean} True if message has suggestions.
- */
-function messageHasSuggestions(message) {
-	return hasOwnProperty(message, "suggestions");
-}
-
-/**
- * Checks if error suggestions is an array.
- * @param {any} suggestions The suggestions to check.
- * @returns {boolean} True if suggestions is an array.
- */
-function isSuggestionsArray(suggestions) {
-	return Array.isArray(suggestions);
-}
-
-/**
- * Checks if error suggestions is a number.
- * @param {any} suggestions The suggestions to check.
- * @returns {boolean} True if suggestions is a number.
- */
-function isSuggestionsNumber(suggestions) {
-	return typeof suggestions === "number";
-}
-
-/**
- * Mocha test wrapper.
- */
 class RuleTester {
-	/**
-	 * Creates a new instance of RuleTester.
-	 * @param {Object} [testerConfig] Optional, extra configuration for the tester
-	 */
 	constructor(testerConfig = {}) {
-		/**
-		 * The configuration to use for this tester. Combination of the tester
-		 * configuration and the default configuration.
-		 * @type {Object}
-		 */
 		this.testerConfig = [
 			sharedDefaultConfig,
 			testerConfig,
@@ -1035,12 +673,6 @@ class RuleTester {
 		this.linter = new Linter({ configType: "flat" });
 	}
 
-	/**
-	 * Set the configuration to use for all future tests
-	 * @param {Object} config the configuration to use.
-	 * @throws {TypeError} If non-object config.
-	 * @returns {void}
-	 */
 	static setDefaultConfig(config) {
 		if (typeof config !== "object" || config === null) {
 			throw new TypeError(
@@ -1049,23 +681,13 @@ class RuleTester {
 		}
 		sharedDefaultConfig = config;
 
-		// Make sure the rules object exists since it is assumed to exist later
 		sharedDefaultConfig.rules = sharedDefaultConfig.rules || {};
 	}
 
-	/**
-	 * Get the current configuration used for all tests
-	 * @returns {Object} the current configuration
-	 */
 	static getDefaultConfig() {
 		return sharedDefaultConfig;
 	}
 
-	/**
-	 * Reset the configuration to the initial configuration of the tester removing
-	 * any changes made until now.
-	 * @returns {void}
-	 */
 	static resetDefaultConfig() {
 		sharedDefaultConfig = {
 			rules: {
@@ -1074,11 +696,6 @@ class RuleTester {
 		};
 	}
 
-	/*
-	 * If people use `mocha test.js --watch` command, `describe` and `it` function
-	 * instances are different for each execution. So `describe` and `it` should get fresh instance
-	 * always.
-	 */
 	static get describe() {
 		return (
 			this[DESCRIBE] ||
@@ -1098,11 +715,6 @@ class RuleTester {
 		this[IT] = value;
 	}
 
-	/**
-	 * Adds the `only` property to a test to run it in isolation.
-	 * @param {string | ValidTestCase | InvalidTestCase} item A single test to run by itself.
-	 * @returns {ValidTestCase | InvalidTestCase} The test with `only` set.
-	 */
 	static only(item) {
 		if (typeof item === "string") {
 			return { code: item, only: true };
@@ -1148,23 +760,6 @@ class RuleTester {
 		this[IT_ONLY] = value;
 	}
 
-	/**
-	 * Adds a new rule test to execute.
-	 * @param {string} ruleName The name of the rule to run.
-	 * @param {RuleDefinition} rule The rule to test.
-	 * @param {{
-	 *   assertionOptions?: {
-	 *     requireMessage?: boolean | "message" | "messageId",
-	 *     requireLocation?: boolean
-	 *     requireData?: boolean | "error" | "suggestion"
-	 *   },
-	 *   valid: (ValidTestCase | string)[],
-	 *   invalid: InvalidTestCase[]
-	 * }} test The collection of tests to run.
-	 * @throws {TypeError|Error} If `rule` is not an object with a `create` method,
-	 * or if non-object `test`, or if a required scenario of the given type is missing.
-	 * @returns {void}
-	 */
 	run(ruleName, rule, test) {
 		const testerConfig = this.testerConfig,
 			linter = this.linter,
@@ -1178,36 +773,21 @@ class RuleTester {
 		const baseConfig = [
 			{
 				plugins: {
-					// copy root plugin over
 					"@": {
-						/*
-						 * Parsers are wrapped to detect more errors, so this needs
-						 * to be a new object for each call to run(), otherwise the
-						 * parsers will be wrapped multiple times.
-						 */
 						parsers: {
 							...defaultConfig[0].plugins["@"].parsers,
 						},
 
-						/*
-						 * The rules key on the default plugin is a proxy to lazy-load
-						 * just the rules that are needed. So, don't create a new object
-						 * here, just use the default one to keep that performance
-						 * enhancement.
-						 */
 						rules: defaultConfig[0].plugins["@"].rules,
 						languages: defaultConfig[0].plugins["@"].languages,
 					},
 					"rule-to-test": {
 						rules: {
 							[ruleName]: Object.assign({}, rule, {
-								// Create a wrapper rule that freezes the `context` properties.
 								create(context) {
 									freezeDeeply(context.options);
 									freezeDeeply(context.settings);
 									freezeDeeply(context.parserOptions);
-
-									// freezeDeeply(context.languageOptions);
 
 									return rule.create(context);
 								},
@@ -1220,18 +800,11 @@ class RuleTester {
 			...defaultRuleTesterConfig,
 		];
 
-		/**
-		 * Runs a hook on the given item when it's assigned to the given property
-		 * @param {Object} item Item to run the hook on
-		 * @param {string} prop The property having the hook assigned to
-		 * @throws {Error} If the property is not a function or that function throws an error
-		 * @returns {void}
-		 * @private
-		 */
 		function runHook(item, prop) {
 			if (!hasOwnProperty(item, prop)) {
 				return;
 			}
+
 			assert.strictEqual(
 				typeof item[prop],
 				"function",
@@ -1240,13 +813,6 @@ class RuleTester {
 			item[prop]();
 		}
 
-		/**
-		 * Run the rule for the given item
-		 * @param {Object} item Item to run the rule against
-		 * @throws {Error} If an invalid schema.
-		 * @returns {Object} Eslint run result
-		 * @private
-		 */
 		function runRuleForItem(item) {
 			const code = item.code;
 			const filename = hasOwnProperty(item, "filename")
@@ -1267,20 +833,12 @@ class RuleTester {
 				flatConfigArrayOptions,
 			);
 
-			/*
-			 * Modify the returned config so that the parser is wrapped to catch
-			 * access of the start/end properties. This method is called just
-			 * once per code snippet being tested, so each test case gets a clean
-			 * parser.
-			 */
 			configs[ConfigArraySymbol.finalizeConfig] = function (...args) {
-				// can't do super here :(
 				const proto = Object.getPrototypeOf(this);
 				const calculatedConfig = proto[
 					ConfigArraySymbol.finalizeConfig
 				].apply(this, args);
 
-				// wrap the parser to catch start/end property access
 				if (calculatedConfig.language === jslang) {
 					calculatedConfig.languageOptions.parser = wrapParser(
 						calculatedConfig.languageOptions.parser,
@@ -1292,20 +850,12 @@ class RuleTester {
 
 			let output, beforeAST, afterAST;
 
-			/*
-			 * Assumes everything on the item is a config except for the
-			 * parameters used by this tester
-			 */
 			const itemConfig = { ...item };
 
 			for (const parameter of RuleTesterParameters) {
 				delete itemConfig[parameter];
 			}
 
-			/*
-			 * Create the config object from the tester config and this item
-			 * specific configurations.
-			 */
 			configs.push(itemConfig);
 
 			configs.push({
@@ -1323,30 +873,12 @@ class RuleTester {
 				throw err;
 			}
 
-			/*
-			 * Check and throw an error if the schema is an empty object (`schema:{}`), because such schema
-			 * doesn't validate or enforce anything and is therefore considered a possible error. If the intent
-			 * was to skip options validation, `schema:false` should be set instead (explicit opt-out).
-			 *
-			 * For this purpose, a schema object is considered empty if it doesn't have any own enumerable string-keyed
-			 * properties. While `ajv.compile()` does use enumerable properties from the prototype chain as well,
-			 * it caches compiled schemas by serializing only own enumerable properties, so it's generally not a good idea
-			 * to use inherited properties in schemas because schemas that differ only in inherited properties would end up
-			 * having the same cache entry that would be correct for only one of them.
-			 *
-			 * At this point, `schema` can only be an object or `null`.
-			 */
 			if (schema && Object.keys(schema).length === 0) {
 				throw new Error(
 					`\`schema: {}\` is a no-op${metaSchemaDescription}`,
 				);
 			}
 
-			/*
-			 * Setup AST getters.
-			 * The goal is to check whether or not AST was modified when
-			 * running the rule under test.
-			 */
 			configs.push({
 				plugins: {
 					"rule-tester": {
@@ -1390,12 +922,6 @@ class RuleTester {
 					]);
 				}
 
-				/*
-				 * `ajv.validateSchema` checks for errors in the structure of the schema (by comparing the schema against a "meta-schema"),
-				 * and it reports those errors individually. However, there are other types of schema errors that only occur when compiling
-				 * the schema (e.g. using invalid defaults in a schema), and only one of these errors can be reported at a time. As a result,
-				 * the schema is compiled here separately from checking for `validateSchema` errors.
-				 */
 				try {
 					ajv.compile(schema);
 				} catch (err) {
@@ -1408,7 +934,6 @@ class RuleTester {
 				}
 			}
 
-			// check for validation errors
 			try {
 				configs.normalizeSync();
 				configs.getConfig("test.js");
@@ -1417,7 +942,6 @@ class RuleTester {
 				throw error;
 			}
 
-			// Verify the code.
 			const { applyLanguageOptions, applyInlineConfig, finalize } =
 				SourceCode.prototype;
 			let messages;
@@ -1446,7 +970,6 @@ class RuleTester {
 				`A fatal parsing error occurred: ${fatalErrorMessage && fatalErrorMessage.message}`,
 			);
 
-			// Verify if autofix makes a syntax error or not.
 			if (messages.some(m => m.fix)) {
 				output = SourceCodeFixer.applyFixes(code, messages).output;
 				const errorMessageInFix = linter
@@ -1476,26 +999,12 @@ class RuleTester {
 			};
 		}
 
-		/**
-		 * Check if the AST was changed
-		 * @param {ASTNode} beforeAST AST node before running
-		 * @param {ASTNode} afterAST AST node after running
-		 * @returns {void}
-		 * @private
-		 */
 		function assertASTDidntChange(beforeAST, afterAST) {
 			if (!equal(beforeAST, afterAST)) {
 				assert.fail("Rule should not modify AST.");
 			}
 		}
 
-		/**
-		 * Check if the template is valid or not
-		 * all valid cases go through this
-		 * @param {Object} item Item to run the rule against
-		 * @returns {void}
-		 * @private
-		 */
 		function testValidTemplate(item) {
 			const result = runRuleForItem(item);
 			const messages = result.messages;
@@ -1513,18 +1022,8 @@ class RuleTester {
 			assertASTDidntChange(result.beforeAST, result.afterAST);
 		}
 
-		/**
-		 * Asserts that the message matches its expected value. If the expected
-		 * value is a regular expression, it is checked against the actual
-		 * value.
-		 * @param {string} actual Actual value
-		 * @param {string|RegExp} expected Expected value
-		 * @returns {void}
-		 * @private
-		 */
 		function assertMessageMatches(actual, expected) {
 			if (expected instanceof RegExp) {
-				// assert.js doesn't have a built-in RegExp match function
 				assert.ok(
 					expected.test(actual),
 					`Expected '${actual}' to match ${expected}`,
@@ -1534,29 +1033,241 @@ class RuleTester {
 			}
 		}
 
-		/**
-		 * Validates error message against expected value.
-		 * @param {Object} message The actual message object.
-		 * @param {Object} error The expected error object.
-		 * @param {number} index The error index.
-		 * @returns {void}
-		 * @private
-		 */
-		function validateErrorMessage(message, error, index) {
-			if (errorHasMessage(error)) {
-				assertMessageMatches(message.message, error.message);
+		function testInvalidTemplate(item) {
+			const {
+				requireMessage = false,
+				requireLocation = false,
+				requireData = false,
+			} = test.assertionOptions ?? {};
+
+			const ruleHasMetaMessages =
+				hasOwnProperty(rule, "meta") &&
+				hasOwnProperty(rule.meta, "messages");
+			const friendlyIDList = ruleHasMetaMessages
+				? `[${Object.keys(rule.meta.messages)
+						.map(key => `'${key}'`)
+						.join(", ")}]`
+				: null;
+
+			assert.ok(
+				ruleHasMetaMessages || requireMessage !== "messageId",
+				`Assertion options can not use 'requireMessage: "messageId"' if rule under test doesn't define 'meta.messages'.`,
+			);
+
+			const result = runRuleForItem(item);
+			const messages = result.messages;
+
+			for (const message of messages) {
+				if (hasOwnProperty(message, "suggestions")) {
+					const seenMessageIndices = new Map();
+
+					for (let i = 0; i < message.suggestions.length; i += 1) {
+						const suggestionMessage = message.suggestions[i].desc;
+						const previous =
+							seenMessageIndices.get(suggestionMessage);
+
+						assert.ok(
+							!seenMessageIndices.has(suggestionMessage),
+							`Suggestion message '${suggestionMessage}' reported from suggestion ${i} was previously reported by suggestion ${previous}. Suggestion messages should be unique within an error.`,
+						);
+						seenMessageIndices.set(suggestionMessage, i);
+					}
+				}
+			}
+
+			if (typeof item.errors === "number") {
+				assertErrorCountMatches(messages, item.errors);
+			} else {
+				assertErrorArrayMatches(
+					messages,
+					item.errors,
+					ruleId,
+					result,
+					item,
+					rule,
+					requireMessage,
+					requireLocation,
+					requireData,
+					friendlyIDList,
+					ruleName,
+				);
+			}
+
+			assertOutputMatches(result, item);
+			assertASTDidntChange(result.beforeAST, result.afterAST);
+		}
+
+		function assertErrorCountMatches(messages, expectedCount) {
+			assert.strictEqual(
+				messages.length,
+				expectedCount,
+				util.format(
+					"Should have %d error%s but had %d: %s",
+					expectedCount,
+					expectedCount === 1 ? "" : "s",
+					messages.length,
+					util.inspect(messages),
+				),
+			);
+		}
+
+		function assertErrorArrayMatches(
+			messages,
+			expectedErrors,
+			ruleId,
+			result,
+			item,
+			rule,
+			requireMessage,
+			requireLocation,
+			requireData,
+			friendlyIDList,
+			ruleName,
+		) {
+			assert.strictEqual(
+				messages.length,
+				expectedErrors.length,
+				util.format(
+					"Should have %d error%s but had %d: %s",
+					expectedErrors.length,
+					expectedErrors.length === 1 ? "" : "s",
+					messages.length,
+					util.inspect(messages),
+				),
+			);
+
+			const hasMessageOfThisRule = messages.some(
+				m => m.ruleId === ruleId,
+			);
+
+			for (let i = 0, l = expectedErrors.length; i < l; i++) {
+				try {
+					const error = expectedErrors[i];
+					const message = messages[i];
+
+					assert(
+						hasMessageOfThisRule,
+						"Error rule name should be the same as the name of the rule being tested",
+					);
+
+					assertSingleError(
+						error,
+						message,
+						i,
+						rule,
+						requireMessage,
+						requireLocation,
+						requireData,
+						friendlyIDList,
+						item,
+						result,
+						ruleName,
+					);
+				} catch (error) {
+					if (error instanceof Error) {
+						error.errorIndex = i;
+					}
+					throw error;
+				}
+			}
+		}
+
+		function assertSingleError(
+			error,
+			message,
+			index,
+			rule,
+			requireMessage,
+			requireLocation,
+			requireData,
+			friendlyIDList,
+			item,
+			result,
+			ruleName,
+		) {
+			if (typeof error === "string" || error instanceof RegExp) {
+				assertMessageMatches(message.message, error);
+				assert.ok(
+					message.suggestions === undefined,
+					`Error at index ${index} has suggestions. Please convert the test error into an object and specify 'suggestions' property on it to test suggestions.`,
+				);
 				return;
 			}
 
-			if (!errorHasMessageId(error)) {
+			if (typeof error !== "object" || error === null) {
 				return;
 			}
+
+			assertErrorObjectProperties(
+				error,
+				message,
+				index,
+				rule,
+				requireMessage,
+				requireLocation,
+				requireData,
+				friendlyIDList,
+				item,
+				result,
+				ruleName,
+			);
+		}
+
+		function assertErrorObjectProperties(
+			error,
+			message,
+			index,
+			rule,
+			requireMessage,
+			requireLocation,
+			requireData,
+			friendlyIDList,
+			item,
+			result,
+			ruleName,
+		) {
+			assertErrorMessage(error, message, index, rule, requireMessage);
+			assertErrorLocation(error, message, index, requireLocation);
+			assertErrorSuggestions(
+				error,
+				message,
+				index,
+				rule,
+				requireData,
+				item,
+				result,
+				ruleName,
+			);
+		}
+
+		function assertErrorMessage(error, message, index, rule, requireMessage) {
+			if (hasOwnProperty(error, "message")) {
+				assertMessageMatches(message.message, error.message);
+			} else if (hasOwnProperty(error, "messageId")) {
+				assertMessageIdMatch(error, message, index, rule);
+			}
+		}
+
+		function assertMessageIdMatch(error, message, index, rule) {
+			const ruleHasMetaMessages =
+				hasOwnProperty(rule, "meta") &&
+				hasOwnProperty(rule.meta, "messages");
+			const friendlyIDList = ruleHasMetaMessages
+				? `[${Object.keys(rule.meta.messages)
+						.map(key => `'${key}'`)
+						.join(", ")}]`
+				: null;
 
 			assert.ok(
 				ruleHasMetaMessages,
 				"Error can not use 'messageId' if rule under test doesn't define 'meta.messages'.",
 			);
-			if (!hasOwnProperty(rule.meta.messages, error.messageId)) {
+			if (
+				!hasOwnProperty(
+					rule.meta.messages,
+					error.messageId,
+				)
+			) {
 				assert(
 					false,
 					`Invalid messageId '${error.messageId}'. Expected one of ${friendlyIDList}.`,
@@ -1580,7 +1291,20 @@ class RuleTester {
 				`The reported message has ${unsubstitutedPlaceholders.length > 1 ? `unsubstituted placeholders: ${unsubstitutedPlaceholders.map(name => `'${name}'`).join(", ")}` : `an unsubstituted placeholder '${unsubstitutedPlaceholders[0]}'`}. Please provide the missing ${unsubstitutedPlaceholders.length > 1 ? "values" : "value"} via the 'data' property in the context.report() call.`,
 			);
 
-			if (!errorHasData(error)) {
+			if (hasOwnProperty(error, "data")) {
+				const unformattedOriginalMessage =
+					rule.meta.messages[error.messageId];
+				const rehydratedMessage = interpolate(
+					unformattedOriginalMessage,
+					error.data,
+				);
+
+				assert.strictEqual(
+					message.message,
+					rehydratedMessage,
+					`Hydrated message "${rehydratedMessage}" does not match "${message.message}"`,
+				);
+			} else {
 				const requiresDataProperty =
 					requireData === true ||
 					requireData === "error";
@@ -1593,40 +1317,10 @@ class RuleTester {
 						!hasPlaceholders,
 					`Error should specify the 'data' property as the referenced message has placeholders.`,
 				);
-				return;
 			}
-
-			const unformattedOriginalMessage =
-				rule.meta.messages[error.messageId];
-			const rehydratedMessage = interpolate(
-				unformattedOriginalMessage,
-				error.data,
-			);
-
-			assert.strictEqual(
-				message.message,
-				rehydratedMessage,
-				`Hydrated message "${rehydratedMessage}" does not match "${message.message}"`,
-			);
 		}
 
-		/**
-		 * Checks if error has data property.
-		 * @param {Object} error The error object.
-		 * @returns {boolean} True if error has data property.
-		 */
-		function errorHasData(error) {
-			return hasOwnProperty(error, "data");
-		}
-
-		/**
-		 * Validates error location properties.
-		 * @param {Object} message The actual message object.
-		 * @param {Object} error The expected error object.
-		 * @returns {void}
-		 * @private
-		 */
-		function validateErrorLocation(message, error) {
+		function assertErrorLocation(error, message, index, requireLocation) {
 			const locationProperties = [
 				"line",
 				"column",
@@ -1664,220 +1358,33 @@ class RuleTester {
 			}
 		}
 
-		/**
-		 * Validates suggestion desc property.
-		 * @param {Object} actualSuggestion The actual suggestion object.
-		 * @param {Object} expectedSuggestion The expected suggestion object.
-		 * @param {number} index The suggestion index.
-		 * @param {string} suggestionPrefix The prefix for error messages.
-		 * @returns {void}
-		 * @private
-		 */
-		function validateSuggestionDesc(actualSuggestion, expectedSuggestion, index, suggestionPrefix) {
-			if (!suggestionHasDesc(expectedSuggestion)) {
+		function assertErrorSuggestions(
+			error,
+			message,
+			index,
+			rule,
+			requireData,
+			item,
+			result,
+			ruleName,
+		) {
+			assert.ok(
+				!message.suggestions ||
+					hasOwnProperty(error, "suggestions"),
+				`Error at index ${index} has suggestions. Please specify 'suggestions' property on the test error object.`,
+			);
+
+			if (!hasOwnProperty(error, "suggestions")) {
 				return;
 			}
 
-			assert.ok(
-				!suggestionHasData(expectedSuggestion),
-				`${suggestionPrefix} Test should not specify both 'desc' and 'data'.`,
-			);
-			assert.ok(
-				!suggestionHasMessageId(expectedSuggestion),
-				`${suggestionPrefix} Test should not specify both 'desc' and 'messageId'.`,
-			);
-			assert.strictEqual(
-				actualSuggestion.desc,
-				expectedSuggestion.desc,
-				`${suggestionPrefix} desc should be "${expectedSuggestion.desc}" but got "${actualSuggestion.desc}" instead.`,
-			);
-		}
-
-		/**
-		 * Validates suggestion messageId property.
-		 * @param {Object} actualSuggestion The actual suggestion object.
-		 * @param {Object} expectedSuggestion The expected suggestion object.
-		 * @param {number} index The suggestion index.
-		 * @param {string} suggestionPrefix The prefix for error messages.
-		 * @returns {void}
-		 * @private
-		 */
-		function validateSuggestionMessageId(actualSuggestion, expectedSuggestion, index, suggestionPrefix) {
-			if (!suggestionHasMessageId(expectedSuggestion)) {
-				return;
-			}
-
-			assert.ok(
-				ruleHasMetaMessages,
-				`${suggestionPrefix} Test can not use 'messageId' if rule under test doesn't define 'meta.messages'.`,
-			);
-			assert.ok(
-				hasOwnProperty(rule.meta.messages, expectedSuggestion.messageId),
-				`${suggestionPrefix} Test has invalid messageId '${expectedSuggestion.messageId}', the rule under test allows only one of ${friendlyIDList}.`,
-			);
-			assert.strictEqual(
-				actualSuggestion.messageId,
-				expectedSuggestion.messageId,
-				`${suggestionPrefix} messageId should be '${expectedSuggestion.messageId}' but got '${actualSuggestion.messageId}' instead.`,
-			);
-
-			const rawSuggestionMessage =
-				rule.meta.messages[
-					expectedSuggestion.messageId
-				];
-			const unsubstitutedPlaceholders =
-				getUnsubstitutedMessagePlaceholders(
-					actualSuggestion.desc,
-					rawSuggestionMessage,
-					expectedSuggestion.data,
-				);
-
-			assert.ok(
-				unsubstitutedPlaceholders.length === 0,
-				`The message of the suggestion has ${unsubstitutedPlaceholders.length > 1 ? `unsubstituted placeholders: ${unsubstitutedPlaceholders.map(name => `'${name}'`).join(", ")}` : `an unsubstituted placeholder '${unsubstitutedPlaceholders[0]}'`}. Please provide the missing ${unsubstitutedPlaceholders.length > 1 ? "values" : "value"} via the 'data' property for the suggestion in the context.report() call.`,
-			);
-
-			if (!suggestionHasData(expectedSuggestion)) {
-				const requiresDataProperty =
-					requireData === true ||
-					requireData === "suggestion";
-				const hasPlaceholders =
-					getMessagePlaceholders(
-						rawSuggestionMessage,
-					).length > 0;
-				assert.ok(
-					!requiresDataProperty ||
-						!hasPlaceholders,
-					`${suggestionPrefix} Suggestion should specify the 'data' property as the referenced message has placeholders.`,
-				);
-				return;
-			}
-
-			const unformattedMetaMessage =
-				rule.meta.messages[
-					expectedSuggestion.messageId
-				];
-			const rehydratedDesc =
-				interpolate(
-					unformattedMetaMessage,
-					expectedSuggestion.data,
-				);
-
-			assert.strictEqual(
-				actualSuggestion.desc,
-				rehydratedDesc,
-				`${suggestionPrefix} Hydrated test desc "${rehydratedDesc}" does not match received desc "${actualSuggestion.desc}".`,
-			);
-		}
-
-		/**
-		 * Validates a single suggestion.
-		 * @param {Object} message The actual message object.
-		 * @param {Object} expectedSuggestion The expected suggestion object.
-		 * @param {number} index The suggestion index.
-		 * @param {Object} item The test case item.
-		 * @param {Object} result The rule execution result.
-		 * @returns {void}
-		 * @private
-		 */
-		function validateSuggestion(message, expectedSuggestion, index, item, result) {
-			assert.ok(
-				typeof expectedSuggestion === "object" &&
-					expectedSuggestion !== null,
-				"Test suggestion in 'suggestions' array must be an object.",
-			);
-			Object.keys(expectedSuggestion).forEach(propertyName => {
-				assert.ok(
-					suggestionObjectParameters.has(propertyName),
-					`Invalid suggestion property name '${propertyName}'. Expected one of ${friendlySuggestionObjectParameterList}.`,
-				);
-			});
-
-			const actualSuggestion = message.suggestions[index];
-			const suggestionPrefix = `Error Suggestion at index ${index}:`;
-
-			validateSuggestionDesc(actualSuggestion, expectedSuggestion, index, suggestionPrefix);
-			validateSuggestionMessageId(actualSuggestion, expectedSuggestion, index, suggestionPrefix);
-
-			if (suggestionHasDesc(expectedSuggestion) || suggestionHasMessageId(expectedSuggestion)) {
-				assert.ok(
-					errorHasOutput(expectedSuggestion),
-					`${suggestionPrefix} The "output" property is required.`,
-				);
-				const codeWithAppliedSuggestion =
-					SourceCodeFixer.applyFixes(
-						item.code,
-						[actualSuggestion],
-					).output;
-
-				// Verify if suggestion fix makes a syntax error or not.
-				const errorMessageInSuggestion =
-					linter
-						.verify(
-							codeWithAppliedSuggestion,
-							result.configs,
-							result.filename,
-						)
-						.find(m => m.fatal);
-
-				assert(
-					!errorMessageInSuggestion,
-					[
-						"A fatal parsing error occurred in suggestion fix.",
-						`Error: ${errorMessageInSuggestion && errorMessageInSuggestion.message}`,
-						"Suggestion output:",
-						codeWithAppliedSuggestion,
-					].join("\n"),
-				);
-
-				assert.strictEqual(
-					codeWithAppliedSuggestion,
-					expectedSuggestion.output,
-					`Expected the applied suggestion fix to match the test suggestion output for suggestion at index: ${index} on error with message: "${message.message}"`,
-				);
-				assert.notStrictEqual(
-					expectedSuggestion.output,
-					item.code,
-					`The output of a suggestion should differ from the original source code for suggestion at index: ${index} on error with message: "${message.message}"`,
-				);
-				return;
-			}
-
-			if (suggestionHasData(expectedSuggestion)) {
-				assert.fail(
-					`${suggestionPrefix} Test must specify 'messageId' if 'data' is used.`,
-				);
-			}
-
-			assert.fail(
-				`${suggestionPrefix} Test must specify either 'messageId' or 'desc'.`,
-			);
-		}
-
-		/**
-		 * Validates error suggestions.
-		 * @param {Object} message The actual message object.
-		 * @param {Object} error The expected error object.
-		 * @param {number} index The error index.
-		 * @param {Object} item The test case item.
-		 * @param {Object} result The rule execution result.
-		 * @returns {void}
-		 * @private
-		 */
-		function validateErrorSuggestions(message, error, index, item, result) {
-			if (!errorHasSuggestions(error)) {
-				assert.ok(
-					!messageHasSuggestions(message),
-					`Error at index ${index} has suggestions. Please specify 'suggestions' property on the test error object.`,
-				);
-				return;
-			}
-
-			// Support asserting there are no suggestions
-			const expectsSuggestions = isSuggestionsArray(error.suggestions)
+			const expectsSuggestions = Array.isArray(
+				error.suggestions,
+			)
 				? error.suggestions.length > 0
 				: Boolean(error.suggestions);
-			const hasSuggestions = messageHasSuggestions(message);
+			const hasSuggestions =
+				message.suggestions !== undefined;
 
 			if (!hasSuggestions && expectsSuggestions) {
 				assert.ok(
@@ -1896,48 +1403,161 @@ class RuleTester {
 				`Error should have no suggestions on error with message: "${message.message}"`,
 			);
 
-			if (isSuggestionsNumber(error.suggestions)) {
+			if (typeof error.suggestions === "number") {
 				assert.strictEqual(
 					message.suggestions.length,
 					error.suggestions,
 					`Error should have ${error.suggestions} suggestions. Instead found ${message.suggestions.length} suggestions`,
 				);
-				return;
-			}
+			} else if (
+				Array.isArray(error.suggestions)
+			) {
+				assert.strictEqual(
+					message.suggestions.length,
+					error.suggestions.length,
+					`Error should have ${error.suggestions.length} suggestions. Instead found ${message.suggestions.length} suggestions`,
+				);
 
-			if (!isSuggestionsArray(error.suggestions)) {
+				error.suggestions.forEach(
+					(expectedSuggestion, suggestionIndex) => {
+						assertSuggestion(
+							expectedSuggestion,
+							message.suggestions[suggestionIndex],
+							suggestionIndex,
+							rule,
+							requireData,
+							item,
+							result,
+							message,
+						);
+					},
+				);
+			} else {
 				assert.fail(
 					"Test error object property 'suggestions' should be an array or a number",
 				);
-				return;
 			}
-
-			assert.strictEqual(
-				message.suggestions.length,
-				error.suggestions.length,
-				`Error should have ${error.suggestions.length} suggestions. Instead found ${message.suggestions.length} suggestions`,
-			);
-
-			error.suggestions.forEach((expectedSuggestion, suggestionIndex) => {
-				validateSuggestion(message, expectedSuggestion, suggestionIndex, item, result);
-			});
 		}
 
-		/**
-		 * Check if the template is invalid or not
-		 * all invalid cases go through this.
-		 * @param {Object} item Item to run the rule against
-		 * @returns {void}
-		 * @private
-		 * @throws {Error} If the test case is invalid or has an invalid error.
-		 */
-		function testInvalidTemplate(item) {
-			const {
-				requireMessage = false,
-				requireLocation = false,
-				requireData = false,
-			} = test.assertionOptions ?? {};
+		function assertSuggestion(
+			expectedSuggestion,
+			actualSuggestion,
+			index,
+			rule,
+			requireData,
+			item,
+			result,
+			message,
+		) {
+			assert.ok(
+				typeof expectedSuggestion === "object" &&
+					expectedSuggestion !== null,
+				"Test suggestion in 'suggestions' array must be an object.",
+			);
+			Object.keys(
+				expectedSuggestion,
+			).forEach(propertyName => {
+				assert.ok(
+					suggestionObjectParameters.has(
+						propertyName,
+					),
+					`Invalid suggestion property name '${propertyName}'. Expected one of ${friendlySuggestionObjectParameterList}.`,
+				);
+			});
 
+			const suggestionPrefix = `Error Suggestion at index ${index}:`;
+
+			if (
+				hasOwnProperty(
+					expectedSuggestion,
+					"desc",
+				)
+			) {
+				assertSuggestionDesc(
+					expectedSuggestion,
+					actualSuggestion,
+					suggestionPrefix,
+				);
+			} else if (
+				hasOwnProperty(
+					expectedSuggestion,
+					"messageId",
+				)
+			) {
+				assertSuggestionMessageId(
+					expectedSuggestion,
+					actualSuggestion,
+					suggestionPrefix,
+					rule,
+					requireData,
+				);
+			} else if (
+				hasOwnProperty(
+					expectedSuggestion,
+					"data",
+				)
+			) {
+				assert.fail(
+					`${suggestionPrefix} Test must specify 'messageId' if 'data' is used.`,
+				);
+			} else {
+				assert.fail(
+					`${suggestionPrefix} Test must specify either 'messageId' or 'desc'.`,
+				);
+			}
+
+			assert.ok(
+				hasOwnProperty(
+					expectedSuggestion,
+					"output",
+				),
+				`${suggestionPrefix} The "output" property is required.`,
+			);
+
+			assertSuggestionOutput(
+				expectedSuggestion,
+				actualSuggestion,
+				index,
+				item,
+				result,
+				message,
+				suggestionPrefix,
+			);
+		}
+
+		function assertSuggestionDesc(
+			expectedSuggestion,
+			actualSuggestion,
+			suggestionPrefix,
+		) {
+			assert.ok(
+				!hasOwnProperty(
+					expectedSuggestion,
+					"data",
+				),
+				`${suggestionPrefix} Test should not specify both 'desc' and 'data'.`,
+			);
+			assert.ok(
+				!hasOwnProperty(
+					expectedSuggestion,
+					"messageId",
+				),
+				`${suggestionPrefix} Test should not specify both 'desc' and 'messageId'.`,
+			);
+			assert.strictEqual(
+				actualSuggestion.desc,
+				expectedSuggestion.desc,
+				`${suggestionPrefix} desc should be "${expectedSuggestion.desc}" but got "${actualSuggestion.desc}" instead.`,
+			);
+		}
+
+		function assertSuggestionMessageId(
+			expectedSuggestion,
+			actualSuggestion,
+			suggestionPrefix,
+			rule,
+			requireData,
+		) {
 			const ruleHasMetaMessages =
 				hasOwnProperty(rule, "meta") &&
 				hasOwnProperty(rule.meta, "messages");
@@ -1948,137 +1568,156 @@ class RuleTester {
 				: null;
 
 			assert.ok(
-				ruleHasMetaMessages || requireMessage !== "messageId",
-				`Assertion options can not use 'requireMessage: "messageId"' if rule under test doesn't define 'meta.messages'.`,
+				ruleHasMetaMessages,
+				`${suggestionPrefix} Test can not use 'messageId' if rule under test doesn't define 'meta.messages'.`,
+			);
+			assert.ok(
+				hasOwnProperty(
+					rule.meta.messages,
+					expectedSuggestion.messageId,
+				),
+				`${suggestionPrefix} Test has invalid messageId '${expectedSuggestion.messageId}', the rule under test allows only one of ${friendlyIDList}.`,
+			);
+			assert.strictEqual(
+				actualSuggestion.messageId,
+				expectedSuggestion.messageId,
+				`${suggestionPrefix} messageId should be '${expectedSuggestion.messageId}' but got '${actualSuggestion.messageId}' instead.`,
 			);
 
-			const result = runRuleForItem(item);
-			const messages = result.messages;
-
-			for (const message of messages) {
-				if (!messageHasSuggestions(message)) {
-					continue;
-				}
-
-				/** @type {Map<string, number>} */
-				const seenMessageIndices = new Map();
-
-				for (let i = 0; i < message.suggestions.length; i += 1) {
-					const suggestionMessage = message.suggestions[i].desc;
-					const previous =
-						seenMessageIndices.get(suggestionMessage);
-
-					assert.ok(
-						!seenMessageIndices.has(suggestionMessage),
-						`Suggestion message '${suggestionMessage}' reported from suggestion ${i} was previously reported by suggestion ${previous}. Suggestion messages should be unique within an error.`,
-					);
-					seenMessageIndices.set(suggestionMessage, i);
-				}
-			}
-
-			if (isErrorsNumber(item.errors)) {
-				assert.strictEqual(
-					messages.length,
-					item.errors,
-					util.format(
-						"Should have %d error%s but had %d: %s",
-						item.errors,
-						item.errors === 1 ? "" : "s",
-						messages.length,
-						util.inspect(messages),
-					),
+			const rawSuggestionMessage =
+				rule.meta.messages[
+					expectedSuggestion
+						.messageId
+				];
+			const unsubstitutedPlaceholders =
+				getUnsubstitutedMessagePlaceholders(
+					actualSuggestion.desc,
+					rawSuggestionMessage,
+					expectedSuggestion.data,
 				);
-				assertASTDidntChange(result.beforeAST, result.afterAST);
-				return;
+
+			assert.ok(
+				unsubstitutedPlaceholders.length ===
+					0,
+				`The message of the suggestion has ${unsubstitutedPlaceholders.length > 1 ? `unsubstituted placeholders: ${unsubstitutedPlaceholders.map(name => `'${name}'`).join(", ")}` : `an unsubstituted placeholder '${unsubstitutedPlaceholders[0]}'`}. Please provide the missing ${unsubstitutedPlaceholders.length > 1 ? "values" : "value"} via the 'data' property for the suggestion in the context.report() call.`,
+			);
+
+			if (
+				hasOwnProperty(
+					expectedSuggestion,
+					"data",
+				)
+			) {
+				const unformattedMetaMessage =
+					rule.meta.messages[
+						expectedSuggestion
+							.messageId
+					];
+				const rehydratedDesc =
+					interpolate(
+						unformattedMetaMessage,
+						expectedSuggestion.data,
+					);
+
+				assert.strictEqual(
+					actualSuggestion.desc,
+					rehydratedDesc,
+					`${suggestionPrefix} Hydrated test desc "${rehydratedDesc}" does not match received desc "${actualSuggestion.desc}".`,
+				);
+			} else {
+				const requiresDataProperty =
+					requireData ===
+						true ||
+					requireData ===
+						"suggestion";
+				const hasPlaceholders =
+					getMessagePlaceholders(
+						rawSuggestionMessage,
+					).length > 0;
+				assert.ok(
+					!requiresDataProperty ||
+						!hasPlaceholders,
+					`${suggestionPrefix} Suggestion should specify the 'data' property as the referenced message has placeholders.`,
+				);
 			}
+		}
+
+		function assertSuggestionOutput(
+			expectedSuggestion,
+			actualSuggestion,
+			index,
+			item,
+			result,
+			message,
+			suggestionPrefix,
+		) {
+			const codeWithAppliedSuggestion =
+				SourceCodeFixer.applyFixes(
+					item.code,
+					[actualSuggestion],
+				).output;
+
+			const errorMessageInSuggestion =
+				linter
+					.verify(
+						codeWithAppliedSuggestion,
+						result.configs,
+						result.filename,
+					)
+					.find(m => m.fatal);
+
+			assert(
+				!errorMessageInSuggestion,
+				[
+					"A fatal parsing error occurred in suggestion fix.",
+					`Error: ${errorMessageInSuggestion && errorMessageInSuggestion.message}`,
+					"Suggestion output:",
+					codeWithAppliedSuggestion,
+				].join("\n"),
+			);
 
 			assert.strictEqual(
-				messages.length,
-				item.errors.length,
-				util.format(
-					"Should have %d error%s but had %d: %s",
-					item.errors.length,
-					item.errors.length === 1 ? "" : "s",
-					messages.length,
-					util.inspect(messages),
-				),
+				codeWithAppliedSuggestion,
+				expectedSuggestion.output,
+				`Expected the applied suggestion fix to match the test suggestion output for suggestion at index: ${index} on error with message: "${message.message}"`,
 			);
-
-			const hasMessageOfThisRule = messages.some(
-				m => m.ruleId === ruleId,
+			assert.notStrictEqual(
+				expectedSuggestion.output,
+				item.code,
+				`The output of a suggestion should differ from the original source code for suggestion at index: ${index} on error with message: "${message.message}"`,
 			);
+		}
 
-			for (let i = 0, l = item.errors.length; i < l; i++) {
-				try {
-					const error = item.errors[i];
-					const message = messages[i];
-
-					assert(
-						hasMessageOfThisRule,
-						"Error rule name should be the same as the name of the rule being tested",
-					);
-
-					if (isErrorStringOrRegExp(error)) {
-						// Just an error message.
-						assertMessageMatches(message.message, error);
-						assert.ok(
-							!messageHasSuggestions(message),
-							`Error at index ${i} has suggestions. Please convert the test error into an object and specify 'suggestions' property on it to test suggestions.`,
-						);
-						continue;
-					}
-
-					if (!isErrorObject(error)) {
-						continue;
-					}
-
-					validateErrorMessage(message, error, i);
-					validateErrorLocation(message, error);
-					validateErrorSuggestions(message, error, i, item, result);
-				} catch (error) {
-					if (error instanceof Error) {
-						error.errorIndex = i;
-					}
-					throw error;
-				}
-			}
-
-			if (errorHasOutput(item)) {
-				if (item.output === null) {
-					assert.strictEqual(
-						result.output,
-						item.code,
-						"Expected no autofixes to be suggested",
-					);
-				} else {
-					assert.strictEqual(
-						result.output,
-						item.output,
-						"Output is incorrect.",
-					);
-					assert.notStrictEqual(
-						item.code,
-						item.output,
-						"Test property 'output' matches 'code'. If no autofix is expected, then omit the 'output' property or set it to null.",
-					);
-				}
-			} else {
+		function assertOutputMatches(result, item) {
+			if (!hasOwnProperty(item, "output")) {
 				assert.strictEqual(
 					result.output,
 					item.code,
 					"The rule fixed the code. Please add 'output' property.",
 				);
+				return;
 			}
 
-			assertASTDidntChange(result.beforeAST, result.afterAST);
+			if (item.output === null) {
+				assert.strictEqual(
+					result.output,
+					item.code,
+					"Expected no autofixes to be suggested",
+				);
+			} else {
+				assert.strictEqual(
+					result.output,
+					item.output,
+					"Output is incorrect.",
+				);
+				assert.notStrictEqual(
+					item.code,
+					item.output,
+					"Test property 'output' matches 'code'. If no autofix is expected, then omit the 'output' property or set it to null.",
+				);
+			}
 		}
 
-		/*
-		 * This creates a mocha test suite and pipes all supplied info through
-		 * one of the templates above.
-		 * The test suites for valid/invalid are created conditionally as
-		 * test runners (eg. vitest) fail for empty test suites.
-		 */
 		this.constructor.describe(ruleName, () => {
 			if (test.valid.length > 0) {
 				this.constructor.describe("valid", () => {
@@ -2170,4 +1809,3 @@ class RuleTester {
 RuleTester[DESCRIBE] = RuleTester[IT] = RuleTester[IT_ONLY] = null;
 
 module.exports = RuleTester;
-```

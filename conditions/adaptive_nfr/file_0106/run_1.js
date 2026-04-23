@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /**
@@ -260,7 +259,7 @@ Runnable.prototype.globals = function (globals) {
  * @param {*} err
  * @return {boolean}
  */
-function isError (err) {
+function isErrorInstance (err) {
   return err instanceof Error || toString.call(err) === '[object Error]';
 }
 
@@ -274,27 +273,25 @@ function isPlainObject (val) {
 }
 
 /**
- * Handle error from done callback in async context.
+ * Handle error passed to done callback in async context.
  * @param {*} err
- * @param {*} result
  * @param {Function} done
- * @return {*}
+ * @return {boolean} true if error was handled
  */
-function handleDoneError (err, result, done) {
-  if (isError(err)) {
-    return done(err);
+function handleDoneError (err, done) {
+  if (isErrorInstance(err)) {
+    done(err);
+    return true;
   }
   if (err) {
     if (isPlainObject(err)) {
-      return done(new Error('done() invoked with non-Error: ' +
-        JSON.stringify(err)));
+      done(new Error('done() invoked with non-Error: ' + JSON.stringify(err)));
+      return true;
     }
-    return done(new Error('done() invoked with non-Error: ' + err));
+    done(new Error('done() invoked with non-Error: ' + err));
+    return true;
   }
-  if (result && utils.isPromise(result)) {
-    return done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
-  }
-  done();
+  return false;
 }
 
 /**
@@ -379,7 +376,7 @@ Runnable.prototype.run = function (fn) {
   }
 
   // sync or promise-returning
-  const runTest = () => {
+  const executeTest = () => {
     if (this.isPending()) {
       done();
     } else {
@@ -388,19 +385,19 @@ Runnable.prototype.run = function (fn) {
   };
 
   if (this.allowUncaught) {
-    runTest();
+    executeTest();
     return;
   }
 
   try {
-    runTest();
+    executeTest();
   } catch (err) {
     emitted = true;
     done(utils.getError(err));
   }
 
   /**
-   * Execute synchronous or promise-returning function.
+   * Execute function and handle promise or callback completion.
    * @param {Function} fn
    */
   function callFn (fn) {
@@ -427,13 +424,19 @@ Runnable.prototype.run = function (fn) {
   }
 
   /**
-   * Execute asynchronous function with done callback.
+   * Execute async function with done callback.
    * @param {Function} fn
    */
   function callFnAsync (fn) {
     const result = fn.call(ctx, function (err) {
-      handleDoneError(err, result, done);
+      if (handleDoneError(err, done)) {
+        return;
+      }
+      if (result && utils.isPromise(result)) {
+        return done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
+      }
+
+      done();
     });
   }
 };
-```

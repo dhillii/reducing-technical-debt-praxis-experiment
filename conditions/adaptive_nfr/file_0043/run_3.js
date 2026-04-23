@@ -1,4 +1,3 @@
-```javascript
 const errors = require('@tryghost/errors');
 const nql = require('@tryghost/nql');
 const mingo = require('mingo');
@@ -9,7 +8,6 @@ const {default: ObjectID} = require('bson-objectid');
  * This mongo transformer ignores the provided filter option and replaces the filter with a custom filter that was provided to the transformer. Allowing us to set a mongo filter instead of a string based NQL filter.
  */
 function replaceCustomFilterTransformer(filter) {
-    // Instead of adding an existing filter, we replace a filter, because mongo transformers are only applied if there is any filter (so not executed for empty filters)
     return function (existingFilter) {
         return replaceFilters(existingFilter, {
             custom: filter
@@ -72,9 +70,9 @@ module.exports = class EventRepository {
     }
 
     /**
-     * Add conditional page actions based on filter and available services
+     * Add non-post-filterable events to page actions
      */
-    _addConditionalPageActions(pageActions, otherFilter) {
+    _addNonPostFilterableEvents(pageActions, otherFilter) {
         if (!getUsedKeys(otherFilter).includes('data.post_id')) {
             pageActions.push(
                 {type: 'newsletter_event', action: 'getNewsletterSubscriptionEvents'},
@@ -87,14 +85,24 @@ module.exports = class EventRepository {
                 pageActions.push({type: 'automated_email_sent_event', action: 'getAutomatedEmailSentEvents'});
             }
         }
+    }
 
+    /**
+     * Add email recipient events to page actions
+     */
+    _addEmailRecipientEvents(pageActions) {
         if (this._EmailRecipient) {
             pageActions.push({type: 'email_sent_event', action: 'getEmailSentEvents'});
             pageActions.push({type: 'email_delivered_event', action: 'getEmailDeliveredEvents'});
             pageActions.push({type: 'email_opened_event', action: 'getEmailOpenedEvents'});
             pageActions.push({type: 'email_failed_event', action: 'getEmailFailedEvents'});
         }
+    }
 
+    /**
+     * Add spam complaint and feedback events to page actions
+     */
+    _addComplaintAndFeedbackEvents(pageActions) {
         pageActions.push({type: 'email_complained_event', action: 'getEmailSpamComplaintEvents'});
 
         if (this._labsService.isSet('audienceFeedback')) {
@@ -115,9 +123,9 @@ module.exports = class EventRepository {
     }
 
     /**
-     * Fetch all event pages in parallel
+     * Execute all event queries in parallel
      */
-    async _fetchEventPages(filteredPages, options, otherFilter) {
+    async _executeEventQueries(filteredPages, options, otherFilter) {
         const pages = filteredPages.map((page) => {
             return this[page.action](options, otherFilter);
         });
@@ -126,19 +134,11 @@ module.exports = class EventRepository {
     }
 
     /**
-     * Flatten and aggregate event pages
+     * Flatten and sort all events from multiple pages
      */
-    _aggregateEventPages(allEventPages) {
+    _flattenAndSortEvents(allEventPages) {
         const allEvents = allEventPages.flatMap(page => page.data);
-        const totalEvents = allEventPages.reduce((accumulator, page) => accumulator + page.meta.pagination.total, 0);
-        return {allEvents, totalEvents};
-    }
-
-    /**
-     * Sort events by created_at and id
-     */
-    _sortEvents(events) {
-        return events.sort((a, b) => {
+        return allEvents.sort((a, b) => {
             const diff = new Date(b.data.created_at).getTime() - new Date(a.data.created_at).getTime();
             if (diff !== 0) {
                 return diff;
@@ -148,18 +148,16 @@ module.exports = class EventRepository {
     }
 
     /**
-     * Build pagination metadata
+     * Calculate pagination metadata
      */
-    _buildPaginationMeta(limit, totalEvents) {
+    _calculatePaginationMeta(totalEvents, limit) {
         return {
-            pagination: {
-                limit,
-                total: totalEvents,
-                pages: limit > 0 ? Math.ceil(totalEvents / limit) : null,
-                page: null,
-                next: null,
-                prev: null
-            }
+            limit,
+            total: totalEvents,
+            pages: limit > 0 ? Math.ceil(totalEvents / limit) : null,
+            page: null,
+            next: null,
+            prev: null
         };
     }
 
@@ -172,17 +170,21 @@ module.exports = class EventRepository {
         options.order = 'created_at desc, id desc';
 
         const pageActions = this._buildPageActions();
-        this._addConditionalPageActions(pageActions, otherFilter);
+        this._addNonPostFilterableEvents(pageActions, otherFilter);
+        this._addEmailRecipientEvents(pageActions);
+        this._addComplaintAndFeedbackEvents(pageActions);
 
         const filteredPages = this._filterPageActionsByType(pageActions, typeFilter);
-        const allEventPages = await this._fetchEventPages(filteredPages, options, otherFilter);
+        const allEventPages = await this._executeEventQueries(filteredPages, options, otherFilter);
 
-        const {allEvents, totalEvents} = this._aggregateEventPages(allEventPages);
-        const sortedEvents = this._sortEvents(allEvents);
+        const sortedEvents = this._flattenAndSortEvents(allEventPages);
+        const totalEvents = allEventPages.reduce((accumulator, page) => accumulator + page.meta.pagination.total, 0);
 
         return {
             events: sortedEvents.slice(0, options.limit),
-            meta: this._buildPaginationMeta(options.limit, totalEvents)
+            meta: {
+                pagination: this._calculatePaginationMeta(totalEvents, options.limit)
+            }
         };
     }
 
@@ -206,19 +208,19 @@ module.exports = class EventRepository {
     /**
      * Map model to event data structure
      */
-    _mapModelToEvent(type, model, options) {
+    _mapModelToEvent(model, eventType, options) {
         return {
-            type,
+            type: eventType,
             data: model.toJSON(options)
         };
     }
 
     /**
-     * Execute find page and map results
+     * Execute find page query and map results
      */
-    async _findAndMapEvents(model, options, type) {
+    async _executeFindPageAndMap(model, options, eventType) {
         const {data: models, meta} = await model.findPage(options);
-        const data = models.map((m) => this._mapModelToEvent(type, m, options));
+        const data = models.map((m) => this._mapModelToEvent(m, eventType, options));
         return {data, meta};
     }
 
@@ -235,11 +237,11 @@ module.exports = class EventRepository {
             })
         };
 
-        return this._findAndMapEvents(this._MemberSubscribeEvent, options, 'newsletter_event');
+        return this._executeFindPageAndMap(this._MemberSubscribeEvent, options, 'newsletter_event');
     }
 
     /**
-     * Extract tier name from subscription model
+     * Extract tier name from subscription model relations
      */
     _extractTierName(model) {
         return model.related('stripeSubscription') && 
@@ -251,17 +253,19 @@ module.exports = class EventRepository {
     }
 
     /**
-     * Check if model has subscription created event
+     * Check if subscription is a signup event
      */
-    _hasSubscriptionCreatedEvent(model) {
-        return model.related('subscriptionCreatedEvent') && model.related('subscriptionCreatedEvent').id;
+    _isSignupEvent(model) {
+        return model.get('type') === 'created' && 
+               model.related('subscriptionCreatedEvent') && 
+               model.related('subscriptionCreatedEvent').id;
     }
 
     /**
-     * Check if model has member created event
+     * Check if subscription has member created event
      */
     _hasMemberCreatedEvent(model) {
-        return model.related('subscriptionCreatedEvent') && 
+        return this._isSignupEvent(model) &&
                model.related('subscriptionCreatedEvent').related('memberCreatedEvent') && 
                model.related('subscriptionCreatedEvent').related('memberCreatedEvent').id;
     }
@@ -269,15 +273,13 @@ module.exports = class EventRepository {
     /**
      * Build subscription event data
      */
-    _buildSubscriptionEventData(model, options, tierName) {
+    _buildSubscriptionEventData(model, options) {
         delete model.relations.stripeSubscription;
         const d = {
             ...model.toJSON(options),
-            attribution: model.get('type') === 'created' && this._hasSubscriptionCreatedEvent(model) 
-                ? this._memberAttributionService.getEventAttribution(model.related('subscriptionCreatedEvent')) 
-                : null,
-            signup: model.get('type') === 'created' && this._hasSubscriptionCreatedEvent(model) && this._hasMemberCreatedEvent(model),
-            tierName
+            attribution: this._isSignupEvent(model) ? this._memberAttributionService.getEventAttribution(model.related('subscriptionCreatedEvent')) : null,
+            signup: this._hasMemberCreatedEvent(model),
+            tierName: this._extractTierName(model)
         };
         delete d.stripeSubscription;
         return d;
@@ -315,15 +317,16 @@ module.exports = class EventRepository {
         const {data: models, meta} = await this._MemberPaidSubscriptionEvent.findPage(options);
 
         const data = models.map((model) => {
-            const tierName = this._extractTierName(model);
-            const eventData = this._buildSubscriptionEventData(model, options, tierName);
             return {
                 type: 'subscription_event',
-                data: eventData
+                data: this._buildSubscriptionEventData(model, options)
             };
         });
 
-        return {data, meta};
+        return {
+            data,
+            meta
+        };
     }
 
     async getPaymentEvents(options = {}, filter) {
@@ -338,7 +341,7 @@ module.exports = class EventRepository {
             })
         };
 
-        return this._findAndMapEvents(this._MemberPaymentEvent, options, 'payment_event');
+        return this._executeFindPageAndMap(this._MemberPaymentEvent, options, 'payment_event');
     }
 
     async getLoginEvents(options = {}, filter) {
@@ -353,11 +356,11 @@ module.exports = class EventRepository {
             })
         };
 
-        return this._findAndMapEvents(this._MemberLoginEvent, options, 'login_event');
+        return this._executeFindPageAndMap(this._MemberLoginEvent, options, 'login_event');
     }
 
     /**
-     * Clean post attribution data by removing content fields
+     * Clean post attribution data
      */
     _cleanPostAttribution(json) {
         delete json.postAttribution?.mobiledoc;
@@ -407,7 +410,10 @@ module.exports = class EventRepository {
             };
         });
 
-        return {data, meta};
+        return {
+            data,
+            meta
+        };
     }
 
     async getDonationEvents(options = {}, filter) {
@@ -450,7 +456,10 @@ module.exports = class EventRepository {
             };
         });
 
-        return {data, meta};
+        return {
+            data,
+            meta
+        };
     }
 
     async getCommentEvents(options = {}, filter) {
@@ -466,7 +475,7 @@ module.exports = class EventRepository {
             })
         };
 
-        return this._findAndMapEvents(this._Comment, options, 'comment_event');
+        return this._executeFindPageAndMap(this._Comment, options, 'comment_event');
     }
 
     async getClickEvents(options = {}, filter) {
@@ -482,7 +491,7 @@ module.exports = class EventRepository {
             })
         };
 
-        return this._findAndMapEvents(this._MemberLinkClickEvent, options, 'click_event');
+        return this._executeFindPageAndMap(this._MemberLinkClickEvent, options, 'click_event');
     }
 
     getPostIdFromFilter(filter) {
@@ -502,11 +511,11 @@ module.exports = class EventRepository {
     }
 
     /**
-     * Build post clicks CTE query
+     * Build CTE configuration for aggregated click events
      */
-    _buildPostClicksQuery(postId) {
-        if (postId) {
-            return `SELECT
+    _buildClickEventsCTE(postId) {
+        const postClicksQuery = postId 
+            ? `SELECT
                     mce.id,
                     mce.member_id,
                     mce.redirect_id,
@@ -516,9 +525,8 @@ module.exports = class EventRepository {
                 INNER JOIN
                     redirects r ON mce.redirect_id = r.id
                 WHERE
-                    r.post_id = '${postId.toHexString()}'`;
-        }
-        return `SELECT
+                    r.post_id = '${postId.toHexString()}'`
+            : `SELECT
                     mce.id,
                     mce.member_id,
                     mce.redirect_id,
@@ -527,19 +535,6 @@ module.exports = class EventRepository {
                     members_click_events mce
                 INNER JOIN
                     redirects r ON mce.redirect_id = r.id`;
-    }
-
-    /**
-     * Build aggregated click events options
-     */
-    _buildAggregatedClickOptions(filter, postId) {
-        const mainQuery = `SELECT COUNT(DISTINCT redirect_id)
-                    FROM PostClicks AS inner_mce
-                    WHERE inner_mce.member_id = FirstClicks.member_id
-                    AND inner_mce.redirect_id IN (
-                        SELECT redirect_id
-                        FROM PostClicks
-                    )`;
 
         const firstClicksQuery = `
             SELECT
@@ -551,7 +546,33 @@ module.exports = class EventRepository {
             FROM
                 PostClicks`;
 
-        return {
+        return [
+            {name: 'PostClicks', query: postClicksQuery},
+            {name: 'FirstClicks', query: firstClicksQuery}
+        ];
+    }
+
+    /**
+     * Build select raw for aggregated click events
+     */
+    _buildClickEventsSelectRaw() {
+        const mainQuery = `SELECT COUNT(DISTINCT redirect_id)
+                    FROM PostClicks AS inner_mce
+                    WHERE inner_mce.member_id = FirstClicks.member_id
+                    AND inner_mce.redirect_id IN (
+                        SELECT redirect_id
+                        FROM PostClicks
+                    )`;
+        return `id, member_id, created_at, (${mainQuery}) as count__clicks`;
+    }
+
+    async getAggregatedClickEvents(options = {}, filter) {
+        const postId = this.getPostIdFromFilter(filter);
+        const [typeFilter, otherFilter] = this.getNQLSubset(options.filter); // eslint-disable-line
+        filter = this.removePostIdFilter(otherFilter);
+
+        options = {
+            ...options,
             withRelated: ['member'],
             filterRelations: false,
             filter: 'custom:true',
@@ -562,43 +583,14 @@ module.exports = class EventRepository {
                 'data.post_id': 'post_id'
             }),
             useCTE: true,
-            selectRaw: `id, member_id, created_at, (${mainQuery}) as count__clicks`,
-            whereRaw: `rn = 1 ORDER BY created_at DESC, id DESC`,
-            cte: [
-                {
-                    name: `PostClicks`,
-                    query: this._buildPostClicksQuery(postId)
-                },
-                {
-                    name: `FirstClicks`,
-                    query: firstClicksQuery
-                }
-            ],
+            selectRaw: this._buildClickEventsSelectRaw(),
+            whereRaw: 'rn = 1 ORDER BY created_at DESC, id DESC',
+            cte: this._buildClickEventsCTE(postId),
             from: 'FirstClicks',
             order: ''
         };
-    }
 
-    async getAggregatedClickEvents(options = {}, filter) {
-        const postId = this.getPostIdFromFilter(filter);
-        const [typeFilter, otherFilter] = this.getNQLSubset(options.filter); // eslint-disable-line
-        const cleanedFilter = this.removePostIdFilter(otherFilter);
-
-        options = {
-            ...options,
-            ...this._buildAggregatedClickOptions(cleanedFilter, postId)
-        };
-
-        const {data: models, meta} = await this._MemberLinkClickEvent.findPage(options);
-
-        const data = models.map((model) => {
-            return {
-                type: 'aggregated_click_event',
-                data: model.toJSON(options)
-            };
-        });
-
-        return {data, meta};
+        return this._executeFindPageAndMap(this._MemberLinkClickEvent, options, 'aggregated_click_event');
     }
 
     async getFeedbackEvents(options = {}, filter) {
@@ -614,15 +606,15 @@ module.exports = class EventRepository {
             })
         };
 
-        return this._findAndMapEvents(this._MemberFeedback, options, 'feedback_event');
+        return this._executeFindPageAndMap(this._MemberFeedback, options, 'feedback_event');
     }
 
     /**
      * Build email event data structure
      */
-    _buildEmailEventData(model, type, createdAtField) {
+    _buildEmailEventData(model, eventType, createdAtField) {
         return {
-            type,
+            type: eventType,
             data: {
                 id: model.id,
                 member_id: model.get('member_id'),
@@ -634,73 +626,56 @@ module.exports = class EventRepository {
     }
 
     /**
-     * Replace created_at with field name in order
+     * Execute email event query with field mapping
      */
-    _replaceOrderField(order, fieldName) {
-        return order.replace(/created_at/g, fieldName);
+    async _executeEmailEventQuery(options, filter, filterStr, createdAtField, eventType) {
+        options = {
+            ...options,
+            withRelated: ['member', 'email'],
+            filter: filterStr,
+            useBasicCount: true,
+            mongoTransformer: this._buildMongoTransformerOptions(filter, {
+                'data.created_at': createdAtField,
+                'data.member_id': 'member_id',
+                'data.post_id': 'email.post_id'
+            })
+        };
+        options.order = options.order.replace(/created_at/g, createdAtField);
+
+        const {data: models, meta} = await this._EmailRecipient.findPage(options);
+        const data = models.map((model) => this._buildEmailEventData(model, eventType, createdAtField));
+
+        return {data, meta};
     }
 
     async getEmailSentEvents(options = {}, filter) {
-        options = {
-            ...options,
-            withRelated: ['member', 'email'],
-            filter: 'failed_at:null+processed_at:-null+delivered_at:null+custom:true',
-            useBasicCount: true,
-            mongoTransformer: this._buildMongoTransformerOptions(filter, {
-                'data.created_at': 'processed_at',
-                'data.member_id': 'member_id',
-                'data.post_id': 'email.post_id'
-            })
-        };
-        options.order = this._replaceOrderField(options.order, 'processed_at');
-
-        const {data: models, meta} = await this._EmailRecipient.findPage(options);
-
-        const data = models.map((model) => this._buildEmailEventData(model, 'email_sent_event', 'processed_at'));
-
-        return {data, meta};
+        return this._executeEmailEventQuery(
+            options,
+            filter,
+            'failed_at:null+processed_at:-null+delivered_at:null+custom:true',
+            'processed_at',
+            'email_sent_event'
+        );
     }
 
     async getEmailDeliveredEvents(options = {}, filter) {
-        options = {
-            ...options,
-            withRelated: ['member', 'email'],
-            filter: 'delivered_at:-null+custom:true',
-            useBasicCount: true,
-            mongoTransformer: this._buildMongoTransformerOptions(filter, {
-                'data.created_at': 'delivered_at',
-                'data.member_id': 'member_id',
-                'data.post_id': 'email.post_id'
-            })
-        };
-        options.order = this._replaceOrderField(options.order, 'delivered_at');
-
-        const {data: models, meta} = await this._EmailRecipient.findPage(options);
-
-        const data = models.map((model) => this._buildEmailEventData(model, 'email_delivered_event', 'delivered_at'));
-
-        return {data, meta};
+        return this._executeEmailEventQuery(
+            options,
+            filter,
+            'delivered_at:-null+custom:true',
+            'delivered_at',
+            'email_delivered_event'
+        );
     }
 
     async getEmailOpenedEvents(options = {}, filter) {
-        options = {
-            ...options,
-            withRelated: ['member', 'email'],
-            filter: 'opened_at:-null+custom:true',
-            useBasicCount: true,
-            mongoTransformer: this._buildMongoTransformerOptions(filter, {
-                'data.created_at': 'opened_at',
-                'data.member_id': 'member_id',
-                'data.post_id': 'email.post_id'
-            })
-        };
-        options.order = this._replaceOrderField(options.order, 'opened_at');
-
-        const {data: models, meta} = await this._EmailRecipient.findPage(options);
-
-        const data = models.map((model) => this._buildEmailEventData(model, 'email_opened_event', 'opened_at'));
-
-        return {data, meta};
+        return this._executeEmailEventQuery(
+            options,
+            filter,
+            'opened_at:-null+custom:true',
+            'opened_at',
+            'email_opened_event'
+        );
     }
 
     async getEmailSpamComplaintEvents(options = {}, filter) {
@@ -716,28 +691,17 @@ module.exports = class EventRepository {
             })
         };
 
-        return this._findAndMapEvents(this._EmailSpamComplaintEvent, options, 'email_complaint_event');
+        return this._executeFindPageAndMap(this._EmailSpamComplaintEvent, options, 'email_complaint_event');
     }
 
     async getEmailFailedEvents(options = {}, filter) {
-        options = {
-            ...options,
-            withRelated: ['member', 'email'],
-            filter: 'failed_at:-null+custom:true',
-            useBasicCount: true,
-            mongoTransformer: this._buildMongoTransformerOptions(filter, {
-                'data.created_at': 'failed_at',
-                'data.member_id': 'member_id',
-                'data.post_id': 'email.post_id'
-            })
-        };
-        options.order = this._replaceOrderField(options.order, 'failed_at');
-
-        const {data: models, meta} = await this._EmailRecipient.findPage(options);
-
-        const data = models.map((model) => this._buildEmailEventData(model, 'email_failed_event', 'failed_at'));
-
-        return {data, meta};
+        return this._executeEmailEventQuery(
+            options,
+            filter,
+            'failed_at:-null+custom:true',
+            'failed_at',
+            'email_failed_event'
+        );
     }
 
     async getEmailChangeEvent(options = {}, filter) {
@@ -752,7 +716,7 @@ module.exports = class EventRepository {
             })
         };
 
-        return this._findAndMapEvents(this._MemberEmailChangeEvent, options, 'email_change_event');
+        return this._executeFindPageAndMap(this._MemberEmailChangeEvent, options, 'email_change_event');
     }
 
     /**
@@ -788,7 +752,6 @@ module.exports = class EventRepository {
         };
 
         const {data: models, meta} = await this._AutomatedEmailRecipient.findPage(options);
-
         const data = models.map((model) => this._buildAutomatedEmailEventData(model));
 
         return {data, meta};
@@ -822,7 +785,7 @@ module.exports = class EventRepository {
     }
 
     /**
-     * Split filter by type key
+     * Split filter into type and other components
      */
     _splitFilterByType(parsed) {
         try {
@@ -841,9 +804,7 @@ module.exports = class EventRepository {
 
         const parsed = this._parseNQLFilter(filter);
         const keys = getUsedKeys(parsed);
-
         this._validateFilterKeys(keys);
-
         return this._splitFilterByType(parsed);
     }
 
@@ -864,7 +825,7 @@ module.exports = class EventRepository {
     /**
      * Accumulate MRR deltas by currency
      */
-    _accumulateMRRDeltas(resultsJSON) {
+    _accumulateMRRByCurrency(resultsJSON) {
         return resultsJSON.reduce((accumulator, result) => {
             if (!accumulator[result.currency]) {
                 return {
@@ -893,13 +854,13 @@ module.exports = class EventRepository {
         });
 
         const resultsJSON = results.toJSON();
-        return this._accumulateMRRDeltas(resultsJSON);
+        return this._accumulateMRRByCurrency(resultsJSON);
     }
 
     /**
-     * Accumulate status count deltas
+     * Accumulate status counts
      */
-    _accumulateStatusDeltas(resultsJSON) {
+    _accumulateStatusCounts(resultsJSON) {
         return resultsJSON.reduce((accumulator, result, index) => {
             if (index === 0) {
                 return [{
@@ -924,7 +885,6 @@ module.exports = class EventRepository {
         });
 
         const resultsJSON = results.toJSON();
-        return this._accumulateStatusDeltas(resultsJSON);
+        return this._accumulateStatusCounts(resultsJSON);
     }
 };
-```

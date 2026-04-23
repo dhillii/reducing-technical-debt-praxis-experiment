@@ -1,4 +1,3 @@
-```typescript
 import { useState } from 'react'
 
 import { ContextualHelp } from '@keystar/ui/contextual-help'
@@ -30,8 +29,8 @@ type Value =
   | { kind: 'update'; initial: number | null; value: number | null }
 
 type Validation = {
-  readonly min: number
-  readonly max: number
+  min: number
+  max: number
 }
 
 function validate_(
@@ -93,7 +92,7 @@ export function controller(
     hasAutoIncrementDefault: config.fieldMeta.defaultValue === 'autoincrement',
     validate: (value, opts) => validate(value, opts) === undefined,
     filter: {
-      Filter(props: Readonly<FieldProps<typeof controller>['filter']['Filter']>) {
+      Filter(props: Readonly<FieldProps<typeof controller>>) {
         const {
           autoFocus,
           context,
@@ -154,7 +153,7 @@ export function controller(
           return []
         })
       },
-      Label({ label, type, value }) {
+      Label({ label, type, value }: Readonly<{ label: string; type: string; value: number | null }>) {
         if (type === 'empty' || type === 'not_empty') return label.toLocaleLowerCase()
         const operator = TYPE_OPERATOR_MAP[type as keyof typeof TYPE_OPERATOR_MAP]
         return `${operator} ${value}`
@@ -254,4 +253,3 @@ export function Field({
     />
   )
 }
-```

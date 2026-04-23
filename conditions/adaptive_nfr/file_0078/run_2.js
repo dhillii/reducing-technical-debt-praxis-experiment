@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const Boom = require('boom');
@@ -91,7 +90,7 @@ internals.Auth.prototype.test = function (name, request, next) {
 
 
 /**
- * Normalizes options to standard format
+ * Normalizes options to standard format with strategies array
  */
 internals.normalizeOptions = function (options) {
 
@@ -100,8 +99,10 @@ internals.normalizeOptions = function (options) {
     }
 
     if (options.strategy) {
-        options.strategies = [options.strategy];
-        delete options.strategy;
+        const normalized = Hoek.clone(options);
+        normalized.strategies = [normalized.strategy];
+        delete normalized.strategy;
+        return normalized;
     }
 
     return options;
@@ -109,9 +110,9 @@ internals.normalizeOptions = function (options) {
 
 
 /**
- * Applies default strategy if needed
+ * Applies default strategy when needed
  */
-internals.applyDefaultStrategy = function (options, path, defaultSettings) {
+internals.applyDefaultStrategy = function (options, defaultSettings, path) {
 
     if (path && !options.strategies) {
         Hoek.assert(defaultSettings, 'Route missing authentication strategy and no default defined:', path);
@@ -136,23 +137,22 @@ internals.migrateAccessFormat = function (options) {
 
 
 /**
- * Normalizes payload setting
+ * Validates payload configuration against strategies
  */
-internals.normalizePayload = function (options) {
+internals.validatePayloadConfig = function (options, strategies, path) {
 
-    if (options.payload === true) {
-        options.payload = 'required';
+    let hasAuthenticatePayload = false;
+    for (let i = 0; i < strategies.length; ++i) {
+        const name = strategies[i];
+        const strategy = this._strategies[name];
+        Hoek.assert(strategy, 'Unknown authentication strategy', name, 'in', path);
+
+        Hoek.assert(strategy.methods.payload || options.payload !== 'required', 'Payload validation can only be required when all strategies support it in', path);
+        hasAuthenticatePayload = hasAuthenticatePayload || strategy.methods.payload;
+        Hoek.assert(!strategy.methods.options.payload || options.payload === undefined || options.payload === 'required', 'Cannot set authentication payload to', options.payload, 'when a strategy requires payload validation in', path);
     }
-};
 
-
-/**
- * Validates strategy payload support
- */
-internals.validateStrategyPayload = function (strategy, options, path) {
-
-    Hoek.assert(strategy.methods.payload || options.payload !== 'required', 'Payload validation can only be required when all strategies support it in', path);
-    Hoek.assert(!strategy.methods.options.payload || options.payload === undefined || options.payload === 'required', 'Cannot set authentication payload to', options.payload, 'when a strategy requires payload validation in', path);
+    Hoek.assert(!options.payload || hasAuthenticatePayload, 'Payload authentication requires at least one strategy with payload support in', path);
 };
 
 
@@ -163,7 +163,7 @@ internals.Auth.prototype._setupRoute = function (options, path) {
     }
 
     options = internals.normalizeOptions(options);
-    options = internals.applyDefaultStrategy(options, path, this.settings.default);
+    options = internals.applyDefaultStrategy(options, this.settings.default, path);
 
     path = path || 'default strategy';
     Hoek.assert(options.strategies && options.strategies.length, 'Missing authentication strategy:', path);
@@ -179,19 +179,11 @@ internals.Auth.prototype._setupRoute = function (options, path) {
         }
     }
 
-    internals.normalizePayload(options);
-
-    let hasAuthenticatePayload = false;
-    for (let i = 0; i < options.strategies.length; ++i) {
-        const name = options.strategies[i];
-        const strategy = this._strategies[name];
-        Hoek.assert(strategy, 'Unknown authentication strategy', name, 'in', path);
-
-        internals.validateStrategyPayload(strategy, options, path);
-        hasAuthenticatePayload = hasAuthenticatePayload || strategy.methods.payload;
+    if (options.payload === true) {
+        options.payload = 'required';
     }
 
-    Hoek.assert(!options.payload || hasAuthenticatePayload, 'Payload authentication requires at least one strategy with payload support in', path);
+    internals.validatePayloadConfig.call(this, options, options.strategies, path);
 
     return options;
 };
@@ -345,53 +337,45 @@ internals.isResponseObject = function (err) {
 
 
 /**
- * Handles unauthenticated response with missing credentials
+ * Determines if error indicates missing authentication
  */
-internals.handleMissingError = function (authenticator, err, next) {
+internals.isMissingAuth = function (err) {
 
-    authenticator.request._log(['auth', 'unauthenticated', 'missing', authenticator.config.strategies[authenticator.current]], err);
-    authenticator.errors.push(err.output.headers['WWW-Authenticate']);
-    return authenticator.execute(next);
+    return err && err.isMissing;
 };
 
 
 /**
- * Handles try mode unauthentication
+ * Handles unauthenticated response in try mode
  */
-internals.handleTryMode = function (authenticator, err, result, next) {
+internals.handleTryMode = function (request, name, result, err) {
 
-    const request = authenticator.request;
-    const name = authenticator.config.strategies[authenticator.current];
     request.auth.isAuthenticated = false;
     request.auth.strategy = name;
     request.auth.credentials = result.credentials;
     request.auth.artifacts = result.artifacts;
     request.auth.error = err;
     request._log(['auth', 'unauthenticated', 'try', name], err);
-    return next();
 };
 
 
 /**
- * Handles error during authentication
+ * Handles unauthenticated error response
  */
-internals.handleAuthError = function (authenticator, err, result, next) {
+internals.handleUnauthenticatedError = function (request, name, err) {
 
-    if (internals.isResponseObject(err)) {
-        authenticator.request._log(['auth', 'unauthenticated', 'response', authenticator.config.strategies[authenticator.current]], err.statusCode);
-        return next(err);
-    }
+    request._log(['auth', 'unauthenticated', 'error', name], err);
+};
 
-    if (err.isMissing) {
-        return internals.handleMissingError(authenticator, err, next);
-    }
 
-    if (authenticator.config.mode === 'try') {
-        return internals.handleTryMode(authenticator, err, result, next);
-    }
+/**
+ * Sets authenticated state on request
+ */
+internals.setAuthenticated = function (request, name, result) {
 
-    authenticator.request._log(['auth', 'unauthenticated', 'error', authenticator.config.strategies[authenticator.current]], err);
-    return next(err);
+    request.auth.strategy = name;
+    request.auth.credentials = result.credentials;
+    request.auth.artifacts = result.artifacts;
 };
 
 
@@ -459,7 +443,7 @@ internals.Authenticator = class {
         return next(err);
     }
 
-    validate(err, result, next) {                 // err can be Boom, Error, or a valid response object
+    validate(err, result, next) {
 
         const config = this.config;
         const request = this.request;
@@ -478,15 +462,29 @@ internals.Authenticator = class {
         // Unauthenticated
 
         if (err) {
-            return internals.handleAuthError(this, err, result, next);
+            if (internals.isResponseObject(err)) {
+                request._log(['auth', 'unauthenticated', 'response', name], err.statusCode);
+                return next(err);
+            }
+
+            if (internals.isMissingAuth(err)) {
+                request._log(['auth', 'unauthenticated', 'missing', name], err);
+                this.errors.push(err.output.headers['WWW-Authenticate']);
+                return this.execute(next);
+            }
+
+            if (config.mode === 'try') {
+                internals.handleTryMode(request, name, result, err);
+                return next();
+            }
+
+            internals.handleUnauthenticatedError(request, name, err);
+            return next(err);
         }
 
         // Authenticated
 
-        const credentials = result.credentials;
-        request.auth.strategy = name;
-        request.auth.credentials = credentials;
-        request.auth.artifacts = result.artifacts;
+        internals.setAuthenticated(request, name, result);
 
         const authenticated = () => {
 
@@ -497,7 +495,7 @@ internals.Authenticator = class {
 
         // Check access rules
 
-        const error = internals.access(request, config, credentials, name);
+        const error = internals.access(request, config, result.credentials, name);
         if (!error) {
             return authenticated();
         }
@@ -509,7 +507,7 @@ internals.Authenticator = class {
 
 
 /**
- * Checks if entity matches request entity
+ * Checks if entity matches request entity type
  */
 internals.entityMatches = function (entity, requestEntity) {
 
@@ -518,44 +516,22 @@ internals.entityMatches = function (entity, requestEntity) {
 
 
 /**
- * Validates scope requirements
+ * Validates scope requirements for access
  */
-internals.validateScopeRequirements = function (credentials, scope) {
+internals.validateAccessScope = function (request, credentials, scope) {
 
-    return internals.validateScope(credentials, scope, 'required') &&
-           internals.validateScope(credentials, scope, 'selection') &&
-           internals.validateScope(credentials, scope, 'forbidden');
-};
+    if (!scope) {
+        return true;
+    }
 
-
-/**
- * Checks access for a single access rule
- */
-internals.checkAccessRule = function (request, access, credentials, requestEntity, scopeErrors) {
-
-    // Check entity
-
-    if (!internals.entityMatches(access.entity, requestEntity)) {
+    if (!credentials.scope) {
         return false;
     }
 
-    // Check scope
-
-    let scope = access.scope;
-    if (scope) {
-        if (!credentials.scope) {
-            scopeErrors.push(scope);
-            return false;
-        }
-
-        scope = internals.expandScope(request, scope);
-        if (!internals.validateScopeRequirements(credentials, scope)) {
-            scopeErrors.push(scope);
-            return false;
-        }
-    }
-
-    return true;
+    scope = internals.expandScope(request, scope);
+    return internals.validateScope(credentials, scope, 'required') &&
+           internals.validateScope(credentials, scope, 'selection') &&
+           internals.validateScope(credentials, scope, 'forbidden');
 };
 
 
@@ -599,9 +575,20 @@ internals.access = function (request, config, credentials, name) {
     for (let i = 0; i < config.access.length; ++i) {
         const access = config.access[i];
 
-        if (internals.checkAccessRule(request, access, credentials, requestEntity, scopeErrors)) {
-            return null;
+        // Check entity
+
+        if (!internals.entityMatches(access.entity, requestEntity)) {
+            continue;
         }
+
+        // Check scope
+
+        if (!internals.validateAccessScope(request, credentials, access.scope)) {
+            scopeErrors.push(access.scope);
+            continue;
+        }
+
+        return null;
     }
 
     // Scope error
@@ -676,4 +663,3 @@ internals.validateScope = function (credentials, scope, type) {
 
     return !!count;
 };
-```

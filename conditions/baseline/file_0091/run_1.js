@@ -1,4 +1,3 @@
-```typescript
 // very loosely based on https://github.com/ianstormtaylor/slate/blob/d22c76ae1313fe82111317417912a2670e73f5c9/site/examples/paste-html.tsx
 import { Node } from 'slate'
 import { type Block, isBlock } from '../editor-shared'
@@ -122,7 +121,7 @@ export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
   }
 
   if (el.nodeName === 'IMG') {
-    const alt = el.getAttribute('alt')
+    const alt = el.dataset.alt ?? el.getAttribute('alt')
     return getInlineNodes(alt ?? '')
   }
 
@@ -248,4 +247,3 @@ function fixNodesForBlockChildren(deserializedNodes: DeserializedNode[]): Deseri
   }
   return deserializedNodes as DeserializedNodes
 }
-```

@@ -1,4 +1,3 @@
-```javascript
 /*
 	MIT License http://www.opensource.org/licenses/mit-license.php
 	Author Tobias Koppers @sokra
@@ -64,6 +63,110 @@ class Stats {
 		return true;
 	}
 
+	/** @private */
+	_shouldIncludeModule(module, showCachedModules, excludeModules, requestShortener, maxModules, moduleCount) {
+		if(!showCachedModules && !module.built) {
+			return false;
+		}
+		if(excludeModules.length > 0) {
+			const ident = requestShortener.shorten(module.resource);
+			const excluded = excludeModules.some(regExp => regExp.test(ident));
+			if(excluded) {
+				return false;
+			}
+		}
+		return moduleCount < maxModules;
+	}
+
+	/** @private */
+	_formatChunkLabel(chunk) {
+		if(chunk.hasRuntime()) {
+			return " [entry]";
+		}
+		if(chunk.isInitial()) {
+			return " [initial]";
+		}
+		return "";
+	}
+
+	/** @private */
+	_formatErrorText(e, showErrorDetails, showModuleTrace, requestShortener) {
+		let text = "";
+		if(typeof e === "string") {
+			e = { message: e };
+		}
+		if(e.chunk) {
+			text += `chunk ${e.chunk.name || e.chunk.id}${this._formatChunkLabel(e.chunk)}\n`;
+		}
+		if(e.file) {
+			text += `${e.file}\n`;
+		}
+		if(e.module && e.module.readableIdentifier && typeof e.module.readableIdentifier === "function") {
+			text += `${e.module.readableIdentifier(requestShortener)}\n`;
+		}
+		text += e.message;
+		if(showErrorDetails && e.details) {
+			text += `\n${e.details}`;
+		}
+		if(showErrorDetails && e.missing) {
+			text += e.missing.map(item => `\n[${item}]`).join("");
+		}
+		if(showModuleTrace && e.dependencies && e.origin) {
+			text += this._formatErrorTrace(e, requestShortener);
+		}
+		return text;
+	}
+
+	/** @private */
+	_formatErrorTrace(e, requestShortener) {
+		let text = `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
+		e.dependencies.forEach(dep => {
+			if(!dep.loc) return;
+			if(typeof dep.loc === "string") return;
+			const locInfo = formatLocation(dep.loc);
+			if(!locInfo) return;
+			text += ` ${locInfo}`;
+		});
+		let current = e.origin;
+		while(current.issuer) {
+			current = current.issuer;
+			text += `\n @ ${current.readableIdentifier(requestShortener)}`;
+		}
+		return text;
+	}
+
+	/** @private */
+	_buildAssetObject(asset, compilation, showPerformance) {
+		const obj = {
+			name: asset,
+			size: compilation.assets[asset].size(),
+			chunks: [],
+			chunkNames: [],
+			emitted: compilation.assets[asset].emitted
+		};
+		if(showPerformance) {
+			obj.isOverSizeLimit = compilation.assets[asset].isOverSizeLimit;
+		}
+		return obj;
+	}
+
+	/** @private */
+	_processChunkAssets(chunk, assetsByFile, obj) {
+		chunk.files.forEach(asset => {
+			if(!assetsByFile[asset]) return;
+			chunk.ids.forEach(id => {
+				assetsByFile[asset].chunks.push(id);
+			});
+			if(!chunk.name) return;
+			assetsByFile[asset].chunkNames.push(chunk.name);
+			if(obj.assetsByChunkName[chunk.name]) {
+				obj.assetsByChunkName[chunk.name] = [].concat(obj.assetsByChunkName[chunk.name]).concat([asset]);
+			} else {
+				obj.assetsByChunkName[chunk.name] = asset;
+			}
+		});
+	}
+
 	toJson(options, forToString) {
 		if(typeof options === "boolean" || typeof options === "string") {
 			options = Stats.presetToOptions(options);
@@ -109,16 +212,12 @@ class Stats {
 		const createModuleFilter = () => {
 			let i = 0;
 			return module => {
-				if(!showCachedModules && !module.built) {
+				const shouldInclude = this._shouldIncludeModule(module, showCachedModules, excludeModules, requestShortener, maxModules, i);
+				if(!shouldInclude) {
 					return false;
 				}
-				if(excludeModules.length > 0) {
-					const ident = requestShortener.shorten(module.resource);
-					const excluded = excludeModules.some(regExp => regExp.test(ident));
-					if(excluded)
-						return false;
-				}
-				return i++ < maxModules;
+				i++;
+				return true;
 			};
 		};
 
@@ -142,19 +241,7 @@ class Stats {
 		};
 
 		const formatError = (e) => {
-			let text = "";
-			if(typeof e === "string")
-				e = {
-					message: e
-				};
-			text += this._formatErrorChunk(e);
-			text += this._formatErrorFile(e);
-			text += this._formatErrorModule(e);
-			text += e.message;
-			text += this._formatErrorDetails(e, showErrorDetails);
-			text += this._formatErrorMissing(e, showErrorDetails);
-			text += this._formatErrorTrace(e, showModuleTrace, requestShortener);
-			return text;
+			return this._formatErrorText(e, showErrorDetails, showModuleTrace, requestShortener);
 		};
 
 		const obj = {
@@ -188,169 +275,33 @@ class Stats {
 			});
 		}
 		if(showAssets) {
-			this._processAssets(obj, compilation, showPerformance, showCachedAssets, sortAssets);
+			const assetsByFile = {};
+			obj.assetsByChunkName = {};
+			obj.assets = Object.keys(compilation.assets).map(asset => {
+				return this._buildAssetObject(asset, compilation, showPerformance);
+			}).filter(asset => showCachedAssets || asset.emitted);
+
+			compilation.chunks.forEach(chunk => {
+				this._processChunkAssets(chunk, assetsByFile, obj);
+			});
+			obj.assets.sort(sortByField(sortAssets));
 		}
 
 		if(showEntrypoints) {
-			this._processEntrypoints(obj, compilation, showPerformance);
-		}
-
-		const fnModule = this._createModuleFormatter(requestShortener, showReasons, showUsedExports, showProvidedExports, showDepth, showSource);
-
-		if(showChunks) {
-			this._processChunks(obj, compilation, showChunkModules, showChunkOrigins, createModuleFilter, fnModule, sortModules, sortChunks);
-		}
-		if(showModules) {
-			this._processModules(obj, compilation, createModuleFilter, fnModule, sortModules);
-		}
-		if(showChildren) {
-			obj.children = compilation.children.map((child, idx) => {
-				const childOptions = Stats.getChildOptions(options, idx);
-				const obj = new Stats(child).toJson(childOptions, forToString);
-				delete obj.hash;
-				delete obj.version;
-				obj.name = child.name;
-				return obj;
-			});
-		}
-
-		return obj;
-	}
-
-	/**
-	 * Format error chunk information
-	 */
-	_formatErrorChunk(e) {
-		if(!e.chunk) return "";
-		return `chunk ${e.chunk.name || e.chunk.id}${e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : ""}\n`;
-	}
-
-	/**
-	 * Format error file information
-	 */
-	_formatErrorFile(e) {
-		return e.file ? `${e.file}\n` : "";
-	}
-
-	/**
-	 * Format error module information
-	 */
-	_formatErrorModule(e) {
-		if(!e.module || !e.module.readableIdentifier || typeof e.module.readableIdentifier !== "function") {
-			return "";
-		}
-		return `${e.module.readableIdentifier(this._getRequestShortener())}\n`;
-	}
-
-	/**
-	 * Format error details
-	 */
-	_formatErrorDetails(e, showErrorDetails) {
-		if(!showErrorDetails || !e.details) return "";
-		return `\n${e.details}`;
-	}
-
-	/**
-	 * Format error missing dependencies
-	 */
-	_formatErrorMissing(e, showErrorDetails) {
-		if(!showErrorDetails || !e.missing) return "";
-		return e.missing.map(item => `\n[${item}]`).join("");
-	}
-
-	/**
-	 * Format error trace information
-	 */
-	_formatErrorTrace(e, showModuleTrace, requestShortener) {
-		if(!showModuleTrace || !e.dependencies || !e.origin) return "";
-		let text = `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
-		e.dependencies.forEach(dep => {
-			if(!dep.loc || typeof dep.loc === "string") return;
-			const locInfo = formatLocation(dep.loc);
-			if(!locInfo) return;
-			text += ` ${locInfo}`;
-		});
-		let current = e.origin;
-		while(current.issuer) {
-			current = current.issuer;
-			text += `\n @ ${current.readableIdentifier(requestShortener)}`;
-		}
-		return text;
-	}
-
-	/**
-	 * Get request shortener instance
-	 */
-	_getRequestShortener() {
-		if(!this._requestShortener) {
-			this._requestShortener = new RequestShortener(process.cwd());
-		}
-		return this._requestShortener;
-	}
-
-	/**
-	 * Process assets section
-	 */
-	_processAssets(obj, compilation, showPerformance, showCachedAssets, sortAssets) {
-		const assetsByFile = {};
-		obj.assetsByChunkName = {};
-		obj.assets = Object.keys(compilation.assets).map(asset => {
-			const assetObj = {
-				name: asset,
-				size: compilation.assets[asset].size(),
-				chunks: [],
-				chunkNames: [],
-				emitted: compilation.assets[asset].emitted
-			};
-
-			if(showPerformance) {
-				assetObj.isOverSizeLimit = compilation.assets[asset].isOverSizeLimit;
-			}
-
-			assetsByFile[asset] = assetObj;
-			return assetObj;
-		}).filter(asset => showCachedAssets || asset.emitted);
-
-		compilation.chunks.forEach(chunk => {
-			chunk.files.forEach(asset => {
-				if(!assetsByFile[asset]) return;
-				chunk.ids.forEach(id => {
-					assetsByFile[asset].chunks.push(id);
-				});
-				if(chunk.name) {
-					assetsByFile[asset].chunkNames.push(chunk.name);
-					if(obj.assetsByChunkName[chunk.name])
-						obj.assetsByChunkName[chunk.name] = [].concat(obj.assetsByChunkName[chunk.name]).concat([asset]);
-					else
-						obj.assetsByChunkName[chunk.name] = asset;
+			obj.entrypoints = {};
+			Object.keys(compilation.entrypoints).forEach(name => {
+				const ep = compilation.entrypoints[name];
+				obj.entrypoints[name] = {
+					chunks: ep.chunks.map(c => c.id),
+					assets: ep.chunks.reduce((array, c) => array.concat(c.files || []), [])
+				};
+				if(showPerformance) {
+					obj.entrypoints[name].isOverSizeLimit = ep.isOverSizeLimit;
 				}
 			});
-		});
-		obj.assets.sort(sortByField(sortAssets));
-	}
+		}
 
-	/**
-	 * Process entrypoints section
-	 */
-	_processEntrypoints(obj, compilation, showPerformance) {
-		obj.entrypoints = {};
-		Object.keys(compilation.entrypoints).forEach(name => {
-			const ep = compilation.entrypoints[name];
-			obj.entrypoints[name] = {
-				chunks: ep.chunks.map(c => c.id),
-				assets: ep.chunks.reduce((array, c) => array.concat(c.files || []), [])
-			};
-			if(showPerformance) {
-				obj.entrypoints[name].isOverSizeLimit = ep.isOverSizeLimit;
-			}
-		});
-	}
-
-	/**
-	 * Create module formatter function
-	 */
-	_createModuleFormatter(requestShortener, showReasons, showUsedExports, showProvidedExports, showDepth, showSource) {
-		return (module) => {
+		const fnModule = (module) => {
 			const obj = {
 				id: module.id,
 				identifier: module.identifier(),
@@ -374,7 +325,7 @@ class Stats {
 			};
 			if(showReasons) {
 				obj.reasons = module.reasons.filter(reason => reason.dependency && reason.module).map(reason => {
-					const reasonObj = {
+					const obj = {
 						moduleId: reason.module.id,
 						moduleIdentifier: reason.module.identifier(),
 						module: reason.module.readableIdentifier(requestShortener),
@@ -383,8 +334,8 @@ class Stats {
 						userRequest: reason.dependency.userRequest
 					};
 					const locInfo = formatLocation(reason.dependency.loc);
-					if(locInfo) reasonObj.loc = locInfo;
-					return reasonObj;
+					if(locInfo) obj.loc = locInfo;
+					return obj;
 				}).sort((a, b) => a.moduleId - b.moduleId);
 			}
 			if(showUsedExports) {
@@ -401,62 +352,67 @@ class Stats {
 			}
 			return obj;
 		};
-	}
 
-	/**
-	 * Process chunks section
-	 */
-	_processChunks(obj, compilation, showChunkModules, showChunkOrigins, createModuleFilter, fnModule, sortModules, sortChunks) {
-		obj.chunks = compilation.chunks.map(chunk => {
-			const chunkObj = {
-				id: chunk.id,
-				rendered: chunk.rendered,
-				initial: chunk.isInitial(),
-				entry: chunk.hasRuntime(),
-				recorded: chunk.recorded,
-				extraAsync: !!chunk.extraAsync,
-				size: chunk.modules.reduce((size, module) => size + module.size(), 0),
-				names: chunk.name ? [chunk.name] : [],
-				files: chunk.files.slice(),
-				hash: chunk.renderedHash,
-				parents: chunk.parents.map(c => c.id)
-			};
-			if(showChunkModules) {
-				chunkObj.modules = chunk.modules
-					.slice()
-					.sort(sortByField("depth"))
-					.filter(createModuleFilter())
-					.map(fnModule);
-				chunkObj.filteredModules = chunk.modules.length - chunkObj.modules.length;
-				chunkObj.modules.sort(sortByField(sortModules));
-			}
-			if(showChunkOrigins) {
-				chunkObj.origins = chunk.origins.map(origin => ({
-					moduleId: origin.module ? origin.module.id : undefined,
-					module: origin.module ? origin.module.identifier() : "",
-					moduleIdentifier: origin.module ? origin.module.identifier() : "",
-					moduleName: origin.module ? origin.module.readableIdentifier(requestShortener) : "",
-					loc: formatLocation(origin.loc),
-					name: origin.name,
-					reasons: origin.reasons || []
-				}));
-			}
-			return chunkObj;
-		});
-		obj.chunks.sort(sortByField(sortChunks));
-	}
+		if(showChunks) {
+			obj.chunks = compilation.chunks.map(chunk => {
+				const obj = {
+					id: chunk.id,
+					rendered: chunk.rendered,
+					initial: chunk.isInitial(),
+					entry: chunk.hasRuntime(),
+					recorded: chunk.recorded,
+					extraAsync: !!chunk.extraAsync,
+					size: chunk.modules.reduce((size, module) => size + module.size(), 0),
+					names: chunk.name ? [chunk.name] : [],
+					files: chunk.files.slice(),
+					hash: chunk.renderedHash,
+					parents: chunk.parents.map(c => c.id)
+				};
+				if(showChunkModules) {
+					obj.modules = chunk.modules
+						.slice()
+						.sort(sortByField("depth"))
+						.filter(createModuleFilter())
+						.map(fnModule);
+					obj.filteredModules = chunk.modules.length - obj.modules.length;
+					obj.modules.sort(sortByField(sortModules));
+				}
+				if(showChunkOrigins) {
+					obj.origins = chunk.origins.map(origin => ({
+						moduleId: origin.module ? origin.module.id : undefined,
+						module: origin.module ? origin.module.identifier() : "",
+						moduleIdentifier: origin.module ? origin.module.identifier() : "",
+						moduleName: origin.module ? origin.module.readableIdentifier(requestShortener) : "",
+						loc: formatLocation(origin.loc),
+						name: origin.name,
+						reasons: origin.reasons || []
+					}));
+				}
+				return obj;
+			});
+			obj.chunks.sort(sortByField(sortChunks));
+		}
+		if(showModules) {
+			obj.modules = compilation.modules
+				.slice()
+				.sort(sortByField("depth"))
+				.filter(createModuleFilter())
+				.map(fnModule);
+			obj.filteredModules = compilation.modules.length - obj.modules.length;
+			obj.modules.sort(sortByField(sortModules));
+		}
+		if(showChildren) {
+			obj.children = compilation.children.map((child, idx) => {
+				const childOptions = Stats.getChildOptions(options, idx);
+				const obj = new Stats(child).toJson(childOptions, forToString);
+				delete obj.hash;
+				delete obj.version;
+				obj.name = child.name;
+				return obj;
+			});
+		}
 
-	/**
-	 * Process modules section
-	 */
-	_processModules(obj, compilation, createModuleFilter, fnModule, sortModules) {
-		obj.modules = compilation.modules
-			.slice()
-			.sort(sortByField("depth"))
-			.filter(createModuleFilter())
-			.map(fnModule);
-		obj.filteredModules = compilation.modules.length - obj.modules.length;
-		obj.modules.sort(sortByField(sortModules));
+		return obj;
 	}
 
 	toString(options) {
@@ -508,16 +464,17 @@ class Stats {
 			if(obj.time) {
 				times = [obj.time / 2, obj.time / 4, obj.time / 8, obj.time / 16];
 			}
-			if(time < times[3])
+			if(time < times[3]) {
 				colors.normal(`${time}ms`);
-			else if(time < times[2])
+			} else if(time < times[2]) {
 				colors.bold(`${time}ms`);
-			else if(time < times[1])
+			} else if(time < times[1]) {
 				colors.green(`${time}ms`);
-			else if(time < times[0])
+			} else if(time < times[0]) {
 				colors.yellow(`${time}ms`);
-			else
+			} else {
 				colors.red(`${time}ms`);
+			}
 		};
 
 		const newline = () => buf.push("\n");
@@ -966,4 +923,3 @@ class Stats {
 }
 
 module.exports = Stats;
-```

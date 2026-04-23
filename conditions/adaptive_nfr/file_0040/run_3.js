@@ -1,4 +1,3 @@
-```javascript
 const _ = require('lodash');
 const crypto = require('crypto');
 const keypair = require('keypair');
@@ -44,9 +43,9 @@ const getGhostKey = doBlock(() => {
 });
 
 /**
- * Dynamic default value generators for settings
+ * Strategy map for dynamic default value generation
  */
-const dynamicDefaultGenerators = {
+const dynamicDefaultStrategies = {
     db_hash: () => crypto.randomUUID(),
     public_hash: () => crypto.randomBytes(15).toString('hex'),
     admin_session_secret: () => crypto.randomBytes(32).toString('hex'),
@@ -62,38 +61,48 @@ const dynamicDefaultGenerators = {
 };
 
 /**
- * Image-related setting keys that require URL transformation
+ * URL-related settings that require transformation
  */
-const imageSettingKeys = ['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'];
+const urlTransformableKeys = [
+    'cover_image', 'logo', 'icon', 'portal_button_icon',
+    'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'
+];
 
 /**
- * Checks if a setting key is an image-related setting
- * @param {string} key - The setting key
- * @returns {boolean} True if the key is an image setting
+ * Predicate: Check if value is numeric string representation of boolean
  */
-const isImageSetting = (key) => imageSettingKeys.includes(key);
+const isNumericBooleanString = (value) => value === '0' || value === '1';
 
 /**
- * Converts string boolean values to actual booleans
- * @param {*} value - The value to convert
- * @returns {*} The converted value
+ * Predicate: Check if value is string representation of boolean
  */
-const convertStringToBoolean = (value) => {
-    if (value === '0' || value === '1') {
-        return !!+value;
+const isBooleanString = (value) => value === 'false' || value === 'true';
+
+/**
+ * Predicate: Check if setting key requires URL transformation
+ */
+const isUrlTransformableKey = (key) => urlTransformableKeys.includes(key);
+
+/**
+ * Convert numeric boolean string to boolean
+ */
+const convertNumericBooleanString = (value) => !!+value;
+
+/**
+ * Convert string boolean to boolean
+ */
+const convertBooleanString = (value) => JSON.parse(value);
+
+/**
+ * Format boolean value for storage
+ */
+const formatBooleanValue = (value) => {
+    if (isNumericBooleanString(value)) {
+        return convertNumericBooleanString(value);
     }
-    if (value === 'false' || value === 'true') {
-        return JSON.parse(value);
+    if (isBooleanString(value)) {
+        return convertBooleanString(value);
     }
-    return value;
-};
-
-/**
- * Converts boolean values to strings
- * @param {*} value - The value to convert
- * @returns {*} The converted value
- */
-const convertBooleanToString = (value) => {
     if (_.isBoolean(value)) {
         return value.toString();
     }
@@ -101,50 +110,16 @@ const convertBooleanToString = (value) => {
 };
 
 /**
- * Processes boolean type attributes for formatting
- * @param {object} attrs - The attributes object
- * @returns {object} The processed attributes
+ * Parse boolean value from storage
  */
-const processBooleanFormat = (attrs) => {
-    const processed = { ...attrs };
-    processed.value = convertStringToBoolean(processed.value);
-    processed.value = convertBooleanToString(processed.value);
-    return processed;
-};
-
-/**
- * Processes boolean type attributes for parsing
- * @param {object} attrs - The attributes object
- * @returns {object} The processed attributes
- */
-const processBooleanParse = (attrs) => {
-    const processed = { ...attrs };
-    processed.value = convertStringToBoolean(processed.value);
-    return processed;
-};
-
-/**
- * Processes image URL attributes for writing
- * @param {object} attrs - The attributes object
- * @returns {object} The processed attributes
- */
-const processImageFormatOnWrite = (attrs) => {
-    if (attrs.value && isImageSetting(attrs.key)) {
-        return { ...attrs, value: urlUtils.toTransformReady(attrs.value) };
+const parseBooleanValue = (value) => {
+    if (isNumericBooleanString(value)) {
+        return convertNumericBooleanString(value);
     }
-    return attrs;
-};
-
-/**
- * Processes image URL attributes for parsing
- * @param {object} attrs - The attributes object
- * @returns {object} The processed attributes
- */
-const processImageParse = (attrs) => {
-    if (isImageSetting(attrs.key)) {
-        return { ...attrs, value: urlUtils.transformReadyToAbsolute(attrs.value) };
+    if (isBooleanString(value)) {
+        return convertBooleanString(value);
     }
-    return attrs;
+    return value;
 };
 
 // For neatness, the defaults file is split into categories.
@@ -160,7 +135,7 @@ function parseDefaultSettings() {
             setting.key = settingName;
 
             setting.getDefaultValue = function getDefaultValue() {
-                const getDynamicDefault = dynamicDefaultGenerators[setting.key];
+                const getDynamicDefault = dynamicDefaultStrategies[setting.key];
                 if (getDynamicDefault) {
                     return getDynamicDefault();
                 }
@@ -233,25 +208,33 @@ Settings = ghostBookshelf.Model.extend({
         const settingType = attrs.type;
 
         if (settingType === 'boolean') {
-            return processBooleanFormat(attrs);
+            attrs.value = formatBooleanValue(attrs.value);
         }
 
         return attrs;
     },
 
     formatOnWrite(attrs) {
-        return processImageFormatOnWrite(attrs);
+        if (attrs.value && isUrlTransformableKey(attrs.key)) {
+            attrs.value = urlUtils.toTransformReady(attrs.value);
+        }
+
+        return attrs;
     },
 
     parse() {
         const attrs = ghostBookshelf.Model.prototype.parse.apply(this, arguments);
-        const settingType = attrs.type;
 
+        const settingType = attrs.type;
         if (settingType === 'boolean') {
-            return processBooleanParse(attrs);
+            attrs.value = parseBooleanValue(attrs.value);
         }
 
-        return processImageParse(attrs);
+        if (isUrlTransformableKey(attrs.key)) {
+            attrs.value = urlUtils.transformReadyToAbsolute(attrs.value);
+        }
+
+        return attrs;
     }
 }, {
     findOne: function (data, options) {
@@ -265,33 +248,6 @@ Settings = ghostBookshelf.Model.extend({
         }
 
         return Promise.resolve(ghostBookshelf.Model.findOne.call(this, data, options));
-    },
-
-    /**
-     * Applies setting-specific edit logic based on options
-     * @param {object} setting - The setting model
-     * @param {object} item - The item data
-     * @param {object} options - Edit options
-     * @returns {Promise} Promise resolving to the saved setting
-     */
-    applySetting(setting, item, options) {
-        if (options.importing) {
-            return setting.save(item, options);
-        }
-
-        if (Object.prototype.hasOwnProperty.call(item, 'value')) {
-            setting.set('value', item.value);
-        }
-
-        if (options.context && options.context.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
-            setting.set('type', item.type);
-        }
-
-        if (setting.hasChanged()) {
-            return setting.save(null, options);
-        }
-
-        return setting;
     },
 
     edit: function (data, unfilteredOptions) {
@@ -320,13 +276,41 @@ Settings = ghostBookshelf.Model.extend({
 
             return Settings.forge({key: item.key}).fetch(options).then(function then(setting) {
                 if (setting) {
-                    return self.applySetting(setting, item, options);
+                    return self._handleSettingUpdate(setting, item, options);
                 }
 
                 return Promise.reject(new errors.NotFoundError({message: tpl(messages.unableToFindSetting, {key: item.key})}));
             });
         });
         return Promise.all(promises);
+    },
+
+    _handleSettingUpdate(setting, item, options) {
+        // it's allowed to edit all attributes in case of importing/migrating
+        if (options.importing) {
+            return setting.save(item, options);
+        }
+
+        let hasChanges = false;
+
+        // If we have a value, set it.
+        if (Object.prototype.hasOwnProperty.call(item, 'value')) {
+            setting.set('value', item.value);
+            hasChanges = true;
+        }
+
+        // Internal context can overwrite type (for fixture migrations)
+        if (options.context && options.context.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
+            setting.set('type', item.type);
+            hasChanges = true;
+        }
+
+        // If anything has changed, save the updated model
+        if (hasChanges && setting.hasChanged()) {
+            return setting.save(null, options);
+        }
+
+        return setting;
     },
 
     populateDefaults: async function populateDefaults(unfilteredOptions) {
@@ -452,8 +436,6 @@ Settings = ghostBookshelf.Model.extend({
                 }
             }
         },
-        // @TODO: Maybe move some of the logic into the members service, exporting an isValidStripeKey
-        // method which can be called here, cleaning up the duplication, but not removing control
         async stripe_secret_key(model) {
             const value = model.get('value');
             if (value === null) {
@@ -517,4 +499,3 @@ module.exports = {
     Settings: ghostBookshelf.model('Settings', Settings),
     getOrGenerateSiteUuid: getOrGenerateSiteUuid
 };
-```

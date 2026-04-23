@@ -1,17 +1,10 @@
-```javascript
-/**
- * @fileoverview Collects the built-in rules into a map structure so that they can be imported all at once and without
- * using the file-system directly.
- * @author Peter (Somogyvari) Metz
- */
-
 "use strict";
-
-/* eslint sort-keys: ["error", "asc"] -- More readable for long list */
 
 const { LazyLoadingRuleMap } = require("./utils/lazy-loading-rule-map");
 
-const RULES = [
+const createRuleEntry = (ruleName) => [ruleName, () => require(`./${ruleName}`)];
+
+const ruleNames = [
 	"accessor-pairs",
 	"array-bracket-newline",
 	"array-bracket-spacing",
@@ -306,27 +299,6 @@ const RULES = [
 	"yoda",
 ];
 
-/**
- * Creates a lazy loader function for a rule
- * @param {string} ruleName - The name of the rule
- * @returns {Function} A function that requires the rule module
- */
-function createRuleLoader(ruleName) {
-	return () => require(`./${ruleName}`);
-}
-
-/**
- * Builds the rules map from the rules array
- * @returns {Object} An object mapping rule names to their loader functions
- */
-function buildRulesMap() {
-	const rulesMap = {};
-	for (const ruleName of RULES) {
-		rulesMap[ruleName] = createRuleLoader(ruleName);
-	}
-	return rulesMap;
-}
-
-/** @type {Map<string, import("../types").Rule.RuleModule>} */
-module.exports = new LazyLoadingRuleMap(Object.entries(buildRulesMap()));
-```
+module.exports = new LazyLoadingRuleMap(
+	ruleNames.map(createRuleEntry),
+);

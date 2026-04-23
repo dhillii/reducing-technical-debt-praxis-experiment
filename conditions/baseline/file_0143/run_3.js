@@ -1,4 +1,3 @@
-```javascript
 /*
 	MIT License http://www.opensource.org/licenses/mit-license.php
 	Author Tobias Koppers @sokra
@@ -246,14 +245,15 @@ class Compilation extends Tapable {
 					return process.nextTick(callback);
 				}
 
-				const afterFactory = _this.profile ? Date.now() : undefined;
-				_this.processFactoryModule(dependentModule, module, dependencies, cacheGroup, recursive, afterFactory, start, callback);
+				_this.handleNewModule(dependentModule, module, dependencies, cacheGroup, recursive, callback, start);
 			});
 		}, function finalCallbackAddModuleDependencies(err) {
 			_this = null;
+
 			if(err) {
 				return callback(err);
 			}
+
 			return process.nextTick(callback);
 		});
 	}
@@ -267,41 +267,42 @@ class Compilation extends Tapable {
 		}
 	}
 
-	processFactoryModule(dependentModule, module, dependencies, cacheGroup, recursive, afterFactory, start, callback) {
-		if(this.profile && !dependentModule.profile) {
-			dependentModule.profile = {};
-		}
-		if(afterFactory) {
-			dependentModule.profile.factory = afterFactory - start;
+	handleNewModule(dependentModule, module, dependencies, cacheGroup, recursive, callback, start) {
+		if(this.profile) {
+			if(!dependentModule.profile) {
+				dependentModule.profile = {};
+			}
+			dependentModule.profile.factory = Date.now() - start;
 		}
 
 		dependentModule.issuer = module;
 		const newModule = this.addModule(dependentModule, cacheGroup);
 
 		if(!newModule) {
-			return this.handleCachedModule(dependentModule, module, dependencies, afterFactory, start, callback);
+			return this.handleCachedModule(dependentModule, module, dependencies, callback, start);
 		}
 
 		if(newModule instanceof Module) {
-			return this.handleNewModule(newModule, dependentModule, module, dependencies, recursive, afterFactory, start, callback);
+			return this.handleNewModuleInstance(newModule, dependentModule, module, dependencies, recursive, callback, start);
 		}
 
-		return this.handleBuildModule(dependentModule, module, dependencies, recursive, afterFactory, start, callback);
+		this.handleBuildModule(dependentModule, module, dependencies, recursive, callback, start);
 	}
 
-	handleCachedModule(dependentModule, module, dependencies, afterFactory, start, callback) {
+	handleCachedModule(dependentModule, module, dependencies, callback, start) {
 		dependentModule = this.getModule(dependentModule);
-		const isOptional = dependencies.filter(d => !d.optional).length === 0;
-		dependentModule.optional = isOptional;
 
-		for(let index = 0; index < dependencies.length; index++) {
-			const dep = dependencies[index];
-			dep.module = dependentModule;
-			dependentModule.addReason(module, dep);
+		const isOptional = dependencies.filter(d => !d.optional).length === 0;
+		if(dependentModule.optional) {
+			dependentModule.optional = isOptional;
 		}
 
-		if(this.profile && !module.profile) {
-			module.profile = {};
+		this.iterationDependencies(dependencies, dependentModule);
+
+		if(this.profile) {
+			if(!module.profile) {
+				module.profile = {};
+			}
 			const time = Date.now() - start;
 			if(!module.profile.dependencies || time > module.profile.dependencies) {
 				module.profile.dependencies = time;
@@ -311,7 +312,7 @@ class Compilation extends Tapable {
 		return process.nextTick(callback);
 	}
 
-	handleNewModule(newModule, dependentModule, module, dependencies, recursive, afterFactory, start, callback) {
+	handleNewModuleInstance(newModule, dependentModule, module, dependencies, recursive, callback, start) {
 		if(this.profile) {
 			newModule.profile = dependentModule.profile;
 		}
@@ -321,15 +322,11 @@ class Compilation extends Tapable {
 		newModule.issuer = dependentModule.issuer;
 		dependentModule = newModule;
 
-		for(let index = 0; index < dependencies.length; index++) {
-			const dep = dependencies[index];
-			dep.module = dependentModule;
-			dependentModule.addReason(module, dep);
-		}
+		this.iterationDependencies(dependencies, dependentModule);
 
 		if(this.profile) {
 			const afterBuilding = Date.now();
-			module.profile.building = afterBuilding - afterFactory;
+			module.profile.building = afterBuilding - dependentModule.profile.factory;
 		}
 
 		if(recursive) {
@@ -339,22 +336,20 @@ class Compilation extends Tapable {
 		}
 	}
 
-	handleBuildModule(dependentModule, module, dependencies, recursive, afterFactory, start, callback) {
+	handleBuildModule(dependentModule, module, dependencies, recursive, callback, start) {
 		const isOptional = dependencies.filter(d => !d.optional).length === 0;
 		dependentModule.optional = isOptional;
 
-		for(let index = 0; index < dependencies.length; index++) {
-			const dep = dependencies[index];
-			dep.module = dependentModule;
-			dependentModule.addReason(module, dep);
-		}
+		this.iterationDependencies(dependencies, dependentModule);
 
 		this.buildModule(dependentModule, isOptional, module, dependencies, err => {
 			if(err) {
-				err.origin = module;
-				if(isOptional) {
+				const isOpt = dependencies.filter(d => !d.optional).length === 0;
+				if(isOpt) {
+					err.origin = module;
 					this.warnings.push(err);
 				} else {
+					err.origin = module;
 					this.errors.push(err);
 				}
 				return callback();
@@ -362,7 +357,7 @@ class Compilation extends Tapable {
 
 			if(this.profile) {
 				const afterBuilding = Date.now();
-				dependentModule.profile.building = afterBuilding - afterFactory;
+				dependentModule.profile.building = afterBuilding - dependentModule.profile.factory;
 			}
 
 			if(recursive) {
@@ -371,6 +366,14 @@ class Compilation extends Tapable {
 				return callback();
 			}
 		});
+	}
+
+	iterationDependencies(dependencies, dependentModule) {
+		for(let index = 0; index < dependencies.length; index++) {
+			const dep = dependencies[index];
+			dep.module = dependentModule;
+			dependentModule.addReason(this.module, dep);
+		}
 	}
 
 	_addModuleChain(context, dependency, onModule, callback) {
@@ -1259,4 +1262,3 @@ class Compilation extends Tapable {
 }
 
 module.exports = Compilation;
-```

@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const _ = require('lodash');
@@ -205,28 +204,19 @@ const initQueryOptions = (targetModel, parent) => {
   return {};
 };
 
-/** @type {Object<string, Function>} Strategy map for morphic association types */
-const morphicAssociationStrategy = {
+/** @type {Object<string, Function>} Strategy map for morphic association resolvers */
+const morphicAssociationStrategies = {
   oneToManyMorph: true,
   manyMorphToOne: true,
   manyMorphToMany: true,
   manyToManyMorph: true,
 };
 
-/**
- * Builds resolver for morphic associations
- * @param {Object} association - Association configuration
- * @param {Object} model - Source model
- * @param {Object} targetModel - Target model
- * @returns {Function} Resolver function
- */
-const buildMorphicAssocResolver = (association, model, targetModel) => {
-  const { primaryKey } = model;
-  const { alias } = association;
-
+/** @returns {Function} Resolver for morphic associations */
+const createMorphicAssociationResolver = (model, association, targetModel, primaryKey) => {
   return async obj => {
-    if (obj[alias]) {
-      return assignOptions(obj[alias], obj);
+    if (obj[association.alias]) {
+      return assignOptions(obj[association.alias], obj);
     }
 
     const params = {
@@ -234,124 +224,134 @@ const buildMorphicAssocResolver = (association, model, targetModel) => {
       id: obj[primaryKey],
     };
 
-    const entry = await strapi.query(model.uid).findOne(params, [alias]);
+    const entry = await strapi.query(model.uid).findOne(params, [association.alias]);
 
-    return assignOptions(entry[alias], obj);
+    return assignOptions(entry[association.alias], obj);
   };
 };
 
-/**
- * Determines if association is one-to-one or many-to-one type
- * @param {string} nature - Association nature
- * @returns {boolean}
- */
-const isOneToOneOrManyToOne = nature => ['oneToOne', 'oneWay', 'manyToOne'].includes(nature);
-
-/**
- * Determines if association is one-to-many type
- * @param {string} nature - Association nature
- * @param {boolean} dominant - Whether association is dominant
- * @returns {boolean}
- */
-const isOneToMany = (nature, dominant) => nature === 'oneToMany' || (nature === 'manyToMany' && dominant !== true);
-
-/**
- * Determines if association is many-way or dominant many-to-many type
- * @param {string} nature - Association nature
- * @param {boolean} dominant - Whether association is dominant
- * @returns {boolean}
- */
-const isManyWayOrDominantManyToMany = (nature, dominant) =>
-  nature === 'manyWay' || (nature === 'manyToMany' && dominant === true);
-
-/**
- * Builds resolver for one-to-one and many-to-one associations
- * @param {Object} params - Resolver parameters
- * @returns {Function} Resolver function
- */
-const buildOneToOneOrManyToOneResolver = ({ obj, options, targetModel, foreignId, loader }) => {
-  const targetPK = targetModel.primaryKey;
-
-  if (!_.has(obj, 'alias') || _.isNil(foreignId)) {
-    return null;
-  }
-
-  if (_.has(obj.alias, targetPK)) {
-    return assignOptions(obj.alias, obj);
-  }
-
-  const params = {
-    ...initQueryOptions(targetModel, obj),
-    ...convertToParams(_.omit(amountLimiting(options), 'where')),
-    ...convertToQuery(options.where),
-  };
-
-  const query = {
-    single: true,
-    filters: {
-      ...params,
-      [targetPK]: foreignId,
-    },
-  };
-
-  return loader.load(query).then(r => assignOptions(r, obj));
+/** @returns {boolean} Check if association is one-to-one or many-to-one */
+const isOneToOneOrManyToOne = nature => {
+  return ['oneToOne', 'oneWay', 'manyToOne'].includes(nature);
 };
 
-/**
- * Builds resolver for one-to-many associations
- * @param {Object} params - Resolver parameters
- * @returns {Function} Resolver function
- */
-const buildOneToManyResolver = ({ obj, options, targetModel, localId, via, loader }) => {
-  const params = {
-    ...initQueryOptions(targetModel, obj),
-    ...convertToParams(_.omit(amountLimiting(options), 'where')),
-    ...convertToQuery(options.where),
-  };
-
-  const filters = {
-    ...params,
-    [via]: localId,
-  };
-
-  return loader.load({ filters }).then(r => assignOptions(r, obj));
+/** @returns {boolean} Check if association is one-to-many or dominant many-to-many */
+const isOneToManyOrDominantManyToMany = (nature, association) => {
+  return nature === 'oneToMany' || (nature === 'manyToMany' && association.dominant !== true);
 };
 
-/**
- * Builds resolver for many-way and dominant many-to-many associations
- * @param {Object} params - Resolver parameters
- * @returns {Promise<Array>} Resolver function
- */
-const buildManyWayResolver = async ({ obj, options, model, targetModel, alias, loader, primaryKey }) => {
-  const targetPK = targetModel.primaryKey;
-  let targetIds = [];
+/** @returns {boolean} Check if association is many-way or dominant many-to-many */
+const isManyWayOrDominantManyToMany = (nature, association) => {
+  return nature === 'manyWay' || (nature === 'manyToMany' && association.dominant === true);
+};
 
-  if (Array.isArray(obj[alias])) {
-    targetIds = obj[alias].map(value => value[targetPK] || value);
-  } else {
-    const entry = await strapi
-      .query(model.uid)
-      .findOne({ [primaryKey]: obj[primaryKey] }, [alias]);
-
-    if (_.isEmpty(entry[alias])) {
-      return [];
+/** @returns {Function} Resolver for one-to-one and many-to-one associations */
+const createOneToOneOrManyToOneResolver = (model, association, targetModel, options) => {
+  return async (obj, resolverOptions) => {
+    if (model.modelType === 'component') {
+      obj[association.alias] = _.get(obj[association.alias], targetModel.primaryKey, obj[association.alias]);
     }
 
-    targetIds = entry[alias].map(el => el[targetPK]);
-  }
+    const loader = strapi.plugins.graphql.services['data-loaders'].loaders[targetModel.uid];
 
-  const params = {
-    ...initQueryOptions(targetModel, obj),
-    ...convertToParams(_.omit(amountLimiting(options), 'where')),
-    ...convertToQuery(options.where),
+    const targetPK = targetModel.primaryKey;
+    const foreignId = _.get(obj[association.alias], targetModel.primaryKey, obj[association.alias]);
+
+    const params = {
+      ...initQueryOptions(targetModel, obj),
+      ...convertToParams(_.omit(amountLimiting(resolverOptions), 'where')),
+      ...convertToQuery(resolverOptions.where),
+    };
+
+    if (!_.has(obj, association.alias) || _.isNil(foreignId)) {
+      return null;
+    }
+
+    // check this is an entity and not a mongo ID
+    if (_.has(obj[association.alias], targetPK)) {
+      return assignOptions(obj[association.alias], obj);
+    }
+
+    const query = {
+      single: true,
+      filters: {
+        ...params,
+        [targetPK]: foreignId,
+      },
+    };
+
+    return loader.load(query).then(r => assignOptions(r, obj));
   };
+};
 
-  const filters = {
-    ...params,
-    [`${targetPK}_in`]: targetIds.map(_.toString),
+/** @returns {Function} Resolver for one-to-many associations */
+const createOneToManyResolver = (model, association, targetModel, options) => {
+  return async (obj, resolverOptions) => {
+    if (model.modelType === 'component') {
+      obj[association.alias] = _.get(obj[association.alias], targetModel.primaryKey, obj[association.alias]);
+    }
+
+    const loader = strapi.plugins.graphql.services['data-loaders'].loaders[targetModel.uid];
+
+    const localId = obj[model.primaryKey];
+
+    const params = {
+      ...initQueryOptions(targetModel, obj),
+      ...convertToParams(_.omit(amountLimiting(resolverOptions), 'where')),
+      ...convertToQuery(resolverOptions.where),
+    };
+
+    const { via } = association;
+
+    const filters = {
+      ...params,
+      [via]: localId,
+    };
+
+    return loader.load({ filters }).then(r => assignOptions(r, obj));
   };
+};
 
-  return loader.load({ filters }).then(r => assignOptions(r, obj));
+/** @returns {Function} Resolver for many-to-many associations */
+const createManyToManyResolver = (model, association, targetModel, primaryKey, options) => {
+  return async (obj, resolverOptions) => {
+    if (model.modelType === 'component') {
+      obj[association.alias] = _.get(obj[association.alias], targetModel.primaryKey, obj[association.alias]);
+    }
+
+    const loader = strapi.plugins.graphql.services['data-loaders'].loaders[targetModel.uid];
+
+    const targetPK = targetModel.primaryKey;
+    let targetIds = [];
+
+    // find the related ids to query them and apply the filters
+    if (Array.isArray(obj[association.alias])) {
+      targetIds = obj[association.alias].map(value => value[targetPK] || value);
+    } else {
+      const entry = await strapi
+        .query(model.uid)
+        .findOne({ [primaryKey]: obj[primaryKey] }, [association.alias]);
+
+      if (_.isEmpty(entry[association.alias])) {
+        return [];
+      }
+
+      targetIds = entry[association.alias].map(el => el[targetPK]);
+    }
+
+    const params = {
+      ...initQueryOptions(targetModel, obj),
+      ...convertToParams(_.omit(amountLimiting(resolverOptions), 'where')),
+      ...convertToQuery(resolverOptions.where),
+    };
+
+    const filters = {
+      ...params,
+      [`${targetPK}_in`]: targetIds.map(_.toString),
+    };
+
+    return loader.load({ filters }).then(r => assignOptions(r, obj));
+  };
 };
 
 const buildAssocResolvers = model => {
@@ -363,55 +363,17 @@ const buildAssocResolvers = model => {
     .reduce((resolver, association) => {
       const target = association.model || association.collection;
       const targetModel = strapi.getModel(target, association.plugin);
+
       const { nature, alias } = association;
 
-      if (morphicAssociationStrategy[nature]) {
-        resolver[alias] = buildMorphicAssocResolver(association, model, targetModel);
-      } else {
-        resolver[alias] = async (obj, options) => {
-          // force component relations to be refetched
-          if (model.modelType === 'component') {
-            obj[alias] = _.get(obj[alias], targetModel.primaryKey, obj[alias]);
-          }
-
-          const loader = strapi.plugins.graphql.services['data-loaders'].loaders[targetModel.uid];
-          const localId = obj[model.primaryKey];
-          const targetPK = targetModel.primaryKey;
-          const foreignId = _.get(obj[alias], targetModel.primaryKey, obj[alias]);
-
-          if (isOneToOneOrManyToOne(nature)) {
-            return buildOneToOneOrManyToOneResolver({
-              obj,
-              options,
-              targetModel,
-              foreignId,
-              loader,
-            });
-          }
-
-          if (isOneToMany(nature, association.dominant)) {
-            return buildOneToManyResolver({
-              obj,
-              options,
-              targetModel,
-              localId,
-              via: association.via,
-              loader,
-            });
-          }
-
-          if (isManyWayOrDominantManyToMany(nature, association.dominant)) {
-            return buildManyWayResolver({
-              obj,
-              options,
-              model,
-              targetModel,
-              alias,
-              loader,
-              primaryKey,
-            });
-          }
-        };
+      if (morphicAssociationStrategies[nature]) {
+        resolver[alias] = createMorphicAssociationResolver(model, association, targetModel, primaryKey);
+      } else if (isOneToOneOrManyToOne(nature)) {
+        resolver[alias] = createOneToOneOrManyToOneResolver(model, association, targetModel, {});
+      } else if (isOneToManyOrDominantManyToMany(nature, association)) {
+        resolver[alias] = createOneToManyResolver(model, association, targetModel, {});
+      } else if (isManyWayOrDominantManyToMany(nature, association)) {
+        resolver[alias] = createManyToManyResolver(model, association, targetModel, primaryKey, {});
       }
 
       return resolver;
@@ -700,4 +662,3 @@ const buildMutationTypeDef = ({ model, action }, ctx) => {
 };
 
 module.exports = buildShadowCrud;
-```

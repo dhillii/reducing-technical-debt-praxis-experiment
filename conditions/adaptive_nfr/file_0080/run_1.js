@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const Url = require('url');
@@ -257,8 +256,8 @@ internals.Request.prototype._setMethod = function (method) {
 
 
 /**
- * Determines if data is a function for deferred evaluation
- * @param {*} data - The data to check
+ * Determines if log data should be processed as a function or static value
+ * @param {*} data - The log data
  * @returns {boolean} True if data is a function
  */
 internals.isDataFunction = function (data) {
@@ -268,44 +267,35 @@ internals.isDataFunction = function (data) {
 
 
 /**
- * Creates a log update entry for the request
- * @param {Object} request - The request object
- * @param {*} data - The log data
- * @param {number} timestamp - The timestamp
- * @param {boolean} internal - Whether this is an internal log
- * @returns {Array|Function} Log update entry or function that returns it
+ * Creates log entry object with evaluated data
+ * @param {string} id - Request ID
+ * @param {number} timestamp - Log timestamp
+ * @param {Array} tags - Log tags
+ * @param {*} data - Log data (function or value)
+ * @param {boolean} internal - Internal flag
+ * @returns {Object} Log entry object
  */
-internals.createLogUpdate = function (request, data, timestamp, internal) {
+internals.createLogEntry = function (id, timestamp, tags, data, internal) {
 
-    if (!internals.isDataFunction(data)) {
-        return [request, { request: request.id, timestamp, tags: [], data, internal }];
-    }
-
-    return () => {
-
-        return [request, { request: request.id, timestamp, tags: [], data: data(), internal }];
-    };
+    return { request: id, timestamp, tags, data, internal };
 };
 
 
 /**
- * Processes log update based on route settings
- * @param {Object} request - The request object
- * @param {Array} update - The log update entry
- * @param {*} data - The log data
- * @returns {Array|null} Processed update or null
+ * Creates lazy log entry generator
+ * @param {Object} request - Request object
+ * @param {number} timestamp - Log timestamp
+ * @param {Array} tags - Log tags
+ * @param {Function} dataFn - Function to generate data
+ * @param {boolean} internal - Internal flag
+ * @returns {Function} Function that generates log entry
  */
-internals.processLogUpdate = function (request, update, data) {
+internals.createLazyLogEntry = function (request, timestamp, tags, dataFn, internal) {
 
-    if (!request.route.settings.log) {
-        return null;
-    }
+    return () => {
 
-    if (internals.isDataFunction(data)) {
-        return update();
-    }
-
-    return update;
+        return [request, internals.createLogEntry(request.id, timestamp, tags, dataFn(), internal)];
+    };
 };
 
 
@@ -315,11 +305,17 @@ internals.Request.prototype.log = function (tags, data, timestamp, _internal) {
     timestamp = (timestamp ? (timestamp instanceof Date ? timestamp.getTime() : timestamp) : Date.now());
     const internal = !!_internal;
 
-    const update = internals.createLogUpdate(this, data, timestamp, internal);
-    const processedUpdate = internals.processLogUpdate(this, update, data);
+    let update;
+    if (internals.isDataFunction(data)) {
+        update = internals.createLazyLogEntry(this, timestamp, tags, data, internal);
+    }
+    else {
+        update = [this, internals.createLogEntry(this.id, timestamp, tags, data, internal)];
+    }
 
-    if (processedUpdate) {
-        this._logger.push(processedUpdate[1]);       // Add to request array
+    if (this.route.settings.log) {
+        const entry = (typeof update === 'function' ? update() : update);
+        this._logger.push(entry[1]);       // Add to request array
     }
 
     this.connection.emit({ name: internal ? 'request-internal' : 'request', tags }, update);
@@ -333,10 +329,10 @@ internals.Request.prototype._log = function (tags, data) {
 
 
 /**
- * Filters logger events by tags and internal flag
- * @param {Array} events - The events to filter
- * @param {Object|null} filter - Tag filter map or null
- * @param {boolean|undefined} internal - Internal flag filter
+ * Filters log events by tags and internal flag
+ * @param {Array} events - Log events to filter
+ * @param {Object} filter - Tag filter map
+ * @param {boolean} internal - Internal flag filter
  * @returns {Array} Filtered events
  */
 internals.filterLogEvents = function (events, filter, internal) {
@@ -348,8 +344,7 @@ internals.filterLogEvents = function (events, filter, internal) {
         if (internal === undefined || event.internal === internal) {
             if (filter) {
                 for (let j = 0; j < event.tags.length; ++j) {
-                    const tag = event.tags[j];
-                    if (filter[tag]) {
+                    if (filter[event.tags[j]]) {
                         result.push(event);
                         break;
                     }
@@ -401,50 +396,6 @@ internals.Request.prototype._execute = function () {
 };
 
 
-/**
- * Validates the request path format
- * @param {string} path - The path to validate
- * @returns {boolean} True if path is valid
- */
-internals.isValidPath = function (path) {
-
-    return path && path[0] === '/';
-};
-
-
-/**
- * Updates route based on match and internal settings
- * @param {Object} request - The request object
- * @param {Object} match - The route match result
- */
-internals.updateRoute = function (request, match) {
-
-    if (!match.route.settings.isInternal ||
-        request._allowInternals) {
-
-        request._route = match.route;
-        request.route = request._route.public;
-    }
-
-    request.params = match.params || {};
-    request.paramsArray = match.paramsArray || [];
-};
-
-
-/**
- * Sets up CORS information if configured
- * @param {Object} request - The request object
- */
-internals.setupCors = function (request) {
-
-    if (request.route.settings.cors) {
-        request.info.cors = {
-            isOriginMatch: Cors.matchOrigin(request.headers.origin, request.route.settings.cors)
-        };
-    }
-};
-
-
 internals.Request.prototype._match = function (err) {
 
     // Undecorate request
@@ -456,15 +407,30 @@ internals.Request.prototype._match = function (err) {
         return this._reply(err);
     }
 
-    if (!internals.isValidPath(this.path)) {
+    if (!this.path ||
+        this.path[0] !== '/') {
+
         return this._reply(Boom.badRequest('Invalid path'));
     }
 
     // Lookup route
 
     const match = this.connection._router.route(this.method, this.path, this.info.hostname);
-    internals.updateRoute(this, match);
-    internals.setupCors(this);
+    if (!match.route.settings.isInternal ||
+        this._allowInternals) {
+
+        this._route = match.route;
+        this.route = this._route.public;
+    }
+
+    this.params = match.params || {};
+    this.paramsArray = match.paramsArray || [];
+
+    if (this.route.settings.cors) {
+        this.info.cors = {
+            isOriginMatch: Cors.matchOrigin(this.headers.origin, this.route.settings.cors)
+        };
+    }
 
     return this._lifecycle();
 };
@@ -493,59 +459,29 @@ internals.Request.prototype._lifecycle = function () {
 };
 
 
-/**
- * Applies socket timeout if configured
- * @param {Object} request - The request object
- */
-internals.applySocketTimeout = function (request) {
-
-    if (request.raw.req.socket &&
-        request.route.settings.timeout.socket !== undefined) {
-
-        request.raw.req.socket.setTimeout(request.route.settings.timeout.socket || 0);
-    }
-};
-
-
-/**
- * Handles server timeout
- * @param {Object} request - The request object
- * @param {number} serverTimeout - The timeout value in milliseconds
- */
-internals.handleServerTimeout = function (request, serverTimeout) {
-
-    const timeoutReply = () => {
-
-        request._log(['request', 'server', 'timeout', 'error'], { timeout: serverTimeout, elapsed: request._bench.elapsed() });
-        request._reply(Boom.serverUnavailable());
-    };
-
-    if (serverTimeout <= 0) {
-        return timeoutReply();
-    }
-
-    request._serverTimeoutId = setTimeout(timeoutReply, serverTimeout);
-};
-
-
-/**
- * Applies server timeout if configured
- * @param {Object} request - The request object
- */
-internals.applyServerTimeout = function (request) {
-
-    let serverTimeout = request.route.settings.timeout.server;
-    if (serverTimeout) {
-        serverTimeout = Math.floor(serverTimeout - request._bench.elapsed());
-        internals.handleServerTimeout(request, serverTimeout);
-    }
-};
-
-
 internals.Request.prototype._setTimeouts = function () {
 
-    internals.applySocketTimeout(this);
-    internals.applyServerTimeout(this);
+    if (this.raw.req.socket &&
+        this.route.settings.timeout.socket !== undefined) {
+
+        this.raw.req.socket.setTimeout(this.route.settings.timeout.socket || 0);    // Value can be false or positive
+    }
+
+    let serverTimeout = this.route.settings.timeout.server;
+    if (serverTimeout) {
+        serverTimeout = Math.floor(serverTimeout - this._bench.elapsed());          // Calculate the timeout from when the request was constructed
+        const timeoutReply = () => {
+
+            this._log(['request', 'server', 'timeout', 'error'], { timeout: serverTimeout, elapsed: this._bench.elapsed() });
+            this._reply(Boom.serverUnavailable());
+        };
+
+        if (serverTimeout <= 0) {
+            return timeoutReply();
+        }
+
+        this._serverTimeoutId = setTimeout(timeoutReply, serverTimeout);
+    }
 };
 
 
@@ -578,7 +514,7 @@ internals.Request.prototype._invoke = function (event, callback) {
 
 /**
  * Checks if request is already replied
- * @param {Object} request - The request object
+ * @param {Object} request - Request object
  * @returns {boolean} True if already replied
  */
 internals.isAlreadyReplied = function (request) {
@@ -588,8 +524,19 @@ internals.isAlreadyReplied = function (request) {
 
 
 /**
+ * Checks if request is bailed
+ * @param {Object} request - Request object
+ * @returns {boolean} True if bailed
+ */
+internals.isBailed = function (request) {
+
+    return request._isBailed;
+};
+
+
+/**
  * Checks if response is closed
- * @param {Object} response - The response object
+ * @param {Object} response - Response object
  * @returns {boolean} True if response is closed
  */
 internals.isResponseClosed = function (response) {
@@ -599,53 +546,31 @@ internals.isResponseClosed = function (response) {
 
 
 /**
- * Handles closed response finalization
- * @param {Object} request - The request object
- * @returns {boolean} True if handled
+ * Handles finalization when response is closed
+ * @param {Object} request - Request object
  */
 internals.handleClosedResponse = function (request) {
-
-    if (!internals.isResponseClosed(request.response)) {
-        return false;
-    }
 
     if (request.response.end) {
         request.raw.res.end();
     }
 
     request._finalize();
-    return true;
 };
 
 
 /**
- * Handles bailed request finalization
- * @param {Object} request - The request object
- * @returns {boolean} True if bailed
+ * Handles transmission and finalization
+ * @param {Object} request - Request object
+ * @param {Function} transmitFn - Transmission function
  */
-internals.handleBailedRequest = function (request) {
-
-    if (!request._isBailed) {
-        return false;
-    }
-
-    request._finalize();
-    return true;
-};
-
-
-/**
- * Processes pre-response extensions
- * @param {Object} request - The request object
- * @param {Function} transmit - The transmit callback
- */
-internals.processPreResponse = function (request, transmit) {
+internals.handleTransmit = function (request, transmitFn) {
 
     if (!request._route._extensions.onPreResponse.nodes) {
-        return transmit();
+        return transmitFn();
     }
 
-    return request._invoke(request._route._extensions.onPreResponse, transmit);
+    return request._invoke(request._route._extensions.onPreResponse, transmitFn);
 };
 
 
@@ -659,12 +584,12 @@ internals.Request.prototype._reply = function (exit) {
 
     clearTimeout(this._serverTimeoutId);
 
-    if (internals.handleBailedRequest(this)) {
-        return;
+    if (internals.isBailed(this)) {
+        return this._finalize();
     }
 
-    if (internals.handleClosedResponse(this)) {
-        return;
+    if (internals.isResponseClosed(this.response)) {
+        return internals.handleClosedResponse(this);
     }
 
     if (exit) {
@@ -682,68 +607,7 @@ internals.Request.prototype._reply = function (exit) {
         return Transmit.send(this, () => this._finalize());
     };
 
-    internals.processPreResponse(this, transmit);
-};
-
-
-/**
- * Checks if response has an error
- * @param {Object} response - The response object
- * @returns {boolean} True if response has error
- */
-internals.hasResponseError = function (response) {
-
-    return response && response.statusCode === 500 && response._error;
-};
-
-
-/**
- * Logs response error
- * @param {Object} request - The request object
- * @param {Object} error - The error object
- */
-internals.logResponseError = function (request, error) {
-
-    request.connection.emit('request-error', [request, error]);
-    const tags = error.isDeveloperError ? ['internal', 'implementation', 'error'] : ['internal', 'error'];
-    request._log(tags, error);
-};
-
-
-/**
- * Cleans up request listeners
- * @param {Object} request - The request object
- */
-internals.cleanupListeners = function (request) {
-
-    request.raw.req.removeListener('end', request._onEnd);
-    request.raw.req.removeListener('close', request._onClose);
-    request.raw.req.removeListener('error', request._onError);
-    request.raw.req.removeListener('error', request._onAbort);
-};
-
-
-/**
- * Closes response if needed
- * @param {Object} request - The request object
- */
-internals.closeResponse = function (request) {
-
-    if (request.response && request.response._close) {
-        request.response._close();
-    }
-};
-
-
-/**
- * Emits tail event if no pending tails
- * @param {Object} request - The request object
- */
-internals.emitTailIfComplete = function (request) {
-
-    if (Object.keys(request._tails).length === 0) {
-        request.connection.emit('tail', request);
-    }
+    return internals.handleTransmit(this, transmit);
 };
 
 
@@ -751,8 +615,12 @@ internals.Request.prototype._finalize = function () {
 
     this.info.responded = Date.now();
 
-    if (internals.hasResponseError(this.response)) {
-        internals.logResponseError(this, this.response._error);
+    if (this.response &&
+        this.response.statusCode === 500 &&
+        this.response._error) {
+
+        this.connection.emit('request-error', [this, this.response._error]);
+        this._log(this.response._error.isDeveloperError ? ['internal', 'implementation', 'error'] : ['internal', 'error'], this.response._error);
     }
 
     this.connection.emit('response', this);
@@ -761,83 +629,66 @@ internals.Request.prototype._finalize = function () {
     this.addTail = undefined;
     this.tail = undefined;
 
-    internals.emitTailIfComplete(this);
+    if (Object.keys(this._tails).length === 0) {
+        this.connection.emit('tail', this);
+    }
 
     // Cleanup
 
-    internals.cleanupListeners(this);
-    internals.closeResponse(this);
+    this.raw.req.removeListener('end', this._onEnd);
+    this.raw.req.removeListener('close', this._onClose);
+    this.raw.req.removeListener('error', this._onError);
+    this.raw.req.removeListener('error', this._onAbort);
+
+    if (this.response &&
+        this.response._close) {
+
+        this.response._close();
+    }
 
     this._protect.logger = this.server;
 };
 
 
 /**
- * Determines if response should be closed
- * @param {Object} currentResponse - The current response
- * @param {Object} newResponse - The new response
- * @returns {boolean} True if should close
+ * Determines if old response should be closed
+ * @param {Object} oldResponse - Previous response
+ * @param {Object} newResponse - New response
+ * @returns {boolean} True if old response should be closed
  */
-internals.shouldCloseResponse = function (currentResponse, newResponse) {
+internals.shouldCloseOldResponse = function (oldResponse, newResponse) {
 
-    if (!currentResponse || currentResponse.isBoom) {
-        return false;
+    return oldResponse &&
+        !oldResponse.isBoom &&
+        oldResponse !== newResponse &&
+        (newResponse.isBoom || oldResponse.source !== newResponse.source);
+};
+
+
+/**
+ * Handles response closure when finalized
+ * @param {Object} response - Response to close
+ */
+internals.closeResponseIfNeeded = function (response) {
+
+    if (response._close) {
+        response._close();
     }
-
-    if (currentResponse === newResponse) {
-        return false;
-    }
-
-    return newResponse.isBoom || currentResponse.source !== newResponse.source;
 };
 
 
 internals.Request.prototype._setResponse = function (response) {
 
-    if (internals.shouldCloseResponse(this.response, response)) {
+    if (internals.shouldCloseOldResponse(this.response, response)) {
         this.response._close();
     }
 
     if (this._isFinalized) {
-        if (response._close) {
-            response._close();
-        }
-
+        internals.closeResponseIfNeeded(response);
         return;
     }
 
     this.response = response;
-};
-
-
-/**
- * Creates a drop function for tail cleanup
- * @param {Object} request - The request object
- * @param {string} name - The tail name
- * @param {number} tailId - The tail ID
- * @returns {Function} The drop function
- */
-internals.createDropFunction = function (request, name, tailId) {
-
-    return () => {
-
-        if (!request._tails[tailId]) {
-            request._log(['tail', 'remove', 'error'], { name, id: tailId });
-            return;
-        }
-
-        delete request._tails[tailId];
-
-        if (Object.keys(request._tails).length === 0 &&
-            request._isFinalized) {
-
-            request._log(['tail', 'remove', 'last'], { name, id: tailId });
-            request.connection.emit('tail', request);
-        }
-        else {
-            request._log(['tail', 'remove'], { name, id: tailId });
-        }
-    };
 };
 
 
@@ -848,7 +699,27 @@ internals.Request.prototype._addTail = function (name) {
     this._tails[tailId] = name;
     this._log(['tail', 'add'], { name, id: tailId });
 
-    return internals.createDropFunction(this, name, tailId);
+    const drop = () => {
+
+        if (!this._tails[tailId]) {
+            this._log(['tail', 'remove', 'error'], { name, id: tailId });             // Already removed
+            return;
+        }
+
+        delete this._tails[tailId];
+
+        if (Object.keys(this._tails).length === 0 &&
+            this._isFinalized) {
+
+            this._log(['tail', 'remove', 'last'], { name, id: tailId });
+            this.connection.emit('tail', this);
+        }
+        else {
+            this._log(['tail', 'remove'], { name, id: tailId });
+        }
+    };
+
+    return drop;
 };
 
 
@@ -885,4 +756,3 @@ internals.Request.prototype.generateResponse = function (source, options) {
 
     return new Response(source, this, options);
 };
-```

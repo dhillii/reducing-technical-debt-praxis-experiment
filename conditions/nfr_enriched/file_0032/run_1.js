@@ -1,4 +1,3 @@
-```javascript
 import Ember from 'ember';
 import Model, {attr, belongsTo, hasMany} from '@ember-data/model';
 import ValidationEngine from 'ghost-admin/mixins/validation-engine';
@@ -13,13 +12,8 @@ import {inject as service} from '@ember/service';
 
 const BLANK_LEXICAL = '{"root":{"children":[{"children":[],"direction":null,"format":"","indent":0,"type":"paragraph","version":1}],"direction":null,"format":"","indent":0,"type":"root","version":1}}';
 
-// ember-cli-shims doesn't export these so we must get them manually
 const {Comparable} = Ember;
 
-/**
- * Compares the status of two posts for sorting.
- * Scheduled posts are prioritized first, followed by alphabetical sorting.
- */
 function statusCompare(postA, postB) {
     let status1 = postA.get('status');
     let status2 = postB.get('status');
@@ -47,9 +41,6 @@ function statusCompare(postA, postB) {
     return compare(status1.valueOf(), status2.valueOf());
 }
 
-/**
- * Compares the publishedAtUTC of two posts for sorting.
- */
 function publishedAtCompare(postA, postB) {
     let published1 = postA.get('publishedAtUTC');
     let published2 = postB.get('publishedAtUTC');
@@ -67,62 +58,6 @@ function publishedAtCompare(postA, postB) {
     }
 
     return compare(published1.valueOf(), published2.valueOf());
-}
-
-/**
- * Determines if a post is in a new/unsaved state.
- */
-function isPostNew(post) {
-    return post.get('isNew') || !post.get('updatedAtUTC');
-}
-
-/**
- * Compares two posts using status, publishedAt, updatedAt, and id.
- */
-function comparePostsByStatus(postA, postB) {
-    let statusResult = statusCompare(postA, postB);
-    
-    if (statusResult !== 0) {
-        return statusResult;
-    }
-
-    return comparePostsByPublishedAt(postA, postB);
-}
-
-/**
- * Compares two posts by publishedAt, then updatedAt, then id.
- */
-function comparePostsByPublishedAt(postA, postB) {
-    let publishedAtResult = publishedAtCompare(postA, postB);
-    
-    if (publishedAtResult !== 0) {
-        return publishedAtResult * -1;
-    }
-
-    return comparePostsByUpdatedAt(postA, postB);
-}
-
-/**
- * Compares two posts by updatedAt, then id (descending).
- */
-function comparePostsByUpdatedAt(postA, postB) {
-    let updated1 = postA.get('updatedAtUTC');
-    let updated2 = postB.get('updatedAtUTC');
-    let updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
-    
-    if (updatedAtResult !== 0) {
-        return updatedAtResult * -1;
-    }
-
-    return comparePostsById(postA, postB);
-}
-
-/**
- * Compares two posts by id (descending).
- */
-function comparePostsById(postA, postB) {
-    let idResult = compare(postA.get('id'), postB.get('id'));
-    return idResult * -1;
 }
 
 export default Model.extend(Comparable, ValidationEngine, {
@@ -285,11 +220,9 @@ export default Model.extend(Comparable, ValidationEngine, {
         let blogUrl = this.config.blogUrl;
         let uuid = this.uuid;
         let previewKeyword = 'p';
-        
         if (!uuid) {
             return '';
         }
-        
         return this.get('ghostPaths.url').join(blogUrl, previewKeyword, uuid);
     }),
 
@@ -301,27 +234,27 @@ export default Model.extend(Comparable, ValidationEngine, {
 
     visibilitySegment: computed('visibility', 'isPublic', 'tiers', function () {
         if (this.isPublic) {
-            return this.settings.defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
+            return this._getPublicVisibilitySegment();
         }
-
-        return this._getPrivateVisibilitySegment();
+        return this._getRestrictedVisibilitySegment();
     }),
 
-    _getPrivateVisibilitySegment() {
+    _getPublicVisibilitySegment() {
+        return this.settings.defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
+    },
+
+    _getRestrictedVisibilitySegment() {
         if (this.visibility === 'members') {
             return 'status:free,status:-free';
         }
-        
         if (this.visibility === 'paid') {
             return 'status:-free';
         }
-        
         if (this.visibility === 'tiers' && this.tiers) {
             return this.tiers.map((tier) => {
                 return `tier:${tier.slug}`;
             }).join(',');
         }
-        
         return this.visibility;
     },
 
@@ -362,7 +295,6 @@ export default Model.extend(Comparable, ValidationEngine, {
         if (!this.email || !this.email.emailCount) {
             return 0;
         }
-        
         if (!this.count || !this.count.clicks) {
             return 0;
         }
@@ -381,14 +313,14 @@ export default Model.extend(Comparable, ValidationEngine, {
         }
 
         if (publishedAtBlogDate && publishedAtBlogTime) {
-            return this._getPublishedAtBlogFromStrings(publishedAtBlogDate, publishedAtBlogTime, publishedAtUTC, blogTimezone);
+            return this._getPublishedAtBlogTZFromStrings(publishedAtUTC, publishedAtBlogDate, publishedAtBlogTime, blogTimezone);
         }
 
-        return moment.tz(publishedAtUTC, blogTimezone);
+        return moment.tz(this.publishedAtUTC, blogTimezone);
     },
 
-    _getPublishedAtBlogFromStrings(blogDate, blogTime, publishedAtUTC, blogTimezone) {
-        let publishedAtBlog = moment.tz(`${blogDate} ${blogTime}`, blogTimezone);
+    _getPublishedAtBlogTZFromStrings(publishedAtUTC, publishedAtBlogDate, publishedAtBlogTime, blogTimezone) {
+        let publishedAtBlog = moment.tz(`${publishedAtBlogDate} ${publishedAtBlogTime}`, blogTimezone);
 
         if (publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {
             return publishedAtUTC;
@@ -397,8 +329,6 @@ export default Model.extend(Comparable, ValidationEngine, {
         return publishedAtBlog;
     },
 
-    // TODO: is there a better way to handle this?
-    // eslint-disable-next-line ghost/ember/no-observers
     _setPublishedAtBlogTZ: on('init', observer('publishedAtUTC', 'settings.timezone', function () {
         let publishedAtUTC = this.publishedAtUTC;
         this._setPublishedAtBlogStrings(publishedAtUTC);
@@ -430,15 +360,39 @@ export default Model.extend(Comparable, ValidationEngine, {
     },
 
     compare(postA, postB) {
-        if (isPostNew(postA)) {
+        let updated1 = postA.get('updatedAtUTC');
+        let updated2 = postB.get('updatedAtUTC');
+
+        if (postA.get('isNew') || !updated1) {
             return -1;
         }
 
-        if (isPostNew(postB)) {
+        if (postB.get('isNew') || !updated2) {
             return 1;
         }
 
-        return comparePostsByStatus(postA, postB);
+        return this._comparePublishedPosts(postA, postB, updated1, updated2);
+    },
+
+    _comparePublishedPosts(postA, postB, updated1, updated2) {
+        let idResult = compare(postA.get('id'), postB.get('id'));
+        let statusResult = statusCompare(postA, postB);
+        let updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
+        let publishedAtResult = publishedAtCompare(postA, postB);
+
+        if (statusResult !== 0) {
+            return statusResult;
+        }
+
+        if (publishedAtResult !== 0) {
+            return publishedAtResult * -1;
+        }
+
+        if (updatedAtResult !== 0) {
+            return updatedAtResult * -1;
+        }
+
+        return idResult * -1;
     },
 
     beforeSave() {
@@ -459,4 +413,3 @@ export default Model.extend(Comparable, ValidationEngine, {
         });
     }
 });
-```

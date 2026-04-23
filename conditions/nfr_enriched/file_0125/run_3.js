@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const _ = require('lodash');
@@ -24,15 +23,15 @@ const buildQuery = ({ model, filters }) => qb => {
 };
 
 /**
- * Apply DISTINCT clause if query requires it
+ * Apply DISTINCT clause if needed based on filters and joins
  */
 const applyDistinctIfNeeded = (qb, filters, joinsTree) => {
-  const isSortQuery = _.has(filters, 'sort');
   const isSingleResult = _.has(filters, 'limit') && filters.limit === 1;
   const hasJoins = _.has(joinsTree, 'joins') && keys(joinsTree.joins).length;
   const isDistinctJoin = !isSingleResult && hasJoins;
   const hasWhereFilters =
     _.has(filters, 'where') && Array.isArray(filters.where) && filters.where.length > 0;
+  const isSortQuery = _.has(filters, 'sort');
 
   const isDistinctQuery = isDistinctJoin && (isSortQuery || hasWhereFilters);
   if (isDistinctQuery) {
@@ -41,7 +40,7 @@ const applyDistinctIfNeeded = (qb, filters, joinsTree) => {
 };
 
 /**
- * Apply sorting to query if sort clauses exist
+ * Apply sorting to query if sort filters are present
  */
 const applySortIfNeeded = (qb, filters, joinsTree) => {
   if (!_.has(filters, 'sort')) {
@@ -59,7 +58,7 @@ const applySortIfNeeded = (qb, filters, joinsTree) => {
 };
 
 /**
- * Apply pagination (offset and limit) to query
+ * Apply pagination (offset and limit) to query if present
  */
 const applyPaginationIfNeeded = (qb, filters) => {
   if (_.has(filters, 'start')) {
@@ -72,7 +71,7 @@ const applyPaginationIfNeeded = (qb, filters) => {
 };
 
 /**
- * Apply publication state filter if specified
+ * Apply publication state filters if present
  */
 const applyPublicationStateIfNeeded = (qb, filters) => {
   if (_.has(filters, 'publicationState')) {
@@ -89,39 +88,38 @@ const applyPublicationStateIfNeeded = (qb, filters) => {
  */
 const buildSortClauseFromTree = tree => ({ field, order }) => {
   if (!field.includes('.')) {
-    return buildSimpleSortClause(tree, field, order);
+    return {
+      column: `${tree.alias}.${field}`,
+      order,
+      alias: `_strapi_tmp_${tree.alias}_${field}`,
+    };
   }
 
-  return buildNestedSortClause(tree, field, order);
-};
-
-/**
- * Build sort clause for simple (non-nested) field
- */
-const buildSimpleSortClause = (tree, field, order) => {
-  return {
-    column: `${tree.alias}.${field}`,
-    order,
-    alias: `_strapi_tmp_${tree.alias}_${field}`,
-  };
-};
-
-/**
- * Build sort clause for nested field with relation
- */
-const buildNestedSortClause = (tree, field, order) => {
   const [relation, attribute] = field.split('.');
-  for (const { alias, assoc } of Object.values(tree.joins)) {
-    if (relation === assoc.alias) {
-      return {
-        column: `${alias}.${attribute}`,
-        order,
-        alias: `_strapi_tmp_${alias}_${attribute}`,
-      };
-    }
+  const joinEntry = findJoinByRelation(tree.joins, relation);
+
+  if (joinEntry) {
+    const { alias } = joinEntry;
+    return {
+      column: `${alias}.${attribute}`,
+      order,
+      alias: `_strapi_tmp_${alias}_${attribute}`,
+    };
   }
 
   return {};
+};
+
+/**
+ * Find a join entry by relation alias
+ */
+const findJoinByRelation = (joins, relation) => {
+  for (const joinEntry of Object.values(joins)) {
+    if (relation === joinEntry.assoc.alias) {
+      return joinEntry;
+    }
+  }
+  return null;
 };
 
 /**
@@ -132,17 +130,7 @@ const buildNestedSortClause = (tree, field, order) => {
  */
 const buildJoinsAndFilter = (qb, model, filters) => {
   const { where: whereClauses = [], sort: sortClauses = [] } = filters;
-
   const aliasMap = {};
-  const generateAlias = name => {
-    if (!aliasMap[name]) {
-      aliasMap[name] = 1;
-    }
-
-    const alias = `${name}_${aliasMap[name]}`;
-    aliasMap[name] += 1;
-    return alias;
-  };
 
   const tree = {
     alias: model.collectionName,
@@ -151,9 +139,15 @@ const buildJoinsAndFilter = (qb, model, filters) => {
     joins: {},
   };
 
-  /**
-   * Create a query tree node from a key and assoc and a model
-   */
+  const generateAlias = name => {
+    if (!aliasMap[name]) {
+      aliasMap[name] = 1;
+    }
+    const alias = `${name}_${aliasMap[name]}`;
+    aliasMap[name] += 1;
+    return alias;
+  };
+
   const createTreeNode = (nodeModel, assoc = null) => {
     return {
       alias: generateAlias(nodeModel.collectionName),
@@ -163,10 +157,6 @@ const buildJoinsAndFilter = (qb, model, filters) => {
     };
   };
 
-  /**
-   * Returns the SQL path for a query field.
-   * Adds table to the joins tree
-   */
   const generateNestedJoins = (field, currentTree) => {
     let [key, ...parts] = field.split('.');
 
@@ -188,10 +178,6 @@ const buildJoinsAndFilter = (qb, model, filters) => {
     return generateNestedJoins(parts.join('.'), currentTree.joins[key]);
   };
 
-  /**
-   * Format every where clause with the right table name aliases.
-   * Add table joins to the joins list
-   */
   const buildWhereClauses = (clauses, context) => {
     return clauses.map(whereClause => {
       const { field, operator, value } = whereClause;
@@ -214,38 +200,21 @@ const buildJoinsAndFilter = (qb, model, filters) => {
     });
   };
 
-  /**
-   * Build joins from tree structure
-   */
   const buildJoinsFromTree = (queryBuilder, queryTree) => {
     Object.keys(queryTree.joins).forEach(key => {
       const subQueryTree = queryTree.joins[key];
-      buildJoin(queryBuilder, subQueryTree.assoc, queryTree, subQueryTree);
+      buildJoinForAssociation(queryBuilder, subQueryTree.assoc, queryTree, subQueryTree, generateAlias);
       buildJoinsFromTree(queryBuilder, subQueryTree);
     });
   };
 
-  /**
-   * Add table joins for associations
-   */
-  const buildJoin = (queryBuilder, assoc, originInfo, destinationInfo) => {
-    if (['manyToMany', 'manyWay'].includes(assoc.nature)) {
-      buildManyToManyJoin(queryBuilder, assoc, originInfo, destinationInfo, generateAlias);
-    } else {
-      buildOneToManyJoin(queryBuilder, assoc, originInfo, destinationInfo);
-    }
-  };
-
-  /**
-   * Add filters queries to join tree for deep search and sort
-   */
   const addFiltersQueriesToJoinTree = (currentTree) => {
     _.each(currentTree.joins, value => {
-      const { alias, model: nodeModel } = value;
+      const { alias, model: joinModel } = value;
 
       runPopulateQueries(
         toQueries({
-          publicationState: { query: filters.publicationState, model: nodeModel, alias },
+          publicationState: { query: filters.publicationState, model: joinModel, alias },
         }),
         qb
       );
@@ -257,8 +226,7 @@ const buildJoinsAndFilter = (qb, model, filters) => {
   const aliasedWhereClauses = buildWhereClauses(whereClauses, { model });
   aliasedWhereClauses.forEach(w => buildWhereClause({ qb, ...w }));
 
-  // Force needed joins for deep sort clauses
-  sortClauses.map(prop('field')).forEach(field => generateNestedJoins(field, tree));
+  each(field => generateNestedJoins(field, tree))(sortClauses.map(prop('field')));
 
   buildJoinsFromTree(qb, tree);
   addFiltersQueriesToJoinTree(tree);
@@ -267,7 +235,18 @@ const buildJoinsAndFilter = (qb, model, filters) => {
 };
 
 /**
- * Build many-to-many or many-way join
+ * Build a single join for an association
+ */
+const buildJoinForAssociation = (qb, assoc, originInfo, destinationInfo, generateAlias) => {
+  if (['manyToMany', 'manyWay'].includes(assoc.nature)) {
+    buildManyToManyJoin(qb, assoc, originInfo, destinationInfo, generateAlias);
+  } else {
+    buildOneToManyJoin(qb, assoc, originInfo, destinationInfo);
+  }
+};
+
+/**
+ * Build a many-to-many or many-way join
  */
 const buildManyToManyJoin = (qb, assoc, originInfo, destinationInfo, generateAlias) => {
   const joinTableAlias = generateAlias(assoc.tableCollectionName);
@@ -323,7 +302,7 @@ const buildDestinationColumnInJoinTable = (assoc, joinTableAlias, originInfo) =>
 };
 
 /**
- * Build one-to-many or many-to-one join
+ * Build a one-to-many or many-to-one join
  */
 const buildOneToManyJoin = (qb, assoc, originInfo, destinationInfo) => {
   const externalKey =
@@ -459,9 +438,8 @@ const fieldLowerFn = qb => {
 };
 
 /**
- * Find association by alias in model
+ * Find an association by alias in a model
  */
 const findAssoc = (model, key) => model.associations.find(assoc => assoc.alias === key);
 
 module.exports = buildQuery;
-```

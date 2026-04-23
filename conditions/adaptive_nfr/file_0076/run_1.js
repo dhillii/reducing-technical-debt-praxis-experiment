@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Tests for FileReport class
  * @author Nicholas C. Zakas
@@ -1844,4 +1843,3 @@ describe("FileReport", () => {
 		});
 	});
 });
-```

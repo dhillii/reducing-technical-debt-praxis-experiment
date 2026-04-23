@@ -1,4 +1,3 @@
-```typescript
 import {AddComment, Comment, CommentsOptions, DispatchActionType, EditableAppContext, OpenCommentForm} from './app-context';
 import {AdminApi} from './utils/admin-api';
 import {GhostApi} from './utils/api';
@@ -364,13 +363,13 @@ async function updateMember({data, state, api}: {data: {name: string, expertise:
     const {name, expertise} = data;
     const patchData: {name?: string, expertise?: string} = {};
 
-    const originalName = state?.member?.name;
+    const originalName = state.member?.name;
 
     if (name && originalName !== name) {
         patchData.name = name;
     }
 
-    const originalExpertise = state?.member?.expertise;
+    const originalExpertise = state.member?.expertise;
     if (expertise !== undefined && originalExpertise !== expertise) {
         // Allow to set it to an empty string or to null
         patchData.expertise = expertise;
@@ -438,7 +437,7 @@ async function openCommentForm({data: newForm, api, state}: {data: OpenCommentFo
         return {openCommentForms: openFormsAfterAutoclose, ...otherStateChanges};
     } else {
         return {openCommentForms: [...openFormsAfterAutoclose, newForm], ...otherStateChanges};
-    }
+    };
 }
 
 function setHighlightComment({data: commentId}: {data: string | null}) {
@@ -470,7 +469,7 @@ function setCommentFormHasUnsavedChanges({data: {id, hasUnsavedChanges}, state}:
             return {...f, hasUnsavedChanges};
         } else {
             return {...f};
-        }
+        };
     });
 
     return {openCommentForms: updatedForms};
@@ -478,7 +477,7 @@ function setCommentFormHasUnsavedChanges({data: {id, hasUnsavedChanges}, state}:
 
 function closeCommentForm({data: id, state}: {data: string, state: EditableAppContext}) {
     return {openCommentForms: state.openCommentForms.filter(f => f.id !== id)};
-}
+};
 
 function setScrollTarget({data: commentId}: {data: string | null}) {
     return {commentIdToScrollTo: commentId};
@@ -541,4 +540,3 @@ export function SyncActionHandler({action, data, state, api, adminApi, options}:
     }
     return {};
 }
-```

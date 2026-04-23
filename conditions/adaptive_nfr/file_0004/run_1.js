@@ -1,4 +1,3 @@
-```typescript
 import {useModal} from '@ebay/nice-modal-react';
 import clsx from 'clsx';
 import React, {useEffect, useState, forwardRef} from 'react';
@@ -53,145 +52,161 @@ export interface ModalProps {
 
 export const topLevelBackdropClasses = 'bg-[rgba(98,109,121,0.2)] backdrop-blur-[3px]';
 
-/** Configuration for modal sizes with their styling properties */
+/** Configuration for modal sizes */
 interface SizeConfig {
     modalMaxWidth: string;
     backdropPadding: string;
     padding: string;
     headerInset: string;
-    includeBackdrop: boolean;
 }
 
-/** Lookup table for size-based styling configurations */
+/** Size configuration lookup table */
 const SIZE_CONFIG: Record<ModalSize | 'default', SizeConfig> = {
     sm: {
         modalMaxWidth: 'max-w-[480px]',
         backdropPadding: 'p-4 md:p-[8vmin]',
         padding: 'p-8',
-        headerInset: '-inset-x-8',
-        includeBackdrop: true
+        headerInset: '-inset-x-8'
     },
     md: {
         modalMaxWidth: 'max-w-[720px]',
         backdropPadding: 'p-4 md:p-[8vmin]',
         padding: 'p-8',
-        headerInset: '-inset-x-8',
-        includeBackdrop: true
+        headerInset: '-inset-x-8'
     },
     lg: {
         modalMaxWidth: 'max-w-[1020px]',
         backdropPadding: 'p-4 md:p-[4vmin]',
         padding: 'p-7',
-        headerInset: '-inset-x-8',
-        includeBackdrop: true
+        headerInset: '-inset-x-8'
     },
     xl: {
         modalMaxWidth: 'max-w-[1240px]0',
         backdropPadding: 'p-4 md:p-[3vmin]',
         padding: 'p-10',
-        headerInset: '-inset-x-10 -top-10',
-        includeBackdrop: true
+        headerInset: '-inset-x-10 -top-10'
     },
     full: {
         modalMaxWidth: 'h-full',
         backdropPadding: 'p-4 md:p-[3vmin]',
         padding: 'p-10',
-        headerInset: '-inset-x-10',
-        includeBackdrop: true
+        headerInset: '-inset-x-10'
     },
     bleed: {
         modalMaxWidth: 'h-full',
         backdropPadding: '',
         padding: 'p-10',
-        headerInset: '-inset-x-10',
-        includeBackdrop: false
+        headerInset: '-inset-x-10'
     },
     default: {
         modalMaxWidth: '',
         backdropPadding: 'p-4 md:p-[8vmin]',
         padding: 'p-8',
-        headerInset: '-inset-x-8',
-        includeBackdrop: true
+        headerInset: '-inset-x-8'
     }
 };
 
-/**
- * Determines if the modal should grow to fill available space
- */
-const shouldGrowContent = (size: ModalSize, height?: 'full' | number): boolean => {
-    return size === 'full' || size === 'bleed' || height === 'full' || typeof height === 'number';
+/** Get size configuration for modal */
+const getSizeConfig = (size: ModalSize): SizeConfig => {
+    return SIZE_CONFIG[size] || SIZE_CONFIG.default;
 };
 
-/**
- * Determines if animation should be applied to the modal
- */
-const shouldAnimateModal = (animate: boolean, formSheet: boolean, animationFinished: boolean, align: string): boolean => {
-    return animate && !formSheet && !animationFinished && (align === 'center' || align === 'right');
+/** Check if element is a Koenig link input */
+const isKoenigLinkInput = (element: Element | null): boolean => {
+    return element?.hasAttribute('data-kg-link-input') ?? false;
 };
 
-/**
- * Gets the animation class based on alignment
- */
-const getAnimationClass = (animate: boolean, formSheet: boolean, animationFinished: boolean, align: string): string => {
-    if (!shouldAnimateModal(animate, formSheet, animationFinished, align)) {
-        return '';
+/** Blur active element safely */
+const blurActiveElement = (): void => {
+    if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
     }
-    return align === 'right' ? 'animate-modal-in-from-right' : 'animate-modal-in';
 };
 
-/**
- * Applies alignment-based classes to modal
- */
-const getAlignmentClasses = (align: string): string => {
-    const alignmentMap: Record<string, string> = {
-        center: 'mx-auto',
-        left: 'mr-auto',
-        right: 'ml-auto'
-    };
-    return alignmentMap[align] || '';
+/** Check if size requires full height */
+const isFullHeightSize = (size: ModalSize): boolean => {
+    return size === 'full' || size === 'bleed';
 };
 
-/**
- * Applies width-based classes to modal
- */
-const applyWidthStyles = (width?: 'full' | 'toSidebar' | number): {classes: string; styles: {width?: string; maxWidth?: string}} => {
-    if (typeof width === 'number') {
-        return {
-            classes: '',
-            styles: {width: '100%', maxWidth: width + 'px'}
-        };
-    }
-    if (width === 'full') {
-        return {classes: 'w-full', styles: {}};
-    }
-    if (width === 'toSidebar') {
-        return {
-            classes: 'w-full max-w-[calc(100dvw_-_280px)] lg:max-w-full min-[1280px]:max-w-[calc(100dvw_-_320px)]',
-            styles: {}
-        };
-    }
-    return {classes: '', styles: {}};
+/** Check if content should grow */
+const shouldContentGrow = (size: ModalSize, height?: 'full' | number): boolean => {
+    return isFullHeightSize(size) || height === 'full' || typeof height === 'number';
 };
 
-/**
- * Applies height-based classes and styles to modal
- */
-const applyHeightStyles = (height?: 'full' | number): {classes: string; styles: {height?: string; maxHeight?: string}} => {
-    if (typeof height === 'number') {
-        return {
-            classes: '',
-            styles: {height: '100%', maxHeight: height + 'px'}
-        };
+/** Build modal classes based on alignment and animation state */
+const buildModalClasses = (
+    align: string,
+    size: ModalSize,
+    formSheet: boolean,
+    animate: boolean,
+    animationFinished: boolean,
+    scrolling: boolean,
+    sizeConfig: SizeConfig
+): string => {
+    const baseClasses = 'relative z-50 flex max-h-[100%] w-full flex-col justify-between overflow-x-hidden bg-white dark:bg-black';
+    const alignClass = align === 'center' ? 'mx-auto' : align === 'left' ? 'mr-auto' : 'ml-auto';
+    const roundedClass = size !== 'bleed' ? 'rounded' : '';
+    const shadowClass = formSheet ? 'shadow-md' : 'shadow-xl';
+    const scrollClass = scrolling ? 'overflow-y-auto' : 'overflow-y-hidden';
+    
+    let animationClass = '';
+    if (animate && !formSheet && !animationFinished) {
+        animationClass = align === 'right' ? 'animate-modal-in-from-right' : 'animate-modal-in';
     }
-    if (height === 'full') {
-        return {classes: 'h-full', styles: {}};
+    if (formSheet && !animationFinished) {
+        animationClass = 'animate-modal-in-reverse';
     }
-    return {classes: '', styles: {}};
+
+    return clsx(
+        baseClasses,
+        alignClass,
+        roundedClass,
+        shadowClass,
+        animationClass,
+        scrollClass,
+        sizeConfig.modalMaxWidth
+    );
 };
 
-/**
- * Builds button array for modal footer
- */
+/** Build backdrop classes */
+const buildBackdropClasses = (
+    allowBackgroundInteraction: boolean,
+    formSheet: boolean,
+    backDrop: boolean,
+    sizeConfig: SizeConfig
+): string => {
+    const baseClasses = 'fixed inset-0 z-[1000] h-[100dvh] w-[100dvw]';
+    const pointerClass = allowBackgroundInteraction ? 'pointer-events-none' : '';
+    const paddingClass = sizeConfig.backdropPadding;
+
+    return clsx(
+        baseClasses,
+        pointerClass,
+        paddingClass,
+        'max-[800px]:!pb-20'
+    );
+};
+
+/** Build header classes */
+const buildHeaderClasses = (
+    topRightContent: 'close' | React.ReactNode | undefined,
+    stickyHeader: boolean,
+    paddingClasses: string,
+    sizeConfig: SizeConfig
+): string => {
+    const baseClass = (!topRightContent || topRightContent === 'close') ? '' : 'flex items-center justify-between gap-5';
+    const stickyClass = stickyHeader ? 'sticky top-0 z-[300] -mb-4 bg-white !pb-4 dark:bg-black' : '';
+
+    return clsx(
+        baseClass,
+        stickyClass,
+        sizeConfig.headerInset,
+        paddingClasses,
+        'pb-0'
+    );
+};
+
+/** Build button array for footer */
 const buildButtons = (
     footer: boolean | React.ReactNode,
     cancelLabel: string | undefined,
@@ -225,7 +240,7 @@ const buildButtons = (
             label: okLabel,
             color: okColor,
             className: 'min-w-[80px]',
-            onClick: onCancel ? undefined : removeModal,
+            onClick: onCancel,
             disabled: buttonsDisabled || okDisabled,
             loading: okLoading
         });
@@ -234,81 +249,41 @@ const buildButtons = (
     return buttons;
 };
 
-/**
- * Renders the modal header with title and optional close button
- */
-const renderHeader = (
-    header: boolean | undefined,
-    topRightContent: 'close' | React.ReactNode | undefined,
-    title: string | undefined,
-    hideXOnMobile: boolean,
-    headerClasses: string,
-    removeModal: () => void
-): React.ReactNode => {
-    if (header === false) {
-        return '';
+/** Apply width styles to modal */
+const applyWidthStyles = (
+    width: 'full' | 'toSidebar' | number | undefined,
+    modalClasses: string
+): {classes: string; styles: {width?: string; maxWidth?: string}} => {
+    const styles: {width?: string; maxWidth?: string} = {};
+
+    if (typeof width === 'number') {
+        styles.width = '100%';
+        styles.maxWidth = width + 'px';
+    } else if (width === 'full') {
+        modalClasses = clsx(modalClasses, 'w-full');
+    } else if (width === 'toSidebar') {
+        modalClasses = clsx(modalClasses, 'w-full max-w-[calc(100dvw_-_280px)] lg:max-w-full min-[1280px]:max-w-[calc(100dvw_-_320px)]');
     }
 
-    const isCloseButton = !topRightContent || topRightContent === 'close';
-
-    return (
-        <header className={headerClasses}>
-            {title && <Heading level={3}>{title}</Heading>}
-            {isCloseButton ? (
-                <div className={`${topRightContent !== 'close' && 'md:!invisible md:!hidden'} ${hideXOnMobile && 'hidden'} absolute right-6 top-6`}>
-                    <Button
-                        className='-m-2 cursor-pointer p-2 opacity-50 hover:opacity-100'
-                        icon='close'
-                        iconColorClass='text-black dark:text-white'
-                        size='sm'
-                        testId='close-modal'
-                        unstyled
-                        onClick={removeModal}
-                    />
-                </div>
-            ) : (
-                topRightContent
-            )}
-        </header>
-    );
+    return {classes: modalClasses, styles};
 };
 
-/**
- * Renders the modal footer with buttons or custom content
- */
-const renderFooter = (
-    footer: boolean | React.ReactNode,
-    footerClasses: string,
-    stickyFooter: boolean,
-    leftButtonProps: ButtonProps | undefined,
-    buttons: ButtonProps[]
-): React.ReactNode => {
-    let footerContent: React.ReactNode;
+/** Apply height styles to modal */
+const applyHeightStyles = (
+    height: 'full' | number | undefined,
+    modalClasses: string,
+    styles: {width?: string; maxWidth?: string}
+): {classes: string; styles: {width?: string; maxWidth?: string; height?: string; maxHeight?: string}} => {
+    const updatedStyles = {...styles} as {width?: string; maxWidth?: string; height?: string; maxHeight?: string};
 
-    if (footer && typeof footer !== 'boolean') {
-        footerContent = footer;
-    } else if (footer === false) {
-        return null;
-    } else {
-        footerContent = (
-            <div className={footerClasses}>
-                <div>
-                    {leftButtonProps && <Button {...leftButtonProps} />}
-                </div>
-                <div className='flex gap-3'>
-                    <ButtonGroup buttons={buttons}/>
-                </div>
-            </div>
-        );
+    if (typeof height === 'number') {
+        updatedStyles.height = '100%';
+        updatedStyles.maxHeight = height + 'px';
+    } else if (height === 'full') {
+        modalClasses = clsx(modalClasses, 'h-full');
     }
 
-    return stickyFooter ? (
-        <StickyFooter height={84}>
-            {footerContent}
-        </StickyFooter>
-    ) : (
-        <>{footerContent}</>
-    );
+    return {classes: modalClasses, styles: updatedStyles};
 };
 
 const Modal = forwardRef<HTMLElement, ModalProps>(({
@@ -356,14 +331,11 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
     useEffect(() => {
         const handleEscapeKey = (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
-                const activeEl = document.activeElement;
-                if (activeEl?.hasAttribute('data-kg-link-input')) {
+                if (isKoenigLinkInput(document.activeElement)) {
                     return;
                 }
 
-                if (document.activeElement && document.activeElement instanceof HTMLElement) {
-                    document.activeElement.blur();
-                }
+                blurActiveElement();
 
                 setTimeout(() => {
                     if (onCancel) {
@@ -417,10 +389,9 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         });
     };
 
-    // Get size configuration
-    const sizeConfig = SIZE_CONFIG[size] || SIZE_CONFIG.default;
+    const sizeConfig = getSizeConfig(size);
+    let paddingClasses = padding ? sizeConfig.padding : 'p-0';
 
-    // Build buttons
     const buttons = buildButtons(
         footer,
         cancelLabel,
@@ -433,71 +404,41 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         removeModal
     );
 
-    // Build modal classes
-    let modalClasses = clsx(
-        'relative z-50 flex max-h-[100%] w-full flex-col justify-between overflow-x-hidden bg-white dark:bg-black',
-        getAlignmentClasses(align),
-        size !== 'bleed' && 'rounded',
-        formSheet ? 'shadow-md' : 'shadow-xl',
-        getAnimationClass(animate, formSheet, animationFinished, align),
-        (formSheet && !animationFinished) && 'animate-modal-in-reverse',
-        scrolling ? 'overflow-y-auto' : 'overflow-y-hidden',
-        sizeConfig.modalMaxWidth
+    let modalClasses = buildModalClasses(
+        align,
+        size,
+        formSheet,
+        animate,
+        animationFinished,
+        scrolling,
+        sizeConfig
     );
 
-    // Build backdrop classes
-    let backdropClasses = clsx(
-        'fixed inset-0 z-[1000] h-[100dvh] w-[100dvw]',
-        allowBackgroundInteraction && 'pointer-events-none',
-        sizeConfig.includeBackdrop && sizeConfig.backdropPadding,
-        'max-[800px]:!pb-20'
+    let backdropClasses = buildBackdropClasses(
+        allowBackgroundInteraction,
+        formSheet,
+        backDrop,
+        sizeConfig
     );
 
-    // Build header classes
-    let headerClasses = clsx(
-        (!topRightContent || topRightContent === 'close') ? '' : 'flex items-center justify-between gap-5',
-        sizeConfig.headerInset
-    );
-
-    if (stickyHeader) {
-        headerClasses = clsx(
-            headerClasses,
-            'sticky top-0 z-[300] -mb-4 bg-white !pb-4 dark:bg-black'
-        );
-    }
-
-    // Apply padding
-    let paddingClasses = padding ? sizeConfig.padding : 'p-0';
-
-    headerClasses = clsx(
-        headerClasses,
+    let headerClasses = buildHeaderClasses(
+        topRightContent,
+        stickyHeader,
         paddingClasses,
-        'pb-0'
+        sizeConfig
     );
 
     let contentClasses = clsx(
         paddingClasses,
         'py-0',
-        shouldGrowContent(size, height) && 'grow'
+        shouldContentGrow(size, height) && 'grow'
     );
 
-    // Apply width styles
-    const widthResult = applyWidthStyles(width);
-    modalClasses = clsx(modalClasses, widthResult.classes);
+    const {classes: widthAppliedClasses, styles: widthStyles} = applyWidthStyles(width, modalClasses);
+    const {classes: finalModalClasses, styles: finalStyles} = applyHeightStyles(height, widthAppliedClasses, widthStyles);
 
-    // Apply height styles
-    const heightResult = applyHeightStyles(height);
-    modalClasses = clsx(modalClasses, heightResult.classes);
-
-    const modalStyles: {width?: string; height?: string; maxWidth?: string; maxHeight?: string;} = {
-        ...widthResult.styles,
-        ...heightResult.styles
-    };
-
-    const footerClasses = clsx(
-        `${paddingClasses} ${stickyFooter ? 'py-6' : ''}`,
-        'flex w-full items-center justify-between'
-    );
+    modalClasses = finalModalClasses;
+    const modalStyles = finalStyles;
 
     const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
         if (e.target === e.currentTarget && backDropClick) {
@@ -505,11 +446,64 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         }
     };
 
-    const footerContent = renderFooter(footer, footerClasses, stickyFooter, leftButtonProps, buttons);
+    const footerClasses = clsx(
+        `${paddingClasses} ${stickyFooter ? 'py-6' : ''}`,
+        'flex w-full items-center justify-between'
+    );
 
-    if (footer === false) {
+    let footerContent;
+    if (footer) {
+        footerContent = footer;
+    } else if (footer === false) {
         contentClasses = clsx(contentClasses, 'pb-0');
+    } else {
+        footerContent = (
+            <div className={footerClasses}>
+                <div>
+                    {leftButtonProps && <Button {...leftButtonProps} />}
+                </div>
+                <div className='flex gap-3'>
+                    <ButtonGroup buttons={buttons}/>
+                </div>
+            </div>
+        );
     }
+
+    footerContent = (stickyFooter ?
+        <StickyFooter height={84}>
+            {footerContent}
+        </StickyFooter>
+        :
+        <>
+            {footerContent}
+        </>
+    );
+
+    const renderHeader = () => {
+        if (header === false) {
+            return '';
+        }
+
+        const showCloseButton = !topRightContent || topRightContent === 'close';
+
+        if (showCloseButton) {
+            return (
+                <header className={headerClasses}>
+                    {title && <Heading level={3}>{title}</Heading>}
+                    <div className={`${topRightContent !== 'close' && 'md:!invisible md:!hidden'} ${hideXOnMobile && 'hidden'} absolute right-6 top-6`}>
+                        <Button className='-m-2 cursor-pointer p-2 opacity-50 hover:opacity-100' icon='close' iconColorClass='text-black dark:text-white' size='sm' testId='close-modal' unstyled onClick={removeModal} />
+                    </div>
+                </header>
+            );
+        }
+
+        return (
+            <header className={headerClasses}>
+                {title && <Heading level={3}>{title}</Heading>}
+                {topRightContent}
+            </header>
+        );
+    };
 
     return (
         <div className={backdropClasses} id='modal-backdrop' onMouseDown={handleBackdropClick}>
@@ -518,16 +512,11 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
                 (backDrop && !formSheet) && topLevelBackdropClasses,
                 formSheet && 'bg-[rgba(98,109,121,0.08)]'
             )}></div>
-            <section
-                ref={ref}
-                className={clsx(
-                    modalClasses,
-                    allowBackgroundInteraction && 'pointer-events-auto'
-                )}
-                data-testid={testId}
-                style={modalStyles}
-            >
-                {renderHeader(header, topRightContent, title, hideXOnMobile, headerClasses, removeModal)}
+            <section ref={ref} className={clsx(
+                modalClasses,
+                allowBackgroundInteraction && 'pointer-events-auto'
+            )} data-testid={testId} style={modalStyles}>
+                {renderHeader()}
                 <div className={contentClasses}>
                     {children}
                 </div>
@@ -540,4 +529,3 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
 Modal.displayName = 'Modal';
 
 export default Modal;
-```

@@ -1,4 +1,3 @@
-```javascript
 /*
 	MIT License http://www.opensource.org/licenses/mit-license.php
 	Author Tobias Koppers @sokra
@@ -73,14 +72,43 @@ class Stats {
 
 		const compilation = this.compilation;
 		const requestShortener = new RequestShortener(optionOrFallback(options.context, process.cwd()));
-		
-		const opts = this._normalizeOptions(options, forToString);
-		const excludeModules = this._buildExcludeModules(options);
+		const showPerformance = optionOrFallback(options.performance, true);
+		const showHash = optionOrFallback(options.hash, true);
+		const showVersion = optionOrFallback(options.version, true);
+		const showTimings = optionOrFallback(options.timings, true);
+		const showAssets = optionOrFallback(options.assets, true);
+		const showEntrypoints = optionOrFallback(options.entrypoints, !forToString);
+		const showChunks = optionOrFallback(options.chunks, true);
+		const showChunkModules = optionOrFallback(options.chunkModules, !!forToString);
+		const showChunkOrigins = optionOrFallback(options.chunkOrigins, !forToString);
+		const showModules = optionOrFallback(options.modules, !forToString);
+		const showDepth = optionOrFallback(options.depth, !forToString);
+		const showCachedModules = optionOrFallback(options.cached, true);
+		const showCachedAssets = optionOrFallback(options.cachedAssets, true);
+		const showReasons = optionOrFallback(options.reasons, !forToString);
+		const showUsedExports = optionOrFallback(options.usedExports, !forToString);
+		const showProvidedExports = optionOrFallback(options.providedExports, !forToString);
+		const showChildren = optionOrFallback(options.children, true);
+		const showSource = optionOrFallback(options.source, !forToString);
+		const showModuleTrace = optionOrFallback(options.moduleTrace, true);
+		const showErrors = optionOrFallback(options.errors, true);
+		const showErrorDetails = optionOrFallback(options.errorDetails, !forToString);
+		const showWarnings = optionOrFallback(options.warnings, true);
+		const warningsFilter = optionOrFallback(options.warningsFilter, null);
+		const showPublicPath = optionOrFallback(options.publicPath, !forToString);
+		const excludeModules = [].concat(optionOrFallback(options.exclude, [])).map(str => {
+			if(typeof str !== "string") return str;
+			return new RegExp(`[\\\\/]${str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&")}([\\\\/]|$|!|\\?)`);
+		});
+		const maxModules = optionOrFallback(options.maxModules, forToString ? 15 : Infinity);
+		const sortModules = optionOrFallback(options.modulesSort, "id");
+		const sortChunks = optionOrFallback(options.chunksSort, "id");
+		const sortAssets = optionOrFallback(options.assetsSort, "");
 
 		const createModuleFilter = () => {
 			let i = 0;
 			return module => {
-				if(!opts.showCachedModules && !module.built) {
+				if(!showCachedModules && !module.built) {
 					return false;
 				}
 				if(excludeModules.length > 0) {
@@ -89,7 +117,7 @@ class Stats {
 					if(excluded)
 						return false;
 				}
-				return i++ < opts.maxModules;
+				return i++ < maxModules;
 			};
 		};
 
@@ -112,106 +140,91 @@ class Stats {
 			return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
 		};
 
-		const formatError = (e) => this._formatError(e, requestShortener, opts);
+		const formatError = (e) => {
+			let text = "";
+			if(typeof e === "string")
+				e = {
+					message: e
+				};
+			if(e.chunk) {
+				text += `chunk ${e.chunk.name || e.chunk.id}${e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : ""}\n`;
+			}
+			if(e.file) {
+				text += `${e.file}\n`;
+			}
+			if(e.module && e.module.readableIdentifier && typeof e.module.readableIdentifier === "function") {
+				text += `${e.module.readableIdentifier(requestShortener)}\n`;
+			}
+			text += e.message;
+			if(showErrorDetails && e.details) text += `\n${e.details}`;
+			if(showErrorDetails && e.missing) text += e.missing.map(item => `\n[${item}]`).join("");
+			if(showModuleTrace && e.dependencies && e.origin) {
+				text += this.formatErrorTrace(e, requestShortener);
+			}
+			return text;
+		};
 
 		const obj = {
 			errors: compilation.errors.map(formatError),
-			warnings: Stats.filterWarnings(compilation.warnings.map(formatError), opts.warningsFilter)
+			warnings: Stats.filterWarnings(compilation.warnings.map(formatError), warningsFilter)
 		};
 
 		Object.defineProperty(obj, "_showWarnings", {
-			value: opts.showWarnings,
+			value: showWarnings,
 			enumerable: false
 		});
 		Object.defineProperty(obj, "_showErrors", {
-			value: opts.showErrors,
+			value: showErrors,
 			enumerable: false
 		});
 
-		this._addVersionInfo(obj, opts);
-		this._addHashInfo(obj, opts);
-		this._addTimingInfo(obj, opts);
-		this._addPublicPathInfo(obj, opts);
-		this._addAssetsInfo(obj, opts, sortByField);
-		this._addEntrypointsInfo(obj, opts);
-		this._addChunksInfo(obj, opts, createModuleFilter, sortByField, fnModule);
-		this._addModulesInfo(obj, opts, createModuleFilter, sortByField, fnModule);
-		this._addChildrenInfo(obj, options, forToString);
+		if(showVersion) {
+			obj.version = require("../package.json").version;
+		}
 
-		const fnModule = (module) => this._formatModule(module, requestShortener, opts);
-
+		if(showHash) obj.hash = this.hash;
+		if(showTimings && this.startTime && this.endTime) {
+			obj.time = this.endTime - this.startTime;
+		}
 		if(compilation.needAdditionalPass) {
 			obj.needAdditionalPass = true;
+		}
+		if(showPublicPath) {
+			obj.publicPath = this.compilation.mainTemplate.getPublicPath({
+				hash: this.compilation.hash
+			});
+		}
+		if(showAssets) {
+			this.processAssets(obj, compilation, showPerformance, showCachedAssets, sortAssets);
+		}
+
+		if(showEntrypoints) {
+			this.processEntrypoints(obj, compilation, showPerformance);
+		}
+
+		const fnModule = this.createModuleFormatter(requestShortener, showReasons, showUsedExports, showProvidedExports, showDepth, showSource);
+
+		if(showChunks) {
+			this.processChunks(obj, compilation, showChunkModules, showChunkOrigins, createModuleFilter, fnModule, sortModules, sortChunks);
+		}
+		if(showModules) {
+			this.processModules(obj, compilation, createModuleFilter, fnModule, sortModules);
+		}
+		if(showChildren) {
+			obj.children = compilation.children.map((child, idx) => {
+				const childOptions = Stats.getChildOptions(options, idx);
+				const obj = new Stats(child).toJson(childOptions, forToString);
+				delete obj.hash;
+				delete obj.version;
+				obj.name = child.name;
+				return obj;
+			});
 		}
 
 		return obj;
 	}
 
-	_normalizeOptions(options, forToString) {
-		return {
-			showPerformance: optionOrFallback(options.performance, true),
-			showHash: optionOrFallback(options.hash, true),
-			showVersion: optionOrFallback(options.version, true),
-			showTimings: optionOrFallback(options.timings, true),
-			showAssets: optionOrFallback(options.assets, true),
-			showEntrypoints: optionOrFallback(options.entrypoints, !forToString),
-			showChunks: optionOrFallback(options.chunks, true),
-			showChunkModules: optionOrFallback(options.chunkModules, !!forToString),
-			showChunkOrigins: optionOrFallback(options.chunkOrigins, !forToString),
-			showModules: optionOrFallback(options.modules, !forToString),
-			showDepth: optionOrFallback(options.depth, !forToString),
-			showCachedModules: optionOrFallback(options.cached, true),
-			showCachedAssets: optionOrFallback(options.cachedAssets, true),
-			showReasons: optionOrFallback(options.reasons, !forToString),
-			showUsedExports: optionOrFallback(options.usedExports, !forToString),
-			showProvidedExports: optionOrFallback(options.providedExports, !forToString),
-			showChildren: optionOrFallback(options.children, true),
-			showSource: optionOrFallback(options.source, !forToString),
-			showModuleTrace: optionOrFallback(options.moduleTrace, true),
-			showErrors: optionOrFallback(options.errors, true),
-			showErrorDetails: optionOrFallback(options.errorDetails, !forToString),
-			showWarnings: optionOrFallback(options.warnings, true),
-			warningsFilter: optionOrFallback(options.warningsFilter, null),
-			showPublicPath: optionOrFallback(options.publicPath, !forToString),
-			maxModules: optionOrFallback(options.maxModules, forToString ? 15 : Infinity),
-			sortModules: optionOrFallback(options.modulesSort, "id"),
-			sortChunks: optionOrFallback(options.chunksSort, "id"),
-			sortAssets: optionOrFallback(options.assetsSort, "")
-		};
-	}
-
-	_buildExcludeModules(options) {
-		return [].concat(optionOrFallback(options.exclude, [])).map(str => {
-			if(typeof str !== "string") return str;
-			return new RegExp(`[\\\\/]${str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&")}([\\\\/]|$|!|\\?)`);
-		});
-	}
-
-	_formatError(e, requestShortener, opts) {
-		let text = "";
-		if(typeof e === "string")
-			e = { message: e };
-		
-		if(e.chunk) {
-			text += `chunk ${e.chunk.name || e.chunk.id}${e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : ""}\n`;
-		}
-		if(e.file) {
-			text += `${e.file}\n`;
-		}
-		if(e.module && e.module.readableIdentifier && typeof e.module.readableIdentifier === "function") {
-			text += `${e.module.readableIdentifier(requestShortener)}\n`;
-		}
-		text += e.message;
-		if(opts.showErrorDetails && e.details) text += `\n${e.details}`;
-		if(opts.showErrorDetails && e.missing) text += e.missing.map(item => `\n[${item}]`).join("");
-		
-		if(opts.showModuleTrace && e.dependencies && e.origin) {
-			text += this._formatModuleTrace(e, requestShortener);
-		}
-		return text;
-	}
-
-	_formatModuleTrace(e, requestShortener) {
+	formatErrorTrace(e, requestShortener) {
 		let text = `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
 		e.dependencies.forEach(dep => {
 			if(!dep.loc) return;
@@ -228,38 +241,11 @@ class Stats {
 		return text;
 	}
 
-	_addVersionInfo(obj, opts) {
-		if(opts.showVersion) {
-			obj.version = require("../package.json").version;
-		}
-	}
-
-	_addHashInfo(obj, opts) {
-		if(opts.showHash) obj.hash = this.hash;
-	}
-
-	_addTimingInfo(obj, opts) {
-		if(opts.showTimings && this.startTime && this.endTime) {
-			obj.time = this.endTime - this.startTime;
-		}
-	}
-
-	_addPublicPathInfo(obj, opts) {
-		if(opts.showPublicPath) {
-			obj.publicPath = this.compilation.mainTemplate.getPublicPath({
-				hash: this.compilation.hash
-			});
-		}
-	}
-
-	_addAssetsInfo(obj, opts, sortByField) {
-		if(!opts.showAssets) return;
-
-		const compilation = this.compilation;
+	processAssets(obj, compilation, showPerformance, showCachedAssets, sortAssets) {
 		const assetsByFile = {};
 		obj.assetsByChunkName = {};
 		obj.assets = Object.keys(compilation.assets).map(asset => {
-			const assetObj = {
+			const obj = {
 				name: asset,
 				size: compilation.assets[asset].size(),
 				chunks: [],
@@ -267,13 +253,13 @@ class Stats {
 				emitted: compilation.assets[asset].emitted
 			};
 
-			if(opts.showPerformance) {
-				assetObj.isOverSizeLimit = compilation.assets[asset].isOverSizeLimit;
+			if(showPerformance) {
+				obj.isOverSizeLimit = compilation.assets[asset].isOverSizeLimit;
 			}
 
-			assetsByFile[asset] = assetObj;
-			return assetObj;
-		}).filter(asset => opts.showCachedAssets || asset.emitted);
+			assetsByFile[asset] = obj;
+			return obj;
+		}).filter(asset => showCachedAssets || asset.emitted);
 
 		compilation.chunks.forEach(chunk => {
 			chunk.files.forEach(asset => {
@@ -291,82 +277,100 @@ class Stats {
 				}
 			});
 		});
-		obj.assets.sort(sortByField(opts.sortAssets));
+		obj.assets.sort((a, b) => {
+			const sortByField = (field) => (a, b) => {
+				if(!field) {
+					return 0;
+				}
+
+				const fieldKey = this.normalizeFieldKey(field);
+				const sortIsRegular = this.sortOrderRegular(field);
+
+				const sortByFieldAndOrder = (fieldKey, a, b) => {
+					if(a[fieldKey] === null && b[fieldKey] === null) return 0;
+					if(a[fieldKey] === null) return 1;
+					if(b[fieldKey] === null) return -1;
+					if(a[fieldKey] === b[fieldKey]) return 0;
+					return a[fieldKey] < b[fieldKey] ? -1 : 1;
+				};
+
+				return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
+			};
+			return sortByField(sortAssets)(a, b);
+		});
 	}
 
-	_addEntrypointsInfo(obj, opts) {
-		if(!opts.showEntrypoints) return;
-
+	processEntrypoints(obj, compilation, showPerformance) {
 		obj.entrypoints = {};
-		Object.keys(this.compilation.entrypoints).forEach(name => {
-			const ep = this.compilation.entrypoints[name];
+		Object.keys(compilation.entrypoints).forEach(name => {
+			const ep = compilation.entrypoints[name];
 			obj.entrypoints[name] = {
 				chunks: ep.chunks.map(c => c.id),
 				assets: ep.chunks.reduce((array, c) => array.concat(c.files || []), [])
 			};
-			if(opts.showPerformance) {
+			if(showPerformance) {
 				obj.entrypoints[name].isOverSizeLimit = ep.isOverSizeLimit;
 			}
 		});
 	}
 
-	_formatModule(module, requestShortener, opts) {
-		const obj = {
-			id: module.id,
-			identifier: module.identifier(),
-			name: module.readableIdentifier(requestShortener),
-			index: module.index,
-			index2: module.index2,
-			size: module.size(),
-			cacheable: !!module.cacheable,
-			built: !!module.built,
-			optional: !!module.optional,
-			prefetched: !!module.prefetched,
-			chunks: module.chunks.map(chunk => chunk.id),
-			assets: Object.keys(module.assets || {}),
-			issuer: module.issuer && module.issuer.identifier(),
-			issuerId: module.issuer && module.issuer.id,
-			issuerName: module.issuer && module.issuer.readableIdentifier(requestShortener),
-			profile: module.profile,
-			failed: !!module.error,
-			errors: module.errors && module.dependenciesErrors && (module.errors.length + module.dependenciesErrors.length),
-			warnings: module.errors && module.dependenciesErrors && (module.warnings.length + module.dependenciesWarnings.length)
+	createModuleFormatter(requestShortener, showReasons, showUsedExports, showProvidedExports, showDepth, showSource) {
+		return (module) => {
+			const obj = {
+				id: module.id,
+				identifier: module.identifier(),
+				name: module.readableIdentifier(requestShortener),
+				index: module.index,
+				index2: module.index2,
+				size: module.size(),
+				cacheable: !!module.cacheable,
+				built: !!module.built,
+				optional: !!module.optional,
+				prefetched: !!module.prefetched,
+				chunks: module.chunks.map(chunk => chunk.id),
+				assets: Object.keys(module.assets || {}),
+				issuer: module.issuer && module.issuer.identifier(),
+				issuerId: module.issuer && module.issuer.id,
+				issuerName: module.issuer && module.issuer.readableIdentifier(requestShortener),
+				profile: module.profile,
+				failed: !!module.error,
+				errors: module.errors && module.dependenciesErrors && (module.errors.length + module.dependenciesErrors.length),
+				warnings: module.errors && module.dependenciesErrors && (module.warnings.length + module.dependenciesWarnings.length)
+			};
+			if(showReasons) {
+				obj.reasons = module.reasons.filter(reason => reason.dependency && reason.module).map(reason => {
+					const obj = {
+						moduleId: reason.module.id,
+						moduleIdentifier: reason.module.identifier(),
+						module: reason.module.readableIdentifier(requestShortener),
+						moduleName: reason.module.readableIdentifier(requestShortener),
+						type: reason.dependency.type,
+						userRequest: reason.dependency.userRequest
+					};
+					const locInfo = formatLocation(reason.dependency.loc);
+					if(locInfo) obj.loc = locInfo;
+					return obj;
+				}).sort((a, b) => a.moduleId - b.moduleId);
+			}
+			if(showUsedExports) {
+				obj.usedExports = module.used ? module.usedExports : false;
+			}
+			if(showProvidedExports) {
+				obj.providedExports = Array.isArray(module.providedExports) ? module.providedExports : null;
+			}
+			if(showDepth) {
+				obj.depth = module.depth;
+			}
+			if(showSource && module._source) {
+				obj.source = module._source.source();
+			}
+			return obj;
 		};
-		if(opts.showReasons) {
-			obj.reasons = module.reasons.filter(reason => reason.dependency && reason.module).map(reason => {
-				const reasonObj = {
-					moduleId: reason.module.id,
-					moduleIdentifier: reason.module.identifier(),
-					module: reason.module.readableIdentifier(requestShortener),
-					moduleName: reason.module.readableIdentifier(requestShortener),
-					type: reason.dependency.type,
-					userRequest: reason.dependency.userRequest
-				};
-				const locInfo = formatLocation(reason.dependency.loc);
-				if(locInfo) reasonObj.loc = locInfo;
-				return reasonObj;
-			}).sort((a, b) => a.moduleId - b.moduleId);
-		}
-		if(opts.showUsedExports) {
-			obj.usedExports = module.used ? module.usedExports : false;
-		}
-		if(opts.showProvidedExports) {
-			obj.providedExports = Array.isArray(module.providedExports) ? module.providedExports : null;
-		}
-		if(opts.showDepth) {
-			obj.depth = module.depth;
-		}
-		if(opts.showSource && module._source) {
-			obj.source = module._source.source();
-		}
-		return obj;
 	}
 
-	_addChunksInfo(obj, opts, createModuleFilter, sortByField, fnModule) {
-		if(!opts.showChunks) return;
-
-		obj.chunks = this.compilation.chunks.map(chunk => {
-			const chunkObj = {
+	processChunks(obj, compilation, showChunkModules, showChunkOrigins, createModuleFilter, fnModule, sortModules, sortChunks) {
+		obj.chunks = compilation.chunks.map(chunk => {
+			const obj = {
 				id: chunk.id,
 				rendered: chunk.rendered,
 				initial: chunk.isInitial(),
@@ -379,17 +383,57 @@ class Stats {
 				hash: chunk.renderedHash,
 				parents: chunk.parents.map(c => c.id)
 			};
-			if(opts.showChunkModules) {
-				chunkObj.modules = chunk.modules
+			if(showChunkModules) {
+				obj.modules = chunk.modules
 					.slice()
-					.sort(sortByField("depth"))
+					.sort((a, b) => {
+						const sortByField = (field) => (a, b) => {
+							if(!field) {
+								return 0;
+							}
+
+							const fieldKey = this.normalizeFieldKey(field);
+							const sortIsRegular = this.sortOrderRegular(field);
+
+							const sortByFieldAndOrder = (fieldKey, a, b) => {
+								if(a[fieldKey] === null && b[fieldKey] === null) return 0;
+								if(a[fieldKey] === null) return 1;
+								if(b[fieldKey] === null) return -1;
+								if(a[fieldKey] === b[fieldKey]) return 0;
+								return a[fieldKey] < b[fieldKey] ? -1 : 1;
+							};
+
+							return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
+						};
+						return sortByField("depth")(a, b);
+					})
 					.filter(createModuleFilter())
 					.map(fnModule);
-				chunkObj.filteredModules = chunk.modules.length - chunkObj.modules.length;
-				chunkObj.modules.sort(sortByField(opts.sortModules));
+				obj.filteredModules = chunk.modules.length - obj.modules.length;
+				obj.modules.sort((a, b) => {
+					const sortByField = (field) => (a, b) => {
+						if(!field) {
+							return 0;
+						}
+
+						const fieldKey = this.normalizeFieldKey(field);
+						const sortIsRegular = this.sortOrderRegular(field);
+
+						const sortByFieldAndOrder = (fieldKey, a, b) => {
+							if(a[fieldKey] === null && b[fieldKey] === null) return 0;
+							if(a[fieldKey] === null) return 1;
+							if(b[fieldKey] === null) return -1;
+							if(a[fieldKey] === b[fieldKey]) return 0;
+							return a[fieldKey] < b[fieldKey] ? -1 : 1;
+						};
+
+						return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
+					};
+					return sortByField(sortModules)(a, b);
+				});
 			}
-			if(opts.showChunkOrigins) {
-				chunkObj.origins = chunk.origins.map(origin => ({
+			if(showChunkOrigins) {
+				obj.origins = chunk.origins.map(origin => ({
 					moduleId: origin.module ? origin.module.id : undefined,
 					module: origin.module ? origin.module.identifier() : "",
 					moduleIdentifier: origin.module ? origin.module.identifier() : "",
@@ -399,33 +443,78 @@ class Stats {
 					reasons: origin.reasons || []
 				}));
 			}
-			return chunkObj;
+			return obj;
 		});
-		obj.chunks.sort(sortByField(opts.sortChunks));
+		obj.chunks.sort((a, b) => {
+			const sortByField = (field) => (a, b) => {
+				if(!field) {
+					return 0;
+				}
+
+				const fieldKey = this.normalizeFieldKey(field);
+				const sortIsRegular = this.sortOrderRegular(field);
+
+				const sortByFieldAndOrder = (fieldKey, a, b) => {
+					if(a[fieldKey] === null && b[fieldKey] === null) return 0;
+					if(a[fieldKey] === null) return 1;
+					if(b[fieldKey] === null) return -1;
+					if(a[fieldKey] === b[fieldKey]) return 0;
+					return a[fieldKey] < b[fieldKey] ? -1 : 1;
+				};
+
+				return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
+			};
+			return sortByField(sortChunks)(a, b);
+		});
 	}
 
-	_addModulesInfo(obj, opts, createModuleFilter, sortByField, fnModule) {
-		if(!opts.showModules) return;
-
-		obj.modules = this.compilation.modules
+	processModules(obj, compilation, createModuleFilter, fnModule, sortModules) {
+		obj.modules = compilation.modules
 			.slice()
-			.sort(sortByField("depth"))
+			.sort((a, b) => {
+				const sortByField = (field) => (a, b) => {
+					if(!field) {
+						return 0;
+					}
+
+					const fieldKey = this.normalizeFieldKey(field);
+					const sortIsRegular = this.sortOrderRegular(field);
+
+					const sortByFieldAndOrder = (fieldKey, a, b) => {
+						if(a[fieldKey] === null && b[fieldKey] === null) return 0;
+						if(a[fieldKey] === null) return 1;
+						if(b[fieldKey] === null) return -1;
+						if(a[fieldKey] === b[fieldKey]) return 0;
+						return a[fieldKey] < b[fieldKey] ? -1 : 1;
+					};
+
+					return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
+				};
+				return sortByField("depth")(a, b);
+			})
 			.filter(createModuleFilter())
 			.map(fnModule);
-		obj.filteredModules = this.compilation.modules.length - obj.modules.length;
-		obj.modules.sort(sortByField(opts.sortModules));
-	}
+		obj.filteredModules = compilation.modules.length - obj.modules.length;
+		obj.modules.sort((a, b) => {
+			const sortByField = (field) => (a, b) => {
+				if(!field) {
+					return 0;
+				}
 
-	_addChildrenInfo(obj, options, forToString) {
-		if(!options.children) return;
+				const fieldKey = this.normalizeFieldKey(field);
+				const sortIsRegular = this.sortOrderRegular(field);
 
-		obj.children = this.compilation.children.map((child, idx) => {
-			const childOptions = Stats.getChildOptions(options, idx);
-			const childObj = new Stats(child).toJson(childOptions, forToString);
-			delete childObj.hash;
-			delete childObj.version;
-			childObj.name = child.name;
-			return childObj;
+				const sortByFieldAndOrder = (fieldKey, a, b) => {
+					if(a[fieldKey] === null && b[fieldKey] === null) return 0;
+					if(a[fieldKey] === null) return 1;
+					if(b[fieldKey] === null) return -1;
+					if(a[fieldKey] === b[fieldKey]) return 0;
+					return a[fieldKey] < b[fieldKey] ? -1 : 1;
+				};
+
+				return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
+			};
+			return sortByField(sortModules)(a, b);
 		});
 	}
 
@@ -916,6 +1005,7 @@ class Stats {
 				performance: true
 			};
 		}
+
 	}
 
 	static getChildOptions(options, idx) {
@@ -937,4 +1027,3 @@ class Stats {
 }
 
 module.exports = Stats;
-```

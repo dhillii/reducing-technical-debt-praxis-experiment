@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /*!
@@ -62,8 +61,8 @@ function Connection(base) {
   this.config = {};
   this.replica = false;
   this.options = null;
-  this.otherDbs = []; // FIXME: To be replaced with relatedDbs
-  this.relatedDbs = {}; // Hashmap of other dbs that share underlying connection
+  this.otherDbs = [];
+  this.relatedDbs = {};
   this.states = STATES;
   this._readyState = STATES.disconnected;
   this._closeCalled = false;
@@ -115,7 +114,6 @@ Object.defineProperty(Connection.prototype, 'readyState', {
 
     if (this._readyState !== val) {
       this._readyState = val;
-      // [legacy] loop over the otherDbs on this connection and change their state
       for (const db of this.otherDbs) {
         db.readyState = val;
       }
@@ -482,6 +480,7 @@ Connection.prototype.transaction = function transaction(fn, options) {
       }).
       catch(err => {
         _resetSessionDocuments(session);
+        delete session[sessionNewDocuments];
         throw err;
       });
   });
@@ -493,17 +492,24 @@ Connection.prototype.transaction = function transaction(fn, options) {
  */
 function _resetSessionDocuments(session) {
   for (const doc of session[sessionNewDocuments].keys()) {
-    const state = session[sessionNewDocuments].get(doc);
-    _restoreDocumentIsNew(doc, state);
-    _restoreDocumentVersionKey(doc, state);
-    _restoreDocumentActivePaths(doc, state);
-    _restoreDocumentArrayAtomics(doc, state);
+    _resetDocumentState(doc, session);
   }
-  delete session[sessionNewDocuments];
 }
 
 /**
- * Restores isNew property if present in state
+ * Resets individual document state
+ * @api private
+ */
+function _resetDocumentState(doc, session) {
+  const state = session[sessionNewDocuments].get(doc);
+  _restoreDocumentIsNew(doc, state);
+  _restoreDocumentVersionKey(doc, state);
+  _restoreDocumentActivePaths(doc, state);
+  _restoreDocumentArrayAtomics(doc, state);
+}
+
+/**
+ * Restores isNew property if it was tracked
  * @api private
  */
 function _restoreDocumentIsNew(doc, state) {
@@ -513,7 +519,7 @@ function _restoreDocumentIsNew(doc, state) {
 }
 
 /**
- * Restores version key if present in state
+ * Restores version key if it was tracked
  * @api private
  */
 function _restoreDocumentVersionKey(doc, state) {
@@ -523,7 +529,7 @@ function _restoreDocumentVersionKey(doc, state) {
 }
 
 /**
- * Restores active paths if present in state
+ * Restores active paths state
  * @api private
  */
 function _restoreDocumentActivePaths(doc, state) {
@@ -534,7 +540,7 @@ function _restoreDocumentActivePaths(doc, state) {
 }
 
 /**
- * Restores array atomics if present in state
+ * Restores array atomics
  * @api private
  */
 function _restoreDocumentArrayAtomics(doc, state) {
@@ -579,10 +585,6 @@ Connection.prototype.dropCollection = _wrapConnHelper(function dropCollection(co
  */
 
 Connection.prototype.dropDatabase = _wrapConnHelper(function dropDatabase(cb) {
-  // If `dropDatabase()` is called, this model's collection will not be
-  // init-ed. It is sufficiently common to call `dropDatabase()` after
-  // `mongoose.connect()` but before creating models that we want to
-  // support this. See gh-6967
   for (const name of Object.keys(this.models)) {
     delete this.models[name].$init;
   }
@@ -602,22 +604,19 @@ function _wrapConnHelper(fn) {
     const disconnectedError = new MongooseError('Connection ' + this.id +
       ' was disconnected when calling `' + fn.name + '`');
     return promiseOrCallback(cb, cb => {
-      // Make it ok to call collection helpers before `mongoose.connect()`
-      // as long as `mongoose.connect()` is called on the same tick.
-      // Re: gh-8534
       immediate(() => {
-        _executeConnHelper(this, fn, argsWithoutCb, cb, disconnectedError);
+        _handleConnHelperState(this, fn, argsWithoutCb, cb, disconnectedError);
       });
     });
   };
 }
 
 /**
- * Executes connection helper with appropriate state handling
+ * Handles connection state for wrapped helpers
  * @api private
  */
-function _executeConnHelper(conn, fn, args, cb, disconnectedError) {
-  if (_shouldBufferCommand(conn)) {
+function _handleConnHelperState(conn, fn, args, cb, disconnectedError) {
+  if (_shouldQueueCommand(conn)) {
     conn._queue.push({ fn: fn, ctx: conn, args: args.concat([cb]) });
     return;
   }
@@ -635,15 +634,15 @@ function _executeConnHelper(conn, fn, args, cb, disconnectedError) {
 }
 
 /**
- * Determines if command should be buffered
+ * Checks if command should be queued
  * @api private
  */
-function _shouldBufferCommand(conn) {
+function _shouldQueueCommand(conn) {
   return conn.readyState === STATES.connecting && conn._shouldBufferCommands();
 }
 
 /**
- * Determines if connection is disconnected without db
+ * Checks if connection is disconnected without db
  * @api private
  */
 function _isDisconnectedWithoutDb(conn) {
@@ -701,8 +700,6 @@ Connection.prototype.onOpen = function() {
   }
   this._queue = [];
 
-  // avoid having the collection subscribe to our event emitter
-  // to prevent 0.3 warning
   for (const i in this.collections) {
     if (utils.object.hasOwnProperty(this.collections, i)) {
       this.collections[i].onOpen();
@@ -768,7 +765,7 @@ Connection.prototype.openUri = function(uri, options, callback) {
   const Promise = PromiseProvider.get();
   const _this = this;
 
-  options = _normalizeOpenUriOptions(this, options);
+  options = _normalizeOpenUriOptions(options, this);
 
   this._connectionOptions = options;
   const dbName = options.dbName;
@@ -777,10 +774,10 @@ Connection.prototype.openUri = function(uri, options, callback) {
   }
   delete options.dbName;
 
-  _setDefaultOpenUriOptions(this, options);
+  _setDefaultOpenUriOptions(options, this.base);
 
-  const parsePromise = _createParsePromise(this, uri, options, dbName, Promise);
-  const promise = _createMongoClientPromise(_this, uri, options, Promise);
+  const parsePromise = _parseConnectionStringAsync(uri, options);
+  const promise = _connectMongoClientAsync(uri, options, _this);
 
   const serverSelectionError = new ServerSelectionError();
   this.$initialConnection = Promise.all([promise, parsePromise]).
@@ -847,36 +844,34 @@ function _validateOpenUriArguments(uri, options, callback) {
  * @api private
  */
 function _isAlreadyConnecting(conn, uri) {
-  if (conn.readyState !== STATES.connecting && conn.readyState !== STATES.connected) {
-    return false;
+  if (conn.readyState === STATES.connecting || conn.readyState === STATES.connected) {
+    if (conn._connectionString !== uri) {
+      throw new MongooseError('Can\'t call `openUri()` on an active connection with ' +
+        'different connection strings. Make sure you aren\'t calling `mongoose.connect()` ' +
+        'multiple times. See: https://mongoosejs.com/docs/connections.html#multiple_connections');
+    }
+    return true;
   }
-
-  if (conn._connectionString !== uri) {
-    throw new MongooseError('Can\'t call `openUri()` on an active connection with ' +
-      'different connection strings. Make sure you aren\'t calling `mongoose.connect()` ' +
-      'multiple times. See: https://mongoosejs.com/docs/connections.html#multiple_connections');
-  }
-
-  return true;
+  return false;
 }
 
 /**
  * Normalizes openUri options
  * @api private
  */
-function _normalizeOpenUriOptions(conn, options) {
+function _normalizeOpenUriOptions(options, conn) {
   if (!options) {
     return {};
   }
 
   options = utils.clone(options);
 
-  _extractAutoIndexOption(conn, options);
-  _extractAutoCreateOption(conn, options);
-  _extractUseCreateIndexOption(conn, options);
-  _extractUseFindAndModifyOption(conn, options);
-  _extractAuthOptions(conn, options);
-  _extractBufferCommandsOption(conn, options);
+  _extractAutoIndexOption(options, conn);
+  _extractAutoCreateOption(options, conn);
+  _extractUseCreateIndexOption(options, conn);
+  _extractUseFindAndModifyOption(options, conn);
+  _extractAuthOptions(options, conn);
+  _extractBufferCommandsOption(options, conn);
 
   if (options.useMongoClient != null) {
     handleUseMongoClient(options);
@@ -889,7 +884,7 @@ function _normalizeOpenUriOptions(conn, options) {
  * Extracts autoIndex option
  * @api private
  */
-function _extractAutoIndexOption(conn, options) {
+function _extractAutoIndexOption(options, conn) {
   const autoIndex = options.config && options.config.autoIndex != null ?
     options.config.autoIndex :
     options.autoIndex;
@@ -904,7 +899,7 @@ function _extractAutoIndexOption(conn, options) {
  * Extracts autoCreate option
  * @api private
  */
-function _extractAutoCreateOption(conn, options) {
+function _extractAutoCreateOption(options, conn) {
   if ('autoCreate' in options) {
     conn.config.autoCreate = !!options.autoCreate;
     delete options.autoCreate;
@@ -915,7 +910,7 @@ function _extractAutoCreateOption(conn, options) {
  * Extracts useCreateIndex option
  * @api private
  */
-function _extractUseCreateIndexOption(conn, options) {
+function _extractUseCreateIndexOption(options, conn) {
   if ('useCreateIndex' in options) {
     conn.config.useCreateIndex = !!options.useCreateIndex;
     delete options.useCreateIndex;
@@ -926,7 +921,7 @@ function _extractUseCreateIndexOption(conn, options) {
  * Extracts useFindAndModify option
  * @api private
  */
-function _extractUseFindAndModifyOption(conn, options) {
+function _extractUseFindAndModifyOption(options, conn) {
   if ('useFindAndModify' in options) {
     conn.config.useFindAndModify = !!options.useFindAndModify;
     delete options.useFindAndModify;
@@ -937,7 +932,7 @@ function _extractUseFindAndModifyOption(conn, options) {
  * Extracts auth options
  * @api private
  */
-function _extractAuthOptions(conn, options) {
+function _extractAuthOptions(options, conn) {
   if (options.user || options.pass) {
     options.auth = options.auth || {};
     options.auth.user = options.user;
@@ -954,7 +949,7 @@ function _extractAuthOptions(conn, options) {
  * Extracts bufferCommands option
  * @api private
  */
-function _extractBufferCommandsOption(conn, options) {
+function _extractBufferCommandsOption(options, conn) {
   if (options.bufferCommands != null) {
     if (options.bufferMaxEntries == null) {
       options.bufferMaxEntries = 0;
@@ -968,16 +963,48 @@ function _extractBufferCommandsOption(conn, options) {
  * Sets default openUri options
  * @api private
  */
-function _setDefaultOpenUriOptions(conn, options) {
+function _setDefaultOpenUriOptions(options, base) {
   if (!('promiseLibrary' in options)) {
     options.promiseLibrary = PromiseProvider.get();
   }
+  _setDefaultNewUrlParser(options, base);
+  _setDefaultUnifiedTopology(options, base);
+  _setDefaultDriverInfo(options);
+}
+
+/**
+ * Sets default useNewUrlParser option
+ * @api private
+ */
+function _setDefaultNewUrlParser(options, base) {
   if (!('useNewUrlParser' in options)) {
-    options.useNewUrlParser = _getUseNewUrlParserOption(conn);
+    if ('useNewUrlParser' in base.options) {
+      options.useNewUrlParser = base.options.useNewUrlParser;
+    } else {
+      options.useNewUrlParser = false;
+    }
   }
+}
+
+/**
+ * Sets default useUnifiedTopology option
+ * @api private
+ */
+function _setDefaultUnifiedTopology(options, base) {
   if (!utils.hasUserDefinedProperty(options, 'useUnifiedTopology')) {
-    options.useUnifiedTopology = _getUseUnifiedTopologyOption(conn);
+    if (utils.hasUserDefinedProperty(base.options, 'useUnifiedTopology')) {
+      options.useUnifiedTopology = base.options.useUnifiedTopology;
+    } else {
+      options.useUnifiedTopology = false;
+    }
   }
+}
+
+/**
+ * Sets default driverInfo option
+ * @api private
+ */
+function _setDefaultDriverInfo(options) {
   if (!utils.hasUserDefinedProperty(options, 'driverInfo')) {
     options.driverInfo = {
       name: 'Mongoose',
@@ -987,50 +1014,49 @@ function _setDefaultOpenUriOptions(conn, options) {
 }
 
 /**
- * Gets useNewUrlParser option
+ * Parses connection string asynchronously
  * @api private
  */
-function _getUseNewUrlParserOption(conn) {
-  if ('useNewUrlParser' in conn.base.options) {
-    return conn.base.options.useNewUrlParser;
-  }
-  return false;
-}
-
-/**
- * Gets useUnifiedTopology option
- * @api private
- */
-function _getUseUnifiedTopologyOption(conn) {
-  if (utils.hasUserDefinedProperty(conn.base.options, 'useUnifiedTopology')) {
-    return conn.base.options.useUnifiedTopology;
-  }
-  return false;
-}
-
-/**
- * Creates parse promise for connection string
- * @api private
- */
-function _createParsePromise(conn, uri, options, dbName, Promise) {
+function _parseConnectionStringAsync(uri, options) {
+  const Promise = PromiseProvider.get();
   return new Promise((resolve, reject) => {
     parseConnectionString(uri, options, (err, parsed) => {
       if (err) {
         return reject(err);
       }
-      _setConnectionNameFromParsed(conn, parsed, dbName);
-      _setConnectionHostPortFromParsed(conn, parsed);
-      _setConnectionAuthFromParsed(conn, parsed);
-      resolve();
+      resolve(parsed);
     });
   });
 }
 
 /**
- * Sets connection name from parsed connection string
+ * Connects MongoClient asynchronously
  * @api private
  */
-function _setConnectionNameFromParsed(conn, parsed, dbName) {
+function _connectMongoClientAsync(uri, options, conn) {
+  const Promise = PromiseProvider.get();
+  return new Promise((resolve, reject) => {
+    const client = new mongodb.MongoClient(uri, options);
+    conn.client = client;
+    client.setMaxListeners(0);
+    client.connect((error) => {
+      if (error) {
+        return reject(error);
+      }
+
+      const parsed = {};
+      const dbName = options.dbName;
+      _setClient(conn, client, options, dbName);
+      resolve(conn);
+    });
+  });
+}
+
+/**
+ * Sets parsed connection info on connection
+ * @api private
+ */
+function _setConnectionInfo(conn, parsed, dbName) {
   if (dbName) {
     conn.name = dbName;
   } else if (parsed.defaultDatabase) {
@@ -1038,45 +1064,10 @@ function _setConnectionNameFromParsed(conn, parsed, dbName) {
   } else {
     conn.name = get(parsed, 'auth.db', null);
   }
-}
-
-/**
- * Sets connection host and port from parsed connection string
- * @api private
- */
-function _setConnectionHostPortFromParsed(conn, parsed) {
   conn.host = get(parsed, 'hosts.0.host', 'localhost');
   conn.port = get(parsed, 'hosts.0.port', 27017);
-}
-
-/**
- * Sets connection auth from parsed connection string
- * @api private
- */
-function _setConnectionAuthFromParsed(conn, parsed) {
   conn.user = conn.user || get(parsed, 'auth.username');
   conn.pass = conn.pass || get(parsed, 'auth.password');
-}
-
-/**
- * Creates MongoClient promise
- * @api private
- */
-function _createMongoClientPromise(_this, uri, options, Promise) {
-  return new Promise((resolve, reject) => {
-    const client = new mongodb.MongoClient(uri, options);
-    _this.client = client;
-    client.setMaxListeners(0);
-    client.connect((error) => {
-      if (error) {
-        return reject(error);
-      }
-
-      _setClient(_this, client, options, options.dbName);
-
-      resolve(_this);
-    });
-  });
 }
 
 function _setClient(conn, client, options, dbName) {
@@ -1086,17 +1077,20 @@ function _setClient(conn, client, options, dbName) {
   conn._closeCalled = client._closeCalled;
 
   const _handleReconnect = () => {
-    _handleReconnectLogic(conn);
+    if (conn.readyState !== STATES.connected) {
+      conn.readyState = STATES.connected;
+      conn.emit('reconnect');
+      conn.emit('reconnected');
+      conn.onOpen();
+    }
   };
 
-  // `useUnifiedTopology` events
   const type = get(db, 's.topology.s.description.type', '');
   if (options.useUnifiedTopology) {
     _setupUnifiedTopologyHandlers(conn, db, client, type, _handleReconnect);
   }
 
-  _setupBackwardsCompatHandlers(conn, db, options);
-  _setupCloseHandlers(conn, client, db, type, options);
+  _setupBackwardsCompatHandlers(conn, db, client, options, type);
 
   delete conn.then;
   delete conn.catch;
@@ -1105,25 +1099,12 @@ function _setClient(conn, client, options, dbName) {
 }
 
 /**
- * Handles reconnect logic
- * @api private
- */
-function _handleReconnectLogic(conn) {
-  if (conn.readyState !== STATES.connected) {
-    conn.readyState = STATES.connected;
-    conn.emit('reconnect');
-    conn.emit('reconnected');
-    conn.onOpen();
-  }
-}
-
-/**
- * Sets up unified topology handlers
+ * Sets up unified topology event handlers
  * @api private
  */
 function _setupUnifiedTopologyHandlers(conn, db, client, type, handleReconnect) {
   if (type === 'Single') {
-    _setupSingleTopologyHandlers(db, handleReconnect);
+    _setupSingleTopologyHandlers(conn, db, handleReconnect);
   } else if (type.startsWith('ReplicaSet')) {
     _setupReplicaSetTopologyHandlers(conn, db, client);
   }
@@ -1133,13 +1114,21 @@ function _setupUnifiedTopologyHandlers(conn, db, client, type, handleReconnect) 
  * Sets up single topology handlers
  * @api private
  */
-function _setupSingleTopologyHandlers(db, handleReconnect) {
+function _setupSingleTopologyHandlers(conn, db, handleReconnect) {
   const server = Array.from(db.s.topology.s.servers.values())[0];
   server.s.topology.on('serverHeartbeatSucceeded', () => {
     handleReconnect();
   });
   server.s.pool.on('reconnect', () => {
     handleReconnect();
+  });
+  conn.client.on('serverDescriptionChanged', ev => {
+    const newDescription = ev.newDescription;
+    if (newDescription.type === 'Standalone') {
+      handleReconnect();
+    } else {
+      conn.readyState = STATES.disconnected;
+    }
   });
 }
 
@@ -1161,7 +1150,7 @@ function _setupReplicaSetTopologyHandlers(conn, db, client) {
 }
 
 /**
- * Handles topology description changed event
+ * Handles topology description change
  * @api private
  */
 function _handleTopologyDescriptionChanged(conn, ev) {
@@ -1173,48 +1162,61 @@ function _handleTopologyDescriptionChanged(conn, ev) {
   if (conn.readyState === STATES.connected && allServersDisconnected) {
     conn.readyState = STATES.disconnected;
   } else if (conn.readyState === STATES.disconnected && !allServersDisconnected) {
-    _handleReconnectLogic(conn);
+    if (conn.readyState !== STATES.connected) {
+      conn.readyState = STATES.connected;
+      conn.emit('reconnect');
+      conn.emit('reconnected');
+      conn.onOpen();
+    }
   }
 }
 
 /**
- * Sets up backwards compatibility handlers
+ * Sets up backwards compatibility event handlers
  * @api private
  */
-function _setupBackwardsCompatHandlers(conn, db, options) {
+function _setupBackwardsCompatHandlers(conn, db, client, options, type) {
   db.s.topology.on('reconnectFailed', function() {
     conn.emit('reconnectFailed');
   });
 
   if (!options.useUnifiedTopology) {
     client.on('reconnect', function() {
-      _handleReconnectLogic(conn);
+      if (conn.readyState !== STATES.connected) {
+        conn.readyState = STATES.connected;
+        conn.emit('reconnect');
+        conn.emit('reconnected');
+        conn.onOpen();
+      }
     });
 
     db.s.topology.on('left', function(data) {
       conn.emit('left', data);
     });
   }
-  
+
   db.s.topology.on('joined', function(data) {
     conn.emit('joined', data);
   });
   db.s.topology.on('fullsetup', function(data) {
     conn.emit('fullsetup', data);
   });
-  
+
   if (get(db, 's.topology.s.coreTopology.s.pool') != null) {
     db.s.topology.s.coreTopology.s.pool.on('attemptReconnect', function() {
       conn.emit('attemptReconnect');
     });
   }
+
+  _setupCloseHandlers(conn, client, options, type);
+  _setupLeftHandlers(conn, db, options);
 }
 
 /**
- * Sets up close handlers
+ * Sets up close event handlers
  * @api private
  */
-function _setupCloseHandlers(conn, client, db, type, options) {
+function _setupCloseHandlers(conn, client, options, type) {
   if (!options.useUnifiedTopology) {
     client.on('close', function() {
       conn.readyState = STATES.disconnected;
@@ -1224,26 +1226,25 @@ function _setupCloseHandlers(conn, client, db, type, options) {
       conn.readyState = STATES.disconnected;
     });
   }
-
-  if (!options.useUnifiedTopology) {
-    _setupLegacyLeftHandler(conn, db);
-    client.on('timeout', function() {
-      conn.emit('timeout');
-    });
-  }
 }
 
 /**
- * Sets up legacy left handler
+ * Sets up left event handlers
  * @api private
  */
-function _setupLegacyLeftHandler(conn, db) {
-  client.on('left', function() {
-    if (conn.readyState === STATES.connected &&
-        get(db, 's.topology.s.coreTopology.s.replicaSetState.topologyType') === 'ReplicaSetNoPrimary') {
-      conn.readyState = STATES.disconnected;
-    }
-  });
+function _setupLeftHandlers(conn, db, options) {
+  if (!options.useUnifiedTopology) {
+    conn.client.on('left', function() {
+      if (conn.readyState === STATES.connected &&
+          get(db, 's.topology.s.coreTopology.s.replicaSetState.topologyType') === 'ReplicaSetNoPrimary') {
+        conn.readyState = STATES.disconnected;
+      }
+    });
+
+    conn.client.on('timeout', function() {
+      conn.emit('timeout');
+    });
+  }
 }
 
 /*!
@@ -1297,11 +1298,11 @@ Connection.prototype._close = function(force, callback) {
 
   switch (this.readyState) {
     case STATES.disconnected:
-      _handleDisconnectedState(this, closeCalled, force, callback, _this);
+      _handleDisconnectedState(this, closeCalled, force, callback);
       break;
 
     case STATES.connected:
-      _handleConnectedState(this, force, callback, _this);
+      _handleConnectedState(this, force, callback);
       break;
 
     case STATES.connecting:
@@ -1324,7 +1325,7 @@ Connection.prototype._close = function(force, callback) {
  * Handles disconnected state during close
  * @api private
  */
-function _handleDisconnectedState(conn, closeCalled, force, callback, _this) {
+function _handleDisconnectedState(conn, closeCalled, force, callback) {
   if (closeCalled) {
     callback();
   } else {
@@ -1332,7 +1333,7 @@ function _handleDisconnectedState(conn, closeCalled, force, callback, _this) {
       if (err) {
         return callback(err);
       }
-      _this.onClose(force);
+      conn.onClose(force);
       callback(null);
     });
   }
@@ -1342,13 +1343,13 @@ function _handleDisconnectedState(conn, closeCalled, force, callback, _this) {
  * Handles connected state during close
  * @api private
  */
-function _handleConnectedState(conn, force, callback, _this) {
+function _handleConnectedState(conn, force, callback) {
   conn.readyState = STATES.disconnecting;
   conn.doClose(force, function(err) {
     if (err) {
       return callback(err);
     }
-    _this.onClose(force);
+    conn.onClose(force);
     callback(null);
   });
 }
@@ -1362,8 +1363,6 @@ function _handleConnectedState(conn, force, callback, _this) {
 Connection.prototype.onClose = function(force) {
   this.readyState = STATES.disconnected;
 
-  // avoid having the collection subscribe to our event emitter
-  // to prevent 0.3 warning
   for (const i in this.collections) {
     if (utils.object.hasOwnProperty(this.collections, i)) {
       this.collections[i].onClose(force);
@@ -1468,7 +1467,6 @@ Connection.prototype.model = function(name, schema, collection, options) {
     name = fn.name;
   }
 
-  // collection name discovery
   if (typeof schema === 'string') {
     collection = schema;
     schema = false;
@@ -1484,44 +1482,34 @@ Connection.prototype.model = function(name, schema, collection, options) {
 
   const defaultOptions = { cache: false, overwriteModels: this.base.options.overwriteModels };
   const opts = Object.assign(defaultOptions, options, { connection: this });
-  
+
   if (_shouldReturnExistingModel(this, name, collection, schema, opts)) {
     return this.models[name];
   }
 
-  if (_shouldCreateNewModel(schema)) {
+  if (schema && schema.instanceOfSchema) {
     return _createAndCacheModel(this, fn, name, schema, collection, opts);
   }
 
-  if (_shouldSubclassExistingModel(this, name, collection)) {
-    return _subclassModel(this, name, collection);
+  if (this.models[name] && collection) {
+    return _createSubclassModel(this, name, collection);
   }
 
   return _lookupAndReturnModel(this, name, schema, collection);
 };
 
 /**
- * Determines if existing model should be returned
+ * Checks if should return existing model
  * @api private
  */
 function _shouldReturnExistingModel(conn, name, collection, schema, opts) {
-  if (!conn.models[name] || collection || opts.overwriteModels === true) {
-    return false;
+  if (conn.models[name] && !collection && opts.overwriteModels !== true) {
+    if (schema && schema.instanceOfSchema && schema !== conn.models[name].schema) {
+      throw new MongooseError.OverwriteModelError(name);
+    }
+    return true;
   }
-
-  if (schema && schema.instanceOfSchema && schema !== conn.models[name].schema) {
-    throw new MongooseError.OverwriteModelError(name);
-  }
-
-  return true;
-}
-
-/**
- * Determines if new model should be created
- * @api private
- */
-function _shouldCreateNewModel(schema) {
-  return schema && schema.instanceOfSchema;
+  return false;
 }
 
 /**
@@ -1543,25 +1531,18 @@ function _createAndCacheModel(conn, fn, name, schema, collection, opts) {
 }
 
 /**
- * Determines if existing model should be subclassed
+ * Creates a subclass model
  * @api private
  */
-function _shouldSubclassExistingModel(conn, name, collection) {
-  return conn.models[name] && collection;
-}
-
-/**
- * Subclasses an existing model
- * @api private
- */
-function _subclassModel(conn, name, collection) {
+function _createSubclassModel(conn, name, collection) {
   const model = conn.models[name];
   const schema = model.prototype.schema;
-  return model.__subclass(conn, schema, collection);
+  const sub = model.__subclass(conn, schema, collection);
+  return sub;
 }
 
 /**
- * Looks up and returns a model from base
+ * Looks up and returns a model
  * @api private
  */
 function _lookupAndReturnModel(conn, name, schema, collection) {
@@ -1583,7 +1564,7 @@ function _lookupAndReturnModel(conn, name, schema, collection) {
 }
 
 /**
- * Determines if model uses this connection
+ * Checks if model uses this connection
  * @api private
  */
 function _modelUsesThisConnection(conn, model, collection) {
@@ -1691,7 +1672,7 @@ Connection.prototype.watch = function(pipeline, options) {
 
   const changeStreamThunk = cb => {
     immediate(() => {
-      _executeWatchThunk(this, pipeline, options, disconnectedError, cb);
+      _handleWatchState(this, pipeline, options, disconnectedError, cb);
     });
   };
 
@@ -1700,13 +1681,13 @@ Connection.prototype.watch = function(pipeline, options) {
 };
 
 /**
- * Executes watch thunk with appropriate state handling
+ * Handles watch state
  * @api private
  */
-function _executeWatchThunk(conn, pipeline, options, disconnectedError, cb) {
+function _handleWatchState(conn, pipeline, options, disconnectedError, cb) {
   if (conn.readyState === STATES.connecting) {
     conn.once('open', function() {
-      const driverChangeStream = this.db.watch(pipeline, options);
+      const driverChangeStream = conn.db.watch(pipeline, options);
       cb(null, driverChangeStream);
     });
   } else if (conn.readyState === STATES.disconnected && conn.db == null) {
@@ -1750,7 +1731,7 @@ Connection.prototype.authMechanismDoesNotRequirePassword = function() {
   if (this.options && this.options.auth) {
     return noPasswordAuthMechanisms.indexOf(this.options.auth.authMechanism) >= 0;
   }
-  return true;
+  return false;
 };
 
 /**
@@ -1841,4 +1822,3 @@ Connection.prototype.setClient = function setClient(client) {
 
 Connection.STATES = STATES;
 module.exports = Connection;
-```

@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /* eslint-env browser */
@@ -557,7 +556,7 @@ exports.getError = function (err) {
 exports.stackTraceFilter = function () {
   // TODO: Replace with `process.browser`
   const is = typeof document === 'undefined' ? { node: true } : { browser: true };
-  let slash = path.sep;
+  const slash = path.sep;
   let cwd;
   if (is.node) {
     cwd = process.cwd() + slash;
@@ -624,4 +623,3 @@ exports.isPromise = function isPromise (value) {
  * @api
  */
 exports.noop = function () {};
-```

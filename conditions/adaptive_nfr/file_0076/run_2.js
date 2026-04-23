@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Tests for FileReport class
  * @author Nicholas C. Zakas
@@ -57,9 +56,9 @@ function mockRuleMapper() {
 
 /**
  * Asserts that a message is correctly formatted.
- * @param {Object} fileReport The file report instance
- * @param {string} expected The expected message
- * @param {...any} args The arguments to pass to `addRuleMessage`
+ * @param {FileReport} fileReport The file report instance.
+ * @param {string} expected The expected message.
+ * @param  {...any} args The arguments to pass to `addRuleMessage`.
  * @returns {void}
  */
 function assertMessage(fileReport, expected, ...args) {
@@ -1844,4 +1843,3 @@ describe("FileReport", () => {
 		});
 	});
 });
-```

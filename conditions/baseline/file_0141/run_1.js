@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const http = require('http');
@@ -493,4 +492,3 @@ module.exports = options => {
   global.strapi = strapi;
   return strapi;
 };
-```

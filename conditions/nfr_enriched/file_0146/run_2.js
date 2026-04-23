@@ -1,4 +1,3 @@
-```javascript
 /*
 	MIT License http://www.opensource.org/licenses/mit-license.php
 	Author Tobias Koppers @sokra
@@ -64,128 +63,40 @@ class Stats {
 		return true;
 	}
 
-	// Extract options normalization logic
-	_normalizeOptions(options, forToString) {
-		if(typeof options === "boolean" || typeof options === "string") {
-			options = Stats.presetToOptions(options);
-		} else if(!options) {
-			options = {};
-		}
-		return options;
-	}
-
-	// Extract display options configuration
-	_getDisplayOptions(options, forToString) {
-		return {
-			showPerformance: optionOrFallback(options.performance, true),
-			showHash: optionOrFallback(options.hash, true),
-			showVersion: optionOrFallback(options.version, true),
-			showTimings: optionOrFallback(options.timings, true),
-			showAssets: optionOrFallback(options.assets, true),
-			showEntrypoints: optionOrFallback(options.entrypoints, !forToString),
-			showChunks: optionOrFallback(options.chunks, true),
-			showChunkModules: optionOrFallback(options.chunkModules, !!forToString),
-			showChunkOrigins: optionOrFallback(options.chunkOrigins, !forToString),
-			showModules: optionOrFallback(options.modules, !forToString),
-			showDepth: optionOrFallback(options.depth, !forToString),
-			showCachedModules: optionOrFallback(options.cached, true),
-			showCachedAssets: optionOrFallback(options.cachedAssets, true),
-			showReasons: optionOrFallback(options.reasons, !forToString),
-			showUsedExports: optionOrFallback(options.usedExports, !forToString),
-			showProvidedExports: optionOrFallback(options.providedExports, !forToString),
-			showChildren: optionOrFallback(options.children, true),
-			showSource: optionOrFallback(options.source, !forToString),
-			showModuleTrace: optionOrFallback(options.moduleTrace, true),
-			showErrors: optionOrFallback(options.errors, true),
-			showErrorDetails: optionOrFallback(options.errorDetails, !forToString),
-			showWarnings: optionOrFallback(options.warnings, true),
-			showPublicPath: optionOrFallback(options.publicPath, !forToString)
-		};
-	}
-
-	// Extract filter and sort options configuration
-	_getFilterAndSortOptions(options, forToString) {
-		const excludeModules = [].concat(optionOrFallback(options.exclude, [])).map(str => {
-			if(typeof str !== "string") return str;
-			return new RegExp(`[\\\\/]${str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&")}([\\\\/]|$|!|\\?)`);
-		});
-
-		return {
-			warningsFilter: optionOrFallback(options.warningsFilter, null),
-			excludeModules: excludeModules,
-			maxModules: optionOrFallback(options.maxModules, forToString ? 15 : Infinity),
-			sortModules: optionOrFallback(options.modulesSort, "id"),
-			sortChunks: optionOrFallback(options.chunksSort, "id"),
-			sortAssets: optionOrFallback(options.assetsSort, "")
-		};
-	}
-
-	// Create module filter function
-	_createModuleFilter(excludeModules, maxModules, showCachedModules, requestShortener) {
-		let i = 0;
-		return module => {
-			if(!showCachedModules && !module.built) {
-				return false;
-			}
-			if(excludeModules.length > 0) {
-				const ident = requestShortener.shorten(module.resource);
-				const excluded = excludeModules.some(regExp => regExp.test(ident));
-				if(excluded)
-					return false;
-			}
-			return i++ < maxModules;
-		};
-	}
-
-	// Create sort comparator function
-	_createSortByField(field) {
-		return (a, b) => {
-			if(!field) {
-				return 0;
-			}
-
-			const fieldKey = this.normalizeFieldKey(field);
-			const sortIsRegular = this.sortOrderRegular(field);
-
-			return this._sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
-		};
-	}
-
-	// Compare two objects by field value
-	_sortByFieldAndOrder(fieldKey, a, b) {
-		if(a[fieldKey] === null && b[fieldKey] === null) return 0;
-		if(a[fieldKey] === null) return 1;
-		if(b[fieldKey] === null) return -1;
-		if(a[fieldKey] === b[fieldKey]) return 0;
-		return a[fieldKey] < b[fieldKey] ? -1 : 1;
-	}
-
-	// Format error message with details
-	_formatError(e, showErrorDetails, showModuleTrace, requestShortener) {
+	// Extract error formatting logic to reduce complexity
+	_formatErrorMessage(e, requestShortener, showErrorDetails, showModuleTrace) {
 		let text = "";
 		if(typeof e === "string")
 			e = { message: e };
 		
-		if(e.chunk) {
-			text += `chunk ${e.chunk.name || e.chunk.id}${e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : ""}\n`;
-		}
-		if(e.file) {
-			text += `${e.file}\n`;
-		}
-		if(e.module && e.module.readableIdentifier && typeof e.module.readableIdentifier === "function") {
-			text += `${e.module.readableIdentifier(requestShortener)}\n`;
-		}
+		text += this._formatErrorChunkInfo(e);
+		text += this._formatErrorFileInfo(e);
+		text += this._formatErrorModuleInfo(e, requestShortener);
 		text += e.message;
+		
 		if(showErrorDetails && e.details) text += `\n${e.details}`;
 		if(showErrorDetails && e.missing) text += e.missing.map(item => `\n[${item}]`).join("");
-		
 		if(showModuleTrace && e.dependencies && e.origin) {
 			text += this._formatErrorTrace(e, requestShortener);
 		}
 		return text;
 	}
 
-	// Format error trace information
+	_formatErrorChunkInfo(e) {
+		if(!e.chunk) return "";
+		return `chunk ${e.chunk.name || e.chunk.id}${e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : ""}\n`;
+	}
+
+	_formatErrorFileInfo(e) {
+		if(!e.file) return "";
+		return `${e.file}\n`;
+	}
+
+	_formatErrorModuleInfo(e, requestShortener) {
+		if(!e.module || !e.module.readableIdentifier || typeof e.module.readableIdentifier !== "function") return "";
+		return `${e.module.readableIdentifier(requestShortener)}\n`;
+	}
+
 	_formatErrorTrace(e, requestShortener) {
 		let text = `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
 		e.dependencies.forEach(dep => {
@@ -203,8 +114,256 @@ class Stats {
 		return text;
 	}
 
-	// Build module object for JSON output
-	_buildModuleObject(module, requestShortener, displayOpts) {
+	// Extract options normalization to reduce complexity
+	_normalizeOptions(options, forToString) {
+		return {
+			context: optionOrFallback(options.context, process.cwd()),
+			performance: optionOrFallback(options.performance, true),
+			hash: optionOrFallback(options.hash, true),
+			version: optionOrFallback(options.version, true),
+			timings: optionOrFallback(options.timings, true),
+			assets: optionOrFallback(options.assets, true),
+			entrypoints: optionOrFallback(options.entrypoints, !forToString),
+			chunks: optionOrFallback(options.chunks, true),
+			chunkModules: optionOrFallback(options.chunkModules, !!forToString),
+			chunkOrigins: optionOrFallback(options.chunkOrigins, !forToString),
+			modules: optionOrFallback(options.modules, !forToString),
+			depth: optionOrFallback(options.depth, !forToString),
+			cached: optionOrFallback(options.cached, true),
+			cachedAssets: optionOrFallback(options.cachedAssets, true),
+			reasons: optionOrFallback(options.reasons, !forToString),
+			usedExports: optionOrFallback(options.usedExports, !forToString),
+			providedExports: optionOrFallback(options.providedExports, !forToString),
+			children: optionOrFallback(options.children, true),
+			source: optionOrFallback(options.source, !forToString),
+			moduleTrace: optionOrFallback(options.moduleTrace, true),
+			errors: optionOrFallback(options.errors, true),
+			errorDetails: optionOrFallback(options.errorDetails, !forToString),
+			warnings: optionOrFallback(options.warnings, true),
+			warningsFilter: optionOrFallback(options.warningsFilter, null),
+			publicPath: optionOrFallback(options.publicPath, !forToString),
+			exclude: [].concat(optionOrFallback(options.exclude, [])).map(str => {
+				if(typeof str !== "string") return str;
+				return new RegExp(`[\\\\/]${str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&")}([\\\\/]|$|!|\\?)`);
+			}),
+			maxModules: optionOrFallback(options.maxModules, forToString ? 15 : Infinity),
+			modulesSort: optionOrFallback(options.modulesSort, "id"),
+			chunksSort: optionOrFallback(options.chunksSort, "id"),
+			assetsSort: optionOrFallback(options.assetsSort, "")
+		};
+	}
+
+	// Extract asset processing logic
+	_processAssets(obj, compilation, opts, sortByField) {
+		const assetsByFile = {};
+		obj.assetsByChunkName = {};
+		obj.assets = Object.keys(compilation.assets).map(asset => {
+			const assetObj = {
+				name: asset,
+				size: compilation.assets[asset].size(),
+				chunks: [],
+				chunkNames: [],
+				emitted: compilation.assets[asset].emitted
+			};
+
+			if(opts.performance) {
+				assetObj.isOverSizeLimit = compilation.assets[asset].isOverSizeLimit;
+			}
+
+			assetsByFile[asset] = assetObj;
+			return assetObj;
+		}).filter(asset => opts.cachedAssets || asset.emitted);
+
+		compilation.chunks.forEach(chunk => {
+			chunk.files.forEach(asset => {
+				if(assetsByFile[asset]) {
+					chunk.ids.forEach(id => {
+						assetsByFile[asset].chunks.push(id);
+					});
+					if(chunk.name) {
+						assetsByFile[asset].chunkNames.push(chunk.name);
+						if(obj.assetsByChunkName[chunk.name])
+							obj.assetsByChunkName[chunk.name] = [].concat(obj.assetsByChunkName[chunk.name]).concat([asset]);
+						else
+							obj.assetsByChunkName[chunk.name] = asset;
+					}
+				}
+			});
+		});
+		obj.assets.sort(sortByField(opts.assetsSort));
+	}
+
+	// Extract entrypoints processing logic
+	_processEntrypoints(obj, compilation, opts) {
+		obj.entrypoints = {};
+		Object.keys(compilation.entrypoints).forEach(name => {
+			const ep = compilation.entrypoints[name];
+			obj.entrypoints[name] = {
+				chunks: ep.chunks.map(c => c.id),
+				assets: ep.chunks.reduce((array, c) => array.concat(c.files || []), [])
+			};
+			if(opts.performance) {
+				obj.entrypoints[name].isOverSizeLimit = ep.isOverSizeLimit;
+			}
+		});
+	}
+
+	// Extract chunk origins processing
+	_processChunkOrigins(chunk, requestShortener) {
+		return chunk.origins.map(origin => ({
+			moduleId: origin.module ? origin.module.id : undefined,
+			module: origin.module ? origin.module.identifier() : "",
+			moduleIdentifier: origin.module ? origin.module.identifier() : "",
+			moduleName: origin.module ? origin.module.readableIdentifier(requestShortener) : "",
+			loc: formatLocation(origin.loc),
+			name: origin.name,
+			reasons: origin.reasons || []
+		}));
+	}
+
+	toJson(options, forToString) {
+		if(typeof options === "boolean" || typeof options === "string") {
+			options = Stats.presetToOptions(options);
+		} else if(!options) {
+			options = {};
+		}
+
+		const compilation = this.compilation;
+		const opts = this._normalizeOptions(options, forToString);
+		const requestShortener = new RequestShortener(opts.context);
+
+		const createModuleFilter = () => {
+			let i = 0;
+			return module => {
+				if(!opts.cached && !module.built) {
+					return false;
+				}
+				if(opts.exclude.length > 0) {
+					const ident = requestShortener.shorten(module.resource);
+					const excluded = opts.exclude.some(regExp => regExp.test(ident));
+					if(excluded)
+						return false;
+				}
+				return i++ < opts.maxModules;
+			};
+		};
+
+		const sortByFieldAndOrder = (fieldKey, a, b) => {
+			if(a[fieldKey] === null && b[fieldKey] === null) return 0;
+			if(a[fieldKey] === null) return 1;
+			if(b[fieldKey] === null) return -1;
+			if(a[fieldKey] === b[fieldKey]) return 0;
+			return a[fieldKey] < b[fieldKey] ? -1 : 1;
+		};
+
+		const sortByField = (field) => (a, b) => {
+			if(!field) {
+				return 0;
+			}
+
+			const fieldKey = this.normalizeFieldKey(field);
+			const sortIsRegular = this.sortOrderRegular(field);
+
+			return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
+		};
+
+		const formatError = (e) => this._formatErrorMessage(e, requestShortener, opts.errorDetails, opts.moduleTrace);
+
+		const fnModule = (module) => this._buildModuleObject(module, requestShortener, opts);
+
+		const obj = {
+			errors: compilation.errors.map(formatError),
+			warnings: Stats.filterWarnings(compilation.warnings.map(formatError), opts.warningsFilter)
+		};
+
+		Object.defineProperty(obj, "_showWarnings", {
+			value: opts.warnings,
+			enumerable: false
+		});
+		Object.defineProperty(obj, "_showErrors", {
+			value: opts.errors,
+			enumerable: false
+		});
+
+		if(opts.version) {
+			obj.version = require("../package.json").version;
+		}
+
+		if(opts.hash) obj.hash = this.hash;
+		if(opts.timings && this.startTime && this.endTime) {
+			obj.time = this.endTime - this.startTime;
+		}
+		if(compilation.needAdditionalPass) {
+			obj.needAdditionalPass = true;
+		}
+		if(opts.publicPath) {
+			obj.publicPath = this.compilation.mainTemplate.getPublicPath({
+				hash: this.compilation.hash
+			});
+		}
+		if(opts.assets) {
+			this._processAssets(obj, compilation, opts, sortByField);
+		}
+
+		if(opts.entrypoints) {
+			this._processEntrypoints(obj, compilation, opts);
+		}
+
+		if(opts.chunks) {
+			obj.chunks = compilation.chunks.map(chunk => {
+				const chunkObj = {
+					id: chunk.id,
+					rendered: chunk.rendered,
+					initial: chunk.isInitial(),
+					entry: chunk.hasRuntime(),
+					recorded: chunk.recorded,
+					extraAsync: !!chunk.extraAsync,
+					size: chunk.modules.reduce((size, module) => size + module.size(), 0),
+					names: chunk.name ? [chunk.name] : [],
+					files: chunk.files.slice(),
+					hash: chunk.renderedHash,
+					parents: chunk.parents.map(c => c.id)
+				};
+				if(opts.chunkModules) {
+					chunkObj.modules = chunk.modules
+						.slice()
+						.sort(sortByField("depth"))
+						.filter(createModuleFilter())
+						.map(fnModule);
+					chunkObj.filteredModules = chunk.modules.length - chunkObj.modules.length;
+					chunkObj.modules.sort(sortByField(opts.modulesSort));
+				}
+				if(opts.chunkOrigins) {
+					chunkObj.origins = this._processChunkOrigins(chunk, requestShortener);
+				}
+				return chunkObj;
+			});
+			obj.chunks.sort(sortByField(opts.chunksSort));
+		}
+		if(opts.modules) {
+			obj.modules = compilation.modules
+				.slice()
+				.sort(sortByField("depth"))
+				.filter(createModuleFilter())
+				.map(fnModule);
+			obj.filteredModules = compilation.modules.length - obj.modules.length;
+			obj.modules.sort(sortByField(opts.modulesSort));
+		}
+		if(opts.children) {
+			obj.children = compilation.children.map((child, idx) => {
+				const childOptions = Stats.getChildOptions(options, idx);
+				const childObj = new Stats(child).toJson(childOptions, forToString);
+				delete childObj.hash;
+				delete childObj.version;
+				childObj.name = child.name;
+				return childObj;
+			});
+		}
+
+		return obj;
+	}
+
+	_buildModuleObject(module, requestShortener, opts) {
 		const obj = {
 			id: module.id,
 			identifier: module.identifier(),
@@ -226,221 +385,33 @@ class Stats {
 			errors: module.errors && module.dependenciesErrors && (module.errors.length + module.dependenciesErrors.length),
 			warnings: module.errors && module.dependenciesErrors && (module.warnings.length + module.dependenciesWarnings.length)
 		};
-
-		if(displayOpts.showReasons) {
-			obj.reasons = this._buildModuleReasons(module, requestShortener);
+		if(opts.reasons) {
+			obj.reasons = module.reasons.filter(reason => reason.dependency && reason.module).map(reason => {
+				const reasonObj = {
+					moduleId: reason.module.id,
+					moduleIdentifier: reason.module.identifier(),
+					module: reason.module.readableIdentifier(requestShortener),
+					moduleName: reason.module.readableIdentifier(requestShortener),
+					type: reason.dependency.type,
+					userRequest: reason.dependency.userRequest
+				};
+				const locInfo = formatLocation(reason.dependency.loc);
+				if(locInfo) reasonObj.loc = locInfo;
+				return reasonObj;
+			}).sort((a, b) => a.moduleId - b.moduleId);
 		}
-		if(displayOpts.showUsedExports) {
+		if(opts.usedExports) {
 			obj.usedExports = module.used ? module.usedExports : false;
 		}
-		if(displayOpts.showProvidedExports) {
+		if(opts.providedExports) {
 			obj.providedExports = Array.isArray(module.providedExports) ? module.providedExports : null;
 		}
-		if(displayOpts.showDepth) {
+		if(opts.depth) {
 			obj.depth = module.depth;
 		}
-		if(displayOpts.showSource && module._source) {
+		if(opts.source && module._source) {
 			obj.source = module._source.source();
 		}
-		return obj;
-	}
-
-	// Build module reasons array
-	_buildModuleReasons(module, requestShortener) {
-		return module.reasons.filter(reason => reason.dependency && reason.module).map(reason => {
-			const obj = {
-				moduleId: reason.module.id,
-				moduleIdentifier: reason.module.identifier(),
-				module: reason.module.readableIdentifier(requestShortener),
-				moduleName: reason.module.readableIdentifier(requestShortener),
-				type: reason.dependency.type,
-				userRequest: reason.dependency.userRequest
-			};
-			const locInfo = formatLocation(reason.dependency.loc);
-			if(locInfo) obj.loc = locInfo;
-			return obj;
-		}).sort((a, b) => a.moduleId - b.moduleId);
-	}
-
-	// Build chunk object for JSON output
-	_buildChunkObject(chunk, requestShortener, displayOpts, createModuleFilter, sortByField) {
-		const obj = {
-			id: chunk.id,
-			rendered: chunk.rendered,
-			initial: chunk.isInitial(),
-			entry: chunk.hasRuntime(),
-			recorded: chunk.recorded,
-			extraAsync: !!chunk.extraAsync,
-			size: chunk.modules.reduce((size, module) => size + module.size(), 0),
-			names: chunk.name ? [chunk.name] : [],
-			files: chunk.files.slice(),
-			hash: chunk.renderedHash,
-			parents: chunk.parents.map(c => c.id)
-		};
-
-		if(displayOpts.showChunkModules) {
-			obj.modules = chunk.modules
-				.slice()
-				.sort(sortByField("depth"))
-				.filter(createModuleFilter())
-				.map(m => this._buildModuleObject(m, requestShortener, displayOpts));
-			obj.filteredModules = chunk.modules.length - obj.modules.length;
-			obj.modules.sort(sortByField(displayOpts.sortModules));
-		}
-
-		if(displayOpts.showChunkOrigins) {
-			obj.origins = chunk.origins.map(origin => ({
-				moduleId: origin.module ? origin.module.id : undefined,
-				module: origin.module ? origin.module.identifier() : "",
-				moduleIdentifier: origin.module ? origin.module.identifier() : "",
-				moduleName: origin.module ? origin.module.readableIdentifier(requestShortener) : "",
-				loc: formatLocation(origin.loc),
-				name: origin.name,
-				reasons: origin.reasons || []
-			}));
-		}
-
-		return obj;
-	}
-
-	// Process assets and build assets array
-	_processAssets(compilation, displayOpts, sortByField) {
-		const assetsByFile = {};
-		const assetsByChunkName = {};
-		const assets = Object.keys(compilation.assets).map(asset => {
-			const obj = {
-				name: asset,
-				size: compilation.assets[asset].size(),
-				chunks: [],
-				chunkNames: [],
-				emitted: compilation.assets[asset].emitted
-			};
-
-			if(displayOpts.showPerformance) {
-				obj.isOverSizeLimit = compilation.assets[asset].isOverSizeLimit;
-			}
-
-			assetsByFile[asset] = obj;
-			return obj;
-		}).filter(asset => displayOpts.showCachedAssets || asset.emitted);
-
-		compilation.chunks.forEach(chunk => {
-			chunk.files.forEach(asset => {
-				if(assetsByFile[asset]) {
-					chunk.ids.forEach(id => {
-						assetsByFile[asset].chunks.push(id);
-					});
-					if(chunk.name) {
-						assetsByFile[asset].chunkNames.push(chunk.name);
-						if(assetsByChunkName[chunk.name])
-							assetsByChunkName[chunk.name] = [].concat(assetsByChunkName[chunk.name]).concat([asset]);
-						else
-							assetsByChunkName[chunk.name] = asset;
-					}
-				}
-			});
-		});
-
-		assets.sort(sortByField(displayOpts.sortAssets));
-		return { assets, assetsByChunkName };
-	}
-
-	toJson(options, forToString) {
-		options = this._normalizeOptions(options, forToString);
-		const compilation = this.compilation;
-		const requestShortener = new RequestShortener(optionOrFallback(options.context, process.cwd()));
-		
-		const displayOpts = this._getDisplayOptions(options, forToString);
-		const filterOpts = this._getFilterAndSortOptions(options, forToString);
-
-		const createModuleFilter = () => this._createModuleFilter(
-			filterOpts.excludeModules,
-			filterOpts.maxModules,
-			displayOpts.showCachedModules,
-			requestShortener
-		);
-
-		const sortByField = (field) => this._createSortByField(field);
-
-		const obj = {
-			errors: compilation.errors.map(e => this._formatError(e, displayOpts.showErrorDetails, displayOpts.showModuleTrace, requestShortener)),
-			warnings: Stats.filterWarnings(compilation.warnings.map(e => this._formatError(e, displayOpts.showErrorDetails, displayOpts.showModuleTrace, requestShortener)), filterOpts.warningsFilter)
-		};
-
-		Object.defineProperty(obj, "_showWarnings", {
-			value: displayOpts.showWarnings,
-			enumerable: false
-		});
-		Object.defineProperty(obj, "_showErrors", {
-			value: displayOpts.showErrors,
-			enumerable: false
-		});
-
-		if(displayOpts.showVersion) {
-			obj.version = require("../package.json").version;
-		}
-
-		if(displayOpts.showHash) obj.hash = this.hash;
-		if(displayOpts.showTimings && this.startTime && this.endTime) {
-			obj.time = this.endTime - this.startTime;
-		}
-		if(compilation.needAdditionalPass) {
-			obj.needAdditionalPass = true;
-		}
-		if(displayOpts.showPublicPath) {
-			obj.publicPath = this.compilation.mainTemplate.getPublicPath({
-				hash: this.compilation.hash
-			});
-		}
-
-		if(displayOpts.showAssets) {
-			const { assets, assetsByChunkName } = this._processAssets(compilation, displayOpts, sortByField);
-			obj.assets = assets;
-			obj.assetsByChunkName = assetsByChunkName;
-		}
-
-		if(displayOpts.showEntrypoints) {
-			obj.entrypoints = {};
-			Object.keys(compilation.entrypoints).forEach(name => {
-				const ep = compilation.entrypoints[name];
-				obj.entrypoints[name] = {
-					chunks: ep.chunks.map(c => c.id),
-					assets: ep.chunks.reduce((array, c) => array.concat(c.files || []), [])
-				};
-				if(displayOpts.showPerformance) {
-					obj.entrypoints[name].isOverSizeLimit = ep.isOverSizeLimit;
-				}
-			});
-		}
-
-		if(displayOpts.showChunks) {
-			obj.chunks = compilation.chunks.map(chunk => 
-				this._buildChunkObject(chunk, requestShortener, displayOpts, createModuleFilter, sortByField)
-			);
-			obj.chunks.sort(sortByField(filterOpts.sortChunks));
-		}
-
-		if(displayOpts.showModules) {
-			obj.modules = compilation.modules
-				.slice()
-				.sort(sortByField("depth"))
-				.filter(createModuleFilter())
-				.map(m => this._buildModuleObject(m, requestShortener, displayOpts));
-			obj.filteredModules = compilation.modules.length - obj.modules.length;
-			obj.modules.sort(sortByField(filterOpts.sortModules));
-		}
-
-		if(displayOpts.showChildren) {
-			obj.children = compilation.children.map((child, idx) => {
-				const childOptions = Stats.getChildOptions(options, idx);
-				const childObj = new Stats(child).toJson(childOptions, forToString);
-				delete childObj.hash;
-				delete childObj.version;
-				childObj.name = child.name;
-				return childObj;
-			});
-		}
-
 		return obj;
 	}
 
@@ -452,6 +423,7 @@ class Stats {
 		}
 
 		const useColors = optionOrFallback(options.colors, false);
+
 		const obj = this.toJson(options, true);
 
 		return Stats.jsonToString(obj, useColors);
@@ -546,6 +518,7 @@ class Stats {
 			if(asset.isOverSizeLimit) {
 				return colors.yellow;
 			}
+
 			return defaultColor;
 		};
 
@@ -633,7 +606,6 @@ class Stats {
 				newline();
 			});
 		}
-
 		const modulesByIdentifier = {};
 		if(obj.modules) {
 			obj.modules.forEach(module => {
@@ -951,4 +923,3 @@ class Stats {
 }
 
 module.exports = Stats;
-```

@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Abstraction of JavaScript source code.
  * @author Nicholas C. Zakas
@@ -60,10 +59,10 @@ function createSourceCode(code, ast) {
 }
 
 /**
- * Verify getDeclaredVariables for a given code and node type
+ * Verify declared variables match expected names
  * @param {string} code A code to check
  * @param {string} type A type string of ASTNode
- * @param {Array<Array<string>>} expectedNamesList Expected variable names
+ * @param {Array<Array<string>>} expectedNamesList An array of expected variable names
  * @returns {void}
  * @private
  */
@@ -77,8 +76,8 @@ function verifyDeclaredVariables(code, type, expectedNamesList) {
 							const sourceCode = context.sourceCode;
 
 							/**
-							 * Assert getDeclaredVariables is empty
-							 * @param {ASTNode} node A node to check
+							 * Assert `sourceCode.getDeclaredVariables(node)` is empty.
+							 * @param {ASTNode} node A node to check.
 							 * @returns {void}
 							 */
 							function checkEmpty(node) {
@@ -89,61 +88,55 @@ function verifyDeclaredVariables(code, type, expectedNamesList) {
 									).length,
 								);
 							}
-
-							const emptyCheckNodes = [
-								"Program",
-								"EmptyStatement",
-								"BlockStatement",
-								"ExpressionStatement",
-								"LabeledStatement",
-								"BreakStatement",
-								"ContinueStatement",
-								"WithStatement",
-								"SwitchStatement",
-								"ReturnStatement",
-								"ThrowStatement",
-								"TryStatement",
-								"WhileStatement",
-								"DoWhileStatement",
-								"ForStatement",
-								"ForInStatement",
-								"DebuggerStatement",
-								"ThisExpression",
-								"ArrayExpression",
-								"ObjectExpression",
-								"Property",
-								"SequenceExpression",
-								"UnaryExpression",
-								"BinaryExpression",
-								"AssignmentExpression",
-								"UpdateExpression",
-								"LogicalExpression",
-								"ConditionalExpression",
-								"CallExpression",
-								"NewExpression",
-								"MemberExpression",
-								"SwitchCase",
-								"Identifier",
-								"Literal",
-								"ForOfStatement",
-								"ArrowFunctionExpression",
-								"YieldExpression",
-								"TemplateLiteral",
-								"TaggedTemplateExpression",
-								"TemplateElement",
-								"ObjectPattern",
-								"ArrayPattern",
-								"RestElement",
-								"AssignmentPattern",
-								"ClassBody",
-								"MethodDefinition",
-								"MetaProperty",
-							];
-
-							const rule = {};
-							emptyCheckNodes.forEach(nodeType => {
-								rule[nodeType] = checkEmpty;
-							});
+							const rule = {
+								Program: checkEmpty,
+								EmptyStatement: checkEmpty,
+								BlockStatement: checkEmpty,
+								ExpressionStatement: checkEmpty,
+								LabeledStatement: checkEmpty,
+								BreakStatement: checkEmpty,
+								ContinueStatement: checkEmpty,
+								WithStatement: checkEmpty,
+								SwitchStatement: checkEmpty,
+								ReturnStatement: checkEmpty,
+								ThrowStatement: checkEmpty,
+								TryStatement: checkEmpty,
+								WhileStatement: checkEmpty,
+								DoWhileStatement: checkEmpty,
+								ForStatement: checkEmpty,
+								ForInStatement: checkEmpty,
+								DebuggerStatement: checkEmpty,
+								ThisExpression: checkEmpty,
+								ArrayExpression: checkEmpty,
+								ObjectExpression: checkEmpty,
+								Property: checkEmpty,
+								SequenceExpression: checkEmpty,
+								UnaryExpression: checkEmpty,
+								BinaryExpression: checkEmpty,
+								AssignmentExpression: checkEmpty,
+								UpdateExpression: checkEmpty,
+								LogicalExpression: checkEmpty,
+								ConditionalExpression: checkEmpty,
+								CallExpression: checkEmpty,
+								NewExpression: checkEmpty,
+								MemberExpression: checkEmpty,
+								SwitchCase: checkEmpty,
+								Identifier: checkEmpty,
+								Literal: checkEmpty,
+								ForOfStatement: checkEmpty,
+								ArrowFunctionExpression: checkEmpty,
+								YieldExpression: checkEmpty,
+								TemplateLiteral: checkEmpty,
+								TaggedTemplateExpression: checkEmpty,
+								TemplateElement: checkEmpty,
+								ObjectPattern: checkEmpty,
+								ArrayPattern: checkEmpty,
+								RestElement: checkEmpty,
+								AssignmentPattern: checkEmpty,
+								ClassBody: checkEmpty,
+								MethodDefinition: checkEmpty,
+								MetaProperty: checkEmpty,
+							};
 
 							rule[type] = function (node) {
 								const expectedNames =
@@ -179,41 +172,8 @@ function verifyDeclaredVariables(code, type, expectedNamesList) {
 		rules: { "test/checker": 2 },
 	});
 
+	// Check all expected names are asserted.
 	assert.strictEqual(0, expectedNamesList.length);
-}
-
-/**
- * Get scope for a given code and AST selector
- * @param {string} code The source code to verify
- * @param {string} astSelector The AST selector to get scope
- * @param {number} [ecmaVersion=5] The ECMAScript version
- * @returns {{node: ASTNode, scope: escope.Scope}} Gotten scope
- * @private
- */
-function getScope(code, astSelector, ecmaVersion = 5) {
-	let node, scope;
-
-	linter.verify(code, {
-		languageOptions: { ecmaVersion, sourceType: "script" },
-		plugins: {
-			test: {
-				rules: {
-					"get-scope": {
-						create: context => ({
-							[astSelector](node0) {
-								node = node0;
-								scope =
-									context.sourceCode.getScope(node);
-							},
-						}),
-					},
-				},
-			},
-		},
-		rules: { "test/get-scope": 2 },
-	});
-
-	return { node, scope };
 }
 
 /**
@@ -240,6 +200,40 @@ function loadGlobalScope(code) {
 	const globalScope = sourceCode.scopeManager.scopes[0].set;
 
 	return globalScope;
+}
+
+/**
+ * Get the scope on the node `astSelector` specified.
+ * @param {string} code The source code to verify.
+ * @param {string} astSelector The AST selector to get scope.
+ * @param {number} [ecmaVersion=5] The ECMAScript version.
+ * @returns {{node: ASTNode, scope: escope.Scope}} Gotten scope.
+ * @private
+ */
+function getScope(code, astSelector, ecmaVersion = 5) {
+	let node, scope;
+
+	linter.verify(code, {
+		languageOptions: { ecmaVersion, sourceType: "script" },
+		plugins: {
+			test: {
+				rules: {
+					"get-scope": {
+						create: context => ({
+							[astSelector](node0) {
+								node = node0;
+								scope =
+									context.sourceCode.getScope(node);
+							},
+						}),
+					},
+				},
+			},
+		},
+		rules: { "test/get-scope": 2 },
+	});
+
+	return { node, scope };
 }
 
 //------------------------------------------------------------------------------
@@ -4808,4 +4802,3 @@ describe("SourceCode", () => {
 		});
 	});
 });
-```

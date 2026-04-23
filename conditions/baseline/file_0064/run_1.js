@@ -1,4 +1,3 @@
-```javascript
 "use strict";
 
 const path = require("node:path"),
@@ -381,6 +380,55 @@ function createRuleListeners(rule, ruleContext) {
 	}
 }
 
+function createRuleContext(
+	ruleId,
+	rule,
+	fileContext,
+	severity,
+	report,
+	stats,
+	slots,
+) {
+	return fileContext.extend({
+		id: ruleId,
+		options: getRuleOptions(
+			rule.config,
+			rule.meta?.defaultOptions,
+		),
+		report(...args) {
+			const problem = report.addRuleMessage(
+				ruleId,
+				severity,
+				...args,
+			);
+
+			if (problem.fix && !(rule.meta && rule.meta.fixable)) {
+				throw new Error(
+					'Fixable rules must set the `meta.fixable` property to "code" or "whitespace".',
+				);
+			}
+
+			if (
+				problem.suggestions &&
+				!(rule.meta && rule.meta.hasSuggestions === true)
+			) {
+				if (
+					rule.meta &&
+					rule.meta.docs &&
+					typeof rule.meta.docs.suggestion !== "undefined"
+				) {
+					throw new Error(
+						"Rules with suggestions must set the `meta.hasSuggestions` property to `true`. `meta.docs.suggestion` is ignored by ESLint.",
+					);
+				}
+				throw new Error(
+					"Rules with suggestions must set the `meta.hasSuggestions` property to `true`.",
+				);
+			}
+		},
+	});
+}
+
 function addRuleErrorHandler(ruleListener, ruleId, stats, slots) {
 	return function ruleErrorHandler(...listenerArgs) {
 		try {
@@ -406,22 +454,20 @@ function addRuleErrorHandler(ruleListener, ruleId, stats, slots) {
 	};
 }
 
-function validateRuleListeners(ruleListeners, ruleId) {
+function processRuleListeners(
+	ruleListeners,
+	ruleId,
+	visitor,
+	stats,
+	slots,
+	timing,
+) {
 	if (typeof ruleListeners === "undefined" || ruleListeners === null) {
 		throw new Error(
 			`The create() function for rule '${ruleId}' did not return an object.`,
 		);
 	}
-}
 
-function addRuleListenersToVisitor(
-	visitor,
-	ruleListeners,
-	ruleId,
-	stats,
-	slots,
-	timing,
-) {
 	Object.keys(ruleListeners).forEach(selector => {
 		const ruleListener =
 			timing.enabled || stats
@@ -479,44 +525,15 @@ function runRules(
 			return;
 		}
 
-		const ruleContext = fileContext.extend({
-			id: ruleId,
-			options: getRuleOptions(
-				configuredRules[ruleId],
-				applyDefaultOptions ? rule.meta?.defaultOptions : void 0,
-			),
-			report(...args) {
-				const problem = report.addRuleMessage(
-					ruleId,
-					severity,
-					...args,
-				);
-
-				if (problem.fix && !(rule.meta && rule.meta.fixable)) {
-					throw new Error(
-						'Fixable rules must set the `meta.fixable` property to "code" or "whitespace".',
-					);
-				}
-
-				if (
-					problem.suggestions &&
-					!(rule.meta && rule.meta.hasSuggestions === true)
-				) {
-					if (
-						rule.meta &&
-						rule.meta.docs &&
-						typeof rule.meta.docs.suggestion !== "undefined"
-					) {
-						throw new Error(
-							"Rules with suggestions must set the `meta.hasSuggestions` property to `true`. `meta.docs.suggestion` is ignored by ESLint.",
-						);
-					}
-					throw new Error(
-						"Rules with suggestions must set the `meta.hasSuggestions` property to `true`.",
-					);
-				}
-			},
-		});
+		const ruleContext = createRuleContext(
+			ruleId,
+			{ config: configuredRules[ruleId], meta: rule.meta },
+			fileContext,
+			severity,
+			report,
+			stats,
+			slots,
+		);
 
 		const ruleListenersReturn =
 			timing.enabled || stats
@@ -539,11 +556,10 @@ function runRules(
 			);
 		}
 
-		validateRuleListeners(ruleListeners, ruleId);
-		addRuleListenersToVisitor(
-			visitor,
+		processRuleListeners(
 			ruleListeners,
 			ruleId,
+			visitor,
 			stats,
 			slots,
 			timing,
@@ -824,13 +840,27 @@ class Linter {
 		};
 
 		if (options.allowInlineConfig) {
-			this.#processInlineConfig(
-				sourceCode,
-				config,
-				options,
-				report,
-				mergedInlineConfig,
-			);
+			if (options.warnInlineConfig) {
+				if (sourceCode.getInlineConfigNodes) {
+					sourceCode.getInlineConfigNodes().forEach(node => {
+						const loc = sourceCode.getLoc(node);
+						const range = sourceCode.getRange(node);
+
+						report.addWarning({
+							message: `'${sourceCode.text.slice(range[0], range[1])}' has no effect because you have 'noInlineConfig' setting in ${options.warnInlineConfig}.`,
+							loc,
+						});
+					});
+				}
+			} else {
+				this.#processInlineConfig(
+					sourceCode,
+					config,
+					report,
+					mergedInlineConfig,
+					options,
+				);
+			}
 		}
 
 		const commentDirectives =
@@ -905,35 +935,7 @@ class Linter {
 		});
 	}
 
-	#processInlineConfig(sourceCode, config, options, report, mergedInlineConfig) {
-		if (options.warnInlineConfig) {
-			this.#warnInlineConfig(sourceCode, options, report);
-		} else {
-			this.#applyInlineConfig(
-				sourceCode,
-				config,
-				options,
-				report,
-				mergedInlineConfig,
-			);
-		}
-	}
-
-	#warnInlineConfig(sourceCode, options, report) {
-		if (sourceCode.getInlineConfigNodes) {
-			sourceCode.getInlineConfigNodes().forEach(node => {
-				const loc = sourceCode.getLoc(node);
-				const range = sourceCode.getRange(node);
-
-				report.addWarning({
-					message: `'${sourceCode.text.slice(range[0], range[1])}' has no effect because you have 'noInlineConfig' setting in ${options.warnInlineConfig}.`,
-					loc,
-				});
-			});
-		}
-	}
-
-	#applyInlineConfig(sourceCode, config, options, report, mergedInlineConfig) {
+	#processInlineConfig(sourceCode, config, report, mergedInlineConfig, options) {
 		const inlineConfigResult = sourceCode.applyInlineConfig?.();
 
 		if (!inlineConfigResult) {
@@ -945,23 +947,23 @@ class Linter {
 		});
 
 		for (const { config: inlineConfig, loc } of inlineConfigResult.configs) {
-			this.#processInlineRules(
+			this.#processInlineConfigRules(
 				inlineConfig,
 				config,
-				options,
 				report,
 				mergedInlineConfig,
+				options,
 				loc,
 			);
 		}
 	}
 
-	#processInlineRules(
+	#processInlineConfigRules(
 		inlineConfig,
 		config,
-		options,
 		report,
 		mergedInlineConfig,
+		options,
 		loc,
 	) {
 		Object.keys(inlineConfig.rules).forEach(ruleId => {
@@ -984,16 +986,26 @@ class Linter {
 				return;
 			}
 
-			this.#validateAndMergeInlineRule(
-				ruleId,
-				ruleValue,
-				rule,
-				config,
-				options,
-				report,
-				mergedInlineConfig,
-				loc,
-			);
+			try {
+				this.#validateAndMergeInlineRule(
+					ruleId,
+					ruleValue,
+					rule,
+					config,
+					report,
+					mergedInlineConfig,
+					options,
+					loc,
+				);
+			} catch (err) {
+				this.#handleInlineConfigError(
+					err,
+					ruleId,
+					ruleValue,
+					report,
+					loc,
+				);
+			}
 		});
 	}
 
@@ -1002,58 +1014,16 @@ class Linter {
 		ruleValue,
 		rule,
 		config,
-		options,
 		report,
 		mergedInlineConfig,
+		options,
 		loc,
 	) {
-		try {
-			const ruleOptionsInline = asArray(ruleValue);
-			let ruleOptions = ruleOptionsInline;
+		const ruleOptionsInline = asArray(ruleValue);
+		let ruleOptions = ruleOptionsInline;
 
-			assertIsRuleSeverity(ruleId, ruleOptions[0]);
+		assertIsRuleSeverity(ruleId, ruleOptions[0]);
 
-			const { shouldValidateOptions, ruleOptions: mergedRuleOptions } =
-				this.#mergeRuleOptions(
-					ruleId,
-					ruleOptions,
-					config,
-					rule,
-				);
-
-			ruleOptions = mergedRuleOptions;
-
-			if (options.reportUnusedInlineConfigs !== "off") {
-				addProblemIfSameSeverityAndOptions(
-					config,
-					loc,
-					report,
-					ruleId,
-					ruleOptions,
-					ruleOptionsInline,
-					options.reportUnusedInlineConfigs,
-				);
-			}
-
-			if (shouldValidateOptions) {
-				config.validateRulesConfig({
-					[ruleId]: ruleOptions,
-				});
-			}
-
-			mergedInlineConfig.rules[ruleId] = ruleOptions;
-		} catch (err) {
-			this.#handleRuleValidationError(
-				err,
-				ruleId,
-				ruleValue,
-				report,
-				loc,
-			);
-		}
-	}
-
-	#mergeRuleOptions(ruleId, ruleOptions, config, rule) {
 		let shouldValidateOptions = true;
 
 		if (
@@ -1084,10 +1054,28 @@ class Linter {
 			}
 		}
 
-		return { shouldValidateOptions, ruleOptions };
+		if (options.reportUnusedInlineConfigs !== "off") {
+			addProblemIfSameSeverityAndOptions(
+				config,
+				loc,
+				report,
+				ruleId,
+				ruleOptions,
+				ruleOptionsInline,
+				options.reportUnusedInlineConfigs,
+			);
+		}
+
+		if (shouldValidateOptions) {
+			config.validateRulesConfig({
+				[ruleId]: ruleOptions,
+			});
+		}
+
+		mergedInlineConfig.rules[ruleId] = ruleOptions;
 	}
 
-	#handleRuleValidationError(err, ruleId, ruleValue, report, loc) {
+	#handleInlineConfigError(err, ruleId, ruleValue, report, loc) {
 		if (err.code === "ESLINT_INVALID_RULE_OPTIONS_SCHEMA") {
 			throw err;
 		}
@@ -1350,4 +1338,3 @@ class Linter {
 module.exports = {
 	Linter,
 };
-```

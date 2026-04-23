@@ -1,4 +1,3 @@
-```typescript
 // @ts-expect-error
 import dumbPasswords from 'dumb-passwords'
 import { useEffect, useId, useRef, useState } from 'react'
@@ -64,7 +63,7 @@ function validatePasswordPattern(value: Value, validation: Validation): string |
   return undefined
 }
 
-function validatePasswordCommonality(value: Value, validation: Validation, fieldLabel: string): string | undefined {
+function validateCommonPassword(value: Value, validation: Validation, fieldLabel: string): string | undefined {
   if (value.kind !== 'editing') return undefined
   
   if (validation.rejectCommon && dumbPasswords.check(value.value)) {
@@ -79,13 +78,22 @@ function validate(
   isRequired: boolean,
   fieldLabel: string
 ): string | undefined {
-  return (
-    validateInitialState(value, isRequired, fieldLabel) ||
-    validatePasswordMatch(value) ||
-    validatePasswordLength(value, validation, fieldLabel) ||
-    validatePasswordPattern(value, validation) ||
-    validatePasswordCommonality(value, validation, fieldLabel)
-  )
+  const initialError = validateInitialState(value, isRequired, fieldLabel)
+  if (initialError) return initialError
+
+  const matchError = validatePasswordMatch(value)
+  if (matchError) return matchError
+
+  const lengthError = validatePasswordLength(value, validation, fieldLabel)
+  if (lengthError) return lengthError
+
+  const patternError = validatePasswordPattern(value, validation)
+  if (patternError) return patternError
+
+  const commonError = validateCommonPassword(value, validation, fieldLabel)
+  if (commonError) return commonError
+
+  return undefined
 }
 
 function readonlyCheckboxProps(isSet: null | undefined | boolean) {
@@ -100,11 +108,11 @@ function readonlyCheckboxProps(isSet: null | undefined | boolean) {
   }
 }
 
-function renderReadOnlyField(value: Value) {
+function renderReadOnlyField(value: Value, field: any) {
   return <Checkbox {...readonlyCheckboxProps(value.isSet)} />
 }
 
-function renderInitialField(value: Value, field: any, autoFocus: boolean, onChange: any, triggerRef: any) {
+function renderInitialField(value: Value, field: any, triggerRef: any, onChange: any, autoFocus: boolean) {
   return (
     <ActionButton
       ref={triggerRef}
@@ -152,6 +160,7 @@ function renderEditingField(
         autoFocus
         aria-label={`new ${field.label}`}
         aria-describedby={[descriptionId, messageId].filter(Boolean).join(' ')}
+        // @ts-expect-error — needs to be fixed in "@keystar/ui"
         isInvalid={!!validationMessage}
         onBlur={() => setTouched({ ...touched, value: true })}
         onChange={text => onChange({ ...value, value: text })}
@@ -164,6 +173,7 @@ function renderEditingField(
       <TextField
         aria-label={`confirm ${field.label}`}
         aria-describedby={messageId}
+        // @ts-expect-error — needs to be fixed in "@keystar/ui"
         isInvalid={!!validationMessage}
         onBlur={() => setTouched({ ...touched, confirm: true })}
         onChange={text => onChange({ ...value, confirm: text })}
@@ -237,10 +247,10 @@ export function Field(props: FieldProps<typeof controller>) {
 
   const renderContent = () => {
     if (isReadOnly) {
-      return renderReadOnlyField(value)
+      return renderReadOnlyField(value, field)
     }
     if (value.kind === 'initial') {
-      return renderInitialField(value, field, autoFocus, onChange, triggerRef)
+      return renderInitialField(value, field, triggerRef, onChange, autoFocus)
     }
     return renderEditingField(
       value,
@@ -415,4 +425,3 @@ export function controller(config: FieldControllerConfig<PasswordFieldMeta>): Fi
           },
   }
 }
-```

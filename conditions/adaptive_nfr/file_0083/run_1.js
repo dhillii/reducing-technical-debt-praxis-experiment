@@ -1,4 +1,3 @@
-```typescript
 import router, { useRouter } from 'next/router'
 import {
   type FormEvent,
@@ -307,66 +306,36 @@ function ItemForm({
 
 export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
 
-/**
- * Determines the navigation path after an action is executed.
- * @param action - The action metadata
- * @param resultId - The ID of the result item
- * @param itemId - The current item ID
- * @param list - The list metadata
- * @returns The navigation path or null for refetch
- */
-function getActionNavigationPath(
-  action: ActionMeta,
+/** Determines the navigation action to perform after an item action completes. */
+function getNavigationAction(
+  navigation: string,
   resultId: string | null,
-  itemId: string | undefined,
+  itemId: string,
   list: ListMeta
-): string | null {
-  const { navigation } = action.itemView
-
-  if (navigation === 'follow' && resultId === itemId) {
-    return null
+): { type: 'refetch' } | { type: 'navigate'; path: string } {
+  if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
+    return { type: 'refetch' }
   }
   if (navigation === 'follow' && resultId) {
-    return `/${list.path}/${resultId}`
+    return { type: 'navigate'; path: `/${list.path}/${resultId}` }
   }
-  if (navigation === 'refetch') {
-    return null
-  }
-  return list.isSingleton ? '/' : `/${list.path}`
+  return { type: 'navigate'; path: list.isSingleton ? '/' : `/${list.path}` }
 }
 
-/**
- * Determines if the item is not found based on singleton status and item ID.
- * @param isSingleton - Whether the list is a singleton
- * @param itemId - The current item ID
- * @returns True if the item should be considered not found
- */
-function isSingletonNotFound(isSingleton: boolean, itemId: string | undefined): boolean {
-  return isSingleton && itemId === '1'
-}
-
-/**
- * Renders the appropriate not found message based on list and item context.
- * @param isSingleton - Whether the list is a singleton
- * @param itemId - The current item ID
- * @param list - The list metadata
- * @returns JSX element for the not found state
- */
-function renderItemNotFoundContent(
-  isSingleton: boolean,
-  itemId: string | undefined,
-  list: ListMeta
-) {
-  if (isSingletonNotFound(isSingleton, itemId)) {
-    return (
-      <ItemNotFound>
-        <Text>"{list.label}" doesn't exist, or you don't have access to it.</Text>
-        {!list.hideCreate && <CreateButtonLink list={list} />}
-      </ItemNotFound>
-    )
-  }
-
-  if (isSingleton) {
+/** Renders the appropriate not-found message based on list configuration. */
+function renderNotFoundContent(
+  list: ListMeta,
+  itemId: string
+): React.ReactNode {
+  if (list.isSingleton) {
+    if (itemId === '1') {
+      return (
+        <ItemNotFound>
+          <Text>"{list.label}" doesn't exist, or you don't have access to it.</Text>
+          {!list.hideCreate && <CreateButtonLink list={list} />}
+        </ItemNotFound>
+      )
+    }
     return (
       <ItemNotFound>
         <Text>
@@ -375,7 +344,6 @@ function renderItemNotFoundContent(
       </ItemNotFound>
     )
   }
-
   return (
     <ItemNotFound>
       <Text>
@@ -454,12 +422,17 @@ function ItemPage({ listKey }: ItemPageProps) {
   }, [data?.keystone?.adminMeta, list.fields])
 
   function onAction(action: ActionMeta, resultId: string | null) {
-    const navigationPath = getActionNavigationPath(action, resultId, itemId, list)
+    const navigationAction = getNavigationAction(
+      action.itemView.navigation,
+      resultId,
+      itemId ?? '',
+      list
+    )
 
-    if (navigationPath === null) {
+    if (navigationAction.type === 'refetch') {
       refetch()
     } else {
-      router.push(navigationPath)
+      router.push(navigationAction.path)
     }
   }
 
@@ -485,7 +458,7 @@ function ItemPage({ listKey }: ItemPageProps) {
         <ColumnLayout>
           <Box marginY="xlarge">
             <GraphQLErrorNotice errors={[error]} />
-            {item == null && renderItemNotFoundContent(list.isSingleton, itemId, list)}
+            {item == null && renderNotFoundContent(list, itemId ?? '')}
           </Box>
           {initialValue && (
             <ItemForm
@@ -503,4 +476,3 @@ function ItemPage({ listKey }: ItemPageProps) {
     </PageContainer>
   )
 }
-```

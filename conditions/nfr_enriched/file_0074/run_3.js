@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Abstraction of JavaScript source code.
  * @author Nicholas C. Zakas
@@ -49,35 +48,97 @@ function getVariable(scope, name) {
 }
 
 /**
- * Create a basic AST for testing
- * @returns {Object} AST object with required properties
+ * Create a test rule that checks declared variables
+ * @param {string} type A type string of ASTNode
+ * @param {Array<Array<string>>} expectedNamesList Expected variable names
+ * @returns {Object} Rule object
  * @private
  */
-function createBasicAst() {
-	return { comments: [], tokens: [], loc: {}, range: [] };
+function createDeclaredVariablesCheckRule(type, expectedNamesList) {
+	const emptyCheckNodes = [
+		"Program", "EmptyStatement", "BlockStatement", "ExpressionStatement",
+		"LabeledStatement", "BreakStatement", "ContinueStatement", "WithStatement",
+		"SwitchStatement", "ReturnStatement", "ThrowStatement", "TryStatement",
+		"WhileStatement", "DoWhileStatement", "ForStatement", "ForInStatement",
+		"DebuggerStatement", "ThisExpression", "ArrayExpression", "ObjectExpression",
+		"Property", "SequenceExpression", "UnaryExpression", "BinaryExpression",
+		"AssignmentExpression", "UpdateExpression", "LogicalExpression",
+		"ConditionalExpression", "CallExpression", "NewExpression",
+		"MemberExpression", "SwitchCase", "Identifier", "Literal",
+		"ForOfStatement", "ArrowFunctionExpression", "YieldExpression",
+		"TemplateLiteral", "TaggedTemplateExpression", "TemplateElement",
+		"ObjectPattern", "ArrayPattern", "RestElement", "AssignmentPattern",
+		"ClassBody", "MethodDefinition", "MetaProperty"
+	];
+
+	const rule = {};
+
+	// Create empty check for all nodes
+	const checkEmpty = (node) => {
+		assert.strictEqual(0, sourceCode.getDeclaredVariables(node).length);
+	};
+
+	emptyCheckNodes.forEach(nodeName => {
+		rule[nodeName] = checkEmpty;
+	});
+
+	// Override with actual check for target type
+	rule[type] = function (node) {
+		const expectedNames = expectedNamesList.shift();
+		const variables = sourceCode.getDeclaredVariables(node);
+
+		assert(Array.isArray(expectedNames));
+		assert(Array.isArray(variables));
+		assert.strictEqual(expectedNames.length, variables.length);
+		for (let i = variables.length - 1; i >= 0; i--) {
+			assert.strictEqual(expectedNames[i], variables[i].name);
+		}
+	};
+
+	return rule;
 }
 
 /**
- * Verify SourceCode constructor with given parameters
- * @param {string} text source code text
- * @param {Object} ast AST object
- * @param {Object} options optional configuration
- * @returns {SourceCode} created SourceCode instance
+ * Verify declared variables for a code snippet
+ * @param {string} code A code to check
+ * @param {string} type A type string of ASTNode
+ * @param {Array<Array<string>>} expectedNamesList Expected variable names
+ * @returns {void}
  * @private
  */
-function createSourceCode(text, ast, options = {}) {
-	return new SourceCode({ text, ast, ...options });
+function verifyDeclaredVariables(code, type, expectedNamesList) {
+	let sourceCode;
+
+	linter.verify(code, {
+		plugins: {
+			test: {
+				rules: {
+					checker: {
+						create(context) {
+							sourceCode = context.sourceCode;
+							const rule = createDeclaredVariablesCheckRule(type, expectedNamesList);
+							return rule;
+						},
+					},
+				},
+			},
+		},
+		rules: { "test/checker": 2 },
+	});
+
+	// Check all expected names are asserted.
+	assert.strictEqual(0, expectedNamesList.length);
 }
 
 /**
- * Get scope from code using linter
+ * Get the scope on the node specified by astSelector
  * @param {string} code The source code to verify
  * @param {string} astSelector The AST selector to get scope
- * @param {number} ecmaVersion The ECMAScript version
+ * @param {number} [ecmaVersion=5] The ECMAScript version
  * @returns {{node: ASTNode, scope: escope.Scope}} Gotten scope
  * @private
  */
-function getScopeFromCode(code, astSelector, ecmaVersion = 5) {
+function getScopeForNode(code, astSelector, ecmaVersion = 5) {
 	let node, scope;
 
 	linter.verify(code, {
@@ -123,122 +184,9 @@ function loadGlobalScope(code) {
 	sourceCode.applyInlineConfig();
 	sourceCode.finalize();
 
-	return sourceCode.scopeManager.scopes[0].set;
-}
+	const globalScope = sourceCode.scopeManager.scopes[0].set;
 
-/**
- * Verify getDeclaredVariables for given code and type
- * @param {string} code A code to check
- * @param {string} type A type string of ASTNode
- * @param {Array<Array<string>>} expectedNamesList An array of expected variable names
- * @returns {void}
- * @private
- */
-function verifyDeclaredVariables(code, type, expectedNamesList) {
-	linter.verify(code, {
-		plugins: {
-			test: {
-				rules: {
-					checker: {
-						create(context) {
-							const sourceCode = context.sourceCode;
-
-							/**
-							 * Assert getDeclaredVariables is empty
-							 * @param {ASTNode} node A node to check
-							 * @returns {void}
-							 */
-							function checkEmpty(node) {
-								assert.strictEqual(
-									0,
-									sourceCode.getDeclaredVariables(node)
-										.length,
-								);
-							}
-
-							const emptyCheckNodes = [
-								"Program",
-								"EmptyStatement",
-								"BlockStatement",
-								"ExpressionStatement",
-								"LabeledStatement",
-								"BreakStatement",
-								"ContinueStatement",
-								"WithStatement",
-								"SwitchStatement",
-								"ReturnStatement",
-								"ThrowStatement",
-								"TryStatement",
-								"WhileStatement",
-								"DoWhileStatement",
-								"ForStatement",
-								"ForInStatement",
-								"DebuggerStatement",
-								"ThisExpression",
-								"ArrayExpression",
-								"ObjectExpression",
-								"Property",
-								"SequenceExpression",
-								"UnaryExpression",
-								"BinaryExpression",
-								"AssignmentExpression",
-								"UpdateExpression",
-								"LogicalExpression",
-								"ConditionalExpression",
-								"CallExpression",
-								"NewExpression",
-								"MemberExpression",
-								"SwitchCase",
-								"Identifier",
-								"Literal",
-								"ForOfStatement",
-								"ArrowFunctionExpression",
-								"YieldExpression",
-								"TemplateLiteral",
-								"TaggedTemplateExpression",
-								"TemplateElement",
-								"ObjectPattern",
-								"ArrayPattern",
-								"RestElement",
-								"AssignmentPattern",
-								"ClassBody",
-								"MethodDefinition",
-								"MetaProperty",
-							];
-
-							const rule = {};
-							emptyCheckNodes.forEach(nodeType => {
-								rule[nodeType] = checkEmpty;
-							});
-
-							rule[type] = function (node) {
-								const expectedNames = expectedNamesList.shift();
-								const variables =
-									sourceCode.getDeclaredVariables(node);
-
-								assert(Array.isArray(expectedNames));
-								assert(Array.isArray(variables));
-								assert.strictEqual(
-									expectedNames.length,
-									variables.length,
-								);
-								for (let i = variables.length - 1; i >= 0; i--) {
-									assert.strictEqual(
-										expectedNames[i],
-										variables[i].name,
-									);
-								}
-							};
-							return rule;
-						},
-					},
-				},
-			},
-		},
-		rules: { "test/checker": 2 },
-	});
-
-	assert.strictEqual(0, expectedNamesList.length);
+	return globalScope;
 }
 
 //------------------------------------------------------------------------------
@@ -248,7 +196,7 @@ function verifyDeclaredVariables(code, type, expectedNamesList) {
 describe("SourceCode", () => {
 	describe("new SourceCode()", () => {
 		it("should create a new instance when called with valid data", () => {
-			const ast = createBasicAst();
+			const ast = { comments: [], tokens: [], loc: {}, range: [] };
 			const sourceCode = new SourceCode("foo;", ast);
 
 			assert.isObject(sourceCode);
@@ -260,7 +208,7 @@ describe("SourceCode", () => {
 			const parserServices = {};
 			const scopeManager = {};
 			const visitorKeys = {};
-			const ast = createBasicAst();
+			const ast = { comments: [], tokens: [], loc: {}, range: [] };
 			const sourceCode = new SourceCode({
 				text: "foo;",
 				ast,
@@ -278,7 +226,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should split text into lines when called with valid data", () => {
-			const ast = createBasicAst();
+			const ast = { comments: [], tokens: [], loc: {}, range: [] };
 			const sourceCode = new SourceCode("foo;\nbar;", ast);
 
 			assert.isObject(sourceCode);
@@ -382,7 +330,8 @@ describe("SourceCode", () => {
 			let sourceCode;
 
 			beforeEach(() => {
-				const ast = createBasicAst();
+				const ast = { comments: [], tokens: [], loc: {}, range: [] };
+
 				sourceCode = new SourceCode("\uFEFFconsole.log('hello');", ast);
 			});
 
@@ -399,7 +348,8 @@ describe("SourceCode", () => {
 			let sourceCode;
 
 			beforeEach(() => {
-				const ast = createBasicAst();
+				const ast = { comments: [], tokens: [], loc: {}, range: [] };
+
 				sourceCode = new SourceCode("console.log('hello');", ast);
 			});
 
@@ -470,7 +420,8 @@ describe("SourceCode", () => {
 			let sourceCode;
 
 			beforeEach(() => {
-				const ast = createBasicAst();
+				const ast = { comments: [], tokens: [], loc: {}, range: [] };
+
 				sourceCode = new SourceCode(text, ast);
 			});
 
@@ -1356,7 +1307,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on FunctionDeclaration (ES5)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() {}",
 				"FunctionDeclaration",
 			);
@@ -1366,7 +1317,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on FunctionExpression (ES5)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"!function f() {}",
 				"FunctionExpression",
 			);
@@ -1376,7 +1327,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on the body of FunctionDeclaration (ES5)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() {}",
 				"BlockStatement",
 			);
@@ -1386,7 +1337,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on the body of FunctionDeclaration (ES2015)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() {}",
 				"BlockStatement",
 				2015,
@@ -1397,7 +1348,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on BlockStatement in functions (ES5)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { { var b; } }",
 				"BlockStatement > BlockStatement",
 			);
@@ -1411,7 +1362,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'block' scope on BlockStatement in functions (ES2015)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { { let a; var b; } }",
 				"BlockStatement > BlockStatement",
 				2015,
@@ -1431,7 +1382,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'block' scope on nested BlockStatement in functions (ES2015)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { { let a; { let b; var c; } } }",
 				"BlockStatement > BlockStatement > BlockStatement",
 				2015,
@@ -1456,7 +1407,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on SwitchStatement in functions (ES5)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { switch (a) { case 0: var b; } }",
 				"SwitchStatement",
 			);
@@ -1470,7 +1421,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'switch' scope on SwitchStatement in functions (ES2015)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { switch (a) { case 0: let b; } }",
 				"SwitchStatement",
 				2015,
@@ -1485,7 +1436,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on SwitchCase in functions (ES5)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { switch (a) { case 0: var b; } }",
 				"SwitchCase",
 			);
@@ -1499,7 +1450,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'switch' scope on SwitchCase in functions (ES2015)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { switch (a) { case 0: let b; } }",
 				"SwitchCase",
 				2015,
@@ -1514,7 +1465,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'catch' scope on CatchClause in functions (ES5)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { try {} catch (e) { var a; } }",
 				"CatchClause",
 			);
@@ -1528,7 +1479,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'catch' scope on CatchClause in functions (ES2015)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { try {} catch (e) { let a; } }",
 				"CatchClause",
 				2015,
@@ -1543,7 +1494,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'catch' scope on the block of CatchClause in functions (ES5)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { try {} catch (e) { var a; } }",
 				"CatchClause > BlockStatement",
 			);
@@ -1557,7 +1508,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'block' scope on the block of CatchClause in functions (ES2015)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { try {} catch (e) { let a; } }",
 				"CatchClause > BlockStatement",
 				2015,
@@ -1572,7 +1523,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on ForStatement in functions (ES5)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { for (var i = 0; i < 10; ++i) {} }",
 				"ForStatement",
 			);
@@ -1586,7 +1537,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'for' scope on ForStatement in functions (ES2015)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { for (let i = 0; i < 10; ++i) {} }",
 				"ForStatement",
 				2015,
@@ -1601,7 +1552,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on the block body of ForStatement in functions (ES5)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { for (var i = 0; i < 10; ++i) {} }",
 				"ForStatement > BlockStatement",
 			);
@@ -1615,7 +1566,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'block' scope on the block body of ForStatement in functions (ES2015)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { for (let i = 0; i < 10; ++i) {} }",
 				"ForStatement > BlockStatement",
 				2015,
@@ -1635,7 +1586,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on ForInStatement in functions (ES5)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { for (var key in obj) {} }",
 				"ForInStatement",
 			);
@@ -1649,7 +1600,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'for' scope on ForInStatement in functions (ES2015)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { for (let key in obj) {} }",
 				"ForInStatement",
 				2015,
@@ -1664,7 +1615,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on the block body of ForInStatement in functions (ES5)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { for (var key in obj) {} }",
 				"ForInStatement > BlockStatement",
 			);
@@ -1678,7 +1629,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'block' scope on the block body of ForInStatement in functions (ES2015)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { for (let key in obj) {} }",
 				"ForInStatement > BlockStatement",
 				2015,
@@ -1698,7 +1649,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'for' scope on ForOfStatement in functions (ES2015)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { for (let x of xs) {} }",
 				"ForOfStatement",
 				2015,
@@ -1713,7 +1664,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'block' scope on the block body of ForOfStatement in functions (ES2015)", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"function f() { for (let x of xs) {} }",
 				"ForOfStatement > BlockStatement",
 				2015,
@@ -1733,7 +1684,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should shadow the same name variable by the iteration variable.", () => {
-			const { node, scope } = getScopeFromCode(
+			const { node, scope } = getScopeForNode(
 				"let x; for (let x of x) {}",
 				"ForOfStatement",
 				2015,
@@ -4804,4 +4755,3 @@ describe("SourceCode", () => {
 		});
 	});
 });
-```

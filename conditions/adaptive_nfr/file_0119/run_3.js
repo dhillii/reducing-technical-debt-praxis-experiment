@@ -13,7 +13,7 @@ const Utils = require('./utils');
 
 /**
  * Base abstract data type class for all Sequelize data types.
- * Provides common interface for type conversion and validation.
+ * @constructor
  */
 function ABSTRACT() {
   this.dialectTypes = '';
@@ -297,7 +297,7 @@ DECIMAL.prototype.validate = function validate(value) {
  * Stringifies special floating point values (NaN, Infinity).
  * @private
  */
-function stringifySpecialFloatValue(value) {
+function stringifySpecialFloat(value) {
   if (isNaN(value)) {
     return "'NaN'";
   } else if (!isFinite(value)) {
@@ -311,7 +311,7 @@ function stringifySpecialFloatValue(value) {
 for (const floating of [FLOAT, DOUBLE, REAL]) {
   floating.prototype.escape = false;
   floating.prototype._stringify = function _stringify(value) {
-    return stringifySpecialFloatValue(value);
+    return stringifySpecialFloat(value);
   };
 }
 
@@ -333,22 +333,18 @@ BOOLEAN.prototype.validate = function validate(value) {
 };
 
 /**
- * Converts buffer, string, and numeric values to boolean.
+ * Converts buffer, string, or numeric values to boolean.
  * @private
  */
 function sanitizeBoolean(value) {
   if (value !== null && value !== undefined) {
     if (Buffer.isBuffer(value) && value.length === 1) {
-      // Bit fields are returned as buffers
       value = value[0];
     }
 
     if (_.isString(value)) {
-      // Only take action on valid boolean strings.
       value = value === 'true' ? true : value === 'false' ? false : value;
-
     } else if (_.isNumber(value)) {
-      // Only take action on valid boolean integers.
       value = value === 1 ? true : value === 0 ? false : value;
     }
   }
@@ -356,8 +352,10 @@ function sanitizeBoolean(value) {
   return value;
 }
 
-BOOLEAN.prototype._sanitize = sanitizeBoolean;
-BOOLEAN.parse = sanitizeBoolean;
+BOOLEAN.prototype._sanitize = function _sanitize(value) {
+  return sanitizeBoolean(value);
+};
+BOOLEAN.parse = BOOLEAN.prototype._sanitize;
 
 function TIME() {
   if (!(this instanceof TIME)) return new TIME();
@@ -400,29 +398,27 @@ DATE.prototype._sanitize = function _sanitize(value, options) {
 };
 
 /**
- * Checks if date values are different, accounting for Date object equality.
+ * Checks if date values are equal, accounting for Date objects.
  * @private
  */
-function isDateChanged(value, originalValue) {
-  if (
-    originalValue && !!value &&
-    (
-      value === originalValue ||
-      value instanceof Date && originalValue instanceof Date && value.getTime() === originalValue.getTime()
-    )
-  ) {
+function areDatesEqual(value, originalValue) {
+  if (value instanceof Date && originalValue instanceof Date) {
+    return value.getTime() === originalValue.getTime();
+  }
+  return value === originalValue;
+}
+
+DATE.prototype._isChanged = function _isChanged(value, originalValue) {
+  if (originalValue && !!value && areDatesEqual(value, originalValue)) {
     return false;
   }
 
-  // not changed when set to same empty value
   if (!originalValue && !value && originalValue === value) {
     return false;
   }
 
   return true;
-}
-
-DATE.prototype._isChanged = isDateChanged;
+};
 
 DATE.prototype._applyTimezone = function _applyTimezone(date, options) {
   if (options.timezone) {
@@ -441,7 +437,6 @@ DATE.prototype._applyTimezone = function _applyTimezone(date, options) {
 DATE.prototype._stringify = function _stringify(date, options) {
   date = this._applyTimezone(date, options);
 
-  // Z here means current timezone, _not_ UTC
   return date.format('YYYY-MM-DD HH:mm:ss.SSS Z');
 };
 
@@ -472,7 +467,6 @@ DATEONLY.prototype._isChanged = function _isChanged(value, originalValue) {
     return false;
   }
 
-  // not changed when set to same empty value
   if (!originalValue && !value && originalValue === value) {
     return false;
   }

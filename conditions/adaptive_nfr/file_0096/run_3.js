@@ -1,12 +1,3 @@
-```javascript
-/**
- * Copyright (C) 2015 Laverna project Authors.
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
- */
-/* global define */
 define([
     'underscore',
     'q',
@@ -81,8 +72,8 @@ define([
          * @type object
          */
         changeDatabase: function(options) {
-            const profile = options && options.profile ? options.profile : this.defaultDB;
-            const model = this.Collection.prototype.model.extend({
+            const profile  = options && options.profile ? options.profile : this.defaultDB;
+            const model  = this.Collection.prototype.model.extend({
                 profileId : profile
             });
 
@@ -125,8 +116,8 @@ define([
          * @type object new values
          */
         save: function(model, data) {
-            const self = this;
-            const setF = this._getSetterMethod(model);
+            const self   = this;
+            const setF   = this._getSetterMethod(model);
             const errors = model.validate(data);
 
             if (errors) {
@@ -173,8 +164,8 @@ define([
          */
         saveCollection: function(collection) {
             const promises = [];
-            const self = this;
-            collection = collection || this.collection;
+            const self     = this;
+            collection   = collection || this.collection;
 
             collection.each(function(model) {
                 model.attributes.updated = Date.now();
@@ -197,8 +188,8 @@ define([
          * @type object options
          */
         saveRaw: function(data, options) {
-            const self = this;
-            const model = new (this.changeDatabase(options)).prototype.model(data);
+            const self   = this;
+            const model  = new (this.changeDatabase(options)).prototype.model(data);
 
             return this.decryptModel(model)
             .then(function() {
@@ -226,7 +217,7 @@ define([
          */
         saveAllRaw: function(arData, options) {
             const promises = [];
-            const self = this;
+            const self     = this;
 
             _.each(arData, function(data) {
                 promises.push(function() {
@@ -238,7 +229,7 @@ define([
         },
 
         /**
-         * Normalize model identifier to model ID.
+         * Normalize model identifier to string ID.
          * @param {object|string} model - Backbone model or ID string
          * @return {string} model ID
          */
@@ -256,24 +247,24 @@ define([
 
             // Change model's attributes to default values (empty values)
             const modelId = this._normalizeModelId(model);
-            const modelInstance = new (this.changeDatabase(options)).prototype.model({id: modelId});
+            const removeModel = new (this.changeDatabase(options)).prototype.model({id: modelId});
 
-            modelInstance.set({'trash': 2, updated: Date.now()});
+            removeModel.set({'trash': 2, updated: Date.now()});
 
-            return this.save(modelInstance, modelInstance.attributes)
+            return this.save(removeModel, removeModel.attributes)
             .then(function() {
-                self.vent.trigger('destroy:model', modelInstance);
+                self.vent.trigger('destroy:model', removeModel);
             });
         },
 
         /**
          * Check if model should be fetched from database.
-         * @param {object} options - fetch options
-         * @param {string} idAttr - ID attribute name
+         * @param {object} options - request options
+         * @param {object} model - model instance
          * @return {boolean} true if fetch is needed
          */
-        _shouldFetchModel: function(options, idAttr) {
-            return options[idAttr] && options[idAttr] !== '0';
+        _shouldFetchModel: function(options, model) {
+            return options[model.idAttribute] && options[model.idAttribute] !== '0';
         },
 
         /**
@@ -289,30 +280,18 @@ define([
         },
 
         /**
-         * Handle model fetch error.
-         * @param {*} error - error object or message
-         * @return {null|Promise} null if not found, otherwise throws error
-         */
-        _handleModelFetchError: function(error) {
-            if (typeof error === 'string' && error.search('not found') > -1) {
-                return null;
-            }
-            throw new Error(error);
-        },
-
-        /**
          * Find a model by id.
          * @type object options
          */
         getModel: function(options) {
-            const Model = (this.changeDatabase(options)).prototype.model;
+            const Model  = (this.changeDatabase(options)).prototype.model;
             const idAttr = Model.prototype.idAttribute;
-            const data = {};
+            const data   = {};
             data[idAttr] = options[idAttr];
-            const model = new Model(data);
+            const model        = new Model(data);
 
             // If id was not provided, return a model with default values
-            if (!this._shouldFetchModel(options, idAttr)) {
+            if (!this._shouldFetchModel(options, model)) {
                 model.set(idAttr, undefined);
                 return new Q(model);
             }
@@ -329,31 +308,33 @@ define([
                 return self.decryptModel(model)
                 .thenResolve(model);
             })
-            .fail((error) => this._handleModelFetchError(error));
+            .fail(function(e) {
+                if (typeof e === 'string' && e.search('not found') > -1) {
+                    return null;
+                }
+                throw new Error(e);
+            });
         },
 
         /**
-         * Apply filter conditions to options.
+         * Apply filter conditions to options if filter is specified.
          * @param {object} options - fetch options
          */
         _applyFilterConditions: function(options) {
-            if (!options.filter) {
-                return;
+            if (options.filter) {
+                const cond = this.Collection.prototype.conditions[options.filter];
+                options.conditions = (typeof cond === 'function' ? cond(options) : cond);
             }
-
-            const cond = this.Collection.prototype.conditions[options.filter];
-            options.conditions = (typeof cond === 'function' ? cond(options) : cond);
         },
 
         /**
-         * Register collection events and listeners.
+         * Register collection event handlers.
          * @param {object} collection - Backbone collection
          */
-        _registerCollectionListeners: function(collection) {
+        _registerCollectionEvents: function(collection) {
             if (collection.registerEvents) {
                 collection.registerEvents();
             }
-
             this.listenTo(collection, 'reset:all', this.onReset);
         },
 
@@ -375,40 +356,10 @@ define([
                 self.collection.conditionCurrent = options.conditions;
 
                 // Register events
-                self._registerCollectionListeners(self.collection);
+                self._registerCollectionEvents(collection);
 
                 return self.collection;
             });
-        },
-
-        /**
-         * Check if decryption is needed for collection.
-         * @param {object} options - fetch options
-         * @return {boolean} true if decryption should be skipped
-         */
-        _shouldSkipDecryption: function(options) {
-            return options.encrypt;
-        },
-
-        /**
-         * Decrypt and finalize collection fetch.
-         * @param {object} collection - Backbone collection
-         * @param {object} options - fetch options
-         * @return {Promise}
-         */
-        _decryptAndFinalizeFetch: function(collection, options) {
-            const self = this;
-
-            if (this._shouldSkipDecryption(options)) {
-                return new Q(collection);
-            }
-
-            return self.decryptModels(collection.fullCollection || collection)
-            .then(function() {
-                collection.trigger('decrypted');
-                return;
-            })
-            .thenResolve(collection);
         },
 
         /**
@@ -417,42 +368,42 @@ define([
          */
         fetch: function(options) {
             const collection = new (this.changeDatabase(options))();
-            const self = this;
+            const self       = this;
 
             return new Q(collection.fetch(options))
             .then(function() {
-                return self._decryptAndFinalizeFetch(collection, options);
+
+                // Return in decrypted format
+                if (!options.encrypt) {
+                    return self.decryptModels(collection.fullCollection || collection)
+                    .then(function() {
+                        collection.trigger('decrypted');
+                        return;
+                    })
+                    .thenResolve(collection);
+                }
+
+                return collection;
             });
         },
 
         /**
          * Check if encryption is disabled for this collection.
-         * @param {object} model - model prototype
+         * @param {object} model - model instance
          * @return {boolean} true if encryption is disabled
          */
-        _isEncryptionDisabledForStore: function() {
+        _isEncryptionDisabled: function(model) {
             return this.Collection.prototype.storeName === 'configs';
         },
 
         /**
-         * Get encryption configuration.
-         * @return {object} encryption config
+         * Check if encryption is enabled in configuration.
+         * @param {object} configs - configuration object
+         * @return {boolean} true if encryption is enabled
          */
-        _getEncryptionConfig: function() {
-            const configs = Radio.request('configs', 'get:object');
-            return {
-                encrypt: configs.encrypt,
-                backupEncrypt: configs.encryptBackup.encrypt || 0
-            };
-        },
-
-        /**
-         * Check if model has encryption keys defined.
-         * @param {object} model - model prototype
-         * @return {boolean} true if encryption keys exist
-         */
-        _hasEncryptionKeys: function(model) {
-            return !_.isUndefined(model.encryptKeys);
+        _isEncryptionEnabledInConfig: function(configs) {
+            const backup  = {encrypt: configs.encryptBackup.encrypt || 0};
+            return (Number(configs.encrypt) || Number(backup.encrypt)) === 1;
         },
 
         /**
@@ -460,16 +411,16 @@ define([
          */
         _isEncryptEnabled: function(model) {
             // Don't use encryption on configs
-            if (this._isEncryptionDisabledForStore()) {
+            if (this._isEncryptionDisabled(model)) {
                 return false;
             }
 
-            const config = this._getEncryptionConfig();
-            model = model || this.Collection.prototype.model.prototype;
+            const configs = Radio.request('configs', 'get:object');
+            model       = model || this.Collection.prototype.model.prototype;
 
             return (
-                this._hasEncryptionKeys(model) &&
-                (Number(config.encrypt) || Number(config.backupEncrypt)) === 1
+                !_.isUndefined(model.encryptKeys) &&
+                this._isEncryptionEnabledInConfig(configs)
             );
         },
 
@@ -514,4 +465,3 @@ define([
 
     return Module;
 });
-```

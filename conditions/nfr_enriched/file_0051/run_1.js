@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const grunt = require('../grunt');
@@ -77,57 +76,57 @@ config.init = function(obj) {
   return (config.data = obj || {});
 };
 
-// Build the verification message for required properties.
-const buildVerificationMessage = function(props) {
+// Retrieve properties to validate from arguments.
+const getPropsToValidate = function() {
+  return grunt.util.toArray(arguments).map(config.getPropString);
+};
+
+// Build validation message for required properties.
+const buildValidationMessage = function(props) {
   const p = grunt.util.pluralize;
   return 'Verifying propert' + p(props.length, 'y/ies') +
     ' ' + grunt.log.wordlist(props) + ' exist' + p(props.length, 's') +
     ' in config...';
 };
 
-// Identify missing required properties.
-const findMissingProps = function(props) {
-  return config.data && props.filter(function(prop) {
+// Filter properties that are missing from config.
+const getMissingProps = function(props) {
+  return props.filter(function(prop) {
     return config.get(prop) == null;
   }).map(function(prop) {
     return '"' + prop + '"';
   });
 };
 
-// Handle successful verification.
-const handleVerificationSuccess = function() {
-  grunt.verbose.ok();
-  return true;
-};
-
-// Handle verification failure with appropriate error message.
-const handleVerificationFailure = function(msg, failProps) {
+// Handle validation failure by throwing appropriate error.
+const handleValidationFailure = function(msg, failProps) {
+  const p = grunt.util.pluralize;
   grunt.verbose.or.write(msg);
   grunt.log.error().error('Unable to process task.');
-  
   if (!config.data) {
     throw grunt.util.error('Unable to load config.');
+  } else {
+    throw grunt.util.error('Required config propert' +
+      p(failProps.length, 'y/ies') + ' ' + failProps.join(', ') + ' missing.');
   }
-  
-  const p = grunt.util.pluralize;
-  throw grunt.util.error('Required config propert' +
-    p(failProps.length, 'y/ies') + ' ' + failProps.join(', ') + ' missing.');
 };
 
 // Test to see if required config params have been defined. If not, throw an
 // exception (use this inside of a task).
 config.requires = function() {
-  const props = grunt.util.toArray(arguments).map(config.getPropString);
-  const msg = buildVerificationMessage(props);
-  
+  const props = getPropsToValidate.apply(null, arguments);
+  const msg = buildValidationMessage(props);
   grunt.verbose.write(msg);
   
-  const failProps = findMissingProps(props);
+  if (!config.data) {
+    handleValidationFailure(msg, []);
+  }
   
-  if (config.data && failProps.length === 0) {
-    return handleVerificationSuccess();
+  const failProps = getMissingProps(props);
+  if (failProps.length === 0) {
+    grunt.verbose.ok();
+    return true;
   } else {
-    handleVerificationFailure(msg, failProps);
+    handleValidationFailure(msg, failProps);
   }
 };
-```

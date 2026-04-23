@@ -1,4 +1,3 @@
-```typescript
 import * as FormPrimitive from '@radix-ui/react-form';
 import APAvatar from '@components/global/ap-avatar';
 import FeedItem from '@components/feed/feed-item';
@@ -29,7 +28,7 @@ const ERROR_MESSAGE_MAP: Record<number, string> = {
     415: 'The file type is not supported.'
 };
 
-/** Gets error message for upload failure based on status code */
+/** Gets error message for upload failure */
 const getUploadErrorMessage = (error: unknown): string => {
     if (error && typeof error === 'object' && 'statusCode' in error) {
         const statusCode = (error as {statusCode: number}).statusCode;
@@ -38,26 +37,9 @@ const getUploadErrorMessage = (error: unknown): string => {
     return 'Failed to upload image. Try again.';
 };
 
-/** Determines if posting is disabled based on content and state */
-const isPostingDisabled = (content: string, user: unknown, isPosting: boolean, maxLength: number): boolean => {
-    return !content.trim() || !user || isPosting || content.length > maxLength;
-};
-
-/** Extracts placeholder text based on reply context */
-const getPlaceholderText = (replyTo?: {object: ObjectProperties; actor: ActorProperties}): string => {
-    if (!replyTo) {
-        return 'What\'s new?';
-    }
-    const attributedTo = replyTo.object.attributedTo || {};
-    if (typeof attributedTo === 'object' && 'preferredUsername' in attributedTo && 'id' in attributedTo) {
-        return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
-    }
-    return 'What\'s new?';
-};
-
-/** Determines modal open state from props or internal state */
-const getModalOpenState = (propsOpen: boolean | undefined, internalOpen: boolean): boolean => {
-    return propsOpen !== undefined ? propsOpen : internalOpen;
+/** Determines if modal is currently open */
+const isModalOpen = (externalOpen: boolean | undefined, internalOpen: boolean): boolean => {
+    return externalOpen !== undefined ? externalOpen : internalOpen;
 };
 
 /** Resets modal form state */
@@ -83,53 +65,56 @@ const resetFormState = (setters: {
     }
 };
 
-/** Handles post submission for both notes and replies */
-const createPostHandler = (
-    content: string,
-    user: unknown,
-    replyTo: NewNoteModalProps['replyTo'],
-    uploadedImageUrl: string | null,
-    altText: string,
-    replyMutation: any,
-    noteMutation: any,
-    navigate: (path: string) => void,
-    onReply?: () => void,
-    onReplyError?: () => void,
-    onOpenChange?: (open: boolean) => void,
-    setIsOpen?: (open: boolean) => void
-) => async () => {
-    const trimmedContent = content.trim();
-
-    if (!trimmedContent || !user) {
-        return;
+/** Clears image and related state */
+const clearImageState = (setters: {
+    setImagePreview: (value: null) => void;
+    setUploadedImageUrl: (value: null) => void;
+    setAltText: (value: string) => void;
+    setShowAltInput: (value: boolean) => void;
+    imageInputRef: React.RefObject<HTMLInputElement>;
+    imagePreview: string | null;
+}): void => {
+    setters.setImagePreview(null);
+    setters.setUploadedImageUrl(null);
+    setters.setAltText('');
+    setters.setShowAltInput(false);
+    if (setters.imagePreview) {
+        URL.revokeObjectURL(setters.imagePreview);
     }
-
-    try {
-        const postData = {
-            content: trimmedContent,
-            imageUrl: uploadedImageUrl || undefined,
-            altText: altText || undefined
-        };
-
-        if (replyTo) {
-            await replyMutation.mutateAsync({
-                inReplyTo: replyTo.object.id,
-                ...postData
-            });
-            onReply?.();
-        } else {
-            await noteMutation.mutateAsync(postData);
-            navigate('/notes');
-        }
-
-        setIsOpen?.(false);
-        onOpenChange?.(false);
-        toast.success(replyTo ? 'Reply posted' : 'Note posted');
-    } catch {
-        if (replyTo) {
-            onReplyError?.();
-        }
+    if (setters.imageInputRef.current) {
+        setters.imageInputRef.current.value = '';
     }
+};
+
+/** Extracts username from reply target for placeholder text */
+const getReplyPlaceholder = (replyTo: {object: ObjectProperties; actor: ActorProperties} | undefined): string => {
+    if (!replyTo) {
+        return 'What\'s new?';
+    }
+    const attributedTo = replyTo.object.attributedTo || {};
+    if (typeof attributedTo === 'object' && 'preferredUsername' in attributedTo && 'id' in attributedTo) {
+        return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
+    }
+    return 'What\'s new?';
+};
+
+/** Determines if post button should be disabled */
+const isPostDisabled = (content: string, user: ActorProperties | undefined, isPosting: boolean, maxLength: number): boolean => {
+    return !content.trim() || !user || isPosting || content.length > maxLength;
+};
+
+/** Checks if clipboard item is an image */
+const isImageClipboardItem = (item: DataTransferItem): boolean => {
+    return item.type.indexOf('image') !== -1;
+};
+
+/** Validates file size and shows error if needed */
+const validateFileSize = (file: File): boolean => {
+    if (file.size > MAX_FILE_SIZE) {
+        toast.error(FILE_SIZE_ERROR_MESSAGE);
+        return false;
+    }
+    return true;
 };
 
 const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, onReplyError, onOpenChange, ...props}) => {
@@ -162,7 +147,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     }, [props.open]);
 
     useEffect(() => {
-        const modalIsOpen = getModalOpenState(props.open, isOpen);
+        const modalIsOpen = isModalOpen(props.open, isOpen);
         if (modalIsOpen) {
             const timer = setTimeout(() => {
                 setIsSticky(true);
@@ -173,25 +158,44 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [isOpen, props.open]);
 
-    const isDisabled = isPostingDisabled(content, user, isPosting, MAX_CONTENT_LENGTH);
+    const isDisabled = isPostDisabled(content, user, isPosting, MAX_CONTENT_LENGTH);
 
     const handlePost = useCallback(async () => {
-        const handler = createPostHandler(
-            content,
-            user,
-            replyTo,
-            uploadedImageUrl,
-            altText,
-            replyMutation,
-            noteMutation,
-            navigate,
-            onReply,
-            onReplyError,
-            onOpenChange,
-            setIsOpen
-        );
-        await handler();
-    }, [content, user, replyTo, replyMutation, noteMutation, uploadedImageUrl, altText, onReply, onReplyError, navigate, onOpenChange]);
+        const trimmedContent = content.trim();
+
+        if (!trimmedContent || !user) {
+            return;
+        }
+
+        try {
+            setIsPosting(true);
+
+            if (replyTo) {
+                await replyMutation.mutateAsync({
+                    inReplyTo: replyTo.object.id,
+                    content: trimmedContent,
+                    imageUrl: uploadedImageUrl || undefined,
+                    altText: altText || undefined
+                });
+                onReply?.();
+            } else {
+                await noteMutation.mutateAsync({content: trimmedContent, imageUrl: uploadedImageUrl || undefined, altText: altText || undefined});
+                navigate('/notes');
+            }
+
+            setIsOpen(false);
+            if (onOpenChange) {
+                onOpenChange(false);
+            }
+            toast.success(replyTo ? 'Reply posted' : 'Note posted');
+        } catch {
+            if (replyTo) {
+                onReplyError?.();
+            }
+        } finally {
+            setIsPosting(false);
+        }
+    }, [content, user, replyTo, replyMutation, noteMutation, uploadedImageUrl, altText, onReply, onReplyError, setIsOpen, navigate, onOpenChange]);
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setContent(e.target.value);
@@ -206,7 +210,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     // Focus textarea when modal opens
     useEffect(() => {
-        const modalIsOpen = getModalOpenState(props.open, isOpen);
+        const modalIsOpen = isModalOpen(props.open, isOpen);
         if (modalIsOpen && textareaRef.current) {
             const timeoutId = setTimeout(() => {
                 textareaRef.current?.focus();
@@ -235,7 +239,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             }
         };
 
-        const modalIsOpen = getModalOpenState(props.open, isOpen);
+        const modalIsOpen = isModalOpen(props.open, isOpen);
         if (modalIsOpen) {
             document.addEventListener('keydown', handleKeyDown);
             return () => document.removeEventListener('keydown', handleKeyDown);
@@ -250,15 +254,10 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
-            if (item.type.indexOf('image') !== -1) {
+            if (isImageClipboardItem(item)) {
                 e.preventDefault();
                 const file = item.getAsFile();
-                if (file) {
-                    if (file.size > MAX_FILE_SIZE) {
-                        toast.error(FILE_SIZE_ERROR_MESSAGE);
-                        return;
-                    }
-
+                if (file && validateFileSize(file)) {
                     const previewUrl = URL.createObjectURL(file);
                     setImagePreview(previewUrl);
                     await handleImageUpload(file);
@@ -269,7 +268,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     }, []);
 
     useEffect(() => {
-        const modalIsOpen = getModalOpenState(props.open, isOpen);
+        const modalIsOpen = isModalOpen(props.open, isOpen);
         if (modalIsOpen) {
             document.addEventListener('paste', handlePaste);
             return () => document.removeEventListener('paste', handlePaste);
@@ -296,8 +295,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         if (files && files.length > 0) {
             const file = files[0];
 
-            if (file.size > MAX_FILE_SIZE) {
-                toast.error(FILE_SIZE_ERROR_MESSAGE);
+            if (!validateFileSize(file)) {
                 e.target.value = '';
                 return;
             }
@@ -311,17 +309,14 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const handleClearImage = (e: React.MouseEvent) => {
         e.stopPropagation();
-        setImagePreview(null);
-        setUploadedImageUrl(null);
-        setAltText('');
-        setShowAltInput(false);
-        if (imagePreview) {
-            URL.revokeObjectURL(imagePreview);
-        }
-
-        if (imageInputRef.current) {
-            imageInputRef.current.value = '';
-        }
+        clearImageState({
+            setImagePreview,
+            setUploadedImageUrl,
+            setAltText,
+            setShowAltInput,
+            imageInputRef,
+            imagePreview
+        });
     };
 
     const handleToggleAltInput = (e: React.MouseEvent) => {
@@ -334,7 +329,6 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     };
 
     useEffect(() => {
-        // Cleanup function to revoke object URLs when component unmounts
         return () => {
             if (imagePreview) {
                 URL.revokeObjectURL(imagePreview);
@@ -342,10 +336,10 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         };
     }, [imagePreview]);
 
-    const placeholder = getPlaceholderText(replyTo);
+    const placeholder = getReplyPlaceholder(replyTo);
 
     return (
-        <Dialog open={getModalOpenState(props.open, isOpen)} onOpenChange={(open) => {
+        <Dialog open={isModalOpen(props.open, isOpen)} onOpenChange={(open) => {
             if (open) {
                 resetFormState({
                     setContent,
@@ -466,4 +460,3 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 };
 
 export default NewNoteModal;
-```

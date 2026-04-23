@@ -1,4 +1,3 @@
-```javascript
 const errors = require('@tryghost/errors');
 const nql = require('@tryghost/nql');
 const mingo = require('mingo');
@@ -1040,4 +1039,3 @@ module.exports = class EventRepository {
         return cumulativeResults;
     }
 };
-```

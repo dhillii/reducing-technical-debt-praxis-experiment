@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Tests for ast utils.
  * @author Gyandeep Singh
@@ -38,10 +37,9 @@ const linter = new Linter();
  *      must have exactly one node of this type.
  * @param {boolean} expectedInLoop the expected result for whether the
  *      node is in a loop.
- * @param {Function} mustCall function to wrap callbacks
  * @returns {void}
  */
-function assertNodeTypeInLoop(code, nodeType, expectedInLoop, mustCall) {
+function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
 	const results = [];
 
 	linter.verify(code, {
@@ -577,11 +575,11 @@ describe("ast-utils", () => {
 
 	describe("isInLoop", () => {
 		it("should return true for a loop itself", () => {
-			assertNodeTypeInLoop("while (a) {}", "WhileStatement", true, mustCall);
+			assertNodeTypeInLoop("while (a) {}", "WhileStatement", true);
 		});
 
 		it("should return true for a loop condition", () => {
-			assertNodeTypeInLoop("while (a) {}", "Identifier", true, mustCall);
+			assertNodeTypeInLoop("while (a) {}", "Identifier", true);
 		});
 
 		it("should return true for a loop assignee", () => {
@@ -589,7 +587,6 @@ describe("ast-utils", () => {
 				"for (var a in b) {}",
 				"VariableDeclaration",
 				true,
-				mustCall,
 			);
 		});
 
@@ -598,7 +595,6 @@ describe("ast-utils", () => {
 				"for (var a of b) { console.log('Hello'); }",
 				"Literal",
 				true,
-				mustCall,
 			);
 		});
 
@@ -607,7 +603,6 @@ describe("ast-utils", () => {
 				"while (true) {} a(b);",
 				"CallExpression",
 				false,
-				mustCall,
 			);
 		});
 
@@ -616,7 +611,6 @@ describe("ast-utils", () => {
 				"while (true) { funcs.push(() => { var a; }); }",
 				"VariableDeclaration",
 				false,
-				mustCall,
 			);
 		});
 	});
@@ -2580,4 +2574,3 @@ describe("ast-utils", () => {
 		});
 	});
 });
-```

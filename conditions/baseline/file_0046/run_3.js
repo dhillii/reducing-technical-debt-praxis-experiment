@@ -1,4 +1,3 @@
-```javascript
 // @ts-ignore
 const {VersionMismatchError} = require('@tryghost/errors');
 // @ts-ignore
@@ -132,8 +131,8 @@ module.exports = class StripeAPI {
         this._config = config;
         this._testMode = config.secretKey && config.secretKey.startsWith('sk_test_');
         
-        const rateLimitCapacity = this._testMode ? TEST_MODE_RATE_LIMIT : LIVE_MODE_RATE_LIMIT;
-        this._rateLimitBucket = new LeakyBucket(EXPECTED_API_EFFICIENCY * rateLimitCapacity, 1);
+        const rateLimitCapacity = this._testMode ? EXPECTED_API_EFFICIENCY * TEST_MODE_RATE_LIMIT : EXPECTED_API_EFFICIENCY * LIVE_MODE_RATE_LIMIT;
+        this._rateLimitBucket = new LeakyBucket(rateLimitCapacity, 1);
         this._searchRateLimitBucket = new LeakyBucket(EXPECTED_SEARCH_API_EFFICIENCY * SEARCH_MODE_RATE_LIMIT, 1);
         this._configured = true;
     }
@@ -368,7 +367,7 @@ module.exports = class StripeAPI {
      * @returns {number} Unix timestamp
      */
     _getLatestSubscriptionTime(customer) {
-        if (!customer.subscriptions?.data?.length) {
+        if (!customer.subscriptions || !customer.subscriptions.data || customer.subscriptions.data.length === 0) {
             return 0;
         }
 
@@ -542,29 +541,13 @@ module.exports = class StripeAPI {
         const discounts = options.coupon ? [{coupon: options.coupon}] : undefined;
         const subscriptionData = this._buildSubscriptionData(metadata, priceId, options.trialDays);
 
-        const stripeSessionOptions = {
-            payment_method_types: this.PAYMENT_METHOD_TYPES,
-            success_url: options.successUrl || this._config.checkoutSessionSuccessUrl,
-            cancel_url: options.cancelUrl || this._config.checkoutSessionCancelUrl,
-            // @ts-ignore
-            allow_promotion_codes: discounts ? undefined : this._config.enablePromoCodes,
-            automatic_tax: {
-                enabled: this._config.enableAutomaticTax
-            },
-            metadata,
+        const stripeSessionOptions = this._buildCheckoutSessionOptions(
+            customerId,
+            customerEmail,
             discounts,
-            subscription_data: subscriptionData
-        };
-
-        if (customerId) {
-            stripeSessionOptions.customer = customerId;
-        } else {
-            stripeSessionOptions.customer_email = customerEmail;
-        }
-
-        if (customerId && this._config.enableAutomaticTax) {
-            stripeSessionOptions.customer_update = {address: 'auto'};
-        }
+            subscriptionData,
+            options
+        );
 
         // @ts-ignore
         const session = await this._stripe.checkout.sessions.create(stripeSessionOptions);
@@ -610,6 +593,44 @@ module.exports = class StripeAPI {
     }
 
     /**
+     * Build checkout session options.
+     * @private
+     * @param {string} customerId
+     * @param {string} customerEmail
+     * @param {object} discounts
+     * @param {object} subscriptionData
+     * @param {object} options
+     * @returns {object}
+     */
+    _buildCheckoutSessionOptions(customerId, customerEmail, discounts, subscriptionData, options) {
+        const stripeSessionOptions = {
+            payment_method_types: this.PAYMENT_METHOD_TYPES,
+            success_url: options.successUrl || this._config.checkoutSessionSuccessUrl,
+            cancel_url: options.cancelUrl || this._config.checkoutSessionCancelUrl,
+            // @ts-ignore
+            allow_promotion_codes: discounts ? undefined : this._config.enablePromoCodes,
+            automatic_tax: {
+                enabled: this._config.enableAutomaticTax
+            },
+            metadata: options.metadata,
+            discounts,
+            subscription_data: subscriptionData
+        };
+
+        if (customerId) {
+            stripeSessionOptions.customer = customerId;
+        } else {
+            stripeSessionOptions.customer_email = customerEmail;
+        }
+
+        if (customerId && this._config.enableAutomaticTax) {
+            stripeSessionOptions.customer_update = {address: 'auto'};
+        }
+
+        return stripeSessionOptions;
+    }
+
+    /**
      * Create a new Stripe Checkout Session for a donation.
      *
      * @param {object} options
@@ -626,6 +647,12 @@ module.exports = class StripeAPI {
     async createDonationCheckoutSession({priceId, successUrl, cancelUrl, metadata, customer, customerEmail, personalNote}) {
         await this._rateLimitBucket.throttle();
 
+        /**
+         * @type {Stripe.Checkout.SessionCreateParams}
+         */
+
+        // TODO - add it higher up the stack to the metadata object.
+        // add ghost_donation key to metadata object
         metadata = {
             ghost_donation: true,
             ...metadata
@@ -645,6 +672,7 @@ module.exports = class StripeAPI {
             invoice_creation: {
                 enabled: true,
                 invoice_data: {
+                    // Make sure we pass the data through to the invoice
                     metadata: {
                         ghost_donation: true,
                         ...metadata
@@ -1039,4 +1067,3 @@ module.exports = class StripeAPI {
         return await this._stripe.billingPortal.configurations.update(id, options);
     }
 };
-```

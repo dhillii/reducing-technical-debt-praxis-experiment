@@ -1,10 +1,3 @@
-```javascript
-"use strict";
-
-//------------------------------------------------------------------------------
-// Requirements
-//------------------------------------------------------------------------------
-
 const path = require("node:path"),
 	eslintScope = require("eslint-scope"),
 	evk = require("eslint-visitor-keys"),
@@ -42,10 +35,6 @@ const { Config } = require("../config/config");
 const { WarningService } = require("../services/warning-service");
 const { SourceCodeTraverser } = require("./source-code-traverser");
 const { FileReport, updateLocationInformation } = require("./file-report");
-
-//------------------------------------------------------------------------------
-// Typedefs
-//------------------------------------------------------------------------------
 
 /** @import { Language, LanguageOptions, RuleConfig, RuleDefinition } from "@eslint/core" */
 
@@ -141,7 +130,7 @@ const { FileReport, updateLocationInformation } = require("./file-report");
  * @property {Function} ruleFilter Rule filter function
  * @property {boolean} stats Whether to collect stats
  * @property {WeakMap} slots Internal slots map
- * @property {FileReport} report File report object
+ * @property {FileReport} report The file report
  */
 
 /**
@@ -150,46 +139,184 @@ const { FileReport, updateLocationInformation } = require("./file-report");
  * @property {SourceCode} sourceCode The source code
  * @property {FileReport} report The file report
  * @property {Object} mergedInlineConfig Merged inline config
- * @property {Object} options Normalized options
+ * @property {Object} normalizedOptions Normalized options
  */
 
 /**
- * @typedef {Object} DirectiveCreationContext
- * @property {string} type Directive type
- * @property {string} value Directive value
- * @property {string} justification Directive justification
- * @property {ASTNode|token} node The comment node
- * @property {function(string): {create: Function}} ruleMapper Rule mapper
- * @property {Language} language The language
+ * @typedef {Object} DisableDirectiveContext
  * @property {SourceCode} sourceCode The source code
+ * @property {function(string): RuleDefinition} ruleMapper Rule mapper
+ * @property {Language} language The language
  * @property {FileReport} report The file report
  */
 
-//------------------------------------------------------------------------------
-// Helpers
-//------------------------------------------------------------------------------
-
-/**
- * Wraps the value in an Array if it isn't already one.
- * @template T
- * @param {T|T[]} value Value to be wrapped.
- * @returns {Array} The value as an array.
- */
 function asArray(value) {
 	return Array.isArray(value) ? value : [value];
 }
 
 /**
- * Pushes a problem to inlineConfigProblems if ruleOptions are redundant.
- * @param {Config} config Provided config.
- * @param {Object} loc A line/column location
- * @param {FileReport} report Report that may be added to.
- * @param {string} ruleId The rule ID.
- * @param {Array} ruleOptions The rule options, merged with the config's.
- * @param {Array} ruleOptionsInline The rule options from the comment.
- * @param {"error"|"warn"} severity The severity to report.
+ * Validates and processes a single inline rule configuration
+ * @param {Object} context Inline config context
+ * @param {string} ruleId The rule ID
+ * @param {*} ruleValue The rule value from inline config
+ * @returns {boolean} Whether processing was successful
+ */
+function processInlineRuleConfig(context, ruleId, ruleValue) {
+	const { config, report, mergedInlineConfig, normalizedOptions } = context;
+	const rule = config.getRuleDefinition(ruleId);
+
+	if (!rule) {
+		report.addError({
+			ruleId,
+			loc: context.loc,
+		});
+		return false;
+	}
+
+	if (Object.hasOwn(mergedInlineConfig.rules, ruleId)) {
+		report.addError({
+			message: `Rule "${ruleId}" is already configured by another configuration comment in the preceding code. This configuration is ignored.`,
+			loc: context.loc,
+		});
+		return false;
+	}
+
+	try {
+		const ruleOptionsInline = asArray(ruleValue);
+		let ruleOptions = ruleOptionsInline;
+
+		assertIsRuleSeverity(ruleId, ruleOptions[0]);
+
+		let shouldValidateOptions = true;
+
+		if (
+			ruleOptions.length === 1 &&
+			config.rules &&
+			Object.hasOwn(config.rules, ruleId)
+		) {
+			ruleOptions = [
+				ruleOptions[0],
+				...config.rules[ruleId].slice(1),
+			];
+
+			if (config.rules[ruleId][0] > 0) {
+				shouldValidateOptions = false;
+			}
+		} else {
+			const slicedOptions = ruleOptions.slice(1);
+			const mergedOptions = deepMergeArrays(
+				rule.meta?.defaultOptions,
+				slicedOptions,
+			);
+
+			if (mergedOptions.length) {
+				ruleOptions = [
+					ruleOptions[0],
+					...mergedOptions,
+				];
+			}
+		}
+
+		if (normalizedOptions.reportUnusedInlineConfigs !== "off") {
+			addProblemIfSameSeverityAndOptions(
+				config,
+				context.loc,
+				report,
+				ruleId,
+				ruleOptions,
+				ruleOptionsInline,
+				normalizedOptions.reportUnusedInlineConfigs,
+			);
+		}
+
+		if (shouldValidateOptions) {
+			config.validateRulesConfig({
+				[ruleId]: ruleOptions,
+			});
+		}
+
+		mergedInlineConfig.rules[ruleId] = ruleOptions;
+		return true;
+	} catch (err) {
+		if (err.code === "ESLINT_INVALID_RULE_OPTIONS_SCHEMA") {
+			throw err;
+		}
+
+		let baseMessage = err.message
+			.slice(
+				err.message.startsWith('Key "rules":')
+					? err.message.indexOf(":", 12) + 1
+					: err.message.indexOf(":") + 1,
+			)
+			.trim();
+
+		if (err.messageTemplate) {
+			baseMessage += ` You passed "${ruleValue}".`;
+		}
+
+		report.addError({
+			ruleId,
+			message: `Inline configuration for rule "${ruleId}" is invalid:\n\t${baseMessage}\n`,
+			loc: context.loc,
+		});
+		return false;
+	}
+}
+
+/**
+ * Processes inline config from source code
+ * @param {InlineConfigContext} context The inline config context
+ * @param {SourceCode} sourceCode The source code
  * @returns {void}
  */
+function processInlineConfigs(context, sourceCode) {
+	const { config, report, mergedInlineConfig, normalizedOptions } = context;
+
+	const inlineConfigResult = sourceCode.applyInlineConfig?.();
+
+	if (!inlineConfigResult) {
+		return;
+	}
+
+	inlineConfigResult.problems.forEach(problem => {
+		report.addFatal(problem);
+	});
+
+	for (const { config: inlineConfig, loc } of inlineConfigResult.configs) {
+		Object.keys(inlineConfig.rules).forEach(ruleId => {
+			const ruleValue = inlineConfig.rules[ruleId];
+			processInlineRuleConfig(
+				{ ...context, loc },
+				ruleId,
+				ruleValue,
+			);
+		});
+	}
+}
+
+/**
+ * Handles inline config warnings
+ * @param {SourceCode} sourceCode The source code
+ * @param {FileReport} report The file report
+ * @param {string} warnInlineConfig Warning config message
+ * @returns {void}
+ */
+function handleInlineConfigWarnings(sourceCode, report, warnInlineConfig) {
+	if (!sourceCode.getInlineConfigNodes) {
+		return;
+	}
+
+	sourceCode.getInlineConfigNodes().forEach(node => {
+		const loc = sourceCode.getLoc(node);
+		const range = sourceCode.getRange(node);
+
+		report.addWarning({
+			message: `'${sourceCode.text.slice(range[0], range[1])}' has no effect because you have 'noInlineConfig' setting in ${warnInlineConfig}.`,
+			loc,
+		});
+	});
+}
+
 function addProblemIfSameSeverityAndOptions(
 	config,
 	loc,
@@ -250,11 +377,24 @@ function addProblemIfSameSeverityAndOptions(
 
 /**
  * Creates a collection of disable directives from a comment
- * @param {DirectiveCreationContext} context Context for directive creation
+ * @param {Object} options to create disable directives
+ * @param {("disable"|"enable"|"disable-line"|"disable-next-line")} options.type The type of directive comment
+ * @param {string} options.value The value after the directive in the comment
+ * @param {string} options.justification The justification of the directive
+ * @param {ASTNode|token} options.node The Comment node/token.
+ * @param {function(string): {create: Function}} ruleMapper A map from rule IDs to defined rules
+ * @param {Language} language The language to use to adjust the location information.
+ * @param {SourceCode} sourceCode The SourceCode object to get comments from.
+ * @param {FileReport} report The report to add problems to.
  * @returns {Object[]} Directives from the comment
  */
-function createDisableDirectives(context) {
-	const { type, value, justification, node, ruleMapper, language, sourceCode, report } = context;
+function createDisableDirectives(
+	{ type, value, justification, node },
+	ruleMapper,
+	language,
+	sourceCode,
+	report,
+) {
 	const ruleIds = Object.keys(commentParser.parseListConfig(value));
 	const directiveRules = ruleIds.length ? ruleIds : [null];
 	const directives = [];
@@ -303,19 +443,11 @@ function createDisableDirectives(context) {
 
 /**
  * Parses comments in file to extract disable directives.
- * @param {SourceCode} sourceCode The SourceCode object to get comments from.
- * @param {function(string): {create: Function}} ruleMapper A map from rule IDs to defined rules
- * @param {Language} language The language to use to adjust the location information
- * @param {FileReport} report The report to add problems to.
- * @returns {DisableDirective[]}
- * A collection of the directive comments that were found, along with any problems that occurred when parsing
+ * @param {DisableDirectiveContext} context The context for directive extraction
+ * @returns {DisableDirective[]} A collection of the directive comments that were found
  */
-function getDirectiveCommentsForFlatConfig(
-	sourceCode,
-	ruleMapper,
-	language,
-	report,
-) {
+function getDirectiveCommentsForFlatConfig(context) {
+	const { sourceCode, ruleMapper, language, report } = context;
 	const disableDirectives = [];
 
 	if (sourceCode.getDisableDirectives) {
@@ -327,16 +459,13 @@ function getDirectiveCommentsForFlatConfig(
 		}
 
 		directivesSources.forEach(directive => {
-			const directives = createDisableDirectives({
-				type: directive.type,
-				value: directive.value,
-				justification: directive.justification,
-				node: directive.node,
+			const directives = createDisableDirectives(
+				directive,
 				ruleMapper,
 				language,
 				sourceCode,
 				report,
-			});
+			);
 
 			disableDirectives.push(...directives);
 		});
@@ -347,13 +476,6 @@ function getDirectiveCommentsForFlatConfig(
 
 /**
  * Convert "/path/to/<text>" to "<text>".
- * `CLIEngine#executeOnText()` method gives "/path/to/<text>" if the filename
- * was omitted because `configArray.extractConfig()` requires an absolute path.
- * But the linter should pass `<text>` to `RuleContext#filename` in that
- * case.
- * Also, code blocks can have their virtual filename. If the parent filename was
- * `<text>`, the virtual filename is `<text>/0_foo.js` or something like (i.e.,
- * it's not an absolute path).
  * @param {string} filename The filename to normalize.
  * @returns {string} The normalized filename.
  */
@@ -524,75 +646,36 @@ function createRuleListeners(rule, ruleContext) {
 }
 
 /**
- * Adds a rule listener with error handling
- * @param {Function} ruleListener The rule listener function
- * @param {string} ruleId The rule ID
- * @param {boolean} stats Whether stats are enabled
- * @param {WeakMap} slots Internal slots
- * @returns {Function} Wrapped rule listener
+ * Creates rule context and listeners for a single rule
+ * @param {Object} ruleExecParams Parameters for rule execution
+ * @param {string} ruleExecParams.ruleId The rule ID
+ * @param {RuleDefinition} ruleExecParams.rule The rule definition
+ * @param {FileContext} ruleExecParams.fileContext The file context
+ * @param {Object} ruleExecParams.configuredRules The configured rules
+ * @param {boolean} ruleExecParams.applyDefaultOptions Whether to apply defaults
+ * @param {FileReport} ruleExecParams.report The file report
+ * @returns {Object|null} The rule listeners or null if rule is disabled
  */
-function createRuleErrorHandler(ruleListener, ruleId, stats, slots) {
-	return function ruleErrorHandler(...listenerArgs) {
-		try {
-			const ruleListenerReturn = ruleListener(...listenerArgs);
+function createRuleListenersForRule(ruleExecParams) {
+	const {
+		ruleId,
+		rule,
+		fileContext,
+		configuredRules,
+		applyDefaultOptions,
+		report,
+	} = ruleExecParams;
 
-			const ruleListenerResult = stats
-				? ruleListenerReturn.result
-				: ruleListenerReturn;
-
-			if (stats) {
-				storeTime(
-					ruleListenerReturn.tdiff,
-					{ type: "rules", key: ruleId },
-					slots,
-				);
-			}
-
-			return ruleListenerResult;
-		} catch (e) {
-			e.ruleId = ruleId;
-			throw e;
-		}
-	};
-}
-
-/**
- * Processes a single rule and adds its listeners to the visitor
- * @param {string} ruleId The rule ID
- * @param {Object} ruleConfig The rule configuration
- * @param {SourceCodeVisitor} visitor The visitor to add listeners to
- * @param {RuleExecutionContext} context The rule execution context
- * @returns {void}
- */
-function processRule(ruleId, ruleConfig, visitor, context) {
-	const { ruleMapper, stats, slots } = context;
-	const severity = Config.getRuleNumericSeverity(ruleConfig);
-
-	if (severity === 0) {
-		return;
-	}
-
-	if (context.ruleFilter && !context.ruleFilter({ ruleId, severity })) {
-		return;
-	}
-
-	const rule = ruleMapper(ruleId);
-
-	if (!rule) {
-		context.report.addError({ ruleId });
-		return;
-	}
-
-	const ruleContext = context.fileContext.extend({
+	const ruleContext = fileContext.extend({
 		id: ruleId,
 		options: getRuleOptions(
-			ruleConfig,
-			context.applyDefaultOptions ? rule.meta?.defaultOptions : void 0,
+			configuredRules[ruleId],
+			applyDefaultOptions ? rule.meta?.defaultOptions : void 0,
 		),
 		report(...args) {
-			const problem = context.report.addRuleMessage(
+			const problem = report.addRuleMessage(
 				ruleId,
-				severity,
+				Config.getRuleNumericSeverity(configuredRules[ruleId]),
 				...args,
 			);
 
@@ -622,31 +705,50 @@ function processRule(ruleId, ruleConfig, visitor, context) {
 		},
 	});
 
-	const ruleListenersReturn =
-		timing.enabled || stats
-			? timing.time(
-					ruleId,
-					createRuleListeners,
-					stats,
-				)(rule, ruleContext)
-			: createRuleListeners(rule, ruleContext);
+	return createRuleListeners(rule, ruleContext);
+}
 
-	const ruleListeners = stats
-		? ruleListenersReturn.result
-		: ruleListenersReturn;
+/**
+ * Adds rule listeners to the visitor
+ * @param {Object} listenerParams Parameters for adding listeners
+ * @param {string} listenerParams.ruleId The rule ID
+ * @param {Object} listenerParams.ruleListeners The rule listeners
+ * @param {SourceCodeVisitor} listenerParams.visitor The visitor
+ * @param {boolean} listenerParams.stats Whether stats are enabled
+ * @param {WeakMap} listenerParams.slots Internal slots
+ * @returns {void}
+ */
+function addRuleListenersToVisitor(listenerParams) {
+	const { ruleId, ruleListeners, visitor, stats, slots } = listenerParams;
 
-	if (stats) {
-		storeTime(
-			ruleListenersReturn.tdiff,
-			{ type: "rules", key: ruleId },
-			slots,
-		);
-	}
+	/**
+	 * Include `ruleId` in error logs
+	 * @param {Function} ruleListener A rule method that listens for a node.
+	 * @returns {Function} ruleListener wrapped in error handler
+	 */
+	function addRuleErrorHandler(ruleListener) {
+		return function ruleErrorHandler(...listenerArgs) {
+			try {
+				const ruleListenerReturn = ruleListener(...listenerArgs);
 
-	if (typeof ruleListeners === "undefined" || ruleListeners === null) {
-		throw new Error(
-			`The create() function for rule '${ruleId}' did not return an object.`,
-		);
+				const ruleListenerResult = stats
+					? ruleListenerReturn.result
+					: ruleListenerReturn;
+
+				if (stats) {
+					storeTime(
+						ruleListenerReturn.tdiff,
+						{ type: "rules", key: ruleId },
+						slots,
+					);
+				}
+
+				return ruleListenerResult;
+			} catch (e) {
+				e.ruleId = ruleId;
+				throw e;
+			}
+		};
 	}
 
 	Object.keys(ruleListeners).forEach(selector => {
@@ -655,10 +757,7 @@ function processRule(ruleId, ruleConfig, visitor, context) {
 				? timing.time(ruleId, ruleListeners[selector], stats)
 				: ruleListeners[selector];
 
-		visitor.add(
-			selector,
-			createRuleErrorHandler(ruleListener, ruleId, stats, slots),
-		);
+		visitor.add(selector, addRuleErrorHandler(ruleListener));
 	});
 }
 
@@ -669,38 +768,109 @@ function processRule(ruleId, ruleConfig, visitor, context) {
  * @throws {Error} If traversal into a node fails.
  */
 function runRules(context) {
+	const {
+		sourceCode,
+		configuredRules,
+		ruleMapper,
+		language,
+		languageOptions,
+		settings,
+		filename,
+		applyDefaultOptions,
+		cwd,
+		physicalFilename,
+		ruleFilter,
+		stats,
+		slots,
+		report,
+	} = context;
+
 	const visitor = new SourceCodeVisitor();
 
 	const fileContext = new FileContext({
-		cwd: context.cwd,
-		filename: context.filename,
-		physicalFilename: context.physicalFilename || context.filename,
-		sourceCode: context.sourceCode,
-		languageOptions: context.languageOptions,
-		settings: context.settings,
+		cwd,
+		filename,
+		physicalFilename: physicalFilename || filename,
+		sourceCode,
+		languageOptions,
+		settings,
 	});
 
-	const steps = context.sourceCode.traverse();
+	const steps = sourceCode.traverse();
 
-	const ruleExecutionContext = {
-		...context,
-		fileContext,
-	};
+	Object.keys(configuredRules).forEach(ruleId => {
+		const severity = Config.getRuleNumericSeverity(configuredRules[ruleId]);
 
-	Object.keys(context.configuredRules).forEach(ruleId => {
-		processRule(
+		if (severity === 0) {
+			return;
+		}
+
+		if (ruleFilter && !ruleFilter({ ruleId, severity })) {
+			return;
+		}
+
+		const rule = ruleMapper(ruleId);
+
+		if (!rule) {
+			report.addError({ ruleId });
+			return;
+		}
+
+		const ruleListenersReturn =
+			timing.enabled || stats
+				? timing.time(
+						ruleId,
+						createRuleListenersForRule,
+						stats,
+					)({
+						ruleId,
+						rule,
+						fileContext,
+						configuredRules,
+						applyDefaultOptions,
+						report,
+					})
+				: createRuleListenersForRule({
+						ruleId,
+						rule,
+						fileContext,
+						configuredRules,
+						applyDefaultOptions,
+						report,
+					});
+
+		const ruleListeners = stats
+			? ruleListenersReturn.result
+			: ruleListenersReturn;
+
+		if (stats) {
+			storeTime(
+				ruleListenersReturn.tdiff,
+				{ type: "rules", key: ruleId },
+				slots,
+			);
+		}
+
+		if (typeof ruleListeners === "undefined" || ruleListeners === null) {
+			throw new Error(
+				`The create() function for rule '${ruleId}' did not return an object.`,
+			);
+		}
+
+		addRuleListenersToVisitor({
 			ruleId,
-			context.configuredRules[ruleId],
+			ruleListeners,
 			visitor,
-			ruleExecutionContext,
-		);
+			stats,
+			slots,
+		});
 	});
 
-	const traverser = SourceCodeTraverser.getInstance(context.language);
+	const traverser = SourceCodeTraverser.getInstance(language);
 
-	traverser.traverseSync(context.sourceCode, visitor, { steps });
+	traverser.traverseSync(sourceCode, visitor, { steps });
 
-	return context.report;
+	return report;
 }
 
 /**
@@ -736,124 +906,10 @@ function normalizeCwd(cwd) {
 }
 
 /**
- * Processes inline config for a rule
- * @param {string} ruleId The rule ID
- * @param {*} ruleValue The inline rule value
- * @param {InlineConfigContext} context The inline config context
- * @returns {boolean} Whether processing was successful
- */
-function processInlineConfigRule(ruleId, ruleValue, context) {
-	const { config, sourceCode, report, mergedInlineConfig, options } = context;
-	const rule = config.getRuleDefinition(ruleId);
-	const loc = context.loc;
-
-	if (!rule) {
-		report.addError({
-			ruleId,
-			loc,
-		});
-		return false;
-	}
-
-	if (Object.hasOwn(mergedInlineConfig.rules, ruleId)) {
-		report.addError({
-			message: `Rule "${ruleId}" is already configured by another configuration comment in the preceding code. This configuration is ignored.`,
-			loc,
-		});
-		return false;
-	}
-
-	try {
-		const ruleOptionsInline = asArray(ruleValue);
-		let ruleOptions = ruleOptionsInline;
-
-		assertIsRuleSeverity(ruleId, ruleOptions[0]);
-
-		let shouldValidateOptions = true;
-
-		if (
-			ruleOptions.length === 1 &&
-			config.rules &&
-			Object.hasOwn(config.rules, ruleId)
-		) {
-			ruleOptions = [
-				ruleOptions[0],
-				...config.rules[ruleId].slice(1),
-			];
-
-			if (config.rules[ruleId][0] > 0) {
-				shouldValidateOptions = false;
-			}
-		} else {
-			const slicedOptions = ruleOptions.slice(1);
-			const mergedOptions = deepMergeArrays(
-				rule.meta?.defaultOptions,
-				slicedOptions,
-			);
-
-			if (mergedOptions.length) {
-				ruleOptions = [
-					ruleOptions[0],
-					...mergedOptions,
-				];
-			}
-		}
-
-		if (options.reportUnusedInlineConfigs !== "off") {
-			addProblemIfSameSeverityAndOptions(
-				config,
-				loc,
-				report,
-				ruleId,
-				ruleOptions,
-				ruleOptionsInline,
-				options.reportUnusedInlineConfigs,
-			);
-		}
-
-		if (shouldValidateOptions) {
-			config.validateRulesConfig({
-				[ruleId]: ruleOptions,
-			});
-		}
-
-		mergedInlineConfig.rules[ruleId] = ruleOptions;
-		return true;
-	} catch (err) {
-		if (err.code === "ESLINT_INVALID_RULE_OPTIONS_SCHEMA") {
-			throw err;
-		}
-
-		let baseMessage = err.message
-			.slice(
-				err.message.startsWith('Key "rules":')
-					? err.message.indexOf(":", 12) + 1
-					: err.message.indexOf(":") + 1,
-			)
-			.trim();
-
-		if (err.messageTemplate) {
-			baseMessage += ` You passed "${ruleValue}".`;
-		}
-
-		report.addError({
-			ruleId,
-			message: `Inline configuration for rule "${ruleId}" is invalid:\n\t${baseMessage}\n`,
-			loc,
-		});
-		return false;
-	}
-}
-
-/**
  * The map to store private data.
  * @type {WeakMap<Linter, LinterInternalSlots>}
  */
 const internalSlotsMap = new WeakMap();
-
-//------------------------------------------------------------------------------
-// Public Interface
-//------------------------------------------------------------------------------
 
 /**
  * Object that is responsible for verifying JavaScript text
@@ -1146,52 +1202,32 @@ class Linter {
 
 		if (options.allowInlineConfig) {
 			if (options.warnInlineConfig) {
-				if (sourceCode.getInlineConfigNodes) {
-					sourceCode.getInlineConfigNodes().forEach(node => {
-						const loc = sourceCode.getLoc(node);
-						const range = sourceCode.getRange(node);
-
-						report.addWarning({
-							message: `'${sourceCode.text.slice(range[0], range[1])}' has no effect because you have 'noInlineConfig' setting in ${options.warnInlineConfig}.`,
-							loc,
-						});
-					});
-				}
+				handleInlineConfigWarnings(
+					sourceCode,
+					report,
+					options.warnInlineConfig,
+				);
 			} else {
-				const inlineConfigResult = sourceCode.applyInlineConfig?.();
-
-				if (inlineConfigResult) {
-					inlineConfigResult.problems.forEach(problem => {
-						report.addFatal(problem);
-					});
-
-					for (const {
-						config: inlineConfig,
-						loc,
-					} of inlineConfigResult.configs) {
-						Object.keys(inlineConfig.rules).forEach(ruleId => {
-							processInlineConfigRule(ruleId, inlineConfig.rules[ruleId], {
-								config,
-								sourceCode,
-								report,
-								mergedInlineConfig,
-								options,
-								loc,
-							});
-						});
-					}
-				}
+				processInlineConfigs(
+					{
+						config,
+						report,
+						mergedInlineConfig,
+						normalizedOptions: options,
+					},
+					sourceCode,
+				);
 			}
 		}
 
 		const commentDirectives =
 			options.allowInlineConfig && !options.warnInlineConfig
-				? getDirectiveCommentsForFlatConfig(
+				? getDirectiveCommentsForFlatConfig({
 						sourceCode,
-						ruleId => config.getRuleDefinition(ruleId),
-						config.language,
+						ruleMapper: ruleId => config.getRuleDefinition(ruleId),
+						language: config.language,
 						report,
-					)
+					})
 				: [];
 
 		const configuredRules = Object.assign(
@@ -1543,4 +1579,3 @@ class Linter {
 module.exports = {
 	Linter,
 };
-```

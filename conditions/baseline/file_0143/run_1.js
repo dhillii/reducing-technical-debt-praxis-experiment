@@ -1,4 +1,3 @@
-```javascript
 /*
 	MIT License http://www.opensource.org/licenses/mit-license.php
 	Author Tobias Koppers @sokra
@@ -239,73 +238,14 @@ class Compilation extends Tapable {
 				context: module.context,
 				dependencies: dependencies
 			}, function factoryCallback(err, dependentModule) {
-				let afterFactory;
-
-				function isOptional() {
-					return dependencies.filter(d => !d.optional).length === 0;
-				}
-
-				function errorOrWarningAndCallback(err) {
-					if(isOptional()) {
-						return warningAndCallback(err);
-					} else {
-						return errorAndCallback(err);
-					}
-				}
-
-				function iterationDependencies(depend) {
-					for(let index = 0; index < depend.length; index++) {
-						const dep = depend[index];
-						dep.module = dependentModule;
-						dependentModule.addReason(module, dep);
-					}
-				}
-
 				if(err) {
-					return errorOrWarningAndCallback(new ModuleNotFoundError(module, err, dependencies));
+					return _this.handleFactoryError(err, dependencies, module, bail, errorAndCallback, warningAndCallback);
 				}
 				if(!dependentModule) {
 					return process.nextTick(callback);
 				}
-				if(_this.profile) {
-					if(!dependentModule.profile) {
-						dependentModule.profile = {};
-					}
-					afterFactory = Date.now();
-					dependentModule.profile.factory = afterFactory - start;
-				}
 
-				dependentModule.issuer = module;
-				const newModule = _this.addModule(dependentModule, cacheGroup);
-
-				if(!newModule) { // from cache
-					return _this.handleCachedModule(dependentModule, module, dependencies, callback, start, isOptional);
-				}
-
-				if(newModule instanceof Module) {
-					return _this.handleNewModule(newModule, dependentModule, module, dependencies, callback, start, afterFactory, recursive, isOptional);
-				}
-
-				dependentModule.optional = isOptional();
-				iterationDependencies(dependencies);
-
-				_this.buildModule(dependentModule, isOptional(), module, dependencies, err => {
-					if(err) {
-						return errorOrWarningAndCallback(err);
-					}
-
-					if(_this.profile) {
-						const afterBuilding = Date.now();
-						dependentModule.profile.building = afterBuilding - afterFactory;
-					}
-
-					if(recursive) {
-						_this.processModuleDependencies(dependentModule, callback);
-					} else {
-						return callback();
-					}
-				});
-
+				_this.handleNewModule(dependentModule, module, dependencies, cacheGroup, recursive, callback, start);
 			});
 		}, function finalCallbackAddModuleDependencies(err) {
 			_this = null;
@@ -318,18 +258,46 @@ class Compilation extends Tapable {
 		});
 	}
 
-	handleCachedModule(dependentModule, module, dependencies, callback, start, isOptional) {
+	handleFactoryError(err, dependencies, module, bail, errorAndCallback, warningAndCallback) {
+		const isOptional = dependencies.filter(d => !d.optional).length === 0;
+		if(isOptional) {
+			return warningAndCallback(new ModuleNotFoundError(module, err, dependencies));
+		} else {
+			return errorAndCallback(new ModuleNotFoundError(module, err, dependencies));
+		}
+	}
+
+	handleNewModule(dependentModule, module, dependencies, cacheGroup, recursive, callback, start) {
+		if(this.profile) {
+			if(!dependentModule.profile) {
+				dependentModule.profile = {};
+			}
+			dependentModule.profile.factory = Date.now() - start;
+		}
+
+		dependentModule.issuer = module;
+		const newModule = this.addModule(dependentModule, cacheGroup);
+
+		if(!newModule) {
+			return this.handleCachedModule(dependentModule, module, dependencies, callback, start);
+		}
+
+		if(newModule instanceof Module) {
+			return this.handleNewModuleInstance(newModule, dependentModule, module, dependencies, recursive, callback, start);
+		}
+
+		return this.handleBuildModule(dependentModule, module, dependencies, recursive, callback, start);
+	}
+
+	handleCachedModule(dependentModule, module, dependencies, callback, start) {
 		dependentModule = this.getModule(dependentModule);
 
+		const isOptional = dependencies.filter(d => !d.optional).length === 0;
 		if(dependentModule.optional) {
-			dependentModule.optional = isOptional();
+			dependentModule.optional = isOptional;
 		}
 
-		for(let index = 0; index < dependencies.length; index++) {
-			const dep = dependencies[index];
-			dep.module = dependentModule;
-			dependentModule.addReason(module, dep);
-		}
+		this.iterationDependencies(dependencies, dependentModule);
 
 		if(this.profile) {
 			if(!module.profile) {
@@ -344,30 +312,66 @@ class Compilation extends Tapable {
 		return process.nextTick(callback);
 	}
 
-	handleNewModule(newModule, dependentModule, module, dependencies, callback, start, afterFactory, recursive, isOptional) {
+	handleNewModuleInstance(newModule, dependentModule, module, dependencies, recursive, callback, start) {
 		if(this.profile) {
 			newModule.profile = dependentModule.profile;
 		}
 
-		newModule.optional = isOptional();
+		const isOptional = dependencies.filter(d => !d.optional).length === 0;
+		newModule.optional = isOptional;
 		newModule.issuer = dependentModule.issuer;
-		dependentModule = newModule;
 
-		for(let index = 0; index < dependencies.length; index++) {
-			const dep = dependencies[index];
-			dep.module = dependentModule;
-			dependentModule.addReason(module, dep);
-		}
+		this.iterationDependencies(dependencies, newModule);
 
 		if(this.profile) {
 			const afterBuilding = Date.now();
-			module.profile.building = afterBuilding - afterFactory;
+			module.profile.building = afterBuilding - (newModule.profile.factory || 0);
 		}
 
 		if(recursive) {
-			return process.nextTick(this.processModuleDependencies.bind(this, dependentModule, callback));
+			return process.nextTick(this.processModuleDependencies.bind(this, newModule, callback));
 		} else {
 			return process.nextTick(callback);
+		}
+	}
+
+	handleBuildModule(dependentModule, module, dependencies, recursive, callback, start) {
+		const isOptional = dependencies.filter(d => !d.optional).length === 0;
+		dependentModule.optional = isOptional;
+
+		this.iterationDependencies(dependencies, dependentModule);
+
+		this.buildModule(dependentModule, isOptional, module, dependencies, err => {
+			if(err) {
+				const isOpt = dependencies.filter(d => !d.optional).length === 0;
+				if(isOpt) {
+					err.origin = module;
+					this.warnings.push(err);
+				} else {
+					err.origin = module;
+					this.errors.push(err);
+				}
+				return callback();
+			}
+
+			if(this.profile) {
+				const afterBuilding = Date.now();
+				dependentModule.profile.building = afterBuilding - (dependentModule.profile.factory || 0);
+			}
+
+			if(recursive) {
+				this.processModuleDependencies(dependentModule, callback);
+			} else {
+				return callback();
+			}
+		});
+	}
+
+	iterationDependencies(dependencies, dependentModule) {
+		for(let index = 0; index < dependencies.length; index++) {
+			const dep = dependencies[index];
+			dep.module = dependentModule;
+			dependentModule.addReason(this.module, dep);
 		}
 	}
 
@@ -1257,4 +1261,3 @@ class Compilation extends Tapable {
 }
 
 module.exports = Compilation;
-```

@@ -1,4 +1,3 @@
-```typescript
 import {memo, useCallback, useEffect, useRef, useState} from 'react';
 
 import APAvatar from '@src/components/global/ap-avatar';
@@ -31,9 +30,7 @@ type ProfileCardProps = {
     accentColor?: string
 }
 
-type BackgroundColorType = 'light' | 'dark' | 'accent';
-
-// Utility: Convert hex color to rgba format
+// Converts hex color to rgba format
 const hexToRgba = (hex: string, alpha: number) => {
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
@@ -41,8 +38,8 @@ const hexToRgba = (hex: string, alpha: number) => {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
-// Utility: Get background color based on theme
-const getBackgroundColorValue = (backgroundColor: BackgroundColorType, accentColor?: string): string => {
+// Determines background color based on selected theme
+const getBackgroundColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string): string => {
     switch (backgroundColor) {
     case 'light':
         return '#fff';
@@ -55,8 +52,8 @@ const getBackgroundColorValue = (backgroundColor: BackgroundColorType, accentCol
     }
 };
 
-// Utility: Get text color based on theme
-const getTextColorValue = (backgroundColor: BackgroundColorType): string => {
+// Determines text color based on selected theme
+const getTextColor = (backgroundColor: 'light' | 'dark' | 'accent'): string => {
     switch (backgroundColor) {
     case 'light':
         return '#15171a';
@@ -69,8 +66,8 @@ const getTextColorValue = (backgroundColor: BackgroundColorType): string => {
     }
 };
 
-// Utility: Get gradient background based on theme
-const getGradientBackground = (backgroundColor: BackgroundColorType, accentColor?: string): string => {
+// Determines gradient background based on selected theme
+const getGradient = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string): string => {
     switch (backgroundColor) {
     case 'light':
         return `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`;
@@ -83,8 +80,8 @@ const getGradientBackground = (backgroundColor: BackgroundColorType, accentColor
     }
 };
 
-// Utility: Get dots pattern color based on theme
-const getDotsPatternColorValue = (backgroundColor: BackgroundColorType): string => {
+// Determines dots pattern color based on selected theme
+const getDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent'): string => {
     switch (backgroundColor) {
     case 'light':
         return hexToRgba('#15171a', 0.025);
@@ -97,19 +94,19 @@ const getDotsPatternColorValue = (backgroundColor: BackgroundColorType): string 
     }
 };
 
-// Component: Banner section with image or gradient
+// Renders the banner section with image or gradient fallback
 const ProfileCardBanner = memo(({
     bannerImageSrc,
-    backgroundColor,
-    accentColor,
+    accountName,
     isScreenshot,
-    accountName
+    backgroundColor,
+    accentColor
 }: {
     bannerImageSrc?: string
-    backgroundColor: BackgroundColorType
-    accentColor?: string
-    isScreenshot: boolean
     accountName?: string
+    isScreenshot: boolean
+    backgroundColor: 'light' | 'dark' | 'accent'
+    accentColor?: string
 }) => {
     if (bannerImageSrc) {
         return (
@@ -132,19 +129,19 @@ const ProfileCardBanner = memo(({
 
 ProfileCardBanner.displayName = 'ProfileCardBanner';
 
-// Component: Avatar section
+// Renders the avatar section
 const ProfileCardAvatar = memo(({
     avatarImageSrc,
-    cardBackgroundColor,
     accountName,
+    siteTitle,
     accountHandle,
-    siteTitle
+    cardBackgroundColor
 }: {
     avatarImageSrc?: string
-    cardBackgroundColor: string
     accountName?: string
-    accountHandle?: string
     siteTitle?: string
+    accountHandle?: string
+    cardBackgroundColor: string
 }) => {
     if (!avatarImageSrc) {
         return null;
@@ -153,11 +150,15 @@ const ProfileCardAvatar = memo(({
     return (
         <div className='absolute bottom-0 left-1/2 -mb-8 -translate-x-1/2 rounded-full border-8 [&>div]:!size-16 [&_img]:!size-16' style={{borderColor: cardBackgroundColor}}>
             <APAvatar
-                author={{
-                    icon: {url: avatarImageSrc},
-                    name: accountName || siteTitle || '',
-                    handle: accountHandle
-                }}
+                author={
+                    {
+                        icon: {
+                            url: avatarImageSrc || ''
+                        },
+                        name: accountName || siteTitle || '',
+                        handle: accountHandle
+                    }
+                }
                 size='md'
             />
         </div>
@@ -166,18 +167,18 @@ const ProfileCardAvatar = memo(({
 
 ProfileCardAvatar.displayName = 'ProfileCardAvatar';
 
-// Component: Handle display with copy button
+// Renders the handle section with copy button
 const ProfileCardHandle = memo(({
     handle,
+    isScreenshot,
     backgroundColor,
     accentColor,
-    isScreenshot,
     onCopy
 }: {
     handle?: string
-    backgroundColor: BackgroundColorType
-    accentColor?: string
     isScreenshot: boolean
+    backgroundColor: 'light' | 'dark' | 'accent'
+    accentColor?: string
     onCopy: () => void
 }) => {
     const [copied, setCopied] = useState(false);
@@ -217,7 +218,7 @@ const ProfileCardHandle = memo(({
             className={`mt-auto flex max-h-[60px] min-h-12 w-full items-center justify-center break-all rounded-full border px-4 py-2 font-medium leading-7 ${isScreenshot && 'tracking-normal'}`}
             style={{
                 color: textColor,
-                borderColor,
+                borderColor: borderColor,
                 background: backgroundGradient
             }}
         >
@@ -244,32 +245,30 @@ const ProfileCardHandle = memo(({
 
 ProfileCardHandle.displayName = 'ProfileCardHandle';
 
-// Component: Profile card content
+// Renders the main content section of the profile card
 const ProfileCardContent = memo(({
     account,
     isLoading,
     backgroundColor,
     accentColor,
+    cardBackgroundColor,
+    textColor,
     isScreenshot,
-    hasAvatar
+    publicationIcon
 }: {
     account?: Account
     isLoading: boolean
-    backgroundColor: BackgroundColorType
+    backgroundColor: 'light' | 'dark' | 'accent'
     accentColor?: string
+    cardBackgroundColor: string
+    textColor: string
     isScreenshot: boolean
-    hasAvatar: boolean
+    publicationIcon?: string
 }) => {
-    const textColor = getTextColorValue(backgroundColor);
-
     return (
-        <div className={`flex grow flex-col items-center p-6 ${hasAvatar ? 'pt-9' : 'pt-3'} text-center`}>
-            <H2 className={`${isScreenshot && 'tracking-normal'}`} style={{color: textColor}}>
-                {!isLoading ? account?.name : <Skeleton className='w-32' />}
-            </H2>
-            <span className={`mt-1.5 leading-7 ${isScreenshot && 'tracking-normal'}`} style={{color: textColor}}>
-                {!isLoading ? 'Available on Ghost, Flipboard, Threads, Bluesky, Mastodon, or wherever you get your social web feeds.' : <Skeleton className='w-28' />}
-            </span>
+        <div className={`flex grow flex-col items-center p-6 ${(account?.avatarUrl || publicationIcon) ? 'pt-9' : 'pt-3'} text-center ${isScreenshot ? '' : ''}`}>
+            <H2 className={`${isScreenshot && 'tracking-normal'}`} style={{color: textColor}}>{!isLoading ? account?.name : <Skeleton className='w-32' />}</H2>
+            <span className={`mt-1.5 leading-7 ${isScreenshot && 'tracking-normal'}`} style={{color: textColor}}>{!isLoading ? 'Available on Ghost, Flipboard, Threads, Bluesky, Mastodon, or wherever you get your social web feeds.' : <Skeleton className='w-28' />}</span>
             <ProfileCardHandle
                 accentColor={accentColor}
                 backgroundColor={backgroundColor}
@@ -296,23 +295,24 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
     backgroundColor,
     accentColor
 }) => {
-    const cardBackgroundColor = getBackgroundColorValue(backgroundColor, accentColor);
+    const cardBackgroundColor = getBackgroundColor(backgroundColor, accentColor);
+    const textColor = getTextColor(backgroundColor);
     const margin = isScreenshot ? 'm-12' : 'm-16 max-sm:m-8';
     const borderClass = isScreenshot ? '' : 'shadow-xl';
+
     const cardWidth = format === 'square' ? 'w-[422px]' : 'w-[316px]';
     const cardHeight = 'h-[422px]';
 
     const bannerImageSrc = isScreenshot && bannerDataUrl ? bannerDataUrl : (account?.bannerImageUrl || coverImage);
     const avatarImageSrc = isScreenshot && avatarDataUrl ? avatarDataUrl : (account?.avatarUrl || publicationIcon);
-    const hasAvatar = !!(account?.avatarUrl || publicationIcon);
 
     return (
         <div className={`relative z-20 flex flex-col ${margin} ${cardWidth} ${cardHeight} rounded-[32px] ${borderClass}`} style={{backgroundColor: cardBackgroundColor}}>
             <div className='relative h-48 p-2'>
                 <ProfileCardBanner
                     accountName={account?.name}
-                    accentColor={accentColor}
                     backgroundColor={backgroundColor}
+                    accentColor={accentColor}
                     bannerImageSrc={bannerImageSrc}
                     isScreenshot={isScreenshot}
                 />
@@ -328,9 +328,11 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
                 account={account}
                 accentColor={accentColor}
                 backgroundColor={backgroundColor}
-                hasAvatar={hasAvatar}
+                cardBackgroundColor={cardBackgroundColor}
                 isLoading={isLoading}
                 isScreenshot={isScreenshot}
+                publicationIcon={publicationIcon}
+                textColor={textColor}
             />
         </div>
     );
@@ -338,33 +340,29 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
 
 ProfileCard.displayName = 'ProfileCard';
 
-// Component: Social sharing buttons
-const SocialShareButtons = memo(({shareText}: {shareText: string}) => {
-    return (
-        <div className='flex items-center gap-2'>
-            <a className='flex h-[34px] w-10 items-center justify-center rounded-sm bg-white px-3 shadow-xs hover:bg-gray-50 [&_svg]:size-4' href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`} rel="noopener noreferrer" target='_blank'>
-                <svg aria-hidden="true" viewBox="0 0 24 24"><path className="social-x_svg__x" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path></svg>
-            </a>
-            <a className='flex h-[34px] w-10 items-center justify-center rounded-sm bg-white px-3 shadow-xs hover:bg-gray-50 [&_svg]:size-4' href={`https://threads.net/intent/post?text=${encodeURIComponent(shareText)}`} rel="noopener noreferrer" target='_blank'>
-                <svg fill="none" viewBox="0 0 18 18"><g clipPath="url(#social-threads_svg__clip0_351_18008)"><path d="M13.033 8.38a5.924 5.924 0 00-.223-.102c-.13-2.418-1.452-3.802-3.67-3.816h-.03c-1.327 0-2.43.566-3.11 1.597l1.22.837c.507-.77 1.304-.934 1.89-.934h.02c.73.004 1.282.217 1.639.63.26.302.433.72.519 1.245a9.334 9.334 0 00-2.097-.101c-2.109.121-3.465 1.351-3.374 3.06.047.868.478 1.614 1.216 2.1.624.413 1.428.614 2.263.568 1.103-.06 1.969-.48 2.572-1.25.459-.585.749-1.342.877-2.296.526.317.915.735 1.13 1.236.366.854.387 2.255-.756 3.398-1.003 1.002-2.207 1.435-4.028 1.448-2.02-.015-3.547-.663-4.54-1.925-.93-1.182-1.41-2.89-1.428-5.075.018-2.185.498-3.893 1.428-5.075.993-1.262 2.52-1.91 4.54-1.925 2.034.015 3.588.666 4.62 1.934.505.622.886 1.405 1.137 2.317l1.43-.382c-.305-1.122-.784-2.09-1.436-2.892C13.52 1.35 11.587.517 9.096.5h-.01C6.6.517 4.689 1.354 3.404 2.986 2.262 4.44 1.672 6.46 1.652 8.994v.012c.02 2.534.61 4.555 1.752 6.008C4.69 16.646 6.6 17.483 9.086 17.5h.01c2.21-.015 3.768-.594 5.051-1.876 1.68-1.678 1.629-3.78 1.075-5.07-.397-.927-1.154-1.678-2.189-2.175zm-3.816 3.587c-.924.052-1.884-.363-1.932-1.252-.035-.659.47-1.394 1.99-1.482a8.9 8.9 0 01.512-.014c.552 0 1.068.053 1.538.156-.175 2.187-1.203 2.542-2.108 2.592z" fill="#000"></path></g><defs><clipPath id="social-threads_svg__clip0_351_18008"><path d="M0 0h17v17H0z" fill="#fff" transform="translate(.5 .5)"></path></clipPath></defs></svg>
-            </a>
-            <a className='flex h-[34px] w-10 items-center justify-center rounded-sm bg-white px-3 shadow-xs hover:bg-gray-50 [&_svg]:size-4' href={`https://www.facebook.com/sharer/sharer.php?u=`} rel="noopener noreferrer" target='_blank'>
-                <svg fill="none" viewBox="0 0 40 40"><title>social-facebook</title><path className="social-facebook_svg__fb" d="M20 40.004c11.046 0 20-8.955 20-20 0-11.046-8.954-20-20-20s-20 8.954-20 20c0 11.045 8.954 20 20 20z" fill="#1977f3"></path><path d="M27.785 25.785l.886-5.782h-5.546V16.25c0-1.58.773-3.125 3.26-3.125h2.522V8.204s-2.29-.39-4.477-.39c-4.568 0-7.555 2.767-7.555 7.781v4.408h-5.08v5.782h5.08v13.976a20.08 20.08 0 003.125.242c1.063 0 2.107-.085 3.125-.242V25.785h4.66z" fill="#fff"></path></svg>
-            </a>
-            <a className='flex h-[34px] w-10 items-center justify-center rounded-sm bg-white px-3 shadow-xs hover:bg-gray-50 [&_svg]:size-4' href={`http://www.linkedin.com/shareArticle?mini=true&title=${encodeURIComponent(shareText)}`} rel="noopener noreferrer" target='_blank'>
-                <svg fill="none" viewBox="0 0 16 16"><g clipPath="url(#social-linkedin_svg__clip0_537_833)"><path className="social-linkedin_svg__linkedin" clipRule="evenodd" d="M1.778 16h12.444c.982 0 1.778-.796 1.778-1.778V1.778C16 .796 15.204 0 14.222 0H1.778C.796 0 0 .796 0 1.778v12.444C0 15.204.796 16 1.778 16z" fill="#007ebb" fillRule="evenodd"></path><path clipRule="evenodd" d="M13.778 13.778h-2.374V9.734c0-1.109-.421-1.729-1.299-1.729-.955 0-1.453.645-1.453 1.729v4.044H6.363V6.074h2.289v1.038s.688-1.273 2.322-1.273c1.634 0 2.804.997 2.804 3.061v4.878zM3.634 5.065c-.78 0-1.411-.636-1.411-1.421s.631-1.422 1.41-1.422c.78 0 1.411.637 1.411 1.422 0 .785-.631 1.421-1.41 1.421zm-1.182 8.713h2.386V6.074H2.452v7.704z" fill="#fff" fillRule="evenodd"></path></g><defs><clipPath id="social-linkedin_svg__clip0_537_833"><path d="M0 0h16v16H0z" fill="#fff"></path></clipPath></defs></svg>
-            </a>
-        </div>
-    );
-});
+// Converts images to data URLs for clipboard operations
+const convertImagesToDataUrls = async (
+    bannerUrl: string | undefined,
+    avatarUrl: string | undefined,
+    setBannerDataUrl: (url: string | null) => void,
+    setAvatarDataUrl: (url: string | null) => void
+) => {
+    if (bannerUrl) {
+        const dataUrl = await imageUrlToDataUrl(bannerUrl);
+        setBannerDataUrl(dataUrl);
+    }
 
-SocialShareButtons.displayName = 'SocialShareButtons';
+    if (avatarUrl) {
+        const dataUrl = await imageUrlToDataUrl(avatarUrl);
+        setAvatarDataUrl(dataUrl);
+    }
+};
 
-// Utility: Convert profile card to image blob
-const captureProfileCardAsBlob = async (profileCardRef: React.RefObject<HTMLDivElement>): Promise<Blob> => {
+// Generates canvas blob from profile card element
+const generateCanvasBlob = async (element: HTMLElement): Promise<Blob> => {
     return new Promise(async (resolve, reject) => {
         try {
-            const canvas = await html2canvas(profileCardRef.current!, {
+            const canvas = await html2canvas(element, {
                 backgroundColor: 'transparent',
                 scale: 2,
                 logging: false,
@@ -386,31 +384,38 @@ const captureProfileCardAsBlob = async (profileCardRef: React.RefObject<HTMLDivE
     });
 };
 
-// Utility: Copy image to clipboard
-const copyImageToClipboard = async (profileCardRef: React.RefObject<HTMLDivElement>): Promise<void> => {
+// Copies profile card image to clipboard
+const copyCardToClipboard = async (profileCardRef: React.RefObject<HTMLDivElement>): Promise<void> => {
+    if (!profileCardRef.current) {
+        throw new Error('Profile card reference not found');
+    }
+
     if (!navigator.clipboard || !('write' in navigator.clipboard) || typeof ClipboardItem === 'undefined') {
         throw new Error('Clipboard API not supported in this browser');
     }
 
-    const blob = await captureProfileCardAsBlob(profileCardRef);
-    const clipboardItem = new ClipboardItem({'image/png': Promise.resolve(blob)});
+    const blob = await generateCanvasBlob(profileCardRef.current);
+    const clipboardItem = new ClipboardItem({
+        'image/png': Promise.resolve(blob)
+    });
+
     await navigator.clipboard.write([clipboardItem]);
 };
 
-// Component: Background color toggle
-const BackgroundColorToggle = memo(({
+// Renders background toggle controls
+const BackgroundToggleControls = memo(({
     backgroundColor,
     accentColor,
-    onChange
+    onBackgroundChange
 }: {
-    backgroundColor: BackgroundColorType
+    backgroundColor: 'light' | 'dark' | 'accent'
     accentColor?: string
-    onChange: (value: BackgroundColorType) => void
+    onBackgroundChange: (value: 'light' | 'dark' | 'accent') => void
 }) => {
     return (
         <ToggleGroup defaultValue='light' type='single' value={backgroundColor} onValueChange={(value) => {
             if (value) {
-                onChange(value as BackgroundColorType);
+                onBackgroundChange(value as 'light' | 'dark' | 'accent');
             }
         }}>
             <Tooltip>
@@ -441,20 +446,20 @@ const BackgroundColorToggle = memo(({
     );
 });
 
-BackgroundColorToggle.displayName = 'BackgroundColorToggle';
+BackgroundToggleControls.displayName = 'BackgroundToggleControls';
 
-// Component: Card format toggle
-const CardFormatToggle = memo(({
+// Renders format toggle controls
+const FormatToggleControls = memo(({
     cardFormat,
-    onChange
+    onFormatChange
 }: {
     cardFormat: 'vertical' | 'square'
-    onChange: (value: 'vertical' | 'square') => void
+    onFormatChange: (value: 'vertical' | 'square') => void
 }) => {
     return (
         <ToggleGroup defaultValue='vertical' type='single' value={cardFormat} onValueChange={(value) => {
             if (value) {
-                onChange(value as 'vertical' | 'square');
+                onFormatChange(value as 'vertical' | 'square');
             }
         }}>
             <Tooltip>
@@ -477,18 +482,40 @@ const CardFormatToggle = memo(({
     );
 });
 
-CardFormatToggle.displayName = 'CardFormatToggle';
+FormatToggleControls.displayName = 'FormatToggleControls';
 
-// Component: Hidden screenshot clone
-const HiddenScreenshotClone = memo(({
+// Renders social sharing buttons
+const SocialShareButtons = memo(({shareText}: {shareText: string}) => {
+    return (
+        <div className='flex items-center gap-2'>
+            <a className='flex h-[34px] w-10 items-center justify-center rounded-sm bg-white px-3 shadow-xs hover:bg-gray-50 [&_svg]:size-4' href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`} rel="noopener noreferrer" target='_blank'>
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path className="social-x_svg__x" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path></svg>
+            </a>
+            <a className='flex h-[34px] w-10 items-center justify-center rounded-sm bg-white px-3 shadow-xs hover:bg-gray-50 [&_svg]:size-4' href={`https://threads.net/intent/post?text=${encodeURIComponent(shareText)}`} rel="noopener noreferrer" target='_blank'>
+                <svg fill="none" viewBox="0 0 18 18"><g clipPath="url(#social-threads_svg__clip0_351_18008)"><path d="M13.033 8.38a5.924 5.924 0 00-.223-.102c-.13-2.418-1.452-3.802-3.67-3.816h-.03c-1.327 0-2.43.566-3.11 1.597l1.22.837c.507-.77 1.304-.934 1.89-.934h.02c.73.004 1.282.217 1.639.63.26.302.433.72.519 1.245a9.334 9.334 0 00-2.097-.101c-2.109.121-3.465 1.351-3.374 3.06.047.868.478 1.614 1.216 2.1.624.413 1.428.614 2.263.568 1.103-.06 1.969-.48 2.572-1.25.459-.585.749-1.342.877-2.296.526.317.915.735 1.13 1.236.366.854.387 2.255-.756 3.398-1.003 1.002-2.207 1.435-4.028 1.448-2.02-.015-3.547-.663-4.54-1.925-.93-1.182-1.41-2.89-1.428-5.075.018-2.185.498-3.893 1.428-5.075.993-1.262 2.52-1.91 4.54-1.925 2.034.015 3.588.666 4.62 1.934.505.622.886 1.405 1.137 2.317l1.43-.382c-.305-1.122-.784-2.09-1.436-2.892C13.52 1.35 11.587.517 9.096.5h-.01C6.6.517 4.689 1.354 3.404 2.986 2.262 4.44 1.672 6.46 1.652 8.994v.012c.02 2.534.61 4.555 1.752 6.008C4.69 16.646 6.6 17.483 9.086 17.5h.01c2.21-.015 3.768-.594 5.051-1.876 1.68-1.678 1.629-3.78 1.075-5.07-.397-.927-1.154-1.678-2.189-2.175zm-3.816 3.587c-.924.052-1.884-.363-1.932-1.252-.035-.659.47-1.394 1.99-1.482a8.9 8.9 0 01.512-.014c.552 0 1.068.053 1.538.156-.175 2.187-1.203 2.542-2.108 2.592z" fill="#000"></path></g><defs><clipPath id="social-threads_svg__clip0_351_18008"><path d="M0 0h17v17H0z" fill="#fff" transform="translate(.5 .5)"></path></clipPath></defs></svg>
+            </a>
+            <a className='flex h-[34px] w-10 items-center justify-center rounded-sm bg-white px-3 shadow-xs hover:bg-gray-50 [&_svg]:size-4' href={`https://www.facebook.com/sharer/sharer.php?u=`} rel="noopener noreferrer" target='_blank'>
+                <svg fill="none" viewBox="0 0 40 40"><title>social-facebook</title><path className="social-facebook_svg__fb" d="M20 40.004c11.046 0 20-8.955 20-20 0-11.046-8.954-20-20-20s-20 8.954-20 20c0 11.045 8.954 20 20 20z" fill="#1977f3"></path><path d="M27.785 25.785l.886-5.782h-5.546V16.25c0-1.58.773-3.125 3.26-3.125h2.522V8.204s-2.29-.39-4.477-.39c-4.568 0-7.555 2.767-7.555 7.781v4.408h-5.08v5.782h5.08v13.976a20.08 20.08 0 003.125.242c1.063 0 2.107-.085 3.125-.242V25.785h4.66z" fill="#fff"></path></svg>
+            </a>
+            <a className='flex h-[34px] w-10 items-center justify-center rounded-sm bg-white px-3 shadow-xs hover:bg-gray-50 [&_svg]:size-4' href={`http://www.linkedin.com/shareArticle?mini=true&title=${encodeURIComponent(shareText)}`} rel="noopener noreferrer" target='_blank'>
+                <svg fill="none" viewBox="0 0 16 16"><g clipPath="url(#social-linkedin_svg__clip0_537_833)"><path className="social-linkedin_svg__linkedin" clipRule="evenodd" d="M1.778 16h12.444c.982 0 1.778-.796 1.778-1.778V1.778C16 .796 15.204 0 14.222 0H1.778C.796 0 0 .796 0 1.778v12.444C0 15.204.796 16 1.778 16z" fill="#007ebb" fillRule="evenodd"></path><path clipRule="evenodd" d="M13.778 13.778h-2.374V9.734c0-1.109-.421-1.729-1.299-1.729-.955 0-1.453.645-1.453 1.729v4.044H6.363V6.074h2.289v1.038s.688-1.273 2.322-1.273c1.634 0 2.804.997 2.804 3.061v4.878zM3.634 5.065c-.78 0-1.411-.636-1.411-1.421s.631-1.422 1.41-1.422c.78 0 1.411.637 1.411 1.422 0 .785-.631 1.421-1.41 1.421zm-1.182 8.713h2.386V6.074H2.452v7.704z" fill="#fff" fillRule="evenodd"></path></g><defs><clipPath id="social-linkedin_svg__clip0_537_833"><path d="M0 0h16v16H0z" fill="#fff"></path></clipPath></defs></svg>
+            </a>
+        </div>
+    );
+});
+
+SocialShareButtons.displayName = 'SocialShareButtons';
+
+// Renders the hidden screenshot clone container
+const ScreenshotContainer = memo(({
     profileCardRef,
     cardFormat,
     account,
     isLoading,
-    backgroundColor,
-    accentColor,
     bannerDataUrl,
     avatarDataUrl,
+    backgroundColor,
+    accentColor,
     coverImage,
     publicationIcon,
     siteTitle
@@ -497,15 +524,16 @@ const HiddenScreenshotClone = memo(({
     cardFormat: 'vertical' | 'square'
     account?: Account
     isLoading: boolean
-    backgroundColor: BackgroundColorType
-    accentColor?: string
     bannerDataUrl: string | null
     avatarDataUrl: string | null
+    backgroundColor: 'light' | 'dark' | 'accent'
+    accentColor?: string
     coverImage?: string
     publicationIcon?: string
     siteTitle?: string
 }) => {
-    const hasImage = !!(account?.bannerImageUrl || coverImage);
+    const shadowImage = cardFormat === 'square' ? ProfileCardShadowSquare : ProfileCardShadow;
+    const shadowWidth = cardFormat === 'square' ? '572px' : '466px';
 
     return (
         <div
@@ -529,21 +557,21 @@ const HiddenScreenshotClone = memo(({
                 publicationIcon={publicationIcon}
                 siteTitle={siteTitle}
             />
-            {hasImage &&
-            <DotsPattern className={`absolute left-[-62.5px] top-[-44px] h-[600px] w-[598px] ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColorValue(backgroundColor)}} />
+            {(account?.bannerImageUrl || coverImage) &&
+            <DotsPattern className={`absolute left-[-62.5px] top-[-44px] h-[600px] w-[598px] ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor(backgroundColor)}} />
             }
             <div
                 className='absolute left-0 top-0 size-full'
                 style={{
-                    background: getGradientBackground(backgroundColor, accentColor)
+                    background: getGradient(backgroundColor, accentColor)
                 }}
             />
-            <img className='absolute left-1/2 top-12 mt-0.5 max-w-none -translate-x-1/2' src={cardFormat === 'square' ? ProfileCardShadowSquare : ProfileCardShadow} style={{width: cardFormat === 'square' ? '572px' : '466px'}} />
+            <img className='absolute left-1/2 top-12 mt-0.5 max-w-none -translate-x-1/2' src={shadowImage} style={{width: shadowWidth}} />
         </div>
     );
 });
 
-HiddenScreenshotClone.displayName = 'HiddenScreenshotClone';
+ScreenshotContainer.displayName = 'ScreenshotContainer';
 
 const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
     const {data: siteData} = useBrowseSite();
@@ -551,37 +579,20 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
     const coverImage = siteData?.site?.cover_image;
     const publicationIcon = siteData?.site?.icon;
     const profileCardRef = useRef<HTMLDivElement>(null);
-    const [backgroundColor, setBackgroundColor] = useState<BackgroundColorType>('light');
+    const [backgroundColor, setBackgroundColor] = useState<'light' | 'dark' | 'accent'>('light');
     const [cardFormat, setCardFormat] = useState<'vertical' | 'square'>('vertical');
     const [isProcessing, setIsProcessing] = useState(false);
     const [bannerDataUrl, setBannerDataUrl] = useState<string | null>(null);
     const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null);
     const shareText = `${account?.name} is now available across the social web, on ${account?.handle}`;
 
-    // Convert images to data URLs for screenshot
-    const convertImagesToDataUrls = useCallback(async () => {
-        if (account?.bannerImageUrl || coverImage) {
-            const bannerUrl = account?.bannerImageUrl || coverImage;
-            if (bannerUrl) {
-                const dataUrl = await imageUrlToDataUrl(bannerUrl);
-                setBannerDataUrl(dataUrl);
-            }
-        }
-
-        if (account?.avatarUrl || publicationIcon) {
-            const avatarUrl = account?.avatarUrl || publicationIcon;
-            if (avatarUrl) {
-                const dataUrl = await imageUrlToDataUrl(avatarUrl);
-                setAvatarDataUrl(dataUrl);
-            }
-        }
-    }, [account?.bannerImageUrl, account?.avatarUrl, coverImage, publicationIcon]);
-
     useEffect(() => {
         let isMounted = true;
 
         const convert = async () => {
-            await convertImagesToDataUrls();
+            const bannerUrl = account?.bannerImageUrl || coverImage;
+            const avatarUrl = account?.avatarUrl || publicationIcon;
+            await convertImagesToDataUrls(bannerUrl, avatarUrl, setBannerDataUrl, setAvatarDataUrl);
         };
 
         if (isMounted) {
@@ -591,11 +602,10 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
         return () => {
             isMounted = false;
         };
-    }, [convertImagesToDataUrls]);
+    }, [account?.bannerImageUrl, account?.avatarUrl, coverImage, publicationIcon]);
 
-    // Handle copying profile card as image
     const handleCopyImage = async () => {
-        if (!profileCardRef.current || isProcessing) {
+        if (isProcessing) {
             return;
         }
 
@@ -609,7 +619,7 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
         });
 
         try {
-            await copyImageToClipboard(profileCardRef);
+            await copyCardToClipboard(profileCardRef);
             toast.success('Image copied to clipboard');
         } catch {
             toast.error('Failed to copy image');
@@ -618,22 +628,20 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
         }
     };
 
-    const hasImage = !!(account?.bannerImageUrl || coverImage);
-
     return (
         <TooltipProvider delayDuration={0}>
             <div className='flex flex-col gap-5'>
                 <div className='flex items-center justify-between max-sm:flex-col max-sm:items-start max-sm:gap-3'>
                     <H2>Share your profile</H2>
                     <div className='flex gap-4'>
-                        <BackgroundColorToggle
+                        <BackgroundToggleControls
                             accentColor={accentColor}
                             backgroundColor={backgroundColor}
-                            onChange={setBackgroundColor}
+                            onBackgroundChange={setBackgroundColor}
                         />
-                        <CardFormatToggle
+                        <FormatToggleControls
                             cardFormat={cardFormat}
-                            onChange={setCardFormat}
+                            onFormatChange={setCardFormat}
                         />
                     </div>
                 </div>
@@ -657,15 +665,14 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                             {!isProcessing && 'Copy image'}
                         </Button>
                     </div>
-                    {hasImage &&
-                    <DotsPattern className={`absolute left-1/2 top-1/2 h-[600px] w-[598px] -translate-x-1/2 -translate-y-1/2 ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColorValue(backgroundColor)}} />
+                    {(account?.bannerImageUrl || coverImage) &&
+                    <DotsPattern className={`absolute left-1/2 top-1/2 h-[600px] w-[598px] -translate-x-1/2 -translate-y-1/2 ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor(backgroundColor)}} />
                     }
-                    <div className='absolute inset-0' style={{background: getGradientBackground(backgroundColor, accentColor)}} />
+                    <div className='absolute inset-0' style={{background: getGradient(backgroundColor, accentColor)}} />
                 </div>
 
-                <HiddenScreenshotClone
+                <ScreenshotContainer
                     account={account}
-                    accentColor={accentColor}
                     avatarDataUrl={avatarDataUrl}
                     backgroundColor={backgroundColor}
                     bannerDataUrl={bannerDataUrl}
@@ -674,6 +681,7 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                     isLoading={isLoading}
                     profileCardRef={profileCardRef}
                     publicationIcon={publicationIcon}
+                    accentColor={accentColor}
                     siteTitle={siteData?.site?.title}
                 />
             </div>
@@ -682,4 +690,3 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
 };
 
 export default Profile;
-```

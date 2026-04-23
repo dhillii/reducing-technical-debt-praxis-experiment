@@ -1,4 +1,3 @@
-```typescript
 import NiceModal from '@ebay/nice-modal-react';
 import React, {useEffect, useRef} from 'react';
 import TierDetailPreview from './tier-detail-preview';
@@ -50,55 +49,38 @@ const getModalTitle = (tier: Tier | undefined): string => {
     return tier.active ? 'Edit tier' : 'Edit archived tier';
 };
 
-/** Builds the confirmation prompt content for tier status changes */
-const buildTierStatusPrompt = (tier: Tier): React.ReactNode => {
-    if (tier.active) {
-        return <>
-            <div className='mb-6'>Members will no longer be able to subscribe to <strong>{tier.name}</strong> and it will be removed from the list of available tiers in portal.</div>
-            <div>Existing members on this tier will remain unchanged. Offers using this tier will be disabled.</div>
-        </>;
-    }
+/** Generates confirmation modal content for tier status changes */
+const getTierStatusChangeContent = (tier: Tier) => {
+    const isArchiving = tier.active;
+    const promptTitle = isArchiving ? 'Archive tier' : 'Reactivate tier';
+    const okLabel = isArchiving ? 'Archive' : 'Reactivate';
+    const okColor = isArchiving ? 'red' : 'black';
 
-    return <>
+    const prompt = isArchiving ? <>
+        <div className='mb-6'>Members will no longer be able to subscribe to <strong>{tier.name}</strong> and it will be removed from the list of available tiers in portal.</div>
+        <div>Existing members on this tier will remain unchanged. Offers using this tier will be disabled.</div>
+    </> : <>
         <div className='mb-6'>Reactivating <strong>{tier.name}</strong> will re-enable it as an option in portal and allow new members to subscribe to this tier.</div>
         <div>Existing members will remain unchanged.</div>
     </>;
+
+    return {promptTitle, prompt, okLabel, okColor};
 };
 
-/** Gets the appropriate label for tier status confirmation */
-const getTierStatusLabel = (isActive: boolean): string => {
-    return isActive ? 'Archive' : 'Reactivate';
-};
-
-/** Gets the appropriate title for tier status confirmation */
-const getTierStatusTitle = (isActive: boolean): string => {
-    return isActive ? 'Archive tier' : 'Reactivate tier';
-};
-
-/** Gets the appropriate color for tier status confirmation button */
-const getTierStatusColor = (isActive: boolean): 'red' | 'black' => {
-    return isActive ? 'red' : 'black';
-};
-
-/** Gets the success message for tier status change */
-const getTierStatusMessage = (isActive: boolean): string => {
-    return `Tier ${isActive ? 'archived' : 'reactivated'}`;
-};
-
-/** Updates portal plans based on free tier visibility */
-const updatePortalPlansForFreeTier = async (
-    visible: boolean,
+/** Updates portal plans settings when free tier visibility changes */
+const updatePortalPlansIfNeeded = async (
     portalPlans: string[],
+    isVisible: boolean,
     editSettings: (settings: Array<{key: string; value: string}>) => Promise<void>
 ): Promise<void> => {
     let shouldSave = false;
 
-    if (portalPlans.includes('free') && !visible) {
+    if (portalPlans.includes('free') && !isVisible) {
         portalPlans.splice(portalPlans.indexOf('free'), 1);
         shouldSave = true;
     }
 
-    if (!portalPlans.includes('free') && visible) {
+    if (!portalPlans.includes('free') && isVisible) {
         portalPlans.push('free');
         shouldSave = true;
     }
@@ -170,7 +152,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
 
             if (isFreeTier) {
                 const visible = formState.visibility === 'public';
-                await updatePortalPlansForFreeTier(visible, portalPlans, editSettings);
+                await updatePortalPlansIfNeeded(portalPlans, visible, editSettings);
             }
         },
         onSaveError: handleError
@@ -205,30 +187,25 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
     }, [formState.currency]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const confirmTierStatusChange = () => {
-        if (!tier) {
-            return;
+        if (tier) {
+            const {promptTitle, prompt, okLabel, okColor} = getTierStatusChangeContent(tier);
+
+            NiceModal.show(ConfirmationModal, {
+                title: promptTitle,
+                prompt: prompt,
+                okLabel: okLabel,
+                cancelLabel: 'Cancel',
+                okColor: okColor,
+                onOk: (confirmModal) => {
+                    updateTier({...tier, active: !tier.active});
+                    confirmModal?.remove();
+                    showToast({
+                        type: 'success',
+                        title: `Tier ${tier.active ? 'archived' : 'reactivated'}`
+                    });
+                }
+            });
         }
-
-        const promptTitle = getTierStatusTitle(tier.active);
-        const prompt = buildTierStatusPrompt(tier);
-        const okLabel = getTierStatusLabel(tier.active);
-        const okColor = getTierStatusColor(tier.active);
-
-        NiceModal.show(ConfirmationModal, {
-            title: promptTitle,
-            prompt: prompt,
-            okLabel: okLabel,
-            cancelLabel: 'Cancel',
-            okColor: okColor,
-            onOk: (confirmModal) => {
-                updateTier({...tier, active: !tier.active});
-                confirmModal?.remove();
-                showToast({
-                    type: 'success',
-                    title: getTierStatusMessage(tier.active)
-                });
-            }
-        });
     };
 
     const leftButtonProps = getLeftButtonProps(tier, confirmTierStatusChange);
@@ -433,4 +410,3 @@ const TierDetailModal: React.FC<RoutingModalProps> = ({params}) => {
 };
 
 export default NiceModal.create(TierDetailModal);
-```

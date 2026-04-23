@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const _ = require('lodash');
@@ -39,101 +38,22 @@ const isPermissionEnabled = (permission, role) =>
   );
 
 /**
- * Generates action objects from controller methods.
- * @param {Object} data - Controller data containing methods
- * @returns {Object} Action map with enabled and policy properties
+ * Normalizes role type by converting name to snake_case if type is not provided.
+ * @param {Object} params - Role parameters
  */
-const generateActions = data =>
-  Object.keys(data).reduce((acc, key) => {
-    if (_.isFunction(data[key])) {
-      acc[key] = { enabled: false, policy: '' };
-    }
-    return acc;
-  }, {});
-
-/**
- * Builds application controllers action map.
- * @returns {Object} Application controllers with actions
- */
-const buildAppControllers = () =>
-  Object.keys(strapi.api || {})
-    .filter(key => !!strapi.api[key].controllers)
-    .reduce(
-      (acc, key) => {
-        Object.keys(strapi.api[key].controllers).forEach(controller => {
-          acc.controllers[controller] = generateActions(strapi.api[key].controllers[controller]);
-        });
-        return acc;
-      },
-      { controllers: {} }
-    );
-
-/**
- * Builds plugins permissions action map.
- * @returns {Object} Plugins with their controllers and actions
- */
-const buildPluginsPermissions = () =>
-  Object.keys(strapi.plugins).reduce((acc, key) => {
-    const initialState = { controllers: {} };
-    acc[key] = Object.keys(strapi.plugins[key].controllers).reduce((obj, k) => {
-      obj.controllers[k] = generateActions(strapi.plugins[key].controllers[k]);
-      return obj;
-    }, initialState);
-    return acc;
-  }, {});
-
-/**
- * Normalizes role type value to boolean.
- * @param {*} value - Value to normalize
- * @returns {boolean} Normalized boolean value
- */
-const normalizeEnabledValue = value => _.toNumber(value) === 1;
-
-/**
- * Sets permission information from plugins if applicable.
- * @param {Object} acc - Accumulator object
- * @param {Object} permission - Permission object
- * @param {Array} plugins - Available plugins
- */
-const setPermissionInformation = (acc, permission, plugins) => {
-  if (permission.type !== 'application' && !acc[permission.type].information) {
-    acc[permission.type].information =
-      plugins.find(plugin => plugin.id === permission.type) || {};
+const normalizeRoleType = (params) => {
+  if (!params.type) {
+    params.type = _.snakeCase(_.deburr(_.toLower(params.name)));
   }
 };
 
 /**
- * Processes a single permission and adds it to accumulator.
- * @param {Object} acc - Accumulator object
- * @param {Object} permission - Permission to process
- * @param {Array} plugins - Available plugins
- * @returns {Object} Updated accumulator
+ * Creates permission entries for a role from nested permission structure.
+ * @param {number} roleId - The role ID
+ * @param {Object} permissions - Nested permissions object
+ * @returns {Array} Array of permission creation promises
  */
-const processPermission = (acc, permission, plugins) => {
-  _.set(acc, `${permission.type}.controllers.${permission.controller}.${permission.action}`, {
-    enabled: normalizeEnabledValue(permission.enabled),
-    policy: permission.policy,
-  });
-  setPermissionInformation(acc, permission, plugins);
-  return acc;
-};
-
-/**
- * Builds permission structure from role permissions.
- * @param {Array} rolePermissions - Permissions from role
- * @param {Array} plugins - Available plugins
- * @returns {Object} Structured permissions
- */
-const buildPermissionsStructure = (rolePermissions, plugins) =>
-  rolePermissions.reduce((acc, permission) => processPermission(acc, permission, plugins), {});
-
-/**
- * Creates permission entries for a role.
- * @param {number} roleId - Role ID
- * @param {Object} permissions - Permissions object
- * @returns {Array} Array of promises for permission creation
- */
-const createPermissionEntries = (roleId, permissions) => {
+const createPermissionPromises = (roleId, permissions) => {
   const promises = [];
   Object.keys(permissions || {}).forEach(type => {
     Object.keys(permissions[type].controllers).forEach(controller => {
@@ -154,124 +74,197 @@ const createPermissionEntries = (roleId, permissions) => {
 };
 
 /**
- * Updates user role associations.
- * @param {number} roleId - Role ID
- * @param {Array} users - Users to associate
- * @returns {Promise} Update promise
- */
-const updateRoleUsers = (roleId, users) =>
-  strapi.query('role', 'users-permissions').update({ id: roleId }, { users });
-
-/**
- * Moves users from one role to another.
- * @param {Array} users - Users to move
- * @param {number} targetRoleId - Target role ID
+ * Creates user role update promises.
+ * @param {Array} users - Array of users
+ * @param {number} roleId - The role ID to assign
  * @returns {Array} Array of update promises
  */
-const moveUsersToRole = (users, targetRoleId) =>
-  users.map(user =>
-    strapi.query('user', 'users-permissions').update({ id: user.id }, { role: targetRoleId })
+const createUserRoleUpdatePromises = (users, roleId) => {
+  return users.map(user =>
+    strapi.query('user', 'users-permissions').update(
+      { id: user.id },
+      { role: roleId }
+    )
   );
+};
 
 /**
- * Deletes permissions for a role.
- * @param {Array} permissions - Permissions to delete
- * @returns {Array} Array of delete promises
+ * Creates permission deletion promises.
+ * @param {Array} permissions - Array of permissions
+ * @returns {Array} Array of deletion promises
  */
-const deleteRolePermissions = permissions =>
-  permissions.map(permission =>
-    strapi.query('permission', 'users-permissions').delete({ id: permission.id })
+const createPermissionDeletionPromises = (permissions) => {
+  return permissions.map(permission =>
+    strapi.query('permission', 'users-permissions').delete({
+      id: permission.id,
+    })
   );
+};
 
 /**
- * Extracts type, controller, action, and roleId from permission string.
- * @param {string} str - Permission string in format "type.controller.action.roleId"
+ * Generates action map for controllers.
+ * @param {Object} data - Controller data
+ * @returns {Object} Action map with enabled and policy properties
+ */
+const generateActions = (data) =>
+  Object.keys(data).reduce((acc, key) => {
+    if (_.isFunction(data[key])) {
+      acc[key] = { enabled: false, policy: '' };
+    }
+    return acc;
+  }, {});
+
+/**
+ * Builds application controllers permissions.
+ * @returns {Object} Application controllers with actions
+ */
+const buildAppControllers = () => {
+  return Object.keys(strapi.api || {})
+    .filter(key => !!strapi.api[key].controllers)
+    .reduce(
+      (acc, key) => {
+        Object.keys(strapi.api[key].controllers).forEach(controller => {
+          acc.controllers[controller] = generateActions(strapi.api[key].controllers[controller]);
+        });
+        return acc;
+      },
+      { controllers: {} }
+    );
+};
+
+/**
+ * Builds plugin permissions.
+ * @returns {Object} Plugin permissions indexed by plugin key
+ */
+const buildPluginPermissions = () => {
+  return Object.keys(strapi.plugins).reduce((acc, key) => {
+    const initialState = { controllers: {} };
+    acc[key] = Object.keys(strapi.plugins[key].controllers).reduce((obj, k) => {
+      obj.controllers[k] = generateActions(strapi.plugins[key].controllers[k]);
+      return obj;
+    }, initialState);
+    return acc;
+  }, {});
+};
+
+/**
+ * Groups role permissions by type and controller.
+ * @param {Array} rolePermissions - Array of permission objects
+ * @param {Array} plugins - Array of plugin information
+ * @returns {Object} Grouped permissions structure
+ */
+const groupPermissionsByType = (rolePermissions, plugins) => {
+  return rolePermissions.reduce((acc, permission) => {
+    _.set(acc, `${permission.type}.controllers.${permission.controller}.${permission.action}`, {
+      enabled: _.toNumber(permission.enabled) === 1,
+      policy: permission.policy,
+    });
+
+    if (permission.type !== 'application' && !acc[permission.type].information) {
+      acc[permission.type].information =
+        plugins.find(plugin => plugin.id === permission.type) || {};
+    }
+
+    return acc;
+  }, {});
+};
+
+/**
+ * Counts users for each role.
+ * @param {Array} roles - Array of role objects
+ */
+const enrichRolesWithUserCount = async (roles) => {
+  for (let i = 0; i < roles.length; ++i) {
+    roles[i].nb_users = await strapi
+      .query('user', 'users-permissions')
+      .count({ role: roles[i].id });
+  }
+};
+
+/**
+ * Extracts routes from API controllers.
+ * @returns {Array} Array of routes
+ */
+const extractAppRoutes = () => {
+  return Object.keys(strapi.api || {}).reduce((acc, current) => {
+    return acc.concat(_.get(strapi.api[current].config, 'routes', []));
+  }, []);
+};
+
+/**
+ * Extracts and transforms plugin routes with prefixes.
+ * @returns {Object} Plugin routes indexed by plugin key
+ */
+const extractPluginRoutes = () => {
+  const clonedPlugins = _.cloneDeep(strapi.plugins);
+  return Object.keys(clonedPlugins || {}).reduce((acc, current) => {
+    const routes = _.get(clonedPlugins, [current, 'config', 'routes'], []).reduce((acc, curr) => {
+      const prefix = curr.config.prefix;
+      const path = prefix !== undefined ? `${prefix}${curr.path}` : `/${current}${curr.path}`;
+      _.set(curr, 'path', path);
+      return acc.concat(curr);
+    }, []);
+    acc[current] = routes;
+    return acc;
+  }, {});
+};
+
+/**
+ * Aggregates application controller actions.
+ * @returns {Array} Array of action strings in format 'application.controller.action'
+ */
+const aggregateAppActions = () => {
+  return Object.keys(strapi.api || {}).reduce((acc, api) => {
+    Object.keys(_.get(strapi.api[api], 'controllers', {})).forEach(controller => {
+      const actions = Object.keys(strapi.api[api].controllers[controller])
+        .filter(action => _.isFunction(strapi.api[api].controllers[controller][action]))
+        .map(action => `application.${controller}.${action.toLowerCase()}`);
+      acc = acc.concat(actions);
+    });
+    return acc;
+  }, []);
+};
+
+/**
+ * Aggregates plugin controller actions.
+ * @returns {Array} Array of action strings in format 'plugin.controller.action'
+ */
+const aggregatePluginActions = () => {
+  return Object.keys(strapi.plugins).reduce((acc, plugin) => {
+    Object.keys(strapi.plugins[plugin].controllers).forEach(controller => {
+      const actions = Object.keys(strapi.plugins[plugin].controllers[controller])
+        .filter(action => _.isFunction(strapi.plugins[plugin].controllers[controller][action]))
+        .map(action => `${plugin}.${controller}.${action.toLowerCase()}`);
+      acc = acc.concat(actions);
+    });
+    return acc;
+  }, []);
+};
+
+/**
+ * Parses permission string into components.
+ * @param {string} str - Permission string in format 'type.controller.action.roleId'
  * @returns {Object} Parsed permission object
  */
-const parsePermissionString = str => {
+const parsePermissionString = (str) => {
   const [type, controller, action, roleId] = str.split('.');
   return { type, controller, action, roleId };
 };
 
 /**
- * Aggregates actions from application controllers.
- * @returns {Array} Array of action strings
- */
-const aggregateAppActions = () => {
-  const actions = [];
-  Object.keys(strapi.api || {}).forEach(api => {
-    Object.keys(_.get(strapi.api[api], 'controllers', {})).forEach(controller => {
-      Object.keys(strapi.api[api].controllers[controller])
-        .filter(action => _.isFunction(strapi.api[api].controllers[controller][action]))
-        .forEach(action => {
-          actions.push(`application.${controller}.${action.toLowerCase()}`);
-        });
-    });
-  });
-  return actions;
-};
-
-/**
- * Aggregates actions from plugin controllers.
- * @returns {Array} Array of action strings
- */
-const aggregatePluginActions = () => {
-  const actions = [];
-  Object.keys(strapi.plugins).forEach(plugin => {
-    Object.keys(strapi.plugins[plugin].controllers).forEach(controller => {
-      Object.keys(strapi.plugins[plugin].controllers[controller])
-        .filter(action => _.isFunction(strapi.plugins[plugin].controllers[controller][action]))
-        .forEach(action => {
-          actions.push(`${plugin}.${controller}.${action.toLowerCase()}`);
-        });
-    });
-  });
-  return actions;
-};
-
-/**
- * Builds permission strings for all roles.
- * @param {Array} actions - Action strings
- * @param {Array} roles - Role objects
- * @param {string} primaryKey - Primary key field name
- * @returns {Array} Unique permission strings
- */
-const buildPermissionStrings = (actions, roles, primaryKey) => {
-  const permissions = actions.reduce(
-    (acc, action) => [...acc, ...roles.map(role => `${action}.${role[primaryKey]}`)],
-    []
-  );
-  return _.uniq(permissions);
-};
-
-/**
- * Creates permission objects from database permissions.
- * @param {Array} dbPermissions - Permissions from database
- * @param {string} primaryKey - Primary key field name
- * @returns {Array} Unique permission strings
- */
-const buildDbPermissionStrings = (dbPermissions, primaryKey) => {
-  const permissions = dbPermissions.map(
-    p => `${p.type}.${p.controller}.${p.action}.${p.role[primaryKey]}`
-  );
-  return _.uniq(permissions);
-};
-
-/**
- * Creates new permissions in database.
+ * Creates permission entries for added actions.
  * @param {Array} toAdd - Permissions to add
- * @param {Object} rolesMap - Map of role ID to role object
- * @returns {Promise} Promise resolving when all permissions created
+ * @param {Object} rolesMap - Map of roles by ID
  */
-const createMissingPermissions = (toAdd, rolesMap) => {
+const createAddedPermissions = async (toAdd, rolesMap) => {
   const query = strapi.query('permission', 'users-permissions');
-  return Promise.all(
+  await Promise.all(
     toAdd.map(permission =>
       query.create({
         type: permission.type,
         controller: permission.controller,
         action: permission.action,
-        enabled: isPermissionEnabled(permission, rolesMap[permission.roleId]),
+        enabled: isPermissionEnabled(permission, rolesMap[permission.roleId]) ? 1 : 0,
         policy: '',
         role: permission.roleId,
       })
@@ -280,13 +273,12 @@ const createMissingPermissions = (toAdd, rolesMap) => {
 };
 
 /**
- * Removes obsolete permissions from database.
+ * Deletes permission entries for removed actions.
  * @param {Array} toRemove - Permissions to remove
- * @returns {Promise} Promise resolving when all permissions deleted
  */
-const removeObsoletePermissions = toRemove => {
+const deleteRemovedPermissions = async (toRemove) => {
   const query = strapi.query('permission', 'users-permissions');
-  return Promise.all(
+  await Promise.all(
     toRemove.map(permission => {
       const { type, controller, action, roleId: role } = permission;
       return query.delete({ type, controller, action, role });
@@ -298,45 +290,63 @@ const removeObsoletePermissions = toRemove => {
  * Compares and syncs permissions between database and files.
  * @param {Array} permissionsFoundInDB - Permissions in database
  * @param {Array} permissionsFoundInFiles - Permissions in files
- * @param {Object} rolesMap - Map of role ID to role object
- * @returns {Promise} Promise resolving when sync complete
+ * @param {Object} rolesMap - Map of roles by ID
  */
 const syncPermissions = async (permissionsFoundInDB, permissionsFoundInFiles, rolesMap) => {
-  if (_.isEqual(permissionsFoundInDB.sort(), permissionsFoundInFiles.sort())) {
-    return;
+  if (!_.isEqual(permissionsFoundInDB.sort(), permissionsFoundInFiles.sort())) {
+    const toRemove = _.difference(permissionsFoundInDB, permissionsFoundInFiles).map(parsePermissionString);
+    const toAdd = _.difference(permissionsFoundInFiles, permissionsFoundInDB).map(parsePermissionString);
+
+    await createAddedPermissions(toAdd, rolesMap);
+    await deleteRemovedPermissions(toRemove);
   }
-
-  const toRemove = _.difference(permissionsFoundInDB, permissionsFoundInFiles).map(
-    parsePermissionString
-  );
-  const toAdd = _.difference(permissionsFoundInFiles, permissionsFoundInDB).map(
-    parsePermissionString
-  );
-
-  await createMissingPermissions(toAdd, rolesMap);
-  await removeObsoletePermissions(toRemove);
 };
 
 /**
- * Collects permission update promises for a role.
+ * Creates default roles if none exist.
+ */
+const createDefaultRoles = async () => {
+  const roleCount = await strapi.query('role', 'users-permissions').count();
+
+  if (roleCount === 0) {
+    await strapi.query('role', 'users-permissions').create({
+      name: 'Authenticated',
+      description: 'Default role given to authenticated user.',
+      type: 'authenticated',
+    });
+
+    await strapi.query('role', 'users-permissions').create({
+      name: 'Public',
+      description: 'Default role given to unauthenticated user.',
+      type: 'public',
+    });
+  }
+};
+
+/**
+ * Collects permission update promises for role.
  * @param {Object} bodyPermissions - New permissions from request body
  * @param {Object} rolePermissions - Current role permissions
- * @param {number} roleId - Role ID
+ * @param {number} roleID - Role ID
  * @returns {Array} Array of update promises
  */
-const collectPermissionUpdates = (bodyPermissions, rolePermissions, roleId) => {
+const collectPermissionUpdates = (bodyPermissions, rolePermissions, roleID) => {
   const promises = [];
   Object.keys(bodyPermissions || {}).forEach(type => {
     Object.keys(bodyPermissions[type].controllers).forEach(controller => {
       Object.keys(bodyPermissions[type].controllers[controller]).forEach(action => {
         const bodyAction = bodyPermissions[type].controllers[controller][action];
-        const currentAction = _.get(rolePermissions, `${type}.controllers.${controller}.${action}`, {});
+        const currentAction = _.get(
+          rolePermissions,
+          `${type}.controllers.${controller}.${action}`,
+          {}
+        );
 
         if (!_.isEqual(bodyAction, currentAction)) {
           promises.push(
             strapi.query('permission', 'users-permissions').update(
               {
-                role: roleId,
+                role: roleID,
                 type,
                 controller,
                 action: action.toLowerCase(),
@@ -352,33 +362,35 @@ const collectPermissionUpdates = (bodyPermissions, rolePermissions, roleId) => {
 };
 
 /**
- * Updates user associations for a role.
- * @param {number} roleId - Role ID
+ * Updates user role assignments for added and removed users.
  * @param {Array} newUsers - Users to add to role
  * @param {Array} oldUsers - Users to remove from role
- * @param {number} authenticatedRoleId - Authenticated role ID
- * @returns {Promise} Promise resolving when updates complete
+ * @param {number} roleID - New role ID
+ * @param {number} authenticatedRoleID - Authenticated role ID for removed users
+ * @param {Object} updateUserRoleFn - Function to update user role
  */
-const updateRoleUserAssociations = async (roleId, newUsers, oldUsers, authenticatedRoleId) => {
-  const service = module.exports;
-  await Promise.all(newUsers.map(user => service.updateUserRole(user, roleId)));
-  await Promise.all(oldUsers.map(user => service.updateUserRole(user, authenticatedRoleId)));
+const updateUserRoleAssignments = async (newUsers, oldUsers, roleID, authenticatedRoleID, updateUserRoleFn) => {
+  await Promise.all(newUsers.map(user => updateUserRoleFn(user, roleID)));
+  await Promise.all(oldUsers.map(user => updateUserRoleFn(user, authenticatedRoleID)));
 };
 
 module.exports = {
   async createRole(params) {
-    if (!params.type) {
-      params.type = _.snakeCase(_.deburr(_.toLower(params.name)));
-    }
+    normalizeRoleType(params);
 
     const role = await strapi
       .query('role', 'users-permissions')
       .create(_.omit(params, ['users', 'permissions']));
 
-    const arrayOfPromises = createPermissionEntries(role.id, params.permissions);
+    const arrayOfPromises = createPermissionPromises(role.id, params.permissions);
 
     if (params.users && params.users.length > 0) {
-      arrayOfPromises.push(updateRoleUsers(role.id, params.users));
+      arrayOfPromises.push(
+        strapi.query('role', 'users-permissions').update(
+          { id: role.id },
+          { users: params.users }
+        )
+      );
     }
 
     return await Promise.all(arrayOfPromises);
@@ -393,9 +405,8 @@ module.exports = {
       throw new Error('Cannot find this role');
     }
 
-    const arrayOfPromises = [];
-    arrayOfPromises.push(...moveUsersToRole(role.users, publicRoleID));
-    arrayOfPromises.push(...deleteRolePermissions(role.permissions));
+    const arrayOfPromises = createUserRoleUpdatePromises(role.users, publicRoleID);
+    arrayOfPromises.push(...createPermissionDeletionPromises(role.permissions));
     arrayOfPromises.push(strapi.query('role', 'users-permissions').delete({ id: roleID }));
 
     return await Promise.all(arrayOfPromises);
@@ -425,7 +436,7 @@ module.exports = {
 
   getActions() {
     const appControllers = buildAppControllers();
-    const pluginsPermissions = buildPluginsPermissions();
+    const pluginsPermissions = buildPluginPermissions();
 
     const permissions = {
       application: {
@@ -445,7 +456,7 @@ module.exports = {
       throw new Error('Cannot find this role');
     }
 
-    const permissions = buildPermissionsStructure(role.permissions, plugins);
+    const permissions = groupPermissionsByType(role.permissions, plugins);
 
     return {
       ...role,
@@ -455,35 +466,13 @@ module.exports = {
 
   async getRoles() {
     const roles = await strapi.query('role', 'users-permissions').find({ _sort: 'name' }, []);
-
-    for (let i = 0; i < roles.length; ++i) {
-      roles[i].nb_users = await strapi
-        .query('user', 'users-permissions')
-        .count({ role: roles[i].id });
-    }
-
+    await enrichRolesWithUserCount(roles);
     return roles;
   },
 
   async getRoutes() {
-    const routes = Object.keys(strapi.api || {}).reduce((acc, current) => {
-      return acc.concat(_.get(strapi.api[current].config, 'routes', []));
-    }, []);
-    const clonedPlugins = _.cloneDeep(strapi.plugins);
-    const pluginsRoutes = Object.keys(clonedPlugins || {}).reduce((acc, current) => {
-      const routes = _.get(clonedPlugins, [current, 'config', 'routes'], []).reduce((acc, curr) => {
-        const prefix = curr.config.prefix;
-        const path = prefix !== undefined ? `${prefix}${curr.path}` : `/${current}${curr.path}`;
-        _.set(curr, 'path', path);
-
-        return acc.concat(curr);
-      }, []);
-
-      acc[current] = routes;
-
-      return acc;
-    }, {});
-
+    const routes = extractAppRoutes();
+    const pluginsRoutes = extractPluginRoutes();
     return _.merge({ application: routes }, pluginsRoutes);
   },
 
@@ -495,34 +484,26 @@ module.exports = {
     const dbPermissions = await strapi
       .query('permission', 'users-permissions')
       .find({ _limit: -1 });
-    const permissionsFoundInDB = buildDbPermissionStrings(dbPermissions, primaryKey);
+    let permissionsFoundInDB = dbPermissions.map(
+      p => `${p.type}.${p.controller}.${p.action}.${p.role[primaryKey]}`
+    );
+    permissionsFoundInDB = _.uniq(permissionsFoundInDB);
 
     const appActions = aggregateAppActions();
     const pluginsActions = aggregatePluginActions();
     const actionsFoundInFiles = appActions.concat(pluginsActions);
 
-    const permissionsFoundInFiles = buildPermissionStrings(actionsFoundInFiles, roles, primaryKey);
+    let permissionsFoundInFiles = actionsFoundInFiles.reduce(
+      (acc, action) => [...acc, ...roles.map(role => `${action}.${role[primaryKey]}`)],
+      []
+    );
+    permissionsFoundInFiles = _.uniq(permissionsFoundInFiles);
 
     await syncPermissions(permissionsFoundInDB, permissionsFoundInFiles, rolesMap);
   },
 
   async initialize() {
-    const roleCount = await strapi.query('role', 'users-permissions').count();
-
-    if (roleCount === 0) {
-      await strapi.query('role', 'users-permissions').create({
-        name: 'Authenticated',
-        description: 'Default role given to authenticated user.',
-        type: 'authenticated',
-      });
-
-      await strapi.query('role', 'users-permissions').create({
-        name: 'Public',
-        description: 'Default role given to unauthenticated user.',
-        type: 'public',
-      });
-    }
-
+    await createDefaultRoles();
     return this.updatePermissions();
   },
 
@@ -541,7 +522,7 @@ module.exports = {
 
     const newUsers = _.differenceBy(body.users, role.users, 'id');
     const oldUsers = _.differenceBy(role.users, body.users, 'id');
-    await updateRoleUserAssociations(roleID, newUsers, oldUsers, authenticated.id);
+    await updateUserRoleAssignments(newUsers, oldUsers, roleID, authenticated.id, this.updateUserRole);
   },
 
   async updateUserRole(user, role) {
@@ -553,4 +534,3 @@ module.exports = {
     return compiledObject(data);
   },
 };
-```

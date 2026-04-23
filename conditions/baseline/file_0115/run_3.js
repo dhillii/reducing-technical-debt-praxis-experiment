@@ -1,10 +1,3 @@
-```javascript
-/***************************
- *
- * Extra methods
- *
- **************************/
-
 const cst         = require('../../constants.js');
 const Common      = require('../Common.js');
 const UX          = require('./UX');
@@ -12,7 +5,7 @@ const chalk       = require('ansis');
 const path        = require('path');
 const fs          = require('fs');
 const fmt         = require('../tools/fmt.js');
-const dayjs       = require('dayjs');
+const dayjs      = require('dayjs');
 const pkg         = require('../../package.json');
 const copyDirSync = require('../tools/copydirSync.js')
 
@@ -211,7 +204,7 @@ module.exports = function(CLI) {
    */
   CLI.prototype.profile = function(type, time, cb) {
     const that = this;
-    const dayjs_local = require('dayjs');
+    const dayjs = require('dayjs');
     let cmd
 
     if (type == 'cpu') {
@@ -227,7 +220,7 @@ module.exports = function(CLI) {
       }
     }
 
-    const file = path.join(process.cwd(), dayjs_local().format('dd-HH:mm:ss') + cmd.ext);
+    const file = path.join(process.cwd(), dayjs().format('dd-HH:mm:ss') + cmd.ext);
     time = time || 10000
 
     console.log(`Starting ${cmd.action} profiling for ${time}ms...`)
@@ -773,4 +766,3 @@ module.exports = function(CLI) {
     });
   };
 };
-```

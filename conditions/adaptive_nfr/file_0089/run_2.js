@@ -1,4 +1,3 @@
-```typescript
 import { useList } from '@keystone-6/core/admin-ui/context'
 import { GroupIndicatorLine } from '@keystone-6/core/admin-ui/utils'
 import { Field as RelationshipFieldView } from '@keystone-6/core/fields/types/relationship/views'
@@ -176,13 +175,13 @@ export function previewPropsOnChange<Schema extends ComponentSchema>(
   handlePreviewPropsChange(value, props)
 }
 
-/** Checks if a schema field can receive focus */
+/** Determines if a field can receive focus */
 function canFieldBeFocused(schema: ComponentSchema): boolean {
   const focusableKinds = new Set(['array', 'conditional', 'form', 'relationship'])
   if (focusableKinds.has(schema.kind)) return true
   if (schema.kind === 'child') return false
   if (schema.kind === 'object') {
-    return Object.values(schema.fields).some(canFieldBeFocused)
+    return Object.values(schema.fields).some(innerProp => canFieldBeFocused(innerProp))
   }
   assertNever(schema)
 }
@@ -195,78 +194,19 @@ function findFocusableObjectFieldKey(schema: ObjectField): string | undefined {
 }
 
 /** Renders array field modal content */
-function ArrayFieldItemModalContent(props: {
-  schema: NonChildFieldComponentSchema
-  value: unknown
-  onChange: (cb: (value: unknown) => unknown) => void
-}) {
-  const previewProps = useMemo(
-    () => createGetPreviewProps(props.schema, props.onChange, () => undefined),
-    [props.schema, props.onChange]
-  )(props.value)
-  return <FormValueContentFromPreviewProps {...previewProps} />
-}
-
-/** Handles modal state updates for array field items */
-function createArrayFieldModalHandler(
+function renderArrayFieldModal(
   modalState: { index: number; value: unknown; forceValidation: boolean } | 'closed',
-  setModalState: (state: any) => void,
   elements: any[],
-  schema: ComponentSchema
-): (cb: (value: unknown) => unknown) => void {
-  return (cb: (value: unknown) => unknown) => {
-    setModalState(state => {
-      if (state === 'closed') return state
-      return {
-        index: modalState === 'closed' ? 0 : modalState.index,
-        forceValidation: state.forceValidation,
-        value: cb(state.value),
-      }
-    })
-  }
-}
-
-/** Validates and saves array field item changes */
-function handleArrayFieldItemSave(
-  modalState: { index: number; value: unknown; forceValidation: boolean } | 'closed',
-  setModalState: (state: any) => void,
-  elements: any[],
-  onValidationFail: () => void,
-  onValidationSuccess: () => void
-): void {
-  if (modalState === 'closed') return
-  const element = elements.at(modalState.index)
-  if (!element) return
-  if (!clientSideValidateProp(element.schema, modalState.value)) {
-    onValidationFail()
-    return
-  }
-  previewPropsOnChange(modalState.value, element)
-  onValidationSuccess()
-}
-
-/** Renders array field modal dialog */
-function ArrayFieldModal(props: {
-  modalState: { index: number; value: unknown; forceValidation: boolean } | 'closed'
-  setModalState: (state: any) => void
-  elements: any[]
-  schema: ComponentSchema
-  onDismiss: () => void
-}): ReactElement | null {
-  const { modalState, setModalState, elements, schema, onDismiss } = props
-
-  if (schema.element.kind === 'child') return null
+  schema: ComponentSchema,
+  onModalChange: (cb: (value: unknown) => unknown) => void,
+  onModalClose: () => void,
+  onModalSave: (value: unknown, element: any) => void
+): ReactElement | null {
+  if (schema.kind === 'child') return null
   if (modalState === 'closed') return null
 
   const element = elements.at(modalState.index)
   if (!element) return null
-
-  const onModalChange = createArrayFieldModalHandler(
-    modalState,
-    setModalState,
-    elements,
-    schema
-  )
 
   return (
     <Dialog>
@@ -279,26 +219,21 @@ function ArrayFieldModal(props: {
         />
       </Content>
       <ButtonGroup>
-        <Button prominence="low" onPress={onDismiss}>
+        <Button prominence="low" onPress={onModalClose}>
           Cancel
         </Button>
         <Button
           prominence="high"
           onPress={() => {
-            handleArrayFieldItemSave(
-              modalState,
-              setModalState,
-              elements,
-              () => {
-                setModalState(state => ({
-                  ...(state as any),
-                  forceValidation: true,
-                }))
-              },
-              () => {
-                setModalState('closed')
-              }
-            )
+            if (!clientSideValidateProp(element.schema, modalState.value)) {
+              onModalChange(state => ({
+                ...state,
+                forceValidation: true,
+              }))
+              return
+            }
+            onModalSave(modalState.value, element)
+            onModalClose()
           }}
         >
           Done
@@ -320,6 +255,45 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
     | 'closed'
   >('closed')
 
+  const handleOpenItem = useCallback(
+    (index: number) => {
+      const element = elements.at(index)
+      if (!element) return
+      setModalState({
+        index,
+        value: previewPropsToValue(element),
+        forceValidation: false,
+      })
+    },
+    [elements]
+  )
+
+  const handleModalChange = useCallback((cb: (value: unknown) => unknown) => {
+    setModalState(state => {
+      if (state === 'closed') return state
+      return {
+        index: state.index,
+        forceValidation: state.forceValidation,
+        value: cb(state.value),
+      }
+    })
+  }, [])
+
+  const handleModalClose = useCallback(() => {
+    setModalState('closed')
+  }, [])
+
+  const handleModalSave = useCallback(
+    (value: unknown, element: any) => {
+      previewPropsOnChange(value, element)
+    },
+    []
+  )
+
+  const handleAddItem = useCallback(() => {
+    onChange([...elements.map(x => ({ key: x.key })), { key: undefined }])
+  }, [elements, onChange])
+
   return (
     <Field label={label} labelElementType="span">
       {groupProps => (
@@ -327,33 +301,20 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
           <ArrayFieldListView
             {...props}
             aria-label={label ?? ''}
-            onOpenItem={index => {
-              const element = elements.at(index)
-              if (!element) return
-              setModalState({
-                index,
-                value: previewPropsToValue(element),
-                forceValidation: false,
-              })
-            }}
+            onOpenItem={handleOpenItem}
           />
-          <ActionButton
-            alignSelf="start"
-            autoFocus={props.autoFocus}
-            onPress={() => {
-              onChange([...elements.map(x => ({ key: x.key })), { key: undefined }])
-            }}
-          >
+          <ActionButton alignSelf="start" autoFocus={props.autoFocus} onPress={handleAddItem}>
             Add
           </ActionButton>
-          <DialogContainer onDismiss={() => setModalState('closed')}>
-            <ArrayFieldModal
-              modalState={modalState}
-              setModalState={setModalState}
-              elements={elements}
-              schema={schema}
-              onDismiss={() => setModalState('closed')}
-            />
+          <DialogContainer onDismiss={handleModalClose}>
+            {renderArrayFieldModal(
+              modalState,
+              elements,
+              props.schema.element,
+              handleModalChange,
+              handleModalClose,
+              handleModalSave
+            )}
           </DialogContainer>
         </VStack>
       )}
@@ -361,9 +322,9 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
   )
 }
 
-/** Builds relationship field form value from schema and current value */
+/** Builds form value for relationship field based on cardinality */
 function buildRelationshipFormValue(
-  value: unknown,
+  value: any,
   many: boolean
 ): {
   kind: 'many' | 'one'
@@ -376,7 +337,7 @@ function buildRelationshipFormValue(
     const manyValue =
       value === null
         ? []
-        : (value as any[]).map(x => ({
+        : value.map((x: any) => ({
             id: x.id,
             label: x.label || x.id.toString(),
             data: x.data,
@@ -393,9 +354,9 @@ function buildRelationshipFormValue(
   if (value !== null && 'length' in value) throw TypeError('bad value')
   const oneValue = value
     ? {
-        id: (value as any).id,
-        label: (value as any).label || (value as any).id.toString(),
-        data: (value as any).data,
+        id: value.id,
+        label: value.label || value.id.toString(),
+        data: value.data,
         built: undefined,
       }
     : null
@@ -407,7 +368,7 @@ function buildRelationshipFormValue(
   }
 }
 
-/** Handles relationship field onChange events */
+/** Handles relationship field onChange dispatch */
 function handleRelationshipChange(
   val: any,
   onChange: (value: any) => void
@@ -419,7 +380,7 @@ function handleRelationshipChange(
     return
   }
   if (Array.isArray(value)) {
-    onChange(value.map(x => ({ id: x.id, label: x.label })))
+    onChange(value.map((x: any) => ({ id: x.id, label: x.label })))
     return
   }
   onChange({ id: value.id, label: value.label })
@@ -545,7 +506,7 @@ function isNonChildFieldPreviewProps(
   return props.schema.kind !== 'child'
 }
 
-/** Strategy map for rendering different field types */
+/** Strategy object mapping schema kinds to their preview components */
 const fieldRenderers = {
   array: ArrayFieldPreview,
   relationship: RelationshipFieldPreview,
@@ -578,30 +539,28 @@ function useEventCallback<Func extends (...args: any) => any>(callback: Func): F
   return cb as any
 }
 
-/** Handles drag and drop reordering */
-function handleArrayFieldDrop(
-  e: any,
-  dragType: string,
-  onMove: (keys: Key[], target: ItemDropTarget) => void
-): void {
-  if (e.target.type === 'root' || e.target.dropPosition === 'on') {
-    return
-  }
-
+/** Processes drop items and extracts keys from drag data */
+function extractKeysFromDropItems(items: any[], dragType: string): Key[] {
   const keys: Key[] = []
-  for (const item of e.items) {
+  for (let item of items) {
     if (item.kind === 'text') {
-      let key: Key
+      let key
       if (item.types.has(dragType)) {
         key = JSON.parse(item.getText(dragType))
         keys.push(key)
       } else if (item.types.has('text/plain')) {
-        const text = item.getText('text/plain')
-        keys.push(...text.split('\n').map(val => val.replaceAll('"', '')))
+        key = item.getText('text/plain')
+        keys.push(...key.split('\n').map((val: string) => val.replaceAll('"', '')))
       }
     }
   }
-  onMove(keys, e.target)
+  return keys
+}
+
+/** Determines drop operation based on target */
+function getDropOperation(target: ItemDropTarget): 'move' | 'cancel' {
+  if (target.type === 'root' || target.dropPosition === 'on') return 'cancel'
+  return 'move'
 }
 
 function ArrayFieldListView<Element extends ComponentSchema>(
@@ -634,11 +593,13 @@ function ArrayFieldListView<Element extends ComponentSchema>(
       return ['move', 'cancel']
     },
     async onDrop(e) {
-      await handleArrayFieldDrop(e, dragType, onMove)
+      if (e.target.type !== 'root' && e.target.dropPosition !== 'on') {
+        const keys = await extractKeysFromDropItems(e.items, dragType)
+        onMove(keys, e.target)
+      }
     },
     getDropOperation(target) {
-      if (target.type === 'root' || target.dropPosition === 'on') return 'cancel'
-      return 'move'
+      return getDropOperation(target)
     },
   })
 
@@ -678,6 +639,18 @@ function ArrayFieldListView<Element extends ComponentSchema>(
   )
 }
 
+function ArrayFieldItemModalContent(props: {
+  schema: NonChildFieldComponentSchema
+  value: unknown
+  onChange: (cb: (value: unknown) => unknown) => void
+}) {
+  const previewProps = useMemo(
+    () => createGetPreviewProps(props.schema, props.onChange, () => undefined),
+    [props.schema, props.onChange]
+  )(props.value)
+  return <FormValueContentFromPreviewProps {...previewProps} />
+}
+
 function arrayFieldEmptyState() {
   return (
     <VStack gap="large" alignItems="center" justifyContent="center" height="100%" padding="regular">
@@ -690,4 +663,3 @@ function arrayFieldEmptyState() {
     </VStack>
   )
 }
-```

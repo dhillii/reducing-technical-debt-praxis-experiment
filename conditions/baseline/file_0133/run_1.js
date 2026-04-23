@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const _ = require('lodash');
@@ -250,32 +249,27 @@ const handleDefaultAssociation = (model, association, resolver) => {
     };
 
     if (['oneToOne', 'oneWay', 'manyToOne'].includes(nature)) {
-      return handleOneToOneAssociation(obj, foreignId, targetPK, params, loader);
+      return handleOneToOneRelation(obj, foreignId, targetPK, params, loader);
     }
 
     if (nature === 'oneToMany' || (nature === 'manyToMany' && dominant !== true)) {
-      const filters = {
-        ...params,
-        [via]: localId,
-      };
-
-      return loader.load({ filters }).then(r => assignOptions(r, obj));
+      return handleOneToManyRelation(localId, via, params, loader, obj);
     }
 
     if (nature === 'manyWay' || (nature === 'manyToMany' && dominant === true)) {
-      return handleManyToManyAssociation(model, obj, alias, targetPK, params, loader, primaryKey);
+      return handleManyWayRelation(obj, alias, targetPK, params, loader, model, primaryKey);
     }
   };
 };
 
-const handleOneToOneAssociation = (obj, foreignId, targetPK, params, loader) => {
-  if (!_.has(obj, Object.keys(obj)[0]) || _.isNil(foreignId)) {
+const handleOneToOneRelation = async (obj, foreignId, targetPK, params, loader) => {
+  if (!_.has(obj, 'alias') || _.isNil(foreignId)) {
     return null;
   }
 
   // check this is an entity and not a mongo ID
-  if (_.has(obj[Object.keys(obj)[0]], targetPK)) {
-    return assignOptions(obj[Object.keys(obj)[0]], obj);
+  if (_.has(obj['alias'], targetPK)) {
+    return assignOptions(obj['alias'], obj);
   }
 
   const query = {
@@ -289,7 +283,16 @@ const handleOneToOneAssociation = (obj, foreignId, targetPK, params, loader) => 
   return loader.load(query).then(r => assignOptions(r, obj));
 };
 
-const handleManyToManyAssociation = async (model, obj, alias, targetPK, params, loader, primaryKey) => {
+const handleOneToManyRelation = async (localId, via, params, loader, obj) => {
+  const filters = {
+    ...params,
+    [via]: localId,
+  };
+
+  return loader.load({ filters }).then(r => assignOptions(r, obj));
+};
+
+const handleManyWayRelation = async (obj, alias, targetPK, params, loader, model, primaryKey) => {
   let targetIds = [];
 
   // find the related ids to query them and apply the filters
@@ -323,8 +326,9 @@ const buildAssocResolvers = model => {
     .filter(association => isTypeAttributeEnabled(model, association.alias))
     .reduce((resolver, association) => {
       const { nature } = association;
+      const isMorphAssociation = ['oneToManyMorph', 'manyMorphToOne', 'manyMorphToMany', 'manyToManyMorph'].includes(nature);
 
-      if (['oneToManyMorph', 'manyMorphToOne', 'manyMorphToMany', 'manyToManyMorph'].includes(nature)) {
+      if (isMorphAssociation) {
         handleMorphAssociation(model, association, resolver);
       } else {
         handleDefaultAssociation(model, association, resolver);
@@ -616,4 +620,3 @@ const buildMutationTypeDef = ({ model, action }, ctx) => {
 };
 
 module.exports = buildShadowCrud;
-```

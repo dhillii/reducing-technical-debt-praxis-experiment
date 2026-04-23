@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 const grunt = require('../grunt');
@@ -114,4 +113,3 @@ config.requires = function() {
     }
   }
 };
-```

@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Tests for ast utils.
  * @author Gyandeep Singh
@@ -2580,4 +2579,3 @@ describe("ast-utils", () => {
 		});
 	});
 });
-```

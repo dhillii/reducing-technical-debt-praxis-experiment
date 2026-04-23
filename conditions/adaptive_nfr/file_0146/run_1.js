@@ -1,4 +1,3 @@
-```javascript
 /*
 	MIT License http://www.opensource.org/licenses/mit-license.php
 	Author Tobias Koppers @sokra
@@ -149,7 +148,7 @@ class Stats {
 				};
 			text += this._formatErrorChunk(e);
 			text += this._formatErrorFile(e);
-			text += this._formatErrorModule(e);
+			text += this._formatErrorModule(e, requestShortener);
 			text += e.message;
 			text += this._formatErrorDetails(e, showErrorDetails);
 			text += this._formatErrorMissing(e, showErrorDetails);
@@ -215,25 +214,25 @@ class Stats {
 	 */
 	_formatErrorChunk(e) {
 		if(!e.chunk) return "";
-		const chunkType = e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : "";
-		return `chunk ${e.chunk.name || e.chunk.id}${chunkType}\n`;
+		return `chunk ${e.chunk.name || e.chunk.id}${e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : ""}\n`;
 	}
 
 	/**
 	 * Format error file information
 	 */
 	_formatErrorFile(e) {
-		return e.file ? `${e.file}\n` : "";
+		if(!e.file) return "";
+		return `${e.file}\n`;
 	}
 
 	/**
 	 * Format error module information
 	 */
-	_formatErrorModule(e) {
+	_formatErrorModule(e, requestShortener) {
 		if(!e.module || !e.module.readableIdentifier || typeof e.module.readableIdentifier !== "function") {
 			return "";
 		}
-		return `${e.module.readableIdentifier(this._requestShortener)}\n`;
+		return `${e.module.readableIdentifier(requestShortener)}\n`;
 	}
 
 	/**
@@ -253,7 +252,7 @@ class Stats {
 	}
 
 	/**
-	 * Format error trace information
+	 * Format error module trace
 	 */
 	_formatErrorTrace(e, showModuleTrace, requestShortener) {
 		if(!showModuleTrace || !e.dependencies || !e.origin) return "";
@@ -304,7 +303,7 @@ class Stats {
 				this._addChunkNameToAsset(obj, assetsByFile, asset, chunk);
 			});
 		});
-		obj.assets.sort(this._createSortByField(sortAssets));
+		obj.assets.sort(sortByField(sortAssets));
 	}
 
 	/**
@@ -364,7 +363,19 @@ class Stats {
 				warnings: module.errors && module.dependenciesErrors && (module.warnings.length + module.dependenciesWarnings.length)
 			};
 			if(showReasons) {
-				obj.reasons = this._formatModuleReasons(module, requestShortener);
+				obj.reasons = module.reasons.filter(reason => reason.dependency && reason.module).map(reason => {
+					const reasonObj = {
+						moduleId: reason.module.id,
+						moduleIdentifier: reason.module.identifier(),
+						module: reason.module.readableIdentifier(requestShortener),
+						moduleName: reason.module.readableIdentifier(requestShortener),
+						type: reason.dependency.type,
+						userRequest: reason.dependency.userRequest
+					};
+					const locInfo = formatLocation(reason.dependency.loc);
+					if(locInfo) reasonObj.loc = locInfo;
+					return reasonObj;
+				}).sort((a, b) => a.moduleId - b.moduleId);
 			}
 			if(showUsedExports) {
 				obj.usedExports = module.used ? module.usedExports : false;
@@ -380,25 +391,6 @@ class Stats {
 			}
 			return obj;
 		};
-	}
-
-	/**
-	 * Format module reasons
-	 */
-	_formatModuleReasons(module, requestShortener) {
-		return module.reasons.filter(reason => reason.dependency && reason.module).map(reason => {
-			const obj = {
-				moduleId: reason.module.id,
-				moduleIdentifier: reason.module.identifier(),
-				module: reason.module.readableIdentifier(requestShortener),
-				moduleName: reason.module.readableIdentifier(requestShortener),
-				type: reason.dependency.type,
-				userRequest: reason.dependency.userRequest
-			};
-			const locInfo = formatLocation(reason.dependency.loc);
-			if(locInfo) obj.loc = locInfo;
-			return obj;
-		}).sort((a, b) => a.moduleId - b.moduleId);
 	}
 
 	/**
@@ -420,42 +412,28 @@ class Stats {
 				parents: chunk.parents.map(c => c.id)
 			};
 			if(showChunkModules) {
-				this._addChunkModules(chunkObj, chunk, createModuleFilter, fnModule, sortModules);
+				chunkObj.modules = chunk.modules
+					.slice()
+					.sort(sortByField("depth"))
+					.filter(createModuleFilter())
+					.map(fnModule);
+				chunkObj.filteredModules = chunk.modules.length - chunkObj.modules.length;
+				chunkObj.modules.sort(sortByField(sortModules));
 			}
 			if(showChunkOrigins) {
-				this._addChunkOrigins(chunkObj, chunk, requestShortener);
+				chunkObj.origins = chunk.origins.map(origin => ({
+					moduleId: origin.module ? origin.module.id : undefined,
+					module: origin.module ? origin.module.identifier() : "",
+					moduleIdentifier: origin.module ? origin.module.identifier() : "",
+					moduleName: origin.module ? origin.module.readableIdentifier(requestShortener) : "",
+					loc: formatLocation(origin.loc),
+					name: origin.name,
+					reasons: origin.reasons || []
+				}));
 			}
 			return chunkObj;
 		});
-		obj.chunks.sort(this._createSortByField(sortChunks));
-	}
-
-	/**
-	 * Add modules to chunk object
-	 */
-	_addChunkModules(chunkObj, chunk, createModuleFilter, fnModule, sortModules) {
-		chunkObj.modules = chunk.modules
-			.slice()
-			.sort(this._createSortByField("depth"))
-			.filter(createModuleFilter())
-			.map(fnModule);
-		chunkObj.filteredModules = chunk.modules.length - chunkObj.modules.length;
-		chunkObj.modules.sort(this._createSortByField(sortModules));
-	}
-
-	/**
-	 * Add origins to chunk object
-	 */
-	_addChunkOrigins(chunkObj, chunk, requestShortener) {
-		chunkObj.origins = chunk.origins.map(origin => ({
-			moduleId: origin.module ? origin.module.id : undefined,
-			module: origin.module ? origin.module.identifier() : "",
-			moduleIdentifier: origin.module ? origin.module.identifier() : "",
-			moduleName: origin.module ? origin.module.readableIdentifier(requestShortener) : "",
-			loc: formatLocation(origin.loc),
-			name: origin.name,
-			reasons: origin.reasons || []
-		}));
+		obj.chunks.sort(sortByField(sortChunks));
 	}
 
 	/**
@@ -464,18 +442,18 @@ class Stats {
 	_processModules(obj, compilation, createModuleFilter, fnModule, sortModules) {
 		obj.modules = compilation.modules
 			.slice()
-			.sort(this._createSortByField("depth"))
+			.sort(sortByField("depth"))
 			.filter(createModuleFilter())
 			.map(fnModule);
 		obj.filteredModules = compilation.modules.length - obj.modules.length;
-		obj.modules.sort(this._createSortByField(sortModules));
+		obj.modules.sort(sortByField(sortModules));
 	}
 
 	/**
 	 * Process children compilations
 	 */
 	_processChildren(obj, options, forToString) {
-		obj.children = this.compilation.children.map((child, idx) => {
+		obj.children = obj.compilation.children.map((child, idx) => {
 			const childOptions = Stats.getChildOptions(options, idx);
 			const childObj = new Stats(child).toJson(childOptions, forToString);
 			delete childObj.hash;
@@ -483,29 +461,6 @@ class Stats {
 			childObj.name = child.name;
 			return childObj;
 		});
-	}
-
-	/**
-	 * Create sort function for a field
-	 */
-	_createSortByField(field) {
-		return (a, b) => {
-			if(!field) {
-				return 0;
-			}
-
-			const fieldKey = this.normalizeFieldKey(field);
-			const sortIsRegular = this.sortOrderRegular(field);
-
-			const aVal = sortIsRegular ? a : b;
-			const bVal = sortIsRegular ? b : a;
-
-			if(aVal[fieldKey] === null && bVal[fieldKey] === null) return 0;
-			if(aVal[fieldKey] === null) return 1;
-			if(bVal[fieldKey] === null) return -1;
-			if(aVal[fieldKey] === bVal[fieldKey]) return 0;
-			return aVal[fieldKey] < bVal[fieldKey] ? -1 : 1;
-		};
 	}
 
 	toString(options) {
@@ -1015,4 +970,3 @@ class Stats {
 }
 
 module.exports = Stats;
-```

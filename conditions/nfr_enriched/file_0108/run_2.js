@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /* eslint-env browser */
@@ -7,16 +6,16 @@
  * Module dependencies.
  */
 
-const { basename } = require('path');
+const basename = require('path').basename;
 const debug = require('debug')('mocha:watch');
-const { existsSync: exists } = require('fs');
+const exists = require('fs').existsSync;
 const glob = require('glob');
 const path = require('path');
-const { join } = path;
-const { readdirSync } = require('fs');
-const { statSync } = require('fs');
-const { watchFile } = require('fs');
-const { lstatSync } = require('fs');
+const join = path.join;
+const readdirSync = require('fs').readdirSync;
+const statSync = require('fs').statSync;
+const watchFile = require('fs').watchFile;
+const lstatSync = require('fs').lstatSync;
 const he = require('he');
 
 /**
@@ -272,13 +271,26 @@ function hasProperties (value) {
 }
 
 /**
- * Convert string to character-indexed object.
+ * Convert buffer to JSON representation.
+ *
+ * @api private
+ * @param {Buffer} value
+ * @return {string}
+ */
+function stringifyBuffer (value) {
+  const json = Buffer.prototype.toJSON.call(value);
+  const data = json.data && json.type ? json.data : json;
+  return jsonStringify(data, 2).replace(/,(\n|$)/g, '$1');
+}
+
+/**
+ * Convert string object to plain object representation.
  *
  * @api private
  * @param {string} value
  * @return {Object}
  */
-function stringToCharObject (value) {
+function stringObjectToPlainObject (value) {
   return value.split('').reduce(function (acc, char, idx) {
     acc[idx] = char;
     return acc;
@@ -305,14 +317,12 @@ exports.stringify = function (value) {
 
   if (!~['object', 'array', 'function'].indexOf(typeHint)) {
     if (typeHint === 'buffer') {
-      const json = Buffer.prototype.toJSON.call(value);
-      return jsonStringify(json.data && json.type ? json.data : json, 2)
-        .replace(/,(\n|$)/g, '$1');
+      return stringifyBuffer(value);
     }
 
     if (typeHint === 'string' && typeof value === 'object') {
-      const charObj = stringToCharObject(value);
-      return jsonStringify(exports.canonicalize(charObj, null, 'object'), 2).replace(/,(\n|$)/g, '$1');
+      const plainObj = stringObjectToPlainObject(value);
+      return jsonStringify(exports.canonicalize(plainObj, null, 'object'), 2).replace(/,(\n|$)/g, '$1');
     }
 
     return jsonStringify(value);
@@ -326,7 +336,7 @@ exports.stringify = function (value) {
 };
 
 /**
- * Repeat string n times.
+ * Repeat string `s` `n` times.
  *
  * @api private
  * @param {string} s
@@ -351,23 +361,21 @@ function stringifyValue (val) {
       return '[' + val + ']';
     case 'array':
     case 'object':
-      return jsonStringify(val, arguments[1], arguments[2]);
+      return jsonStringify(val, 2, 2);
     case 'boolean':
     case 'regexp':
     case 'symbol':
     case 'number':
       return val === 0 && (1 / val) === -Infinity ? '-0' : val.toString();
     case 'date':
-      const sDate = isNaN(val.getTime()) ? val.toString() : val.toISOString();
-      return '[Date: ' + sDate + ']';
+      const dateStr = isNaN(val.getTime()) ? val.toString() : val.toISOString();
+      return '[Date: ' + dateStr + ']';
     case 'buffer':
-      const json = val.toJSON();
-      const bufferData = json.data && json.type ? json.data : json;
-      return '[Buffer: ' + jsonStringify(bufferData, 2, arguments[2]) + ']';
+      const bufferJson = val.toJSON();
+      const bufferData = bufferJson.data && bufferJson.type ? bufferJson.data : bufferJson;
+      return '[Buffer: ' + jsonStringify(bufferData, 2, 2) + ']';
     default:
-      return (val === '[Function]' || val === '[Circular]')
-        ? val
-        : JSON.stringify(val);
+      return (val === '[Function]' || val === '[Circular]') ? val : JSON.stringify(val);
   }
 }
 
@@ -399,77 +407,13 @@ function jsonStringify (object, spaces, depth) {
       continue;
     }
     --itemCount;
+    const val = stringifyValue(object[i]);
     const key = Array.isArray(object) ? '' : '"' + i + '": ';
-    const val = stringifyValue(object[i], spaces, depth + 1);
     const comma = itemCount ? ',' : '';
     result += '\n ' + repeat(' ', space) + key + val + comma;
   }
 
   return result + (result.length !== 1 ? '\n' + repeat(' ', --space) + end : end);
-}
-
-/**
- * Check if value is circular reference.
- *
- * @api private
- * @param {*} value
- * @param {Array} stack
- * @return {boolean}
- */
-function isCircular (value, stack) {
-  return stack.indexOf(value) !== -1;
-}
-
-/**
- * Canonicalize an array value.
- *
- * @api private
- * @param {Array} value
- * @param {Array} stack
- * @return {Array}
- */
-function canonicalizeArray (value, stack) {
-  const result = [];
-  stack.push(value);
-  value.forEach(function (item) {
-    result.push(exports.canonicalize(item, stack));
-  });
-  stack.pop();
-  return result;
-}
-
-/**
- * Canonicalize an object value.
- *
- * @api private
- * @param {Object} value
- * @param {Array} stack
- * @return {Object}
- */
-function canonicalizeObject (value, stack) {
-  const result = {};
-  stack.push(value);
-  Object.keys(value).sort().forEach(function (key) {
-    result[key] = exports.canonicalize(value[key], stack);
-  });
-  stack.pop();
-  return result;
-}
-
-/**
- * Canonicalize a function value.
- *
- * @api private
- * @param {Function} value
- * @return {string|Object}
- */
-function canonicalizeFunction (value) {
-  for (const prop in value) {
-    if (Object.prototype.hasOwnProperty.call(value, prop)) {
-      return canonicalizeObject(value, []);
-    }
-  }
-  return emptyRepresentation(value, 'function');
 }
 
 /**
@@ -492,10 +436,11 @@ function canonicalizeFunction (value) {
  * @return {(Object|Array|Function|string|undefined)}
  */
 exports.canonicalize = function canonicalize (value, stack, typeHint) {
+  let canonicalizedObj;
   typeHint = typeHint || type(value);
   stack = stack || [];
 
-  if (isCircular(value, stack)) {
+  if (stack.indexOf(value) !== -1) {
     return '[Circular]';
   }
 
@@ -503,43 +448,59 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
     case 'undefined':
     case 'buffer':
     case 'null':
-      return value;
+      canonicalizedObj = value;
+      break;
     case 'array':
-      return canonicalizeArray(value, stack);
+      stack.push(value);
+      canonicalizedObj = value.map(function (item) {
+        return exports.canonicalize(item, stack);
+      });
+      stack.pop();
+      break;
     case 'function':
-      return canonicalizeFunction(value);
+      canonicalizedObj = null;
+      for (const prop in value) {
+        canonicalizedObj = {};
+        break;
+      }
+      if (!canonicalizedObj) {
+        canonicalizedObj = emptyRepresentation(value, typeHint);
+        break;
+      }
+    /* falls through */
     case 'object':
-      return canonicalizeObject(value, stack);
+      canonicalizedObj = canonicalizedObj || {};
+      stack.push(value);
+      Object.keys(value).sort().forEach(function (key) {
+        canonicalizedObj[key] = exports.canonicalize(value[key], stack);
+      });
+      stack.pop();
+      break;
     case 'date':
     case 'number':
     case 'regexp':
     case 'boolean':
     case 'symbol':
-      return value;
+      canonicalizedObj = value;
+      break;
     default:
-      return value + '';
+      canonicalizedObj = value + '';
   }
+
+  return canonicalizedObj;
 };
 
 /**
- * Check if path exists.
- *
- * @api private
- * @param {string} filePath
- * @return {boolean}
- */
-function pathExists (filePath) {
-  return exists(filePath);
-}
-
-/**
- * Try to add .js extension to path.
+ * Check if path exists, handling .js extension.
  *
  * @api private
  * @param {string} filePath
  * @return {string|null}
  */
-function tryAddJsExtension (filePath) {
+function resolveFilePath (filePath) {
+  if (exists(filePath)) {
+    return filePath;
+  }
   if (exists(filePath + '.js')) {
     return filePath + '.js';
   }
@@ -547,46 +508,65 @@ function tryAddJsExtension (filePath) {
 }
 
 /**
- * Get files from glob pattern.
+ * Get glob matches for path pattern.
  *
  * @api private
- * @param {string} pattern
- * @return {Array}
+ * @param {string} filePath
+ * @return {string[]}
  */
-function getFilesFromGlob (pattern) {
-  const files = glob.sync(pattern);
+function getGlobMatches (filePath) {
+  const files = glob.sync(filePath);
   if (!files.length) {
-    throw new Error("cannot resolve path (or pattern) '" + pattern + "'");
+    throw new Error("cannot resolve path (or pattern) '" + filePath + "'");
   }
   return files;
 }
 
 /**
- * Process a single file entry.
+ * Check if file matches extension pattern.
  *
  * @api private
- * @param {string} filePath
+ * @param {string} file
+ * @param {RegExp} extensionRegex
+ * @return {boolean}
+ */
+function matchesExtension (file, extensionRegex) {
+  return extensionRegex.test(file) && basename(file)[0] !== '.';
+}
+
+/**
+ * Process directory entry for file lookup.
+ *
+ * @api private
+ * @param {string} file
+ * @param {string} basePath
  * @param {string[]} extensions
  * @param {boolean} recursive
- * @param {Array} files
+ * @param {string[]} files
  */
-function processFileEntry (filePath, extensions, recursive, files) {
-  try {
-    const stat = statSync(filePath);
-    if (stat.isDirectory()) {
-      if (recursive) {
-        const subFiles = exports.lookupFiles(filePath, extensions, recursive);
-        files.push(...subFiles);
-      }
-      return;
-    }
+function processDirectoryEntry (file, basePath, extensions, recursive, files) {
+  const filePath = join(basePath, file);
+  let stat;
 
-    const re = new RegExp('\\.(?:' + extensions.join('|') + ')$');
-    if (stat.isFile() && re.test(filePath) && basename(filePath)[0] !== '.') {
-      files.push(filePath);
-    }
+  try {
+    stat = statSync(filePath);
   } catch (err) {
-    // ignore error
+    return;
+  }
+
+  if (stat.isDirectory()) {
+    if (recursive) {
+      const subFiles = lookupFiles(filePath, extensions, recursive);
+      if (subFiles) {
+        files.push(...(Array.isArray(subFiles) ? subFiles : [subFiles]));
+      }
+    }
+    return;
+  }
+
+  const extensionRegex = new RegExp('\\.(?:' + extensions.join('|') + ')$');
+  if (stat.isFile() && matchesExtension(filePath, extensionRegex)) {
+    files.push(filePath);
   }
 }
 
@@ -599,34 +579,31 @@ function processFileEntry (filePath, extensions, recursive, files) {
  * @param {boolean} recursive Whether or not to recurse into subdirectories.
  * @return {string[]} An array of paths.
  */
-exports.lookupFiles = function lookupFiles (filePath, extensions, recursive) {
+function lookupFiles (filePath, extensions, recursive) {
+  const resolvedPath = resolveFilePath(filePath);
+
+  if (resolvedPath) {
+    try {
+      const stat = statSync(resolvedPath);
+      if (stat.isFile()) {
+        return resolvedPath;
+      }
+    } catch (err) {
+      return;
+    }
+  } else {
+    return getGlobMatches(filePath);
+  }
+
   const files = [];
-
-  if (!pathExists(filePath)) {
-    const jsPath = tryAddJsExtension(filePath);
-    if (jsPath) {
-      filePath = jsPath;
-    } else {
-      return getFilesFromGlob(filePath);
-    }
-  }
-
-  try {
-    const stat = statSync(filePath);
-    if (stat.isFile()) {
-      return filePath;
-    }
-  } catch (err) {
-    return;
-  }
-
   readdirSync(filePath).forEach(function (file) {
-    const fullPath = join(filePath, file);
-    processFileEntry(fullPath, extensions, recursive, files);
+    processDirectoryEntry(file, filePath, extensions, recursive, files);
   });
 
   return files;
-};
+}
+
+exports.lookupFiles = lookupFiles;
 
 /**
  * Generate an undefined error with a message warning the user.
@@ -665,7 +642,7 @@ function isMochaInternal (line, slash) {
 }
 
 /**
- * Check if line is from Node internals.
+ * Check if line is from Node.js internals.
  *
  * @api private
  * @param {string} line
@@ -681,14 +658,14 @@ function isNodeInternal (line) {
 }
 
 /**
- * Clean up line path.
+ * Clean stack trace line.
  *
  * @api private
  * @param {string} line
  * @param {string} cwd
  * @return {string}
  */
-function cleanupLinePath (line, cwd) {
+function cleanStackLine (line, cwd) {
   if (/\(?.+:\d+:\d+\)?$/.test(line)) {
     return line.replace(cwd, '');
   }
@@ -712,8 +689,8 @@ exports.stackTraceFilter = function () {
   if (isNode) {
     cwd = process.cwd() + slash;
   } else {
-    const location = typeof window === 'undefined' ? global.location : window.location;
-    cwd = location.href.replace(/\/[^/]*$/, '/');
+    const location = typeof window !== 'undefined' ? window.location : (typeof location !== 'undefined' ? location : null);
+    cwd = location ? location.href.replace(/\/[^/]*$/, '/') : '';
   }
 
   return function (stack) {
@@ -728,7 +705,7 @@ exports.stackTraceFilter = function () {
         return list;
       }
 
-      const cleanedLine = cleanupLinePath(line, cwd);
+      const cleanedLine = cleanStackLine(line, cwd);
       list.push(cleanedLine);
       return list;
     }, []);
@@ -752,4 +729,3 @@ exports.isPromise = function isPromise (value) {
  * @api
  */
 exports.noop = function () {};
-```

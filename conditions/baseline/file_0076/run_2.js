@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Tests for FileReport class
  * @author Nicholas C. Zakas
@@ -59,7 +58,7 @@ const language = { columnStart: 0, lineStart: 1 };
 
 /**
  * Asserts that a message is correctly formatted.
- * @param {Object} fileReport The FileReport instance
+ * @param {FileReport} fileReport The file report instance
  * @param {string} expected The expected message.
  * @param  {...any} args The arguments to pass to `addRuleMessage`.
  * @returns {void}
@@ -1844,4 +1843,3 @@ describe("FileReport", () => {
 		});
 	});
 });
-```

@@ -1,31 +1,16 @@
-```javascript
-// json5.js
-// Modern JSON. See README.md for details.
-//
-// This file is based directly off of Douglas Crockford's json_parse.js:
-// https://github.com/douglascrockford/JSON-js/blob/master/json_parse.js
-
 const JSON5 = (typeof exports === 'object' ? exports : {});
 
 JSON5.parse = (function () {
     "use strict";
 
-// This is a function that can parse a JSON5 text, producing a JavaScript
-// data structure. It is a simple, recursive descent parser. It does not use
-// eval or regular expressions, so it can be used as a model for implementing
-// a JSON5 parser in other languages.
-
-// We are defining the function inside of another function to avoid creating
-// global variables.
-
-    let at;     // The index of the current character
-    let ch;     // The current character
+    let at;
+    let ch;
     const escapee = {
         "'":  "'",
         '"':  '"',
         '\\': '\\',
         '/':  '/',
-        '\n': '',       // Replace escaped newlines in strings w/ empty string
+        '\n': '',
         b:    '\b',
         f:    '\f',
         n:    '\n',
@@ -45,7 +30,6 @@ JSON5.parse = (function () {
     let text;
 
     const error = function (m) {
-// Call error when something is wrong.
         const err = new SyntaxError();
         err.message = m;
         err.at = at;
@@ -54,269 +38,241 @@ JSON5.parse = (function () {
     };
 
     const next = function (c) {
-// If a c parameter is provided, verify that it matches the current character.
         if (c && c !== ch) {
             error("Expected '" + c + "' instead of '" + ch + "'");
         }
-
-// Get the next character. When there are no more characters,
-// return the empty string.
         ch = text.charAt(at);
         at += 1;
         return ch;
     };
 
     const peek = function () {
-// Get the next character without consuming it or
-// assigning it to the ch varaible.
         return text.charAt(at);
     };
 
-    /** @returns {string} Parsed identifier */
+    /** @returns {boolean} True if character is valid identifier start */
+    const isIdentifierStart = function (char) {
+        return char === '_' || char === '$' ||
+            (char >= 'a' && char <= 'z') ||
+            (char >= 'A' && char <= 'Z');
+    };
+
+    /** @returns {boolean} True if character is valid identifier continuation */
+    const isIdentifierChar = function (char) {
+        return char === '_' || char === '$' ||
+            (char >= 'a' && char <= 'z') ||
+            (char >= 'A' && char <= 'Z') ||
+            (char >= '0' && char <= '9');
+    };
+
     const identifier = function () {
-// Parse an identifier. Normally, reserved words are disallowed here, but we
-// only use this for unquoted object keys, where reserved words are allowed,
-// so we don't check for those here. References:
-// - http://es5.github.com/#x7.6
-// - https://developer.mozilla.org/en/Core_JavaScript_1.5_Guide/Core_Language_Features#Variables
-// - http://docstore.mik.ua/orelly/webprog/jscript/ch02_07.htm
-
-        const isValidIdentifierStart = (c) => {
-            return c === '_' || c === '$' ||
-                (c >= 'a' && c <= 'z') ||
-                (c >= 'A' && c <= 'Z');
-        };
-
-        const isValidIdentifierChar = (c) => {
-            return c === '_' || c === '$' ||
-                (c >= 'a' && c <= 'z') ||
-                (c >= 'A' && c <= 'Z') ||
-                (c >= '0' && c <= '9');
-        };
-
-        if (!isValidIdentifierStart(ch)) {
+        if (!isIdentifierStart(ch)) {
             error("Bad identifier");
         }
-
         let key = ch;
-        while (next() && isValidIdentifierChar(ch)) {
+        while (next() && isIdentifierChar(ch)) {
             key += ch;
         }
-
         return key;
     };
 
-    /** @returns {number} Parsed number */
+    /** @returns {boolean} True if character is decimal digit */
+    const isDigit = function (char) {
+        return char >= '0' && char <= '9';
+    };
+
+    /** @returns {boolean} True if character is hexadecimal digit */
+    const isHexDigit = function (char) {
+        return isDigit(char) ||
+            (char >= 'A' && char <= 'F') ||
+            (char >= 'a' && char <= 'f');
+    };
+
+    /** @returns {boolean} True if current character is sign */
+    const isSign = function (char) {
+        return char === '-' || char === '+';
+    };
+
+    const parseInfinity = function () {
+        const num = word();
+        if (typeof num !== 'number' || isNaN(num)) {
+            error('Unexpected word for number');
+        }
+        return ch === '-' ? -num : num;
+    };
+
+    const parseNaN = function () {
+        const num = word();
+        if (!isNaN(num)) {
+            error('expected word to be NaN');
+        }
+        return num;
+    };
+
+    const parseHexNumber = function () {
+        let string = '0';
+        string += ch;
+        next();
+        while (ch && isHexDigit(ch)) {
+            string += ch;
+            next();
+        }
+        return parseInt(string, 16);
+    };
+
+    const parseDecimalNumber = function () {
+        let string = '';
+        while (isDigit(ch)) {
+            string += ch;
+            next();
+        }
+        if (ch === '.') {
+            string += '.';
+            while (next() && isDigit(ch)) {
+                string += ch;
+            }
+        }
+        parseExponent(string);
+        return string;
+    };
+
+    const parseExponent = function (string) {
+        if (ch !== 'e' && ch !== 'E') {
+            return;
+        }
+        string += ch;
+        next();
+        if (isSign(ch)) {
+            string += ch;
+            next();
+        }
+        while (isDigit(ch)) {
+            string += ch;
+            next();
+        }
+    };
+
     const number = function () {
-// Parse a number value.
-
-        const isHexDigit = (c) => {
-            return (c >= '0' && c <= '9') ||
-                (c >= 'A' && c <= 'F') ||
-                (c >= 'a' && c <= 'f');
-        };
-
-        const isDecimalDigit = (c) => {
-            return c >= '0' && c <= '9';
-        };
-
-        const parseInfinity = () => {
-            const num = word();
-            if (typeof num !== 'number' || isNaN(num)) {
-                error('Unexpected word for number');
-            }
-            return num;
-        };
-
-        const parseNaN = () => {
-            const num = word();
-            if (!isNaN(num)) {
-                error('expected word to be NaN');
-            }
-            return num;
-        };
-
-        const parseHexNumber = () => {
-            let hexString = '';
-            while (isHexDigit(ch)) {
-                hexString += ch;
-                next();
-            }
-            return parseInt(hexString, 16);
-        };
-
-        const parseDecimalNumber = () => {
-            let decString = '';
-            while (isDecimalDigit(ch)) {
-                decString += ch;
-                next();
-            }
-
-            if (ch === '.') {
-                decString += '.';
-                while (next() && isDecimalDigit(ch)) {
-                    decString += ch;
-                }
-            }
-
-            if (ch === 'e' || ch === 'E') {
-                decString += ch;
-                next();
-                if (ch === '-' || ch === '+') {
-                    decString += ch;
-                    next();
-                }
-                while (isDecimalDigit(ch)) {
-                    decString += ch;
-                    next();
-                }
-            }
-
-            return decString;
-        };
-
         let sign = '';
-        if (ch === '-' || ch === '+') {
+        if (isSign(ch)) {
             sign = ch;
             next(ch);
         }
 
         if (ch === 'I') {
-            return (sign === '-') ? -parseInfinity() : parseInfinity();
+            return parseInfinity();
         }
 
         if (ch === 'N') {
             return parseNaN();
         }
 
-        let base = 10;
-        let numString = '';
-
+        let string = '';
         if (ch === '0') {
-            numString += ch;
+            string += ch;
             next();
             if (ch === 'x' || ch === 'X') {
-                numString += ch;
-                next();
-                base = 16;
-            } else if (isDecimalDigit(ch)) {
+                return parseHexNumber();
+            }
+            if (isDigit(ch)) {
                 error('Octal literal');
             }
         }
 
-        if (base === 16) {
-            numString = parseHexNumber().toString();
-        } else {
-            numString += parseDecimalNumber();
-        }
+        string += parseDecimalNumber();
 
-        let result = sign === '-' ? -numString : +numString;
+        let result = sign === '-' ? -string : +string;
 
         if (!isFinite(result)) {
             error("Bad number");
         }
-
         return result;
     };
 
-    /** @returns {string} Parsed string */
+    /** @returns {boolean} True if character is string delimiter */
+    const isStringDelimiter = function (char) {
+        return char === '"' || char === "'";
+    };
+
+    /** @returns {boolean} True if character has escape sequence */
+    const hasEscapeSequence = function (char) {
+        return typeof escapee[char] === 'string';
+    };
+
+    const parseUnicodeEscape = function () {
+        let uffff = 0;
+        for (let i = 0; i < 4; i += 1) {
+            const hex = parseInt(next(), 16);
+            if (!isFinite(hex)) {
+                break;
+            }
+            uffff = uffff * 16 + hex;
+        }
+        return String.fromCharCode(uffff);
+    };
+
+    const handleStringEscape = function (str) {
+        next();
+        if (ch === 'u') {
+            return parseUnicodeEscape();
+        }
+        if (ch === '\r') {
+            if (peek() === '\n') {
+                next();
+            }
+            return '';
+        }
+        if (hasEscapeSequence(ch)) {
+            return escapee[ch];
+        }
+        return null;
+    };
+
     const string = function () {
-// Parse a string value.
-
-        const isStringDelimiter = (c) => {
-            return c === '"' || c === "'";
-        };
-
-        const parseUnicodeEscape = () => {
-            let uffff = 0;
-            for (let i = 0; i < 4; i += 1) {
-                const hex = parseInt(next(), 16);
-                if (!isFinite(hex)) {
-                    break;
-                }
-                uffff = uffff * 16 + hex;
-            }
-            return String.fromCharCode(uffff);
-        };
-
-        const handleEscapeSequence = () => {
-            next();
-            if (ch === 'u') {
-                return parseUnicodeEscape();
-            }
-            if (ch === '\r') {
-                if (peek() === '\n') {
-                    next();
-                }
-                return '';
-            }
-            if (typeof escapee[ch] === 'string') {
-                return escapee[ch];
-            }
-            return null;
-        };
-
         if (!isStringDelimiter(ch)) {
             error("Bad string");
         }
-
         const delim = ch;
-        let result = '';
-
+        let str = '';
         while (next()) {
             if (ch === delim) {
                 next();
-                return result;
+                return str;
             }
-
             if (ch === '\\') {
-                const escaped = handleEscapeSequence();
+                const escaped = handleStringEscape(str);
                 if (escaped === null) {
-                    error("Bad string");
+                    break;
                 }
-                result += escaped;
+                str += escaped;
                 continue;
             }
-
             if (ch === '\n') {
-                error("Bad string");
+                break;
             }
-
-            result += ch;
+            str += ch;
         }
-
         error("Bad string");
     };
 
     const inlineComment = function () {
-// Skip an inline comment, assuming this is one. The current character should
-// be the second / character in the // pair that begins this inline comment.
-// To finish the inline comment, we look for a newline or the end of the text.
-
         if (ch !== '/') {
             error("Not an inline comment");
         }
-
-        while (ch) {
+        do {
             next();
             if (ch === '\n' || ch === '\r') {
                 next();
                 return;
             }
-        }
+        } while (ch);
     };
 
     const blockComment = function () {
-// Skip a block comment, assuming this is one. The current character should be
-// the * character in the /* pair that begins this block comment.
-// To finish the block comment, we look for an ending */ pair of characters,
-// but we also watch for the end of text before the comment is terminated.
-
         if (ch !== '*') {
             error("Not a block comment");
         }
-
-        while (ch) {
+        do {
             next();
             while (ch === '*') {
                 next('*');
@@ -325,21 +281,15 @@ JSON5.parse = (function () {
                     return;
                 }
             }
-        }
-
+        } while (ch);
         error("Unterminated block comment");
     };
 
     const comment = function () {
-// Skip a comment, whether inline or block-level, assuming this is one.
-// Comments always begin with a / character.
-
         if (ch !== '/') {
             error("Not a comment");
         }
-
         next('/');
-
         if (ch === '/') {
             inlineComment();
         } else if (ch === '*') {
@@ -350,11 +300,6 @@ JSON5.parse = (function () {
     };
 
     const white = function () {
-// Skip whitespace and comments.
-// Note that we're detecting comments by only a single / character.
-// This works since regular expressions are not valid JSON(5), but this will
-// break if there are other valid values that begin with a / character!
-
         while (ch) {
             if (ch === '/') {
                 comment();
@@ -367,8 +312,6 @@ JSON5.parse = (function () {
     };
 
     const word = function () {
-// true, false, or null.
-
         switch (ch) {
         case 't':
             next('t');
@@ -408,89 +351,68 @@ JSON5.parse = (function () {
         error("Unexpected '" + ch + "'");
     };
 
-    let value;  // Place holder for the value function.
+    let value;
 
     const array = function () {
-// Parse an array value.
-
         if (ch !== '[') {
             error("Bad array");
         }
-
-        const result = [];
+        const arr = [];
         next('[');
         white();
-
         while (ch) {
             if (ch === ']') {
                 next(']');
-                return result;
+                return arr;
             }
-
             if (ch === ',') {
                 error("Missing array element");
             }
-
-            result.push(value());
+            arr.push(value());
             white();
-
             if (ch !== ',') {
                 next(']');
-                return result;
+                return arr;
             }
-
             next(',');
             white();
         }
-
         error("Bad array");
     };
 
     const object = function () {
-// Parse an object value.
-
         if (ch !== '{') {
             error("Bad object");
         }
-
-        const result = {};
+        const obj = {};
         next('{');
         white();
-
         while (ch) {
             if (ch === '}') {
                 next('}');
-                return result;
+                return obj;
             }
-
             let key;
-            if (ch === '"' || ch === "'") {
+            if (isStringDelimiter(ch)) {
                 key = string();
             } else {
                 key = identifier();
             }
-
             white();
             next(':');
-            result[key] = value();
+            obj[key] = value();
             white();
-
             if (ch !== ',') {
                 next('}');
-                return result;
+                return obj;
             }
-
             next(',');
             white();
         }
-
         error("Bad object");
     };
 
     value = function () {
-// Parse a JSON value. It could be an object, an array, a string, a number,
-// or a word.
-
         white();
         switch (ch) {
         case '{':
@@ -505,12 +427,9 @@ JSON5.parse = (function () {
         case '.':
             return number();
         default:
-            return (ch >= '0' && ch <= '9') ? number() : word();
+            return isDigit(ch) ? number() : word();
         }
     };
-
-// Return the json_parse function. It will have access to all of the above
-// functions and variables.
 
     return function (source, reviver) {
         text = String(source);
@@ -522,17 +441,11 @@ JSON5.parse = (function () {
             error("Syntax error");
         }
 
-// If there is a reviver function, we recursively walk the new structure,
-// passing each name/value pair to the reviver function for possible
-// transformation, starting with a temporary root object that holds the result
-// in an empty key. If there is not a reviver function, we simply return the
-// result.
-
         if (typeof reviver !== 'function') {
             return result;
         }
 
-        const walk = (holder, key) => {
+        const walk = function (holder, key) {
             const val = holder[key];
             if (val && typeof val === 'object') {
                 for (const k in val) {
@@ -553,17 +466,14 @@ JSON5.parse = (function () {
     };
 }());
 
-// JSON5 stringify will not quote keys where appropriate
 JSON5.stringify = function (obj, replacer, space) {
     if (replacer && (typeof(replacer) !== "function" && !isArray(replacer))) {
         throw new Error('Replacer must be a function or an array');
     }
 
-    /** @returns {*} Replaced value or undefined */
     const getReplacedValueOrUndefined = function(holder, key, isTopLevel) {
         let value = holder[key];
 
-        // Replace the value with its toJSON value first, if possible
         if (value && value.toJSON && typeof value.toJSON === "function") {
             value = value.toJSON();
         }
@@ -572,17 +482,18 @@ JSON5.stringify = function (obj, replacer, space) {
             return replacer.call(holder, key, value);
         }
 
-        if (replacer) {
-            if (isTopLevel || isArray(holder) || replacer.indexOf(key) >= 0) {
-                return value;
-            }
-            return undefined;
+        if (!replacer) {
+            return value;
         }
 
-        return value;
+        if (isTopLevel || isArray(holder) || replacer.indexOf(key) >= 0) {
+            return value;
+        }
+
+        return undefined;
     };
 
-    /** @returns {boolean} True if character is valid in word */
+    /** @returns {boolean} True if character is valid word character */
     function isWordChar(char) {
         return (char >= 'a' && char <= 'z') ||
             (char >= 'A' && char <= 'Z') ||
@@ -590,14 +501,13 @@ JSON5.stringify = function (obj, replacer, space) {
             char === '_' || char === '$';
     }
 
-    /** @returns {boolean} True if character can start a word */
+    /** @returns {boolean} True if character is valid word start */
     function isWordStart(char) {
         return (char >= 'a' && char <= 'z') ||
             (char >= 'A' && char <= 'Z') ||
             char === '_' || char === '$';
     }
 
-    /** @returns {boolean} True if key is a valid unquoted identifier */
     function isWord(key) {
         if (typeof key !== 'string') {
             return false;
@@ -605,18 +515,19 @@ JSON5.stringify = function (obj, replacer, space) {
         if (!isWordStart(key[0])) {
             return false;
         }
-        for (let i = 1; i < key.length; i++) {
+        let i = 1;
+        const length = key.length;
+        while (i < length) {
             if (!isWordChar(key[i])) {
                 return false;
             }
+            i++;
         }
         return true;
     }
 
-    // export for use in tests
     JSON5.isWord = isWord;
 
-    /** @returns {boolean} True if obj is an array */
     function isArray(obj) {
         if (Array.isArray) {
             return Array.isArray(obj);
@@ -624,7 +535,6 @@ JSON5.stringify = function (obj, replacer, space) {
         return Object.prototype.toString.call(obj) === '[object Array]';
     }
 
-    /** @returns {boolean} True if obj is a Date */
     function isDate(obj) {
         return Object.prototype.toString.call(obj) === '[object Date]';
     }
@@ -637,7 +547,6 @@ JSON5.stringify = function (obj, replacer, space) {
 
     const objStack = [];
 
-    /** Checks for circular references in object graph */
     function checkForCircular(obj) {
         for (let i = 0; i < objStack.length; i++) {
             if (objStack[i] === obj) {
@@ -646,16 +555,14 @@ JSON5.stringify = function (obj, replacer, space) {
         }
     }
 
-    /** @returns {string} Indentation string */
     function makeIndent(str, num, noNewLine) {
         if (!str) {
             return "";
         }
-        // indentation no more than 10 chars
-        const limitedStr = str.length > 10 ? str.substring(0, 10) : str;
+        let indentStr = str.length > 10 ? str.substring(0, 10) : str;
         let indent = noNewLine ? "" : "\n";
         for (let i = 0; i < num; i++) {
-            indent += limitedStr;
+            indent += indentStr;
         }
         return indent;
     }
@@ -669,12 +576,9 @@ JSON5.stringify = function (obj, replacer, space) {
         }
     }
 
-    // Copied from Crokford's implementation of JSON
-    // See https://github.com/douglascrockford/JSON-js/blob/e39db4b7e6249f04a195e7dd0840e610cc9e941e/json2.js#L195
-    // Begin
     const cx = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g;
     const escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g;
-    const meta = { // table of character substitutions
+    const meta = {
         '\b': '\\b',
         '\t': '\\t',
         '\n': '\\n',
@@ -684,17 +588,11 @@ JSON5.stringify = function (obj, replacer, space) {
         '\\': '\\\\'
     };
 
-    /** @returns {string} Escaped string with quotes */
     function escapeString(string) {
-// If the string contains no control characters, no quote characters, and no
-// backslash characters, then we can safely slap some quotes around it.
-// Otherwise we must also replace the offending characters with safe escape
-// sequences.
         escapable.lastIndex = 0;
         if (!escapable.test(string)) {
             return '"' + string + '"';
         }
-
         return '"' + string.replace(escapable, function (a) {
             const c = meta[a];
             return typeof c === 'string' ?
@@ -702,52 +600,28 @@ JSON5.stringify = function (obj, replacer, space) {
                 '\\u' + ('0000' + a.charCodeAt(0).toString(16)).slice(-4);
         }) + '"';
     }
-    // End
 
-    /** @returns {string|undefined} Stringified value */
-    function internalStringify(holder, key, isTopLevel) {
-        // Replace the value, if necessary
-        let obj_part = getReplacedValueOrUndefined(holder, key, isTopLevel);
-
-        if (obj_part && !isDate(obj_part)) {
-            // unbox objects
-            // don't unbox dates, since will turn it into number
-            obj_part = obj_part.valueOf();
-        }
-
-        const objType = typeof obj_part;
-
-        if (objType === "boolean") {
-            return obj_part.toString();
-        }
-
-        if (objType === "number") {
-            if (isNaN(obj_part) || !isFinite(obj_part)) {
-                return "null";
-            }
-            return obj_part.toString();
-        }
-
-        if (objType === "string") {
-            return escapeString(obj_part.toString());
-        }
-
-        if (objType !== "object") {
-            return undefined;
-        }
-
-        if (obj_part === null) {
-            return "null";
-        }
-
-        if (isArray(obj_part)) {
-            return stringifyArray(obj_part);
-        }
-
-        return stringifyObject(obj_part);
+    /** @returns {boolean} True if value is NaN or not finite */
+    function isNaNOrInfinite(val) {
+        return isNaN(val) || !isFinite(val);
     }
 
-    /** @returns {string} Stringified array */
+    /** @returns {boolean} True if value is undefined or null */
+    function isUndefinedOrNull(val) {
+        return val === null || typeof val === "undefined";
+    }
+
+    function stringifyBoolean(val) {
+        return val.toString();
+    }
+
+    function stringifyNumber(val) {
+        if (isNaNOrInfinite(val)) {
+            return "null";
+        }
+        return val.toString();
+    }
+
     function stringifyArray(arr) {
         checkForCircular(arr);
         let buffer = "[";
@@ -756,7 +630,7 @@ JSON5.stringify = function (obj, replacer, space) {
         for (let i = 0; i < arr.length; i++) {
             const res = internalStringify(arr, i, false);
             buffer += makeIndent(indentStr, objStack.length);
-            if (res === null || typeof res === "undefined") {
+            if (isUndefinedOrNull(res)) {
                 buffer += "null";
             } else {
                 buffer += res;
@@ -767,13 +641,11 @@ JSON5.stringify = function (obj, replacer, space) {
                 buffer += "\n";
             }
         }
-
         objStack.pop();
         buffer += makeIndent(indentStr, objStack.length, true) + "]";
         return buffer;
     }
 
-    /** @returns {string} Stringified object */
     function stringifyObject(obj) {
         checkForCircular(obj);
         let buffer = "{";
@@ -784,16 +656,14 @@ JSON5.stringify = function (obj, replacer, space) {
             if (!obj.hasOwnProperty(prop)) {
                 continue;
             }
-
-            const value = internalStringify(obj, prop, false);
-            if (typeof value === "undefined" || value === null) {
+            const val = internalStringify(obj, prop, false);
+            if (isUndefinedOrNull(val)) {
                 continue;
             }
-
             buffer += makeIndent(indentStr, objStack.length);
             nonEmpty = true;
-            const keyStr = isWord(prop) ? prop : escapeString(prop);
-            buffer += keyStr + ":" + (indentStr ? ' ' : '') + value + ",";
+            const key = isWord(prop) ? prop : escapeString(prop);
+            buffer += key + ":" + (indentStr ? ' ' : '') + val + ",";
         }
 
         objStack.pop();
@@ -805,13 +675,43 @@ JSON5.stringify = function (obj, replacer, space) {
         return buffer;
     }
 
-    // special case...when undefined is used inside of
-    // a compound object/array, return null.
-    // but when top-level, return undefined
+    function internalStringify(holder, key, isTopLevel) {
+        const obj_part = getReplacedValueOrUndefined(holder, key, isTopLevel);
+
+        if (obj_part && !isDate(obj_part)) {
+            obj_part = obj_part.valueOf();
+        }
+
+        const typeOf = typeof obj_part;
+
+        if (typeOf === "boolean") {
+            return stringifyBoolean(obj_part);
+        }
+
+        if (typeOf === "number") {
+            return stringifyNumber(obj_part);
+        }
+
+        if (typeOf === "string") {
+            return escapeString(obj_part.toString());
+        }
+
+        if (typeOf === "object") {
+            if (obj_part === null) {
+                return "null";
+            }
+            if (isArray(obj_part)) {
+                return stringifyArray(obj_part);
+            }
+            return stringifyObject(obj_part);
+        }
+
+        return undefined;
+    }
+
     const topLevelHolder = {"": obj};
     if (obj === undefined) {
         return getReplacedValueOrUndefined(topLevelHolder, '', true);
     }
     return internalStringify(topLevelHolder, '', true);
 };
-```

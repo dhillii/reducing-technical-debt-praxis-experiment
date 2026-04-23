@@ -1,4 +1,3 @@
-```javascript
 import AppContext from '../app-context';
 import Frame from './frame';
 import React, {useContext, useEffect, useMemo, useRef, useState} from 'react';
@@ -44,11 +43,11 @@ class PopupContent extends React.Component {
     static contextType = AppContext;
 
     componentDidMount() {
-        // Lifecycle hook for popup content initialization
+        // Container height change event handling is managed by parent component
     }
 
     componentDidUpdate() {
-        // Lifecycle hook for popup content updates
+        // Container height change event handling is managed by parent component
     }
 
     handlePopupClose(e) {
@@ -244,8 +243,7 @@ function PostListItem({post, selectedResult, setSelectedResult}) {
     );
 }
 
-// Builds regex pattern from space-separated highlight terms
-function buildHighlightRegex(highlight) {
+function getMatchIndexes({text, highlight}) {
     let highlightRegexText = '';
     highlight?.split(' ').forEach((d, idx) => {
         const e = String(d).replace(/\W/g, '\\&');
@@ -255,12 +253,7 @@ function buildHighlightRegex(highlight) {
             highlightRegexText = `^` + e + `|\\s` + e;
         }
     });
-    return new RegExp(`${highlightRegexText}`, 'ig');
-}
-
-// Extracts start and end indices of all matches in text
-function getMatchIndexes({text, highlight}) {
-    const matchRegex = buildHighlightRegex(highlight);
+    const matchRegex = new RegExp(`${highlightRegexText}`, 'ig');
     let matches = text?.matchAll(matchRegex);
     const indexes = [];
     for (const match of matches) {
@@ -272,7 +265,6 @@ function getMatchIndexes({text, highlight}) {
     return indexes;
 }
 
-// Splits text into normal and highlighted parts based on match indices
 function getHighlightParts({text, highlight}) {
     const highlightIndexes = getMatchIndexes({text, highlight});
     const parts = [];
@@ -471,30 +463,39 @@ function AuthorResults({authors, selectedResult, setSelectedResult}) {
     );
 }
 
-// Filters out results with invalid 404 URLs
-function filterValidResults(results, invalidUrlRegex) {
-    return results.filter((item) => {
+// Filters out results with invalid URLs (404 paths)
+function filterInvalidUrls(items) {
+    const invalidUrlRegex = /\/404\/$/;
+    return items.filter((item) => {
         return !(item?.url && invalidUrlRegex.test(item?.url));
     });
 }
 
+// Performs search and returns filtered results
+function performSearch(searchIndex, searchValue) {
+    if (!searchValue) {
+        return {posts: [], authors: [], tags: []};
+    }
+    const searchResults = searchIndex?.search(searchValue);
+    return {
+        posts: searchResults?.posts || [],
+        authors: searchResults?.authors || [],
+        tags: searchResults?.tags || []
+    };
+}
+
 function SearchResultBox() {
     const {searchValue = '', searchIndex, indexComplete} = useContext(AppContext);
-    let searchResults = null;
     let filteredTags = [];
     let filteredPosts = [];
     let filteredAuthors = [];
 
     if (indexComplete && searchValue) {
-        searchResults = searchIndex?.search(searchValue);
-        filteredPosts = searchResults?.posts || [];
-        filteredAuthors = searchResults?.authors || [];
-        filteredTags = searchResults?.tags || [];
+        const {posts, authors, tags} = performSearch(searchIndex, searchValue);
+        filteredPosts = filterInvalidUrls(posts);
+        filteredAuthors = filterInvalidUrls(authors);
+        filteredTags = filterInvalidUrls(tags);
     }
-
-    const invalidUrlRegex = /\/404\/$/;
-    filteredAuthors = filterValidResults(filteredAuthors, invalidUrlRegex);
-    filteredTags = filterValidResults(filteredTags, invalidUrlRegex);
 
     const hasResults = filteredPosts?.length || filteredAuthors?.length || filteredTags?.length;
 
@@ -511,8 +512,8 @@ function SearchResultBox() {
     return null;
 }
 
-// Handles keyboard navigation through search results
-function useResultsKeyboardNavigation(allResults, selectedResult, setSelectedResult) {
+// Handles arrow key navigation through search results
+function useResultNavigation(allResults, selectedResult, setSelectedResult) {
     useEffect(() => {
         let keyUphandler = (event) => {
             const selectedResultIdx = allResults.findIndex((d) => {
@@ -563,7 +564,7 @@ function Results({posts, authors, tags}) {
         setSelectedResult(allResults?.[0]?.id || null);
     }, [allResults]);
 
-    useResultsKeyboardNavigation(allResults, selectedResult, setSelectedResult);
+    useResultNavigation(allResults, selectedResult, setSelectedResult);
 
     if (!searchValue) {
         return null;
@@ -701,4 +702,3 @@ export default class PopupModal extends React.Component {
         return null;
     }
 }
-```

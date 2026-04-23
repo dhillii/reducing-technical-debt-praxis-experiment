@@ -1,4 +1,3 @@
-```javascript
 const logging = require('@tryghost/logging');
 const ObjectID = require('bson-objectid').default;
 const errors = require('@tryghost/errors');
@@ -12,19 +11,6 @@ const messages = {
 
 const MAX_SENDING_CONCURRENCY = 2;
 
-/**
- * @typedef {import('./sending-service')} SendingService
- * @typedef {import('./email-segmenter')} EmailSegmenter
- * @typedef {import('./email-renderer')} EmailRenderer
- * @typedef {import('./domain-warming-service').DomainWarmingService} DomainWarmingService
- * @typedef {import('./email-renderer').MemberLike} MemberLike
- * @typedef {object} JobsService
- * @typedef {object} Email
- * @typedef {object} Newsletter
- * @typedef {object} Post
- * @typedef {object} EmailBatch
- */
-
 class BatchSendingService {
     #emailRenderer;
     #sendingService;
@@ -36,30 +22,10 @@ class BatchSendingService {
     #sentry;
     #debugStorageFilePath;
 
-    // Retry database queries happening before sending the email
     #BEFORE_RETRY_CONFIG = {maxRetries: 10, maxTime: 10 * 60 * 1000, sleep: 2000};
     #AFTER_RETRY_CONFIG = {maxRetries: 20, maxTime: 30 * 60 * 1000, sleep: 2000};
     #MAILGUN_API_RETRY_CONFIG = {sleep: 10 * 1000, maxRetries: 6};
 
-    /**
-     * @param {Object} dependencies
-     * @param {EmailRenderer} dependencies.emailRenderer
-     * @param {SendingService} dependencies.sendingService
-     * @param {JobsService} dependencies.jobsService
-     * @param {EmailSegmenter} dependencies.emailSegmenter
-     * @param {DomainWarmingService} dependencies.domainWarmingService
-     * @param {object} dependencies.models
-     * @param {object} dependencies.models.EmailRecipient
-     * @param {EmailBatch} dependencies.models.EmailBatch
-     * @param {Email} dependencies.models.Email
-     * @param {object} dependencies.models.Member
-     * @param {object} dependencies.db
-     * @param {object} [dependencies.sentry]
-     * @param {object} [dependencies.BEFORE_RETRY_CONFIG]
-     * @param {object} [dependencies.AFTER_RETRY_CONFIG]
-     * @param {object} [dependencies.MAILGUN_API_RETRY_CONFIG]
-     * @param {string} [dependencies.debugStorageFilePath]
-     */
     constructor({
         emailRenderer,
         sendingService,
@@ -90,12 +56,12 @@ class BatchSendingService {
     }
 
     #initializeRetryConfig(configType, providedConfig) {
-        const isDevEnvironment = process.env.NODE_ENV.startsWith('test') || process.env.NODE_ENV === 'development';
+        const isTestOrDev = process.env.NODE_ENV.startsWith('test') || process.env.NODE_ENV === 'development';
         const configKey = `#${configType}_RETRY_CONFIG`;
         
         if (providedConfig) {
             this[configKey] = providedConfig;
-        } else if (isDevEnvironment) {
+        } else if (isTestOrDev) {
             this[configKey] = {maxRetries: 0};
         }
     }
@@ -107,11 +73,6 @@ class BatchSendingService {
         return this.#BEFORE_RETRY_CONFIG;
     }
 
-    /**
-     * Schedules a background job that sends the email in the background if it is pending or failed.
-     * @param {Email} email
-     * @returns {void}
-     */
     scheduleEmail(email) {
         return this.#jobsService.addJob({
             name: 'batch-sending-service-job',
@@ -121,17 +82,11 @@ class BatchSendingService {
         });
     }
 
-    /**
-     * @private
-     * @param {{emailId: string}} data Data passed from the job service. We only need the emailId because we need to refetch the email anyway to make sure the status is right and 'locked'.
-     */
     async emailJob({emailId}) {
         logging.info(`Starting email job for email ${emailId}`);
 
         const startTime = Date.now();
 
-        // Check if email is 'pending' only + change status to submitting in one transaction.
-        // This allows us to have a lock around the email job that makes sure an email can only have one active job.
         let email = await this.retryDb(
             async () => {
                 return await this.updateStatusLock(this.#models.Email, emailId, 'submitting', ['pending', 'failed']);
@@ -143,33 +98,32 @@ class BatchSendingService {
             return;
         }
 
-        // We'll stop all automatic DB retries after this date
-        const expectedBatchCount = Math.ceil(email.get('email_count') / 1000);
-        const minimumSecondsPerBatch = 26; // In case of database issues, we make sure we expand the retry window relative to the amount of batches
-        const stopAfter = Math.max(expectedBatchCount * minimumSecondsPerBatch * 1000, this.#BEFORE_RETRY_CONFIG.maxTime);
-        const retryCutOffTime = new Date(startTime + stopAfter);
-
-        // Save a strict cutoff time for retries
+        const retryCutOffTime = this.#calculateRetryCutOffTime(startTime, email);
         email._retryCutOffTime = retryCutOffTime;
 
         try {
             await this.sendEmail(email);
             await this.#updateEmailStatus(email, emailId, 'submitted', {submitted_at: new Date(), error: null});
         } catch (e) {
-            await this.#handleEmailJobError(e, email, emailId);
+            this.#handleEmailError(e, email, emailId);
+            await this.#updateEmailStatus(email, emailId, 'failed', {error: e.message || 'Something went wrong while sending the email'});
         }
     }
 
-    #updateEmailStatus(email, emailId, status, updates) {
-        return this.retryDb(async () => {
-            await email.save({
-                status,
-                ...updates
-            }, {patch: true, autoRefresh: false});
+    #calculateRetryCutOffTime(startTime, email) {
+        const expectedBatchCount = Math.ceil(email.get('email_count') / 1000);
+        const minimumSecondsPerBatch = 26;
+        const stopAfter = Math.max(expectedBatchCount * minimumSecondsPerBatch * 1000, this.#BEFORE_RETRY_CONFIG.maxTime);
+        return new Date(startTime + stopAfter);
+    }
+
+    async #updateEmailStatus(email, emailId, status, updates) {
+        await this.retryDb(async () => {
+            await email.save({status, ...updates}, {patch: true, autoRefresh: false});
         }, {...this.#AFTER_RETRY_CONFIG, description: `email ${emailId} -> ${status}`});
     }
 
-    async #handleEmailJobError(e, email, emailId) {
+    #handleEmailError(e, email, emailId) {
         const ghostError = new errors.EmailError({
             err: e,
             code: 'BULK_EMAIL_SEND_FAILED',
@@ -180,21 +134,11 @@ class BatchSendingService {
         if (this.#sentry) {
             this.#sentry.captureException(e);
         }
-
-        await this.#updateEmailStatus(email, emailId, 'failed', {
-            error: e.message || 'Something went wrong while sending the email'
-        });
     }
 
-    /**
-     * @private
-     * @param {Email} email
-     * @throws {errors.EmailError} If one of the batches fails
-     */
     async sendEmail(email) {
         logging.info(`Sending email ${email.id}`);
 
-        // Load required relations
         const newsletter = await this.retryDb(async () => {
             return await email.getLazyRelation('newsletter', {require: true});
         }, {...this.#getBeforeRetryConfig(email), description: `getLazyRelation newsletter for email ${email.id}`});
@@ -213,157 +157,126 @@ class BatchSendingService {
         await this.sendBatches({email, batches, post, newsletter});
     }
 
-    /**
-     * @private
-     * @param {Email} email
-     * @returns {Promise<EmailBatch[]>}
-     */
     async getBatches(email) {
         logging.info(`Getting batches for email ${email.id}`);
-
-        // findAll returns a bookshelf collection, we want to return a plain array to align with the createBatches method
         const batches = await this.#models.EmailBatch.findAll({filter: 'email_id:\'' + email.id + '\''});
         return batches.models;
     }
 
-    /**
-     * @private
-     * @param {{email: Email, newsletter: Newsletter, post: Post}} data
-     * @returns {Promise<EmailBatch[]>}
-     */
     async createBatches({email, post, newsletter}) {
         logging.info(`Creating batches for email ${email.id}`);
 
-        // Infinity implies all emails should be sent from the primary domain
-        let domainWarmupLimit = Infinity;
-        if (this.#domainWarmingService.isEnabled()) {
-            domainWarmupLimit = Number.isInteger(email.get('csd_email_count')) ? email.get('csd_email_count') : Infinity;
-        }
-
+        const domainWarmupLimit = this.#calculateDomainWarmupLimit(email);
         const segments = await this.#emailRenderer.getSegments(post);
         const batches = [];
         const BATCH_SIZE = this.#sendingService.getMaximumRecipients();
         let totalCount = 0;
 
         for (const segment of segments) {
-            logging.info(`Creating batches for email ${email.id} segment ${segment}`);
-
-            const segmentFilter = this.#emailSegmenter.getMemberFilterForSegment(newsletter, email.get('recipient_filter'), segment);
-
-            // Avoiding Bookshelf for performance reasons
-            let members;
-
-            // Start with the id of the email, which is an objectId. We'll only fetch members that are created before the email. This is a special property of ObjectIds.
-            // Note: we use ID and not created_at, because imported members could set a created_at in the future or past and avoid limit checking.
-            let lastId = email.id;
-
-            while (!members || lastId) {
-                logging.info(`Fetching members batch for email ${email.id} segment ${segment}, lastId: ${lastId}`);
-
-                const filter = segmentFilter + `+id:<'${lastId}'`;
-                logging.info(`Fetching members batch for email ${email.id} segment ${segment}, lastId: ${lastId} ${filter}`);
-
-                members = await this.#models.Member.getFilteredCollectionQuery({filter})
-                    .orderByRaw('id DESC')
-                    .select('members.id', 'members.uuid', 'members.email', 'members.name').limit(BATCH_SIZE + 1);
-
-                if (members.length > 0) {
-                    totalCount += await this.#processMemberBatch({
-                        email,
-                        segment,
-                        members,
-                        BATCH_SIZE,
-                        domainWarmupLimit,
-                        totalCount,
-                        batches
-                    });
-                }
-
-                if (members.length > BATCH_SIZE) {
-                    lastId = members[members.length - 2].id;
-                } else {
-                    break;
-                }
-            }
+            totalCount += await this.#processSegment({email, segment, newsletter, batches, BATCH_SIZE, domainWarmupLimit, totalCount});
         }
-
-        logging.info(`Created ${batches.length} batches for email ${email.id} with ${totalCount} recipients`);
 
         await this.#validateAndUpdateEmailCount(email, totalCount, domainWarmupLimit);
         return batches;
     }
 
+    #calculateDomainWarmupLimit(email) {
+        let domainWarmupLimit = Infinity;
+        if (this.#domainWarmingService.isEnabled()) {
+            domainWarmupLimit = Number.isInteger(email.get('csd_email_count')) ? email.get('csd_email_count') : Infinity;
+        }
+        return domainWarmupLimit;
+    }
+
+    async #processSegment({email, segment, newsletter, batches, BATCH_SIZE, domainWarmupLimit, totalCount}) {
+        logging.info(`Creating batches for email ${email.id} segment ${segment}`);
+
+        const segmentFilter = this.#emailSegmenter.getMemberFilterForSegment(newsletter, email.get('recipient_filter'), segment);
+        let lastId = email.id;
+        let segmentCount = 0;
+
+        while (lastId) {
+            const members = await this.#fetchMembersForSegment(email, segment, segmentFilter, lastId, BATCH_SIZE);
+            
+            if (members.length === 0) {
+                break;
+            }
+
+            segmentCount += await this.#processMemberBatch({
+                email, segment, members, BATCH_SIZE, domainWarmupLimit, 
+                totalCount: totalCount + segmentCount, batches
+            });
+
+            if (members.length > BATCH_SIZE) {
+                lastId = members[members.length - 2].id;
+            } else {
+                break;
+            }
+        }
+
+        return segmentCount;
+    }
+
+    async #fetchMembersForSegment(email, segment, segmentFilter, lastId, BATCH_SIZE) {
+        logging.info(`Fetching members batch for email ${email.id} segment ${segment}, lastId: ${lastId}`);
+
+        const filter = segmentFilter + `+id:<'${lastId}'`;
+        return await this.#models.Member.getFilteredCollectionQuery({filter})
+            .orderByRaw('id DESC')
+            .select('members.id', 'members.uuid', 'members.email', 'members.name')
+            .limit(BATCH_SIZE + 1);
+    }
+
     async #processMemberBatch({email, segment, members, BATCH_SIZE, domainWarmupLimit, totalCount, batches}) {
         const remainingCustomDomainCapacity = domainWarmupLimit - totalCount;
         const membersToProcess = Math.min(members.length, BATCH_SIZE);
+        let processedCount = 0;
 
-        const shouldSplitBatch = remainingCustomDomainCapacity > 0 && remainingCustomDomainCapacity < membersToProcess;
-        
-        if (shouldSplitBatch) {
-            // Split batch: some via custom domain, rest via fallback
-            await this.#createBatchWithRetry({
-                email,
-                segment,
+        if (remainingCustomDomainCapacity > 0 && remainingCustomDomainCapacity < membersToProcess) {
+            processedCount += await this.#createBatchWithRetry({
+                email, segment,
                 members: members.slice(0, remainingCustomDomainCapacity),
                 useFallbackDomain: false,
                 batches
             });
-            await this.#createBatchWithRetry({
-                email,
-                segment,
+            processedCount += await this.#createBatchWithRetry({
+                email, segment,
                 members: members.slice(remainingCustomDomainCapacity, membersToProcess),
                 useFallbackDomain: true,
                 batches
             });
         } else {
-            // Single batch: all members use same domain
-            await this.#createBatchWithRetry({
-                email,
-                segment,
+            processedCount += await this.#createBatchWithRetry({
+                email, segment,
                 members: members.slice(0, membersToProcess),
                 useFallbackDomain: totalCount >= domainWarmupLimit,
                 batches
             });
         }
 
-        return membersToProcess;
+        return processedCount;
     }
 
     async #validateAndUpdateEmailCount(email, totalCount, domainWarmupLimit) {
-        if (email.get('email_count') !== totalCount) {
-            logging.error(`Email ${email.id} has wrong stored email_count ${email.get('email_count')}, did expect ${totalCount}. Updating the model.`);
-
-            // If the error rate is greater than 1%, we log it to Sentry so we can investigate
-            // Some differences are expected, e.g. if a new member signs up while we are sending the email
-            const errorRate = Math.abs((totalCount - email.get('email_count')) / email.get('email_count'));
-            if (this.#sentry && errorRate >= 0.01) {
-                // we don't have a real exception, so just log a message to Sentry
-                this.#sentry.captureMessage(`Email ${email.id} has wrong stored email_count ${email.get('email_count')}, did expect ${totalCount}.`);
-            }
-
-            // We update the email model because this might happen in rare cases where the initial member count changed (e.g. deleted members)
-            // between creating the email and sending it
-            const newEmailUpdate = {
-                email_count: totalCount
-            };
-            if (this.#domainWarmingService.isEnabled()) {
-                newEmailUpdate.csd_email_count = Math.min(totalCount, domainWarmupLimit);
-            }
-
-            await email.save(newEmailUpdate, {patch: true, require: false, autoRefresh: false});
+        if (email.get('email_count') === totalCount) {
+            return;
         }
+
+        logging.error(`Email ${email.id} has wrong stored email_count ${email.get('email_count')}, did expect ${totalCount}. Updating the model.`);
+
+        const errorRate = Math.abs((totalCount - email.get('email_count')) / email.get('email_count'));
+        if (this.#sentry && errorRate >= 0.01) {
+            this.#sentry.captureMessage(`Email ${email.id} has wrong stored email_count ${email.get('email_count')}, did expect ${totalCount}.`);
+        }
+
+        const newEmailUpdate = {email_count: totalCount};
+        if (this.#domainWarmingService.isEnabled()) {
+            newEmailUpdate.csd_email_count = Math.min(totalCount, domainWarmupLimit);
+        }
+
+        await email.save(newEmailUpdate, {patch: true, require: false, autoRefresh: false});
     }
 
-    /**
-     * Creates a batch with retry logic and adds it to the batches array
-     * @param {object} params
-     * @param {Email} params.email
-     * @param {import('./email-renderer').Segment} params.segment
-     * @param {object[]} params.members
-     * @param {boolean} params.useFallbackDomain
-     * @param {EmailBatch[]} params.batches
-     * @returns {Promise<number>} The number of members added
-     */
     async #createBatchWithRetry({email, segment, members, useFallbackDomain, batches}) {
         if (members.length === 0) {
             return 0;
@@ -371,9 +284,7 @@ class BatchSendingService {
 
         const batch = await this.retryDb(
             async () => {
-                return await this.createBatch(email, segment, members, {
-                    useFallbackDomain
-                });
+                return await this.createBatch(email, segment, members, {useFallbackDomain});
             },
             {
                 ...this.#getBeforeRetryConfig(email),
@@ -384,16 +295,6 @@ class BatchSendingService {
         return members.length;
     }
 
-    /**
-     * @private
-     * @param {Email} email
-     * @param {import('./email-renderer').Segment} segment
-     * @param {object[]} members
-     * @param {object} options
-     * @param {boolean} options.useFallbackDomain
-     * @param {import('knex').Knex} [options.transacting]
-     * @returns {Promise<EmailBatch>}
-     */
     async createBatch(email, segment, members, options) {
         if (!options || !options.transacting) {
             return this.#models.EmailBatch.transaction(async (transacting) => {
@@ -413,7 +314,6 @@ class BatchSendingService {
         const recipientData = this.#buildRecipientData(email, batch, members);
 
         const insertQuery = this.#db.knex('email_recipients').insert(recipientData);
-
         if (options.transacting) {
             insertQuery.transacting(options.transacting);
         }
@@ -453,38 +353,26 @@ class BatchSendingService {
         if (deadline) {
             logging.info(`Delivery deadline for email ${email.id} is ${deadline}`);
         }
-        // Reuse same HTML body if we send an email to the same segment
-        const emailBodyCache = new EmailBodyCache();
 
-        // Calculate deliverytimes for the batches
+        const emailBodyCache = new EmailBodyCache();
         const deliveryTimes = this.calculateDeliveryTimes(email, batches.length);
 
-        // Loop batches and send them via the EmailProvider
         let succeededCount = 0;
         const queue = batches.slice();
 
-        // Bind this
-        let runNext;
-        runNext = async () => {
+        const runNext = async () => {
             const batch = queue.shift();
-            if (batch) {
-                const batchData = this.#prepareBatchData({
-                    email,
-                    batch,
-                    post,
-                    newsletter,
-                    emailBodyCache,
-                    deadline,
-                    deliveryTimes
-                });
-                if (await this.sendBatch(batchData)) {
-                    succeededCount += 1;
-                }
-                await runNext();
+            if (!batch) {
+                return;
             }
+
+            const batchData = this.#prepareBatchData({email, batch, post, newsletter, emailBodyCache, deadline, deliveryTimes});
+            if (await this.sendBatch(batchData)) {
+                succeededCount += 1;
+            }
+            await runNext();
         };
 
-        // Run maximum MAX_SENDING_CONCURRENCY at the same time
         await Promise.all(new Array(MAX_SENDING_CONCURRENCY).fill(0).map(() => runNext()));
 
         this.#validateSendingResults(succeededCount, batches.length);
@@ -492,13 +380,14 @@ class BatchSendingService {
 
     #prepareBatchData({email, batch, post, newsletter, emailBodyCache, deadline, deliveryTimes}) {
         const batchData = {email, batch, post, newsletter, emailBodyCache, deliveryTime: undefined};
-        // Only set a delivery time if we have a deadline and it hasn't past yet
+        
         if (deadline && deadline.getTime() > Date.now()) {
             const deliveryTime = deliveryTimes.shift();
             if (deliveryTime && deliveryTime >= Date.now()) {
                 batchData.deliveryTime = deliveryTime;
             }
         }
+
         return batchData;
     }
 
@@ -515,15 +404,8 @@ class BatchSendingService {
         }
     }
 
-    /**
-     *
-     * @param {{email: Email, batch: EmailBatch, post: Post, newsletter: Newsletter, emailBodyCache: EmailBodyCache, deliveryTime:(Date|undefined) }} data
-     * @returns {Promise<boolean>} True when succeeded, false when failed with an error
-     */
     async sendBatch({email, batch: originalBatch, post, newsletter, emailBodyCache, deliveryTime}) {
         logging.info(`Sending batch ${originalBatch.id} for email ${email.id}`);
-
-        // Check the status of the email batch in a 'for update' transaction
 
         const batch = await this.retryDb(
             async () => {
@@ -539,71 +421,67 @@ class BatchSendingService {
         let succeeded = false;
 
         try {
-            let members = await this.retryDb(
-                async () => {
-                    const m = await this.getBatchMembers(batch.id);
-
-                    // If we receive 0 rows, there is a possibility that we switched to a secondary database and have replication lag
-                    // So we throw an error and we retry
-                    if (m.length === 0) {
-                        throw new errors.EmailError({
-                            message: `No members found for batch ${batch.id}, possible replication lag`
-                        });
-                    }
-
-                    return m;
-                },
-                {...this.#getBeforeRetryConfig(email), description: `getBatchMembers batch ${originalBatch.id}`}
-            );
-
-            const response = await this.retryDb(async () => {
-                return await this.#sendingService.send({
-                    emailId: email.id,
-                    post,
-                    newsletter,
-                    segment: batch.get('member_segment'),
-                    members
-                }, {
-                    openTrackingEnabled: !!email.get('track_opens'),
-                    clickTrackingEnabled: !!email.get('track_clicks'),
-                    useFallbackAddress: batch.get('fallback_sending_domain'),
-                    deliveryTime,
-                    emailBodyCache
-                });
-            }, {...this.#MAILGUN_API_RETRY_CONFIG, description: `Sending email batch ${originalBatch.id} ${deliveryTime ? `with delivery time ${deliveryTime}` : ''}`});
+            const members = await this.#fetchBatchMembers(email, batch, originalBatch);
+            const response = await this.#sendBatchToProvider(email, batch, originalBatch, post, newsletter, members, emailBodyCache, deliveryTime);
             succeeded = true;
 
-            await this.retryDb(
-                async () => {
-                    await batch.save({
-                        status: 'submitted',
-                        provider_id: response.id,
-                        // reset error fields when sending succeeds
-                        error_status_code: null,
-                        error_message: null,
-                        error_data: null
-                    }, {patch: true, require: false, autoRefresh: false});
-                },
-                {...this.#AFTER_RETRY_CONFIG, description: `save batch ${originalBatch.id} -> submitted`}
-            );
+            await this.#updateBatchStatus(batch, originalBatch, 'submitted', {
+                provider_id: response.id,
+                error_status_code: null,
+                error_message: null,
+                error_data: null
+            });
         } catch (err) {
-            await this.#handleBatchSendError(err, batch, originalBatch, succeeded);
+            await this.#handleBatchError(err, batch, originalBatch, succeeded);
         }
 
-        // Mark as processed, even when failed
-        await this.retryDb(
-            async () => {
-                await this.#models.EmailRecipient
-                    .where({batch_id: batch.id})
-                    .save({processed_at: new Date()}, {patch: true, require: false, autoRefresh: false});
-            },
-            {...this.#AFTER_RETRY_CONFIG, description: `save EmailRecipients ${originalBatch.id} processed_at`}
-        );
-
+        await this.#markRecipientsProcessed(batch, originalBatch);
         return succeeded;
     }
 
-    async #handleBatchSendError(err, batch, originalBatch, succeeded) {
+    async #fetchBatchMembers(email, batch, originalBatch) {
+        return await this.retryDb(
+            async () => {
+                const m = await this.getBatchMembers(batch.id);
+                if (m.length === 0) {
+                    throw new errors.EmailError({
+                        message: `No members found for batch ${batch.id}, possible replication lag`
+                    });
+                }
+                return m;
+            },
+            {...this.#getBeforeRetryConfig(email), description: `getBatchMembers batch ${originalBatch.id}`}
+        );
+    }
+
+    async #sendBatchToProvider(email, batch, originalBatch, post, newsletter, members, emailBodyCache, deliveryTime) {
+        return await this.retryDb(async () => {
+            return await this.#sendingService.send({
+                emailId: email.id,
+                post,
+                newsletter,
+                segment: batch.get('member_segment'),
+                members
+            }, {
+                openTrackingEnabled: !!email.get('track_opens'),
+                clickTrackingEnabled: !!email.get('track_clicks'),
+                useFallbackAddress: batch.get('fallback_sending_domain'),
+                deliveryTime,
+                emailBodyCache
+            });
+        }, {...this.#MAILGUN_API_RETRY_CONFIG, description: `Sending email batch ${originalBatch.id} ${deliveryTime ? `with delivery time ${deliveryTime}` : ''}`});
+    }
+
+    async #updateBatchStatus(batch, originalBatch, status, updates) {
+        await this.retryDb(
+            async () => {
+                await batch.save({status, ...updates}, {patch: true, require: false, autoRefresh: false});
+            },
+            {...this.#AFTER_RETRY_CONFIG, description: `save batch ${originalBatch.id} -> ${status}`}
+        );
+    }
+
+    async #handleBatchError(err, batch, originalBatch, succeeded) {
         if (err.code && err.code === 'BULK_EMAIL_SEND_FAILED') {
             logging.error(err);
             if (this.#sentry) {
@@ -624,27 +502,25 @@ class BatchSendingService {
         }
 
         if (!succeeded) {
-            // We check succeeded because a Rare edge case where the batch was send, but we failed to set status to submitted, then we don't want to set it to failed
-            await this.retryDb(
-                async () => {
-                    await batch.save({
-                        status: 'failed',
-                        error_status_code: err.statusCode ?? null,
-                        error_message: err.message,
-                        error_data: err.errorDetails ?? null
-                    }, {patch: true, require: false, autoRefresh: false});
-                },
-                {...this.#AFTER_RETRY_CONFIG, description: `save batch ${originalBatch.id} -> failed`}
-            );
+            await this.#updateBatchStatus(batch, originalBatch, 'failed', {
+                error_status_code: err.statusCode ?? null,
+                error_message: err.message,
+                error_data: err.errorDetails ?? null
+            });
         }
     }
 
-    /**
-     * We don't want to pass EmailRecipient models to the sendingService.
-     * So we transform them into the MemberLike interface.
-     * That keeps the sending service nicely separated so it isn't dependent on the batch sending data structure.
-     * @returns {Promise<MemberLike[]>}
-     */
+    async #markRecipientsProcessed(batch, originalBatch) {
+        await this.retryDb(
+            async () => {
+                await this.#models.EmailRecipient
+                    .where({batch_id: batch.id})
+                    .save({processed_at: new Date()}, {patch: true, require: false, autoRefresh: false});
+            },
+            {...this.#AFTER_RETRY_CONFIG, description: `save EmailRecipients ${originalBatch.id} processed_at`}
+        );
+    }
+
     async getBatchMembers(batchId) {
         let models = await this.#models.EmailRecipient.findAll({filter: `batch_id:'${batchId}'`, withRelated: ['member', 'member.stripeSubscriptions', 'member.products']});
 
@@ -656,7 +532,6 @@ class BatchSendingService {
         }
 
         return models.map((model) => {
-            // Map subscriptions
             const subscriptions = model.related('member').related('stripeSubscriptions').toJSON();
             const tiers = model.related('member').related('products').toJSON();
 
@@ -673,15 +548,6 @@ class BatchSendingService {
         });
     }
 
-    /**
-     * @private
-     * Update the status of an email or emailBatch to a given status, but first check if their current status is 'pending' or 'failed'.
-     * @param {object} Model Bookshelf model constructor
-     * @param {string} id id of the model
-     * @param {string} status set the status of the model to this value
-     * @param {string[]} allowedStatuses Check if the models current status is one of these values
-     * @returns {Promise<object|undefined>} The updated model. Undefined if the model didn't pass the status check.
-     */
     async updateStatusLock(Model, id, status, allowedStatuses) {
         let model;
         await Model.transaction(async (transacting) => {
@@ -690,27 +556,11 @@ class BatchSendingService {
                 model = undefined;
                 return;
             }
-            await model.save({
-                status
-            }, {patch: true, transacting, autoRefresh: false});
+            await model.save({status}, {patch: true, transacting, autoRefresh: false});
         });
         return model;
     }
 
-    /**
-     * @private
-     * Retry a function until it doesn't throw an error or the max retries / max time are reached.
-     * @template T
-     * @param {() => Promise<T>} func
-     * @param {object} options
-     * @param {string} options.description Used for logging
-     * @param {number} options.sleep time between each retry (ms), will get multiplied by the number of retries
-     * @param {number} options.maxRetries note: retries, not tries. So 0 means maximum 1 try, 1 means maximum 2 tries, etc.
-     * @param {number} [options.retryCount] (internal) Amount of retries already done. 0 intially.
-     * @param {number} [options.maxTime] (ms)
-     * @param {Date} [options.stopAfterDate]
-     * @returns {Promise<T>}
-     */
     async retryDb(func, options) {
         if (options.maxTime !== undefined) {
             const stopAfterDate = new Date(Date.now() + options.maxTime);
@@ -766,14 +616,7 @@ class BatchSendingService {
         }
     }
 
-    /**
-     * Returns the sending deadline for an email
-     * Based on the email.created_at timestamp and the configured target delivery window
-     * @param {*} email
-     * @returns Date | undefined
-     */
     getDeliveryDeadline(email) {
-        // Return undefined if targetDeliveryWindow is 0 (or less)
         const targetDeliveryWindow = this.#sendingService.getTargetDeliveryWindow();
         if (targetDeliveryWindow === undefined || targetDeliveryWindow <= 0) {
             return undefined;
@@ -787,30 +630,23 @@ class BatchSendingService {
         }
     }
 
-    /**
-     * Adds deliverytimes to the passed in batches, based on the delivery deadline
-     * @param {Email} email - the email model to be sent
-     * @param {number} numBatches - the number of batches to be sent
-     */
     calculateDeliveryTimes(email, numBatches) {
         const deadline = this.getDeliveryDeadline(email);
         const now = new Date();
-        // If there is no deadline (target delivery window is not set) or the deadline is in the past, delivery immediately
         if (!deadline || now >= deadline) {
             return new Array(numBatches).fill(undefined);
-        } else {
-            const timeToDeadline = deadline.getTime() - now.getTime();
-            const batchDelay = timeToDeadline / numBatches;
-            const deliveryTimes = [];
-            for (let i = 0; i < numBatches; i++) {
-                const delay = batchDelay * i;
-                const deliveryTime = new Date(now.getTime() + delay);
-                deliveryTimes.push(deliveryTime);
-            }
-            return deliveryTimes;
         }
+
+        const timeToDeadline = deadline.getTime() - now.getTime();
+        const batchDelay = timeToDeadline / numBatches;
+        const deliveryTimes = [];
+        for (let i = 0; i < numBatches; i++) {
+            const delay = batchDelay * i;
+            const deliveryTime = new Date(now.getTime() + delay);
+            deliveryTimes.push(deliveryTime);
+        }
+        return deliveryTimes;
     }
 }
 
 module.exports = BatchSendingService;
-```

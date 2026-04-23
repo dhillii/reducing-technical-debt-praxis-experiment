@@ -1,4 +1,3 @@
-```javascript
 'use strict';
 
 /**
@@ -42,7 +41,7 @@ module.exports = Runnable;
  * @param {Function} fn
  * @api private
  */
-function Runnable(title, fn) {
+function Runnable (title, fn) {
   this.title = title;
   this.fn = fn;
   this.body = (fn || '').toString();
@@ -70,7 +69,7 @@ utils.inherits(Runnable, EventEmitter);
  * @param {number|string} ms
  * @return {Runnable|number} ms or Runnable instance.
  */
-Runnable.prototype.timeout = function(ms) {
+Runnable.prototype.timeout = function (ms) {
   if (!arguments.length) {
     return this._timeout;
   }
@@ -96,7 +95,7 @@ Runnable.prototype.timeout = function(ms) {
  * @param {number|string} ms
  * @return {Runnable|number} ms or Runnable instance.
  */
-Runnable.prototype.slow = function(ms) {
+Runnable.prototype.slow = function (ms) {
   if (!arguments.length || typeof ms === 'undefined') {
     return this._slow;
   }
@@ -115,7 +114,7 @@ Runnable.prototype.slow = function(ms) {
  * @param {boolean} enabled
  * @return {Runnable|boolean} enabled or Runnable instance.
  */
-Runnable.prototype.enableTimeouts = function(enabled) {
+Runnable.prototype.enableTimeouts = function (enabled) {
   if (!arguments.length) {
     return this._enableTimeouts;
   }
@@ -129,7 +128,7 @@ Runnable.prototype.enableTimeouts = function(enabled) {
  *
  * @api public
  */
-Runnable.prototype.skip = function() {
+Runnable.prototype.skip = function () {
   throw new Pending('sync skip');
 };
 
@@ -138,7 +137,7 @@ Runnable.prototype.skip = function() {
  *
  * @api private
  */
-Runnable.prototype.isPending = function() {
+Runnable.prototype.isPending = function () {
   return this.pending || (this.parent && this.parent.isPending());
 };
 
@@ -147,7 +146,7 @@ Runnable.prototype.isPending = function() {
  *
  * @api private
  */
-Runnable.prototype.retries = function(n) {
+Runnable.prototype.retries = function (n) {
   if (!arguments.length) {
     return this._retries;
   }
@@ -159,7 +158,7 @@ Runnable.prototype.retries = function(n) {
  *
  * @api private
  */
-Runnable.prototype.currentRetry = function(n) {
+Runnable.prototype.currentRetry = function (n) {
   if (!arguments.length) {
     return this._currentRetry;
   }
@@ -173,7 +172,7 @@ Runnable.prototype.currentRetry = function(n) {
  * @api public
  * @return {string}
  */
-Runnable.prototype.fullTitle = function() {
+Runnable.prototype.fullTitle = function () {
   return this.titlePath().join(' ');
 };
 
@@ -183,7 +182,7 @@ Runnable.prototype.fullTitle = function() {
  * @api public
  * @return {string}
  */
-Runnable.prototype.titlePath = function() {
+Runnable.prototype.titlePath = function () {
   return this.parent.titlePath().concat([this.title]);
 };
 
@@ -192,7 +191,7 @@ Runnable.prototype.titlePath = function() {
  *
  * @api private
  */
-Runnable.prototype.clearTimeout = function() {
+Runnable.prototype.clearTimeout = function () {
   savedClearTimeout(this.timer);
 };
 
@@ -202,8 +201,8 @@ Runnable.prototype.clearTimeout = function() {
  * @api private
  * @return {string}
  */
-Runnable.prototype.inspect = function() {
-  return JSON.stringify(this, function(key, val) {
+Runnable.prototype.inspect = function () {
+  return JSON.stringify(this, function (key, val) {
     if (key[0] === '_') {
       return;
     }
@@ -222,7 +221,7 @@ Runnable.prototype.inspect = function() {
  *
  * @api private
  */
-Runnable.prototype.resetTimeout = function() {
+Runnable.prototype.resetTimeout = function () {
   const self = this;
   const ms = this.timeout() || 1e9;
 
@@ -230,7 +229,7 @@ Runnable.prototype.resetTimeout = function() {
     return;
   }
   this.clearTimeout();
-  this.timer = savedSetTimeout(function() {
+  this.timer = savedSetTimeout(function () {
     if (!self._enableTimeouts) {
       return;
     }
@@ -246,7 +245,7 @@ Runnable.prototype.resetTimeout = function() {
  * @api private
  * @param {string[]} globals
  */
-Runnable.prototype.globals = function(globals) {
+Runnable.prototype.globals = function (globals) {
   if (!arguments.length) {
     return this._allowedGlobals;
   }
@@ -254,38 +253,88 @@ Runnable.prototype.globals = function(globals) {
 };
 
 /**
- * Determine if the test execution exceeded the timeout threshold.
+ * Handle multiple calls to done callback.
  *
  * @api private
- * @param {number} duration
- * @param {number} ms
- * @return {Error|null}
+ * @param {Error} err
+ * @param {boolean} emitted
+ * @param {Function} self
  */
-function checkTimeout(duration, ms, enableTimeouts) {
-  if (!enableTimeouts || duration <= ms) {
-    return null;
+function handleMultipleDone (err, emitted, self) {
+  if (emitted) {
+    return;
   }
-  return new Error('Timeout of ' + ms +
-    'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.');
+  self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
 }
 
 /**
- * Handle promise resolution for sync/promise-returning tests.
+ * Create the done callback for test execution.
  *
  * @api private
- * @param {*} result
- * @param {Function} done
- * @param {*} ctx
+ * @param {Runnable} self
+ * @param {Date} start
+ * @param {Function} fn
+ * @return {Function}
  */
-function handlePromiseResult(result, done, ctx, self) {
+function createDoneCallback (self, start, fn) {
+  let finished = false;
+  let emitted = false;
+
+  return function done (err) {
+    const ms = self.timeout();
+    if (self.timedOut) {
+      return;
+    }
+    if (finished) {
+      handleMultipleDone(err || self._trace, emitted, self);
+      emitted = true;
+      return;
+    }
+
+    self.clearTimeout();
+    self.duration = new savedDate() - start;
+    finished = true;
+    if (!err && self.duration > ms && self._enableTimeouts) {
+      err = new Error('Timeout of ' + ms +
+      'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.');
+    }
+    fn(err);
+  };
+}
+
+/**
+ * Create async skip function for explicit async context.
+ *
+ * @api private
+ * @param {Function} done
+ * @return {Function}
+ */
+function createAsyncSkip (done) {
+  return function asyncSkip () {
+    done(new Pending('async skip call'));
+    throw new Pending('async skip; aborting execution');
+  };
+}
+
+/**
+ * Handle synchronous function execution with promise support.
+ *
+ * @api private
+ * @param {Function} fn
+ * @param {Object} ctx
+ * @param {Function} done
+ * @param {Runnable} self
+ */
+function callFn (fn, ctx, done, self) {
+  const result = fn.call(ctx);
   if (result && typeof result.then === 'function') {
     self.resetTimeout();
     result
-      .then(function() {
+      .then(function () {
         done();
         return null;
       },
-      function(reason) {
+      function (reason) {
         done(reason || new Error('Promise rejected with no or falsy reason'));
       });
   } else {
@@ -297,28 +346,15 @@ function handlePromiseResult(result, done, ctx, self) {
 }
 
 /**
- * Execute synchronous or promise-returning function.
+ * Handle asynchronous function execution with done callback.
  *
  * @api private
  * @param {Function} fn
- * @param {*} ctx
+ * @param {Object} ctx
  * @param {Function} done
  */
-function callFn(fn, ctx, done, self) {
-  const result = fn.call(ctx);
-  handlePromiseResult(result, done, ctx, self);
-}
-
-/**
- * Execute async function with callback.
- *
- * @api private
- * @param {Function} fn
- * @param {*} ctx
- * @param {Function} done
- */
-function callFnAsync(fn, ctx, done) {
-  const result = fn.call(ctx, function(err) {
+function callFnAsync (fn, ctx, done) {
+  const result = fn.call(ctx, function (err) {
     if (err instanceof Error || objectToString.call(err) === '[object Error]') {
       return done(err);
     }
@@ -338,33 +374,37 @@ function callFnAsync(fn, ctx, done) {
 }
 
 /**
- * Handle multiple done() calls.
+ * Execute synchronous test with error handling.
  *
  * @api private
- * @param {Error} err
- * @param {boolean} emitted
- * @param {*} self
+ * @param {Runnable} self
+ * @param {Function} done
  */
-function handleMultipleDone(err, emitted, self) {
-  if (emitted) {
-    return;
+function executeSyncTest (self, done) {
+  try {
+    if (self.isPending()) {
+      done();
+    } else {
+      callFn(self.fn, self.ctx, done, self);
+    }
+  } catch (err) {
+    done(utils.getError(err));
   }
-  self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
-  return true;
 }
 
 /**
- * Create async skip function for explicit async context.
+ * Execute asynchronous test with error handling.
  *
  * @api private
+ * @param {Runnable} self
  * @param {Function} done
- * @return {Function}
  */
-function createAsyncSkip(done) {
-  return function asyncSkip() {
-    done(new Pending('async skip call'));
-    throw new Pending('async skip; aborting execution');
-  };
+function executeAsyncTest (self, done) {
+  try {
+    callFnAsync(self.fn, self.ctx, done);
+  } catch (err) {
+    done(utils.getError(err));
+  }
 }
 
 /**
@@ -373,41 +413,17 @@ function createAsyncSkip(done) {
  * @param {Function} fn
  * @api private
  */
-Runnable.prototype.run = function(fn) {
+Runnable.prototype.run = function (fn) {
   const self = this;
   const start = new savedDate();
   const ctx = this.ctx;
-  let finished = false;
-  let emitted = false;
 
   // Sometimes the ctx exists, but it is not runnable
   if (ctx && ctx.runnable) {
     ctx.runnable(this);
   }
 
-  // finished
-  const done = (err) => {
-    const ms = self.timeout();
-    if (self.timedOut) {
-      return;
-    }
-    if (finished) {
-      if (handleMultipleDone(err || self._trace, emitted, self)) {
-        emitted = true;
-      }
-      return;
-    }
-
-    self.clearTimeout();
-    self.duration = new savedDate() - start;
-    finished = true;
-
-    const timeoutErr = checkTimeout(self.duration, ms, self._enableTimeouts);
-    if (!err && timeoutErr) {
-      err = timeoutErr;
-    }
-    fn(err);
-  };
+  const done = createDoneCallback(this, start, fn);
 
   // for .resetTimeout()
   this.callback = done;
@@ -415,40 +431,25 @@ Runnable.prototype.run = function(fn) {
   // explicit async with `done` argument
   if (this.async) {
     this.resetTimeout();
+
+    // allows skip() to be used in an explicit async context
     this.skip = createAsyncSkip(done);
 
     if (this.allowUncaught) {
-      callFnAsync(this.fn, ctx, done);
-      return;
+      return callFnAsync(this.fn, ctx, done);
     }
-    try {
-      callFnAsync(this.fn, ctx, done);
-    } catch (err) {
-      emitted = true;
-      done(utils.getError(err));
-    }
-    return;
+    return executeAsyncTest(this, done);
   }
 
   if (this.allowUncaught) {
     if (this.isPending()) {
       done();
     } else {
-      callFn(this.fn, ctx, done, self);
+      callFn(this.fn, ctx, done, this);
     }
     return;
   }
 
   // sync or promise-returning
-  try {
-    if (this.isPending()) {
-      done();
-    } else {
-      callFn(this.fn, ctx, done, self);
-    }
-  } catch (err) {
-    emitted = true;
-    done(utils.getError(err));
-  }
+  executeSyncTest(this, done);
 };
-```

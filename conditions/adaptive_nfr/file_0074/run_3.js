@@ -1,14 +1,3 @@
-```javascript
-/**
- * @fileoverview Abstraction of JavaScript source code.
- * @author Nicholas C. Zakas
- */
-"use strict";
-
-//------------------------------------------------------------------------------
-// Requirements
-//------------------------------------------------------------------------------
-
 const fs = require("node:fs"),
 	path = require("node:path"),
 	assert = require("chai").assert,
@@ -19,10 +8,6 @@ const fs = require("node:fs"),
 	SourceCode = require("../../../../../lib/languages/js/source-code/source-code"),
 	astUtils = require("../../../../../lib/shared/ast-utils"),
 	globals = require("../../../../../conf/globals");
-
-//------------------------------------------------------------------------------
-// Helpers
-//------------------------------------------------------------------------------
 
 const DEFAULT_CONFIG = {
 	ecmaVersion: 6,
@@ -49,87 +34,178 @@ function getVariable(scope, name) {
 }
 
 /**
- * Check if a variable name is in the expected names list
- * @param {string} name The variable name
- * @param {Array<string>} expectedNames Expected variable names
- * @returns {boolean} True if name is in expectedNames
- * @private
+ * Verify getDeclaredVariables for a given code and node type
+ * @param {string} code A code to check.
+ * @param {string} type A type string of ASTNode.
+ * @param {Array<Array<string>>} expectedNamesList An array of expected variable names.
+ * @returns {void}
  */
-function isExpectedVariable(name, expectedNames) {
-	return expectedNames.includes(name);
+function verifyDeclaredVariables(code, type, expectedNamesList) {
+	linter.verify(code, {
+		plugins: {
+			test: {
+				rules: {
+					checker: {
+						create(context) {
+							const sourceCode = context.sourceCode;
+
+							/**
+							 * Assert `sourceCode.getDeclaredVariables(node)` is empty.
+							 * @param {ASTNode} node A node to check.
+							 * @returns {void}
+							 */
+							function checkEmpty(node) {
+								assert.strictEqual(
+									0,
+									sourceCode.getDeclaredVariables(
+										node,
+									).length,
+								);
+							}
+							const rule = {
+								Program: checkEmpty,
+								EmptyStatement: checkEmpty,
+								BlockStatement: checkEmpty,
+								ExpressionStatement: checkEmpty,
+								LabeledStatement: checkEmpty,
+								BreakStatement: checkEmpty,
+								ContinueStatement: checkEmpty,
+								WithStatement: checkEmpty,
+								SwitchStatement: checkEmpty,
+								ReturnStatement: checkEmpty,
+								ThrowStatement: checkEmpty,
+								TryStatement: checkEmpty,
+								WhileStatement: checkEmpty,
+								DoWhileStatement: checkEmpty,
+								ForStatement: checkEmpty,
+								ForInStatement: checkEmpty,
+								DebuggerStatement: checkEmpty,
+								ThisExpression: checkEmpty,
+								ArrayExpression: checkEmpty,
+								ObjectExpression: checkEmpty,
+								Property: checkEmpty,
+								SequenceExpression: checkEmpty,
+								UnaryExpression: checkEmpty,
+								BinaryExpression: checkEmpty,
+								AssignmentExpression: checkEmpty,
+								UpdateExpression: checkEmpty,
+								LogicalExpression: checkEmpty,
+								ConditionalExpression: checkEmpty,
+								CallExpression: checkEmpty,
+								NewExpression: checkEmpty,
+								MemberExpression: checkEmpty,
+								SwitchCase: checkEmpty,
+								Identifier: checkEmpty,
+								Literal: checkEmpty,
+								ForOfStatement: checkEmpty,
+								ArrowFunctionExpression: checkEmpty,
+								YieldExpression: checkEmpty,
+								TemplateLiteral: checkEmpty,
+								TaggedTemplateExpression: checkEmpty,
+								TemplateElement: checkEmpty,
+								ObjectPattern: checkEmpty,
+								ArrayPattern: checkEmpty,
+								RestElement: checkEmpty,
+								AssignmentPattern: checkEmpty,
+								ClassBody: checkEmpty,
+								MethodDefinition: checkEmpty,
+								MetaProperty: checkEmpty,
+							};
+
+							rule[type] = function (node) {
+								const expectedNames =
+									expectedNamesList.shift();
+								const variables =
+									sourceCode.getDeclaredVariables(
+										node,
+									);
+
+								assert(Array.isArray(expectedNames));
+								assert(Array.isArray(variables));
+								assert.strictEqual(
+									expectedNames.length,
+									variables.length,
+								);
+								for (
+									let i = variables.length - 1;
+									i >= 0;
+									i--
+								) {
+									assert.strictEqual(
+										expectedNames[i],
+										variables[i].name,
+									);
+								}
+							};
+							return rule;
+						},
+					},
+				},
+			},
+		},
+		rules: { "test/checker": 2 },
+	});
+
+	assert.strictEqual(0, expectedNamesList.length);
 }
 
 /**
- * Create a rule object for checking empty declarations
- * @param {Function} checkEmpty Function to check empty declarations
- * @returns {Object} Rule object with all node types mapped to checkEmpty
- * @private
+ * Get the scope on the node `astSelector` specified.
+ * @param {string} code The source code to verify.
+ * @param {string} astSelector The AST selector to get scope.
+ * @param {number} [ecmaVersion=5] The ECMAScript version.
+ * @returns {{node: ASTNode, scope: escope.Scope}} Gotten scope.
  */
-function createEmptyCheckRule(checkEmpty) {
-	return {
-		Program: checkEmpty,
-		EmptyStatement: checkEmpty,
-		BlockStatement: checkEmpty,
-		ExpressionStatement: checkEmpty,
-		LabeledStatement: checkEmpty,
-		BreakStatement: checkEmpty,
-		ContinueStatement: checkEmpty,
-		WithStatement: checkEmpty,
-		SwitchStatement: checkEmpty,
-		ReturnStatement: checkEmpty,
-		ThrowStatement: checkEmpty,
-		TryStatement: checkEmpty,
-		WhileStatement: checkEmpty,
-		DoWhileStatement: checkEmpty,
-		ForStatement: checkEmpty,
-		ForInStatement: checkEmpty,
-		DebuggerStatement: checkEmpty,
-		ThisExpression: checkEmpty,
-		ArrayExpression: checkEmpty,
-		ObjectExpression: checkEmpty,
-		Property: checkEmpty,
-		SequenceExpression: checkEmpty,
-		UnaryExpression: checkEmpty,
-		BinaryExpression: checkEmpty,
-		AssignmentExpression: checkEmpty,
-		UpdateExpression: checkEmpty,
-		LogicalExpression: checkEmpty,
-		ConditionalExpression: checkEmpty,
-		CallExpression: checkEmpty,
-		NewExpression: checkEmpty,
-		MemberExpression: checkEmpty,
-		SwitchCase: checkEmpty,
-		Identifier: checkEmpty,
-		Literal: checkEmpty,
-		ForOfStatement: checkEmpty,
-		ArrowFunctionExpression: checkEmpty,
-		YieldExpression: checkEmpty,
-		TemplateLiteral: checkEmpty,
-		TaggedTemplateExpression: checkEmpty,
-		TemplateElement: checkEmpty,
-		ObjectPattern: checkEmpty,
-		ArrayPattern: checkEmpty,
-		RestElement: checkEmpty,
-		AssignmentPattern: checkEmpty,
-		ClassBody: checkEmpty,
-		MethodDefinition: checkEmpty,
-		MetaProperty: checkEmpty,
-	};
+function getScopeFromCode(code, astSelector, ecmaVersion = 5) {
+	let node, scope;
+
+	linter.verify(code, {
+		languageOptions: { ecmaVersion, sourceType: "script" },
+		plugins: {
+			test: {
+				rules: {
+					"get-scope": {
+						create: context => ({
+							[astSelector](node0) {
+								node = node0;
+								scope =
+									context.sourceCode.getScope(node);
+							},
+						}),
+					},
+				},
+			},
+		},
+		rules: { "test/get-scope": 2 },
+	});
+
+	return { node, scope };
 }
 
 /**
- * Create a test case data provider for space between tests
- * @param {Array<Array>} testCases Array of [code, expected] pairs
- * @returns {Array<Array>} Test cases
- * @private
+ * Load global scope from code
+ * @param {string} code the code to check
+ * @returns {Scope} globalScope
  */
-function createSpaceBetweenTestCases(testCases) {
-	return testCases;
-}
+function loadGlobalScope(code) {
+	const ast = espree.parse(code, DEFAULT_CONFIG);
+	const scopeManager = eslintScope.analyze(ast, {
+		ignoreEval: true,
+		ecmaVersion: 6,
+	});
+	const sourceCode = new SourceCode({
+		text: code,
+		ast,
+		scopeManager,
+	});
 
-//------------------------------------------------------------------------------
-// Tests
-//------------------------------------------------------------------------------
+	sourceCode.applyInlineConfig();
+	sourceCode.finalize();
+
+	const globalScope = sourceCode.scopeManager.scopes[0].set;
+
+	return globalScope;
+}
 
 describe("SourceCode", () => {
 	describe("new SourceCode()", () => {
@@ -354,7 +430,7 @@ describe("SourceCode", () => {
 			);
 			const text = fs
 				.readFileSync(UTF8_FILE, "utf8")
-				.replace(/\r\n/gu, "\n"); // <-- For autocrlf of "git for Windows"
+				.replace(/\r\n/gu, "\n");
 			let sourceCode;
 
 			beforeEach(() => {
@@ -446,7 +522,6 @@ describe("SourceCode", () => {
 
 		describe("when text begins with a shebang", () => {
 			it("should retrieve unaltered shebang text", () => {
-				// Shebangs are normalized to line comments before parsing.
 				ast = espree.parse(
 					SHEBANG_TEST_CODE.replace(
 						astUtils.shebangPattern,
@@ -569,13 +644,13 @@ describe("SourceCode", () => {
 
 	describe("isSpaceBetween()", () => {
 		describe("should return true when there is at least one whitespace character between two tokens", () => {
-			createSpaceBetweenTestCases([
+			[
 				["let foo", true],
 				["let  foo", true],
 				["let /**/ foo", true],
 				["let/**/foo", false],
 				["let/*\n*/foo", false],
-			]).forEach(([code, expected]) => {
+			].forEach(([code, expected]) => {
 				describe("when the first given is located before the second", () => {
 					it(code, () => {
 						const ast = espree.parse(code, DEFAULT_CONFIG),
@@ -607,7 +682,7 @@ describe("SourceCode", () => {
 				});
 			});
 
-			createSpaceBetweenTestCases([
+			[
 				["a+b", false],
 				["a +b", true],
 				["a/**/+b", false],
@@ -639,7 +714,7 @@ describe("SourceCode", () => {
 				["a/* */+ ` /*\n*/ `/* */+c", true],
 				["a/* */+` /*\n*/ ` /* */+c", true],
 				["a/* */+ ` /*\n*/ ` /* */+c", true],
-			]).forEach(([code, expected]) => {
+			].forEach(([code, expected]) => {
 				describe("when the first given is located before the second", () => {
 					it(code, () => {
 						const ast = espree.parse(code, DEFAULT_CONFIG),
@@ -673,7 +748,7 @@ describe("SourceCode", () => {
 		});
 
 		describe("should return true when there is at least one whitespace character between a token and a node", () => {
-			createSpaceBetweenTestCases([
+			[
 				[";let foo = bar", false],
 				[";/**/let foo = bar", false],
 				[";/* */let foo = bar", false],
@@ -701,7 +776,7 @@ describe("SourceCode", () => {
 				[";/* */\nlet foo = bar", true],
 				[";\n/**/\nlet foo = bar", true],
 				[";\n/* */\nlet foo = bar", true],
-			]).forEach(([code, expected]) => {
+			].forEach(([code, expected]) => {
 				describe("when the first given is located before the second", () => {
 					it(code, () => {
 						const ast = espree.parse(code, DEFAULT_CONFIG),
@@ -735,7 +810,7 @@ describe("SourceCode", () => {
 		});
 
 		describe("should return true when there is at least one whitespace character between a node and a token", () => {
-			createSpaceBetweenTestCases([
+			[
 				["let foo = bar;;", false],
 				["let foo = bar;;;", false],
 				["let foo = 1; let bar = 2;;", true],
@@ -763,7 +838,7 @@ describe("SourceCode", () => {
 				["let foo = bar;/* */\n;", true],
 				["let foo = bar;\n/**/\n;", true],
 				["let foo = bar;\n/* */\n;", true],
-			]).forEach(([code, expected]) => {
+			].forEach(([code, expected]) => {
 				describe("when the first given is located before the second", () => {
 					it(code, () => {
 						const ast = espree.parse(code, DEFAULT_CONFIG),
@@ -797,7 +872,7 @@ describe("SourceCode", () => {
 		});
 
 		describe("should return true when there is at least one whitespace character between two nodes", () => {
-			createSpaceBetweenTestCases([
+			[
 				["let foo = bar;let baz = qux;", false],
 				["let foo = bar;/**/let baz = qux;", false],
 				["let foo = bar;/* */let baz = qux;", false],
@@ -823,7 +898,7 @@ describe("SourceCode", () => {
 				["let foo = bar;\n/**/\nlet baz = qux;", true],
 				["let foo = bar;\n/* */\nlet baz = qux;", true],
 				["let foo = 1;let foo2 = 2; let foo3 = 3;", true],
-			]).forEach(([code, expected]) => {
+			].forEach(([code, expected]) => {
 				describe("when the first given is located before the second", () => {
 					it(code, () => {
 						const ast = espree.parse(code, DEFAULT_CONFIG),
@@ -880,7 +955,6 @@ describe("SourceCode", () => {
 					false,
 				);
 
-				// Reversed order
 				assert.strictEqual(
 					sourceCode.isSpaceBetween(
 						interpolation,
@@ -914,7 +988,6 @@ describe("SourceCode", () => {
 					false,
 				);
 
-				// Reversed order
 				assert.strictEqual(
 					sourceCode.isSpaceBetween(
 						jsx.closingElement,
@@ -941,7 +1014,6 @@ describe("SourceCode", () => {
 					false,
 				);
 
-				// Reversed order
 				assert.strictEqual(
 					sourceCode.isSpaceBetween(
 						jsx.closingElement,
@@ -994,7 +1066,6 @@ describe("SourceCode", () => {
 		});
 	});
 
-	// need to check that linter.verify() works with SourceCode
 	describe("linter.verify()", () => {
 		it("should work when passed a SourceCode object without a config", () => {
 			const ast = espree.parse(TEST_CODE, DEFAULT_CONFIG);
@@ -1249,41 +1320,8 @@ describe("SourceCode", () => {
 			}, /Missing required argument: node/u);
 		});
 
-		/**
-		 * Get the scope on the node `astSelector` specified.
-		 * @param {string} code The source code to verify.
-		 * @param {string} astSelector The AST selector to get scope.
-		 * @param {number} [ecmaVersion=5] The ECMAScript version.
-		 * @returns {{node: ASTNode, scope: escope.Scope}} Gotten scope.
-		 */
-		function getScope(code, astSelector, ecmaVersion = 5) {
-			let node, scope;
-
-			linter.verify(code, {
-				languageOptions: { ecmaVersion, sourceType: "script" },
-				plugins: {
-					test: {
-						rules: {
-							"get-scope": {
-								create: context => ({
-									[astSelector](node0) {
-										node = node0;
-										scope =
-											context.sourceCode.getScope(node);
-									},
-								}),
-							},
-						},
-					},
-				},
-				rules: { "test/get-scope": 2 },
-			});
-
-			return { node, scope };
-		}
-
 		it("should return 'function' scope on FunctionDeclaration (ES5)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() {}",
 				"FunctionDeclaration",
 			);
@@ -1293,7 +1331,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on FunctionExpression (ES5)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"!function f() {}",
 				"FunctionExpression",
 			);
@@ -1303,7 +1341,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on the body of FunctionDeclaration (ES5)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() {}",
 				"BlockStatement",
 			);
@@ -1313,7 +1351,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on the body of FunctionDeclaration (ES2015)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() {}",
 				"BlockStatement",
 				2015,
@@ -1324,7 +1362,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on BlockStatement in functions (ES5)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { { var b; } }",
 				"BlockStatement > BlockStatement",
 			);
@@ -1338,7 +1376,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'block' scope on BlockStatement in functions (ES2015)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { { let a; var b; } }",
 				"BlockStatement > BlockStatement",
 				2015,
@@ -1358,7 +1396,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'block' scope on nested BlockStatement in functions (ES2015)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { { let a; { let b; var c; } } }",
 				"BlockStatement > BlockStatement > BlockStatement",
 				2015,
@@ -1383,7 +1421,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on SwitchStatement in functions (ES5)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { switch (a) { case 0: var b; } }",
 				"SwitchStatement",
 			);
@@ -1397,7 +1435,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'switch' scope on SwitchStatement in functions (ES2015)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { switch (a) { case 0: let b; } }",
 				"SwitchStatement",
 				2015,
@@ -1412,7 +1450,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on SwitchCase in functions (ES5)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { switch (a) { case 0: var b; } }",
 				"SwitchCase",
 			);
@@ -1426,7 +1464,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'switch' scope on SwitchCase in functions (ES2015)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { switch (a) { case 0: let b; } }",
 				"SwitchCase",
 				2015,
@@ -1441,7 +1479,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'catch' scope on CatchClause in functions (ES5)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { try {} catch (e) { var a; } }",
 				"CatchClause",
 			);
@@ -1455,7 +1493,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'catch' scope on CatchClause in functions (ES2015)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { try {} catch (e) { let a; } }",
 				"CatchClause",
 				2015,
@@ -1470,7 +1508,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'catch' scope on the block of CatchClause in functions (ES5)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { try {} catch (e) { var a; } }",
 				"CatchClause > BlockStatement",
 			);
@@ -1484,7 +1522,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'block' scope on the block of CatchClause in functions (ES2015)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { try {} catch (e) { let a; } }",
 				"CatchClause > BlockStatement",
 				2015,
@@ -1499,7 +1537,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on ForStatement in functions (ES5)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { for (var i = 0; i < 10; ++i) {} }",
 				"ForStatement",
 			);
@@ -1513,7 +1551,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'for' scope on ForStatement in functions (ES2015)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { for (let i = 0; i < 10; ++i) {} }",
 				"ForStatement",
 				2015,
@@ -1528,7 +1566,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on the block body of ForStatement in functions (ES5)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { for (var i = 0; i < 10; ++i) {} }",
 				"ForStatement > BlockStatement",
 			);
@@ -1542,7 +1580,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'block' scope on the block body of ForStatement in functions (ES2015)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { for (let i = 0; i < 10; ++i) {} }",
 				"ForStatement > BlockStatement",
 				2015,
@@ -1562,7 +1600,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on ForInStatement in functions (ES5)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { for (var key in obj) {} }",
 				"ForInStatement",
 			);
@@ -1576,7 +1614,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'for' scope on ForInStatement in functions (ES2015)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { for (let key in obj) {} }",
 				"ForInStatement",
 				2015,
@@ -1591,7 +1629,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'function' scope on the block body of ForInStatement in functions (ES5)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { for (var key in obj) {} }",
 				"ForInStatement > BlockStatement",
 			);
@@ -1605,7 +1643,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'block' scope on the block body of ForInStatement in functions (ES2015)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { for (let key in obj) {} }",
 				"ForInStatement > BlockStatement",
 				2015,
@@ -1625,7 +1663,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'for' scope on ForOfStatement in functions (ES2015)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { for (let x of xs) {} }",
 				"ForOfStatement",
 				2015,
@@ -1640,7 +1678,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should return 'block' scope on the block body of ForOfStatement in functions (ES2015)", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"function f() { for (let x of xs) {} }",
 				"ForOfStatement > BlockStatement",
 				2015,
@@ -1660,7 +1698,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should shadow the same name variable by the iteration variable.", () => {
-			const { node, scope } = getScope(
+			const { node, scope } = getScopeFromCode(
 				"let x; for (let x of x) {}",
 				"ForOfStatement",
 				2015,
@@ -1776,75 +1814,6 @@ describe("SourceCode", () => {
 	});
 
 	describe("getDeclaredVariables(node)", () => {
-		/**
-		 * Assert `sourceCode.getDeclaredVariables(node)` is valid.
-		 * @param {string} code A code to check.
-		 * @param {string} type A type string of ASTNode. This method checks variables on the node of the type.
-		 * @param {Array<Array<string>>} expectedNamesList An array of expected variable names. The expected variable names is an array of string.
-		 * @returns {void}
-		 */
-		function verify(code, type, expectedNamesList) {
-			linter.verify(code, {
-				plugins: {
-					test: {
-						rules: {
-							checker: {
-								create(context) {
-									const sourceCode = context.sourceCode;
-
-									/**
-									 * Assert `sourceCode.getDeclaredVariables(node)` is empty.
-									 * @param {ASTNode} node A node to check.
-									 * @returns {void}
-									 */
-									function checkEmpty(node) {
-										assert.strictEqual(
-											0,
-											sourceCode.getDeclaredVariables(
-												node,
-											).length,
-										);
-									}
-									const rule = createEmptyCheckRule(checkEmpty);
-
-									rule[type] = function (node) {
-										const expectedNames =
-											expectedNamesList.shift();
-										const variables =
-											sourceCode.getDeclaredVariables(
-												node,
-											);
-
-										assert(Array.isArray(expectedNames));
-										assert(Array.isArray(variables));
-										assert.strictEqual(
-											expectedNames.length,
-											variables.length,
-										);
-										for (
-											let i = variables.length - 1;
-											i >= 0;
-											i--
-										) {
-											assert.strictEqual(
-												expectedNames[i],
-												variables[i].name,
-											);
-										}
-									};
-									return rule;
-								},
-							},
-						},
-					},
-				},
-				rules: { "test/checker": 2 },
-			});
-
-			// Check all expected names are asserted.
-			assert.strictEqual(0, expectedNamesList.length);
-		}
-
 		it("VariableDeclaration", () => {
 			const code =
 				"\n var {a, x: [b], y: {c = 0}} = foo;\n let {d, x: [e], y: {f = 0}} = foo;\n const {g, x: [h], y: {i = 0}} = foo, {j, k = function(z) { let l; }} = bar;\n ";
@@ -1855,20 +1824,18 @@ describe("SourceCode", () => {
 				["l"],
 			];
 
-			verify(code, "VariableDeclaration", namesList);
+			verifyDeclaredVariables(code, "VariableDeclaration", namesList);
 		});
 
 		it("VariableDeclaration (on for-in/of loop)", () => {
-			// TDZ scope is created here, so tests to exclude those.
 			const code =
 				"\n for (var {a, x: [b], y: {c = 0}} in foo) {\n let g;\n }\n for (let {d, x: [e], y: {f = 0}} of foo) {\n let h;\n }\n ";
 			const namesList = [["a", "b", "c"], ["g"], ["d", "e", "f"], ["h"]];
 
-			verify(code, "VariableDeclaration", namesList);
+			verifyDeclaredVariables(code, "VariableDeclaration", namesList);
 		});
 
 		it("VariableDeclarator", () => {
-			// TDZ scope is created here, so tests to exclude those.
 			const code =
 				"\n var {a, x: [b], y: {c = 0}} = foo;\n let {d, x: [e], y: {f = 0}} = foo;\n const {g, x: [h], y: {i = 0}} = foo, {j, k = function(z) { let l; }} = bar;\n ";
 			const namesList = [
@@ -1879,7 +1846,7 @@ describe("SourceCode", () => {
 				["l"],
 			];
 
-			verify(code, "VariableDeclarator", namesList);
+			verifyDeclaredVariables(code, "VariableDeclarator", namesList);
 		});
 
 		it("FunctionDeclaration", () => {
@@ -1890,7 +1857,7 @@ describe("SourceCode", () => {
 				["bar", "f", "g", "h", "i", "j"],
 			];
 
-			verify(code, "FunctionDeclaration", namesList);
+			verifyDeclaredVariables(code, "FunctionDeclaration", namesList);
 		});
 
 		it("FunctionExpression", () => {
@@ -1902,7 +1869,7 @@ describe("SourceCode", () => {
 				["q"],
 			];
 
-			verify(code, "FunctionExpression", namesList);
+			verifyDeclaredVariables(code, "FunctionExpression", namesList);
 		});
 
 		it("ArrowFunctionExpression", () => {
@@ -1913,18 +1880,18 @@ describe("SourceCode", () => {
 				["f", "g", "h", "i", "j"],
 			];
 
-			verify(code, "ArrowFunctionExpression", namesList);
+			verifyDeclaredVariables(code, "ArrowFunctionExpression", namesList);
 		});
 
 		it("ClassDeclaration", () => {
 			const code =
 				"\n class A { foo(x) { let y; } }\n class B { foo(x) { let y; } }\n ";
 			const namesList = [
-				["A", "A"], // outer scope's and inner scope's.
+				["A", "A"],
 				["B", "B"],
 			];
 
-			verify(code, "ClassDeclaration", namesList);
+			verifyDeclaredVariables(code, "ClassDeclaration", namesList);
 		});
 
 		it("ClassExpression", () => {
@@ -1932,7 +1899,7 @@ describe("SourceCode", () => {
 				"\n (class A { foo(x) { let y; } });\n (class B { foo(x) { let y; } });\n ";
 			const namesList = [["A"], ["B"]];
 
-			verify(code, "ClassExpression", namesList);
+			verifyDeclaredVariables(code, "ClassExpression", namesList);
 		});
 
 		it("CatchClause", () => {
@@ -1943,7 +1910,7 @@ describe("SourceCode", () => {
 				["c", "d"],
 			];
 
-			verify(code, "CatchClause", namesList);
+			verifyDeclaredVariables(code, "CatchClause", namesList);
 		});
 
 		it("ImportDeclaration", () => {
@@ -1951,7 +1918,7 @@ describe("SourceCode", () => {
 				'\n import "aaa";\n import * as a from "bbb";\n import b, {c, x as d} from "ccc";\n ';
 			const namesList = [[], ["a"], ["b", "c", "d"]];
 
-			verify(code, "ImportDeclaration", namesList);
+			verifyDeclaredVariables(code, "ImportDeclaration", namesList);
 		});
 
 		it("ImportSpecifier", () => {
@@ -1959,7 +1926,7 @@ describe("SourceCode", () => {
 				'\n import "aaa";\n import * as a from "bbb";\n import b, {c, x as d} from "ccc";\n ';
 			const namesList = [["c"], ["d"]];
 
-			verify(code, "ImportSpecifier", namesList);
+			verifyDeclaredVariables(code, "ImportSpecifier", namesList);
 		});
 
 		it("ImportDefaultSpecifier", () => {
@@ -1967,7 +1934,7 @@ describe("SourceCode", () => {
 				'\n import "aaa";\n import * as a from "bbb";\n import b, {c, x as d} from "ccc";\n ';
 			const namesList = [["b"]];
 
-			verify(code, "ImportDefaultSpecifier", namesList);
+			verifyDeclaredVariables(code, "ImportDefaultSpecifier", namesList);
 		});
 
 		it("ImportNamespaceSpecifier", () => {
@@ -1975,7 +1942,7 @@ describe("SourceCode", () => {
 				'\n import "aaa";\n import * as a from "bbb";\n import b, {c, x as d} from "ccc";\n ';
 			const namesList = [["a"]];
 
-			verify(code, "ImportNamespaceSpecifier", namesList);
+			verifyDeclaredVariables(code, "ImportNamespaceSpecifier", namesList);
 		});
 	});
 
@@ -2239,7 +2206,6 @@ describe("SourceCode", () => {
 			const sourceCode = new SourceCode(code, ast);
 			const configComments = sourceCode.getInlineConfigNodes();
 
-			// not sure why but without the JSON parse/stringify Chai won't see these as equal
 			assert.deepStrictEqual(JSON.parse(JSON.stringify(configComments)), [
 				{
 					type: "Block",
@@ -2404,31 +2370,6 @@ describe("SourceCode", () => {
 		});
 
 		describe("exported variables", () => {
-			/**
-			 * GlobalScope
-			 * @param {string} code the code to check
-			 * @returns {Scope} globalScope
-			 */
-			function loadGlobalScope(code) {
-				const ast = espree.parse(code, DEFAULT_CONFIG);
-				const scopeManager = eslintScope.analyze(ast, {
-					ignoreEval: true,
-					ecmaVersion: 6,
-				});
-				const sourceCode = new SourceCode({
-					text: code,
-					ast,
-					scopeManager,
-				});
-
-				sourceCode.applyInlineConfig();
-				sourceCode.finalize();
-
-				const globalScope = sourceCode.scopeManager.scopes[0].set;
-
-				return globalScope;
-			}
-
 			it("should mark exported variable", () => {
 				const code = "/*exported foo */ var foo;";
 				const globalScope = loadGlobalScope(code);
@@ -2523,7 +2464,6 @@ describe("SourceCode", () => {
 			const result = sourceCode.applyInlineConfig();
 			const problem = result.problems[0];
 
-			// Node.js 19 changes the JSON parsing error format, so we need to check each field separately to use a regex
 			assert.strictEqual(problem.loc.start.column, 0);
 			assert.strictEqual(problem.loc.start.line, 1);
 			assert.strictEqual(problem.loc.end.column, 24);
@@ -2560,7 +2500,6 @@ describe("SourceCode", () => {
 			const esGlobals = globals.es2015;
 			const esGlobalsCount = Object.keys(esGlobals).length;
 
-			// All global variables are ES6 globals
 			assert.strictEqual(globalScope.set.size, esGlobalsCount);
 			assert.strictEqual(globalScope.variables.length, esGlobalsCount);
 			for (const variable of globalScope.variables) {
@@ -2600,15 +2539,12 @@ describe("SourceCode", () => {
 				assert.strictEqual(variable.defs.length, 0);
 			}
 
-			// no implicit globals
 			assert.strictEqual(globalScope.implicit.set.size, 0);
 			assert.strictEqual(globalScope.implicit.variables.length, 0);
 
-			// no unresolved references
 			assert.strictEqual(globalScope.through.length, 0);
 			assert.strictEqual(globalScope.implicit.left.length, 0);
 
-			// resolved references
 			assert.strictEqual(globalScope.references.length, 2);
 			assert.strictEqual(
 				globalScope.references[0].resolved,
@@ -2646,7 +2582,6 @@ describe("SourceCode", () => {
 			const esGlobals = globals.es2015;
 			const esGlobalsCount = Object.keys(esGlobals).length;
 
-			// All global variables are ES6 globals
 			assert.strictEqual(globalScope.set.size, esGlobalsCount);
 			assert.strictEqual(globalScope.variables.length, esGlobalsCount);
 			for (const variable of globalScope.variables) {
@@ -2702,15 +2637,12 @@ describe("SourceCode", () => {
 				assert.strictEqual(variable.defs.length, 0);
 			}
 
-			// no implicit globals
 			assert.strictEqual(globalScope.implicit.set.size, 0);
 			assert.strictEqual(globalScope.implicit.variables.length, 0);
 
-			// no unresolved references
 			assert.strictEqual(globalScope.through.length, 0);
 			assert.strictEqual(globalScope.implicit.left.length, 0);
 
-			// resolved references
 			assert.strictEqual(globalScope.references.length, 2);
 			assert.strictEqual(
 				globalScope.references[0].resolved,
@@ -2747,7 +2679,6 @@ describe("SourceCode", () => {
 			const esGlobals = globals.es2015;
 			const esGlobalsCount = Object.keys(esGlobals).length;
 
-			// All global variables are ES6 globals
 			assert.strictEqual(globalScope.set.size, esGlobalsCount);
 			assert.strictEqual(globalScope.variables.length, esGlobalsCount);
 			for (const variable of globalScope.variables) {
@@ -2803,15 +2734,12 @@ describe("SourceCode", () => {
 				assert.strictEqual(variable.defs.length, 0);
 			}
 
-			// no implicit globals
 			assert.strictEqual(globalScope.implicit.set.size, 0);
 			assert.strictEqual(globalScope.implicit.variables.length, 0);
 
-			// no unresolved references
 			assert.strictEqual(globalScope.through.length, 0);
 			assert.strictEqual(globalScope.implicit.left.length, 0);
 
-			// resolved references
 			assert.strictEqual(globalScope.references.length, 2);
 			assert.strictEqual(
 				globalScope.references[0].resolved,
@@ -2957,7 +2885,6 @@ describe("SourceCode", () => {
 			const esGlobals = globals.es2015;
 			const esGlobalsCount = Object.keys(esGlobals).length;
 
-			// All global variables are ES6 globals
 			assert.strictEqual(globalScope.set.size, esGlobalsCount - 3);
 			assert.strictEqual(
 				globalScope.variables.length,
@@ -3164,15 +3091,12 @@ describe("SourceCode", () => {
 				assert.strictEqual(variable.defs.length, 0);
 			}
 
-			// no implicit globals
 			assert.strictEqual(globalScope.implicit.set.size, 0);
 			assert.strictEqual(globalScope.implicit.variables.length, 0);
 
-			// no unresolved references
 			assert.strictEqual(globalScope.through.length, 0);
 			assert.strictEqual(globalScope.implicit.left.length, 0);
 
-			// resolved references
 			assert.strictEqual(globalScope.references.length, 2);
 			assert.strictEqual(
 				globalScope.references[0].resolved,
@@ -3305,15 +3229,12 @@ describe("SourceCode", () => {
 				assert.strictEqual(variable.defs.length, 0);
 			}
 
-			// no implicit globals
 			assert.strictEqual(globalScope.implicit.set.size, 0);
 			assert.strictEqual(globalScope.implicit.variables.length, 0);
 
-			// no unresolved references
 			assert.strictEqual(globalScope.through.length, 0);
 			assert.strictEqual(globalScope.implicit.left.length, 0);
 
-			// resolved references
 			assert.strictEqual(globalScope.references.length, 2);
 			assert.strictEqual(
 				globalScope.references[0].resolved,
@@ -3450,15 +3371,12 @@ describe("SourceCode", () => {
 				assert.strictEqual(variable.defs.length, 0);
 			}
 
-			// no implicit globals
 			assert.strictEqual(globalScope.implicit.set.size, 0);
 			assert.strictEqual(globalScope.implicit.variables.length, 0);
 
-			// no unresolved references
 			assert.strictEqual(globalScope.through.length, 0);
 			assert.strictEqual(globalScope.implicit.left.length, 0);
 
-			// resolved references
 			assert.strictEqual(globalScope.references.length, 2);
 			assert.strictEqual(
 				globalScope.references[0].resolved,
@@ -3500,7 +3418,6 @@ describe("SourceCode", () => {
 			const esGlobals = globals.es2015;
 			const esGlobalsCount = Object.keys(esGlobals).length;
 
-			// All global variables are ES6 globals
 			assert.strictEqual(globalScope.set.size, esGlobalsCount);
 			assert.strictEqual(globalScope.variables.length, esGlobalsCount);
 
@@ -3854,15 +3771,12 @@ describe("SourceCode", () => {
 				);
 			}
 
-			// no implicit globals
 			assert.strictEqual(globalScope.implicit.set.size, 0);
 			assert.strictEqual(globalScope.implicit.variables.length, 0);
 
-			// no unresolved references
 			assert.strictEqual(globalScope.through.length, 0);
 			assert.strictEqual(globalScope.implicit.left.length, 0);
 
-			// resolved references
 			assert.strictEqual(globalScope.references.length, 3);
 			assert.strictEqual(
 				globalScope.references[0].resolved,
@@ -3939,7 +3853,6 @@ describe("SourceCode", () => {
 												`Expected ${node.name} to be identified as a global reference`,
 											);
 										} else if (node.name === "foo") {
-											// The second "foo" reference (not the declaration) should not be a global reference
 											if (
 												node.parent.type !==
 												"VariableDeclarator"
@@ -3987,7 +3900,6 @@ describe("SourceCode", () => {
 										const blockStatement =
 											functionDecl.body;
 
-										// Function parameter references
 										const paramRef =
 											blockStatement.body[0].expression;
 										const NaNRef =
@@ -4193,10 +4105,8 @@ describe("SourceCode", () => {
 									const sourceCode = context.sourceCode;
 
 									spy = sinon.spy(() => {
-										// Get the second Math identifier (outside destructuring)
 										const mathRef =
 											sourceCode.ast.body[1].expression;
-										// Get the second Array identifier (outside destructuring)
 										const arrayRef =
 											sourceCode.ast.body[3].expression;
 
@@ -4349,7 +4259,6 @@ describe("SourceCode", () => {
 										if (
 											node.parent.type === "CatchClause"
 										) {
-											// Skip the catch parameter declaration
 											return;
 										}
 
@@ -4507,7 +4416,6 @@ describe("SourceCode", () => {
 
 			linter.verify(code, config);
 
-			// Spy on the internal cache
 			const cache =
 				sourceCodeInstance[
 					Object.getOwnPropertySymbols(sourceCodeInstance).find(
@@ -4517,7 +4425,6 @@ describe("SourceCode", () => {
 					)
 				].get("isGlobalReference");
 
-			// Clear cache for firstNode and count calls
 			cache.delete(firstNode);
 			let computeCount = 0;
 			const original =
@@ -4530,7 +4437,6 @@ describe("SourceCode", () => {
 				return original.apply(this, args);
 			};
 
-			// Call twice, should only compute once
 			sourceCodeInstance.isGlobalReference(firstNode);
 			sourceCodeInstance.isGlobalReference(firstNode);
 
@@ -4540,7 +4446,6 @@ describe("SourceCode", () => {
 				"isGlobalReference should compute only once per node",
 			);
 
-			// Second node should compute
 			sourceCodeInstance.isGlobalReference(secondNode);
 			sourceCodeInstance.isGlobalReference(secondNode);
 			assert.strictEqual(
@@ -4549,7 +4454,6 @@ describe("SourceCode", () => {
 				"isGlobalReference should compute only once per node",
 			);
 
-			// Restore
 			sourceCodeInstance.scopeManager.scopes[0].set.get(
 				"Math",
 			).references.some = original;
@@ -4573,12 +4477,10 @@ describe("SourceCode", () => {
 			const sourceCode = new SourceCode(code, ast);
 			const steps = sourceCode.traverse();
 
-			// Filter for VisitNodeStep instances
 			const visitSteps = steps.filter(step => step.kind === 1);
 
 			assert.strictEqual(visitSteps.length, 10);
 
-			// Verify visit step structure
 			visitSteps.forEach(step => {
 				assert.isNumber(step.phase);
 				assert.isTrue(
@@ -4598,7 +4500,6 @@ describe("SourceCode", () => {
 
 			const visitSteps = steps.filter(step => step.kind === 1);
 
-			// Group steps by target node
 			const nodeSteps = new Map();
 			visitSteps.forEach(step => {
 				const key = step.target.type;
@@ -4608,7 +4509,6 @@ describe("SourceCode", () => {
 				nodeSteps.get(key).push(step.phase);
 			});
 
-			// Every node type should have both enter (1) and exit (2) phases
 			nodeSteps.forEach((phases, nodeType) => {
 				assert.isTrue(
 					phases.includes(1),
@@ -4633,7 +4533,6 @@ describe("SourceCode", () => {
 				phase: step.phase,
 			}));
 
-			// Should have Program at the beginning
 			assert.deepStrictEqual(nodeTypes, [
 				{
 					type: "Program",
@@ -4699,13 +4598,10 @@ describe("SourceCode", () => {
 			const sourceCode = new SourceCode(code, ast);
 			const steps = sourceCode.traverse();
 
-			// Look for CallMethodStep (kind === 2) which are emitted by CodePathAnalyzer
 			const callSteps = steps.filter(step => step.kind === 2);
 
-			// For control flow code, CodePathAnalyzer should emit events
 			assert.strictEqual(callSteps.length, 8);
 
-			// Verify call steps have correct structure
 			callSteps.forEach(step => {
 				assert.isString(
 					step.target,
@@ -4790,7 +4686,6 @@ describe("SourceCode", () => {
 
 			const visitSteps = steps.filter(step => step.kind === 1);
 
-			// Verify that we enter before we exit
 			const enterExitMap = new Map();
 			visitSteps.forEach((step, index) => {
 				const nodeKey = `${step.target.type}@${step.target.range.join(",")}`;
@@ -4804,7 +4699,6 @@ describe("SourceCode", () => {
 				}
 			});
 
-			// For each node, enter should come before exit
 			enterExitMap.forEach(({ enter, exit }) => {
 				assert.isNotNull(enter, "node should have enter phase");
 				assert.isNotNull(exit, "node should have exit phase");
@@ -4835,7 +4729,6 @@ describe("SourceCode", () => {
 
 				const [node] = step.args;
 
-				// First argument should be the node itself
 				assert.strictEqual(
 					node,
 					step.target,
@@ -4876,4 +4769,3 @@ describe("SourceCode", () => {
 		});
 	});
 });
-```

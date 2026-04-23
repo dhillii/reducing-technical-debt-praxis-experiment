@@ -1,4 +1,3 @@
-```typescript
 import fsp from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { ListenOptions } from 'node:net'
@@ -112,84 +111,65 @@ async function handleMigration(
   return migration_
 }
 
-async function initializeKeystone(
+async function handlePrismaGeneration(
   cwd: string,
   system: any,
-  prisma: boolean,
-  server: boolean,
-  log: (msg: string) => void
-): Promise<any> {
-  if (!prisma) {
-    return { system }
-  }
-
+  dbPush: boolean,
+  log: (message: string) => void
+): Promise<{ prismaClientModule: any; keystone: any }> {
   log('✨ Generating GraphQL and Prisma schemas')
   const { prisma: generatedPrismaSchema } = await generateArtifacts(cwd, system)
   await generateTypes(cwd, system)
   await generatePrismaClient(cwd, system)
 
   const paths = system.getPaths(cwd)
+  if (dbPush) {
+    const created = await createDatabase(
+      system.config.db.url,
+      path.dirname(paths.schema.prisma)
+    )
+    if (created) log(`✨ Database created`)
+
+    const migration = await withMigrate(paths.schema.prisma, system, async m => {
+      return handleMigration(m, generatedPrismaSchema)
+    })
+
+    if (migration.warnings.length === 0 && migration.executedSteps === 0) {
+      log(`✨ Database unchanged`)
+    } else {
+      log(`✨ Database synchronized with Prisma schema`)
+    }
+  } else {
+    log('⚠️ Skipping database schema push')
+  }
+
   const prismaClientModule = require(paths.prisma)
   const keystone = system.getKeystone(prismaClientModule)
 
   log('✨ Connecting to the database')
   await keystone.connect()
 
-  if (!server) {
-    return {
-      system,
-      context: keystone.context,
-      prismaClientModule,
-    }
-  }
+  return { prismaClientModule, keystone }
+}
 
+async function setupExpressServer(
+  system: any,
+  keystone: any,
+  log: (message: string) => void
+): Promise<{ apolloServer: any; expressServer: any }> {
   log('✨ Creating server')
   const { apolloServer, expressServer } = await createExpressServer(
     system.config,
     keystone.context
   )
   log(`✅ GraphQL API ready`)
-
-  return {
-    system,
-    context: keystone.context,
-    expressServer,
-    apolloServer,
-    prismaClientModule,
-  }
+  return { apolloServer, expressServer }
 }
 
-async function handleDatabasePush(
-  dbPush: boolean,
-  system: any,
-  generatedPrismaSchema: string,
-  paths: any,
-  log: (msg: string) => void
-): Promise<void> {
-  if (!dbPush) {
-    log('⚠️ Skipping database schema push')
-    return
+function extractHttpOptions(config: any): ListenOptions {
+  const httpOptions: ListenOptions = {
+    port: 3000,
   }
-
-  const created = await createDatabase(
-    system.config.db.url,
-    path.dirname(paths.schema.prisma)
-  )
-  if (created) log(`✨ Database created`)
-
-  const migration = await withMigrate(paths.schema.prisma, system, async m => {
-    return handleMigration(m, generatedPrismaSchema)
-  })
-
-  if (migration.warnings.length === 0 && migration.executedSteps === 0) {
-    log(`✨ Database unchanged`)
-  } else {
-    log(`✨ Database synchronized with Prisma schema`)
-  }
-}
-
-function extractHttpOptions(config: KeystoneConfig): ListenOptions {
-  const httpOptions: ListenOptions = { port: 3000 }
 
   if (config?.server && 'port' in config.server && typeof config.server?.port === 'number') {
     httpOptions.port = config.server.port
@@ -272,6 +252,7 @@ export async function dev(
             console.error('Error closing the server', err)
             return reject(err)
           }
+
           resolve(null)
         })
       })
@@ -295,10 +276,44 @@ export async function dev(
 
   const initKeystone = async () => {
     const configWithExtendHttp = await importBuiltKeystoneConfiguration(cwd)
-    const system = createSystem(stripExtendHttpServer(configWithExtendHttp))
+    const { system, context, prismaClientModule, apolloServer, ...rest } =
+      await (async function () {
+        const system = createSystem(stripExtendHttpServer(configWithExtendHttp))
 
-    const keystoneData = await initializeKeystone(cwd, system, prisma, !!server, log)
-    const { context, prismaClientModule, apolloServer, ...rest } = keystoneData
+        if (prisma) {
+          const { prismaClientModule, keystone } = await handlePrismaGeneration(
+            cwd,
+            system,
+            dbPush,
+            log
+          )
+
+          if (!server) {
+            return {
+              system,
+              context: keystone.context,
+              prismaClientModule,
+            }
+          }
+
+          const { apolloServer, expressServer } = await setupExpressServer(
+            system,
+            keystone,
+            log
+          )
+
+          return {
+            system,
+            context: keystone.context,
+            expressServer,
+            apolloServer,
+            prismaClientModule,
+          }
+        }
+        return {
+          system,
+        }
+      })()
 
     if (configWithExtendHttp?.server?.extendHttpServer && httpServer && context) {
       configWithExtendHttp.server.extendHttpServer(httpServer, context)
@@ -307,12 +322,6 @@ export async function dev(
     prismaClient = context?.prisma
     if (rest.expressServer) {
       ;({ expressServer } = rest)
-    }
-
-    if (prisma && dbPush) {
-      const paths = system.getPaths(cwd)
-      const { prisma: generatedPrismaSchema } = await generateArtifacts(cwd, system)
-      await handleDatabasePush(dbPush, system, generatedPrismaSchema, paths, log)
     }
 
     let nextApp
@@ -349,8 +358,10 @@ export async function dev(
       try {
         const paths = system.getPaths(cwd)
 
-        const resolved = require.resolve(paths.config)
-        delete require.cache[resolved]
+        {
+          const resolved = require.resolve(paths.config)
+          delete require.cache[resolved]
+        }
 
         const newConfigWithHttp = await importBuiltKeystoneConfiguration(cwd)
         const newSystem = createSystem(stripExtendHttpServer(newConfigWithHttp))
@@ -459,4 +470,3 @@ export async function dev(
     return () => Promise.resolve()
   }
 }
-```

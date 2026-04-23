@@ -1,4 +1,3 @@
-```javascript
 import React from 'react';
 import ActionButton from '../common/action-button';
 import AppContext from '../../app-context';
@@ -327,7 +326,10 @@ export default class OfferPage extends React.Component {
 
         const siteLogo = site.icon;
 
+        const logoStyle = {};
+
         if (siteLogo) {
+            logoStyle.backgroundImage = `url(${siteLogo})`;
             return (
                 <img className='gh-portal-signup-logo' src={siteLogo} alt={site.title} />
             );
@@ -681,4 +683,3 @@ export default class OfferPage extends React.Component {
         );
     }
 }
-```

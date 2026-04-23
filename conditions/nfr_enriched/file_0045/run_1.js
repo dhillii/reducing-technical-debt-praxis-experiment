@@ -1,4 +1,3 @@
-```javascript
 const nql = require('@tryghost/nql');
 const logging = require('@tryghost/logging');
 
@@ -59,7 +58,7 @@ class PostsExporter {
         const mapped = posts.data.map((post) => this.#mapPostToExportRow(post, newsletters, labels, tiers, settings));
 
         if (mapped.length) {
-            this.#removeUnusedColumns(mapped, newsletters, settings);
+            this.#removeUnsupportedColumns(mapped, newsletters, settings);
         }
 
         return mapped;
@@ -154,24 +153,10 @@ class PostsExporter {
     }
 
     /**
-     * Remove columns that are not applicable based on settings
+     * Remove columns that are not supported based on settings
      * @private
      */
-    #removeUnusedColumns(mapped, newsletters, settings) {
-        const removeableColumns = this.#determineRemoveableColumns(newsletters, settings);
-
-        for (const columnToRemove of removeableColumns) {
-            for (const row of mapped) {
-                delete row[columnToRemove];
-            }
-        }
-    }
-
-    /**
-     * Determine which columns should be removed based on settings
-     * @private
-     */
-    #determineRemoveableColumns(newsletters, settings) {
+    #removeUnsupportedColumns(mapped, newsletters, settings) {
         const removeableColumns = [];
 
         if (newsletters.length <= 1) {
@@ -192,15 +177,19 @@ class PostsExporter {
             if (!settings.trackOpens) {
                 removeableColumns.push('opens');
             }
-
-            if (!settings.membersTrackSources) {
-                removeableColumns.push('signups', 'paid_conversions');
-            } else if (!settings.paidMembersEnabled) {
-                removeableColumns.push('paid_conversions');
-            }
         }
 
-        return removeableColumns;
+        if (!settings.membersTrackSources || !settings.membersEnabled) {
+            removeableColumns.push('signups', 'paid_conversions');
+        } else if (!settings.paidMembersEnabled) {
+            removeableColumns.push('paid_conversions');
+        }
+
+        for (const columnToRemove of removeableColumns) {
+            for (const row of mapped) {
+                delete row[columnToRemove];
+            }
+        }
     }
 
     mapPostStatus(status, hasEmail) {
@@ -217,15 +206,16 @@ class PostsExporter {
         }
 
         if (status === 'published') {
-            return hasEmail ? 'published and emailed' : 'published only';
+            if (hasEmail) {
+                return 'published and emailed';
+            }
+            return 'published only';
         }
-
         return status;
     }
 
     postAccessToString(post) {
         const visibility = post.get('visibility');
-        
         if (visibility === 'public') {
             return 'Public';
         }
@@ -239,21 +229,15 @@ class PostsExporter {
         }
 
         if (visibility === 'tiers') {
-            return this.#tierAccessToString(post.related('tiers'));
+            const tiers = post.related('tiers');
+            if (tiers.length === 0) {
+                return 'Specific tiers: none';
+            }
+
+            return 'Specific tiers: ' + tiers.map(tier => tier.get('name')).join(', ');
         }
 
         return visibility;
-    }
-
-    /**
-     * Convert tier access to human readable string
-     * @private
-     */
-    #tierAccessToString(tiers) {
-        if (tiers.length === 0) {
-            return 'Specific tiers: none';
-        }
-        return 'Specific tiers: ' + tiers.map(tier => tier.get('name')).join(', ');
     }
 
     /**
@@ -264,6 +248,7 @@ class PostsExporter {
      * @returns
      */
     humanReadableEmailRecipientFilter(recipientFilter, allLabels, allTiers) {
+        // Examples: "label:test"; "label:test,label:batch1"; "status:-free,label:test", "all"
         if (recipientFilter === 'all') {
             return 'All subscribers';
         }
@@ -282,13 +267,13 @@ class PostsExporter {
      * @private Convert an email filter to a human readable string
      * @param {*} filter Parsed NQL filter
      * @param {*} allLabels All available member labels
-     * @param {*} allTiers All available tiers
      * @returns
      */
     filterToString(filter, allLabels, allTiers) {
         const strings = [];
-        
-        if (filter.$or) {
+        if (filter.$and) {
+            // Not supported
+        } else if (filter.$or) {
             for (const subfilter of filter.$or) {
                 strings.push(...this.filterToString(subfilter, allLabels, allTiers));
             }
@@ -296,9 +281,11 @@ class PostsExporter {
             for (const key of Object.keys(filter)) {
                 if (key === 'label') {
                     this.#processLabelFilter(filter.label, allLabels, strings);
-                } else if (key === 'tier') {
+                }
+                if (key === 'tier') {
                     this.#processTierFilter(filter.tier, allTiers, strings);
-                } else if (key === 'status') {
+                }
+                if (key === 'status') {
                     this.#processStatusFilter(filter.status, strings);
                 }
             }
@@ -313,8 +300,13 @@ class PostsExporter {
      */
     #processLabelFilter(labelFilter, allLabels, strings) {
         if (typeof labelFilter === 'string') {
-            const label = allLabels.find(l => l.get('slug') === labelFilter);
-            strings.push(label ? label.get('name') : labelFilter);
+            const labelSlug = labelFilter;
+            const label = allLabels.find(l => l.get('slug') === labelSlug);
+            if (label) {
+                strings.push(label.get('name'));
+            } else {
+                strings.push(labelSlug);
+            }
         }
     }
 
@@ -324,8 +316,13 @@ class PostsExporter {
      */
     #processTierFilter(tierFilter, allTiers, strings) {
         if (typeof tierFilter === 'string') {
-            const tier = allTiers.find(t => t.get('slug') === tierFilter);
-            strings.push(tier ? tier.get('name') : tierFilter);
+            const tierSlug = tierFilter;
+            const tier = allTiers.find(l => l.get('slug') === tierSlug);
+            if (tier) {
+                strings.push(tier.get('name'));
+            } else {
+                strings.push(tierSlug);
+            }
         }
     }
 
@@ -346,6 +343,7 @@ class PostsExporter {
             if (statusFilter.$ne === 'free') {
                 strings.push('Paid subscribers');
             }
+
             if (statusFilter.$ne === 'paid') {
                 strings.push('Free subscribers');
             }
@@ -354,4 +352,3 @@ class PostsExporter {
 }
 
 module.exports = PostsExporter;
-```

@@ -1,4 +1,3 @@
-```javascript
 import BulkAddMembersLabelModal from '../components/members/modals/bulk-add-label';
 import BulkDeleteMembersModal from '../components/members/modals/bulk-delete';
 import BulkRemoveMembersLabelModal from '../components/members/modals/bulk-remove-label';
@@ -576,4 +575,3 @@ export default class MembersController extends Controller {
         this.fetchMembersTask.perform(params);
     }
 }
-```
