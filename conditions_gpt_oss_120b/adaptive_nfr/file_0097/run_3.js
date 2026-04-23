@@ -1,0 +1,316 @@
+/* global define */
+define([
+    'underscore',
+    'backbone',
+    'backbone.radio'
+], function(_, Backbone, Radio) {
+    'use strict';
+
+    /**
+     * Pagination support for Backbone collections.
+     * Some code was borrowed from the plugin Backbone.paginator.
+     *
+     * Triggers:
+     * ---------
+     * Events to channel `notes`:
+     * 1. `model:navigate` - when the next or previous model was requested
+     *     or a model was removed.
+     *
+     * Events to itself (e.g. collection):
+     * 1. `page:next` - when the next model was requested but a user
+     *     has reached the last model on the page.
+     * 2. `page:previous` - when the previous model was requested but a user
+     *     has reached the first model on the page.
+     */
+    const PageableCollection = Backbone.Collection.extend({
+
+        // Default pagination settings
+        state: {
+            pageSize     : 4,
+            firstPage    : 0,
+            currentPage  : 0,
+            totalRecords : 0,
+            comparator   : {'isFavorite' : 'desc', 'created' : 'desc'}
+        },
+
+        /**
+         * Overwrite `fetch` method.
+         */
+        fetch: function(options) {
+            const opts = Object.assign({options: {}}, options);
+            if (!_.isUndefined(opts.pageSize)) {
+                this.state.pageSize = Number(opts.pageSize);
+            }
+
+            // Do not use pagination
+            if (this.state.pageSize === 0) {
+                return Backbone.Collection.prototype.fetch.call(this, opts);
+            }
+
+            const originalSuccess = opts.success;
+            const self = this;
+
+            opts.success = function(resp) {
+                // Keep full collection in memory
+                self.fullCollection = self.clone();
+
+                // Sort the collection
+                self.fullCollection.sortItOut();
+
+                // Pagination
+                self._updateTotalPages();
+                self.getPage(opts.page || self.state.firstPage);
+
+                if (originalSuccess) {
+                    originalSuccess(self, resp);
+                }
+            };
+
+            return Backbone.Collection.prototype.fetch.call(this, opts)
+                .then(function(resp) {
+                    opts.success(resp);
+                    return resp;
+                });
+        },
+
+        /**
+         * Handles events.
+         * It needs to be called after a collection was instantiated.
+         */
+        registerEvents: function() {
+            this.vent = Radio.channel(this.storeName);
+
+            // Sort the collection again when favorite status is changed
+            this.listenTo(this, 'change:isFavorite', this.sortItOut);
+            this.listenTo(this, 'reset', this.sortItOut);
+
+            // Listen to events
+            this.listenTo(this.vent, 'update:model', this._onAddItem, this);
+            this.listenTo(this.vent, 'destroy:model', this._navigateOnRemove, this);
+            this.listenTo(this.vent, 'restore:model', this._onRestore, this);
+
+            return this;
+        },
+
+        /**
+         * It makes some "garbage collection"
+         * by destroying full collection and event listeners.
+         * If a collection is no longer in use, this method should be called.
+         */
+        removeEvents: function() {
+            if (this.fullCollection) {
+                this.fullCollection.reset();
+                this.fullCollection = null;
+            }
+
+            this.stopListening();
+            this.stopListening(this.vent);
+
+            return this;
+        },
+
+        getNextPage: function() {
+            const models = this.getPage(this.state.currentPage + 1);
+            this.reset(models);
+        },
+
+        getPreviousPage: function() {
+            const models = this.getPage(this.state.currentPage - 1);
+            this.reset(models);
+        },
+
+        /**
+         * Sets state.currentPage to the given number.
+         * Then, it overwrites models of the current collection.
+         */
+        getPage: function(number) {
+            const pageStart = this.getOffset(number);
+            this.state.currentPage = number;
+            this.models = this.fullCollection.models.slice(pageStart, pageStart + this.state.pageSize);
+            return this.models;
+        },
+
+        getOffset: function(number) {
+            return ((this.state.firstPage === 0 ? number : number - 1) * this.state.pageSize);
+        },
+
+        hasPreviousPage: function() {
+            return this.state.currentPage !== this.state.firstPage;
+        },
+
+        hasNextPage: function() {
+            return this.state.currentPage !== this.state.totalPages - 1;
+        },
+
+        /**
+         * It is used to sort models in full collection.
+         */
+        sortFullCollection: function() {
+            if (!this.fullCollection) {
+                return;
+            }
+
+            this.fullCollection.sortItOut();
+            this._updateTotalPages();
+            this.getPage(this.state.currentPage);
+            this.reset(this.models);
+        },
+
+        /**
+         * Useful when sorting models in a collection by multiple keys.
+         */
+        sortItOut: function() {
+            const originalComparator = this.comparator;
+            const self = this;
+
+            _.each(this.state.comparator, (value, key) => {
+                self.comparator = function(model) {
+                    return (value === 'desc' ? -model.get(key) : model.get(key));
+                };
+                self.sort();
+            });
+
+            this.comparator = originalComparator;
+            return this.models;
+        },
+
+        /**
+         * Returns true if the collection has no models.
+         * @returns {boolean}
+         */
+        _isEmpty: function() {
+            return this.length === 0;
+        },
+
+        getNextItem: function(id) {
+            if (this._isEmpty()) {
+                return false;
+            }
+
+            const model = this.get(id);
+            const index = model ? this.indexOf(model) + 1 : 0;
+
+            if (index >= this.models.length) {
+                return this.trigger(this.hasNextPage() ? 'page:next' : 'page:end');
+            }
+
+            Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+        },
+
+        getPreviousItem: function(id) {
+            if (this._isEmpty()) {
+                return false;
+            }
+
+            const model = this.get(id);
+            const index = model ? this.indexOf(model) - 1 : this.models.length - 1;
+
+            if (index < 0) {
+                return this.trigger(this.hasPreviousPage() ? 'page:previous' : 'page:start');
+            }
+
+            Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+        },
+
+        /**
+         * When some model was removed, trigger `model:navigate` event
+         * passing a model which has the same index as the removed model.
+         * @param {Backbone.Model} model
+         */
+        _navigateOnRemove: function(model) {
+            const target = this.get(model.id);
+            if (!target) {
+                return false;
+            }
+
+            const coll = this.fullCollection || this;
+            const index = this.indexOf(target);
+
+            coll.remove(target);
+            this.sortFullCollection();
+
+            const adjustedIndex = this.at(index) ? index : index - 1;
+
+            if (!this.at(adjustedIndex)) {
+                return this.hasPreviousPage() ? this.trigger('page:previous') : null;
+            }
+
+            Radio.trigger(this.storeName, 'model:navigate', this.at(adjustedIndex));
+        },
+
+        /**
+         * When a model was restored from trash.
+         */
+        _onRestore: function(model) {
+            if (this.conditionFilter !== 'trashed') {
+                return this._onAddItem(model);
+            }
+
+            if (this.length > 1) {
+                return this._navigateOnRemove(model);
+            }
+        },
+
+        /**
+         * Determines whether a model belongs to the current profile.
+         * @param {Backbone.Model} model
+         * @returns {boolean}
+         */
+        _isFromCurrentProfile: function(model) {
+            return this.profileId === model.profileId;
+        },
+
+        /**
+         * Determines whether a model satisfies the current filter condition.
+         * @param {Backbone.Model} model
+         * @returns {boolean}
+         */
+        _matchesCurrentFilter: function(model) {
+            const filter = this.conditionCurrent || {trash: 0};
+            return model.matches(filter);
+        },
+
+        /**
+         * Update pagination when a model is added
+         */
+        _onAddItem: function(model) {
+            if (!this._isFromCurrentProfile(model)) {
+                return;
+            }
+
+            if (!this._matchesCurrentFilter(model)) {
+                return this._navigateOnRemove(model);
+            }
+
+            const coll = this.fullCollection || this;
+            const existing = coll.get(model.id);
+
+            if (existing) {
+                return existing.set(model.toJSON());
+            }
+
+            coll.add(model, {at: 0});
+            this.sortFullCollection();
+        },
+
+        /**
+         * Update pagination when a model is removed
+         */
+        _onRemoveItem: function(model) {
+            if (this.fullCollection) {
+                this.fullCollection.remove(model);
+                this.sortFullCollection();
+            }
+        },
+
+        /**
+         * Updates the number of available pages
+         */
+        _updateTotalPages: function() {
+            this.state.totalPages = Math.ceil(this.fullCollection.length / this.state.pageSize);
+        }
+
+    });
+
+    return PageableCollection;
+});
