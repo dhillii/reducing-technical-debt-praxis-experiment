@@ -1,0 +1,1840 @@
+/**
+ * @fileoverview Disallow parenthesising higher precedence subexpressions.
+ * @author Michael Ficarra
+ * @deprecated in ESLint v8.53.0
+ */
+"use strict";
+
+const {
+	isParenthesized: isParenthesizedRaw,
+} = require("@eslint-community/eslint-utils");
+const astUtils = require("./utils/ast-utils.js");
+
+/** @type {import('../types').Rule.RuleModule} */
+module.exports = {
+	meta: {
+		deprecated: {
+			message: "Formatting rules are being moved out of ESLint core.",
+			url: "https://eslint.org/blog/2023/10/deprecating-formatting-rules/",
+			deprecatedSince: "8.53.0",
+			availableUntil: "11.0.0",
+			replacedBy: [
+				{
+					message:
+						"ESLint Stylistic now maintains deprecated stylistic core rules.",
+					url: "https://eslint.style/guide/migration",
+					plugin: {
+						name: "@stylistic/eslint-plugin",
+						url: "https://eslint.style",
+					},
+					rule: {
+						name: "no-extra-parens",
+						url: "https://eslint.style/rules/no-extra-parens",
+					},
+				},
+			],
+		},
+		type: "layout",
+
+		docs: {
+			description: "Disallow unnecessary parentheses",
+			recommended: false,
+			url: "https://eslint.org/docs/latest/rules/no-extra-parens",
+		},
+
+		fixable: "code",
+
+		schema: {
+			anyOf: [
+				{
+					type: "array",
+					items: [
+						{
+							enum: ["functions"],
+						},
+					],
+					minItems: 0,
+					maxItems: 1,
+				},
+				{
+					type: "array",
+					items: [
+						{
+							enum: ["all"],
+						},
+						{
+							type: "object",
+							properties: {
+								conditionalAssign: { type: "boolean" },
+								ternaryOperandBinaryExpressions: {
+									type: "boolean",
+								},
+								nestedBinaryExpressions: { type: "boolean" },
+								returnAssign: { type: "boolean" },
+								ignoreJSX: {
+									enum: [
+										"none",
+										"all",
+										"single-line",
+										"multi-line",
+									],
+								},
+								enforceForArrowConditionals: {
+									type: "boolean",
+								},
+								enforceForSequenceExpressions: {
+									type: "boolean",
+								},
+								enforceForNewInMemberExpressions: {
+									type: "boolean",
+								},
+								enforceForFunctionPrototypeMethods: {
+									type: "boolean",
+								},
+								allowParensAfterCommentPattern: {
+									type: "string",
+								},
+							},
+							additionalProperties: false,
+						},
+					],
+					minItems: 0,
+					maxItems: 2,
+				},
+			],
+		},
+
+		messages: {
+			unexpected: "Unnecessary parentheses around expression.",
+		},
+	},
+
+	create(context) {
+		const sourceCode = context.sourceCode;
+
+		const tokensToIgnore = new WeakSet();
+		const precedence = astUtils.getPrecedence;
+		const ALL_NODES = context.options[0] !== "functions";
+		const EXCEPT_COND_ASSIGN =
+			ALL_NODES &&
+			context.options[1] &&
+			context.options[1].conditionalAssign === false;
+		const EXCEPT_COND_TERNARY =
+			ALL_NODES &&
+			context.options[1] &&
+			context.options[1].ternaryOperandBinaryExpressions === false;
+		const NESTED_BINARY =
+			ALL_NODES &&
+			context.options[1] &&
+			context.options[1].nestedBinaryExpressions === false;
+		const EXCEPT_RETURN_ASSIGN =
+			ALL_NODES &&
+			context.options[1] &&
+			context.options[1].returnAssign === false;
+		const IGNORE_JSX =
+			ALL_NODES && context.options[1] && context.options[1].ignoreJSX;
+		const IGNORE_ARROW_CONDITIONALS =
+			ALL_NODES &&
+			context.options[1] &&
+			context.options[1].enforceForArrowConditionals === false;
+		const IGNORE_SEQUENCE_EXPRESSIONS =
+			ALL_NODES &&
+			context.options[1] &&
+			context.options[1].enforceForSequenceExpressions === false;
+		const IGNORE_NEW_IN_MEMBER_EXPR =
+			ALL_NODES &&
+			context.options[1] &&
+			context.options[1].enforceForNewInMemberExpressions === false;
+		const IGNORE_FUNCTION_PROTOTYPE_METHODS =
+			ALL_NODES &&
+			context.options[1] &&
+			context.options[1].enforceForFunctionPrototypeMethods === false;
+		const ALLOW_PARENS_AFTER_COMMENT_PATTERN =
+			ALL_NODES &&
+			context.options[1] &&
+			context.options[1].allowParensAfterCommentPattern;
+
+		const PRECEDENCE_OF_ASSIGNMENT_EXPR = precedence({
+			type: "AssignmentExpression",
+		});
+		const PRECEDENCE_OF_UPDATE_EXPR = precedence({
+			type: "UpdateExpression",
+		});
+
+		let reportsBuffer;
+
+		/**
+		 * Determines whether the given node is a `call` or `apply` method call, invoked directly on a `FunctionExpression` node.
+		 * Example: function(){}.call()
+		 * @param {ASTNode} node The node to be checked.
+		 * @returns {boolean} True if the node is an immediate `call` or `apply` method call.
+		 * @private
+		 */
+		function isImmediateFunctionPrototypeMethodCall(node) {
+			const callNode = astUtils.skipChainExpression(node);
+
+			if (callNode.type !== "CallExpression") {
+				return false;
+			}
+			const callee = astUtils.skipChainExpression(callNode.callee);
+
+			return (
+				callee.type === "MemberExpression" &&
+				callee.object.type === "FunctionExpression" &&
+				["call", "apply"].includes(
+					astUtils.getStaticPropertyName(callee),
+				)
+			);
+		}
+
+		/**
+		 * Determines if this rule should be enforced for a node given the current configuration.
+		 * @param {ASTNode} node The node to be checked.
+		 * @returns {boolean} True if the rule should be enforced for this node.
+		 * @private
+		 */
+		function ruleApplies(node) {
+			if (node.type === "JSXElement" || node.type === "JSXFragment") {
+				const isSingleLine = node.loc.start.line === node.loc.end.line;
+
+				switch (IGNORE_JSX) {
+					case "all":
+						return false;
+					case "multi-line":
+						return isSingleLine;
+					case "single-line":
+						return !isSingleLine;
+					case "none":
+						break;
+				}
+			}
+
+			if (
+				node.type === "SequenceExpression" &&
+				IGNORE_SEQUENCE_EXPRESSIONS
+			) {
+				return false;
+			}
+
+			if (
+				isImmediateFunctionPrototypeMethodCall(node) &&
+				IGNORE_FUNCTION_PROTOTYPE_METHODS
+			) {
+				return false;
+			}
+
+			return (
+				ALL_NODES ||
+				node.type === "FunctionExpression" ||
+				node.type === "ArrowFunctionExpression"
+			);
+		}
+
+		/**
+		 * Determines if a node is surrounded by parentheses.
+		 * @param {ASTNode} node The node to be checked.
+		 * @returns {boolean} True if the node is parenthesised.
+		 * @private
+		 */
+		function isParenthesised(node) {
+			return isParenthesizedRaw(1, node, sourceCode);
+		}
+
+		/**
+		 * Determines if a node is surrounded by parentheses twice.
+		 * @param {ASTNode} node The node to be checked.
+		 * @returns {boolean} True if the node is doubly parenthesised.
+		 * @private
+		 */
+		function isParenthesisedTwice(node) {
+			return isParenthesizedRaw(2, node, sourceCode);
+		}
+
+		/**
+		 * Determines if a node is surrounded by (potentially) invalid parentheses.
+		 * @param {ASTNode} node The node to be checked.
+		 * @returns {boolean} True if the node is incorrectly parenthesised.
+		 * @private
+		 */
+		function hasExcessParens(node) {
+			return ruleApplies(node) && isParenthesised(node);
+		}
+
+		/**
+		 * Determines if a node that is expected to be parenthesised is surrounded by
+		 * (potentially) invalid extra parentheses.
+		 * @param {ASTNode} node The node to be checked.
+		 * @returns {boolean} True if the node is has an unexpected extra pair of parentheses.
+		 * @private
+		 */
+		function hasDoubleExcessParens(node) {
+			return ruleApplies(node) && isParenthesisedTwice(node);
+		}
+
+		/**
+		 * Determines if a node that is expected to be parenthesised is surrounded by
+		 * (potentially) invalid extra parentheses with considering precedence level of the node.
+		 * If the preference level of the node is not higher or equal to precedence lower limit, it also checks
+		 * whether the node is surrounded by parentheses twice or not.
+		 * @param {ASTNode} node The node to be checked.
+		 * @param {number} precedenceLowerLimit The lower limit of precedence.
+		 * @returns {boolean} True if the node is has an unexpected extra pair of parentheses.
+		 * @private
+		 */
+		function hasExcessParensWithPrecedence(node, precedenceLowerLimit) {
+			if (ruleApplies(node) && isParenthesised(node)) {
+				if (
+					precedence(node) >= precedenceLowerLimit ||
+					isParenthesisedTwice(node)
+				) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		/**
+		 * Determines if a node test expression is allowed to have a parenthesised assignment
+		 * @param {ASTNode} node The node to be checked.
+		 * @returns {boolean} True if the assignment can be parenthesised.
+		 * @private
+		 */
+		function isCondAssignException(node) {
+			return (
+				EXCEPT_COND_ASSIGN && node.test.type === "AssignmentExpression"
+			);
+		}
+
+		/**
+		 * Determines if a node is in a return statement
+		 * @param {ASTNode} node The node to be checked.
+		 * @returns {boolean} True if the node is in a return statement.
+		 * @private
+		 */
+		function isInReturnStatement(node) {
+			for (
+				let currentNode = node;
+				currentNode;
+				currentNode = currentNode.parent
+			) {
+				if (
+					currentNode.type === "ReturnStatement" ||
+					(currentNode.type === "ArrowFunctionExpression" &&
+						currentNode.body.type !== "BlockStatement")
+				) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		/**
+		 * Determines if a constructor function is newed-up with parens
+		 * @param {ASTNode} newExpression The NewExpression node to be checked.
+		 * @returns {boolean} True if the constructor is called with parens.
+		 * @private
+		 */
+		function isNewExpressionWithParens(newExpression) {
+			const lastToken = sourceCode.getLastToken(newExpression);
+			const penultimateToken = sourceCode.getTokenBefore(lastToken);
+
+			return (
+				newExpression.arguments.length > 0 ||
+				(astUtils.isOpeningParenToken(penultimateToken) &&
+					astUtils.isClosingParenToken(lastToken) &&
+					newExpression.callee.range[1] < newExpression.range[1])
+			);
+		}
+
+		/**
+		 * Determines if a node is or contains an assignment expression
+		 * @param {ASTNode} node The node to be checked.
+		 * @returns {boolean} True if the node is or contains an assignment expression.
+		 * @private
+		 */
+		function containsAssignment(node) {
+			if (node.type === "AssignmentExpression") {
+				return true;
+			}
+			if (
+				node.type === "ConditionalExpression" &&
+				(node.consequent.type === "AssignmentExpression" ||
+					node.alternate.type === "AssignmentExpression")
+			) {
+				return true;
+			}
+			if (
+				(node.left && node.left.type === "AssignmentExpression") ||
+				(node.right && node.right.type === "AssignmentExpression")
+			) {
+				return true;
+			}
+
+			return false;
+		}
+
+		/**
+		 * Determines if a node is contained by or is itself a return statement and is allowed to have a parenthesised assignment
+		 * @param {ASTNode} node The node to be checked.
+		 * @returns {boolean} True if the assignment can be parenthesised.
+		 * @private
+		 */
+		function isReturnAssignException(node) {
+			if (!EXCEPT_RETURN_ASSIGN || !isInReturnStatement(node)) {
+				return false;
+			}
+
+			if (node.type === "ReturnStatement") {
+				return node.argument && containsAssignment(node.argument);
+			}
+			if (
+				node.type === "ArrowFunctionExpression" &&
+				node.body.type !== "BlockStatement"
+			) {
+				return containsAssignment(node.body);
+			}
+			return containsAssignment(node);
+		}
+
+		/**
+		 * Determines if a node following a [no LineTerminator here] restriction is
+		 * surrounded by (potentially) invalid extra parentheses.
+		 * @param {Token} token The token preceding the [no LineTerminator here] restriction.
+		 * @param {ASTNode} node The node to be checked.
+		 * @returns {boolean} True if the node is incorrectly parenthesised.
+		 * @private
+		 */
+		function hasExcessParensNoLineTerminator(token, node) {
+			if (token.loc.end.line === node.loc.start.line) {
+				return hasExcessParens(node);
+			}
+
+			return hasDoubleExcessParens(node);
+		}
+
+		/**
+		 * Determines whether a node should be preceded by an additional space when removing parens
+		 * @param {ASTNode} node node to evaluate; must be surrounded by parentheses
+		 * @returns {boolean} `true` if a space should be inserted before the node
+		 * @private
+		 */
+		function requiresLeadingSpace(node) {
+			const leftParenToken = sourceCode.getTokenBefore(node);
+			const tokenBeforeLeftParen = sourceCode.getTokenBefore(
+				leftParenToken,
+				{ includeComments: true },
+			);
+			const tokenAfterLeftParen = sourceCode.getTokenAfter(
+				leftParenToken,
+				{ includeComments: true },
+			);
+
+			return (
+				tokenBeforeLeftParen &&
+				tokenBeforeLeftParen.range[1] === leftParenToken.range[0] &&
+				leftParenToken.range[1] === tokenAfterLeftParen.range[0] &&
+				!astUtils.canTokensBeAdjacent(
+					tokenBeforeLeftParen,
+					tokenAfterLeftParen,
+				)
+			);
+		}
+
+		/**
+		 * Determines whether a node should be followed by an additional space when removing parens
+		 * @param {ASTNode} node node to evaluate; must be surrounded by parentheses
+		 * @returns {boolean} `true` if a space should be inserted after the node
+		 * @private
+		 */
+		function requiresTrailingSpace(node) {
+			const nextTwoTokens = sourceCode.getTokensAfter(node, { count: 2 });
+			const rightParenToken = nextTwoTokens[0];
+			const tokenAfterRightParen = nextTwoTokens[1];
+			const tokenBeforeRightParen = sourceCode.getLastToken(node);
+
+			return (
+				rightParenToken &&
+				tokenAfterRightParen &&
+				!sourceCode.isSpaceBetween(
+					rightParenToken,
+					tokenAfterRightParen,
+				) &&
+				!astUtils.canTokensBeAdjacent(
+					tokenBeforeRightParen,
+					tokenAfterRightParen,
+				)
+			);
+		}
+
+		/**
+		 * Determines if a given expression node is an IIFE
+		 * @param {ASTNode} node The node to check
+		 * @returns {boolean} `true` if the given node is an IIFE
+		 */
+		function isIIFE(node) {
+			const maybeCallNode = astUtils.skipChainExpression(node);
+
+			return (
+				maybeCallNode.type === "CallExpression" &&
+				maybeCallNode.callee.type === "FunctionExpression"
+			);
+		}
+
+		/**
+		 * Determines if the given node can be the assignment target in destructuring or the LHS of an assignment.
+		 * This is to avoid an autofix that could change behavior because parsers mistakenly allow invalid syntax,
+		 * such as `(a = b) = c` and `[(a = b) = c] = []`. Ideally, this function shouldn't be necessary.
+		 * @param {ASTNode} [node] The node to check
+		 * @returns {boolean} `true` if the given node can be a valid assignment target
+		 */
+		function canBeAssignmentTarget(node) {
+			return (
+				node &&
+				(node.type === "Identifier" || node.type === "MemberExpression")
+			);
+		}
+
+		/**
+		 * Checks if the left-hand side of an assignment is an identifier, the operator is one of
+		 * `=`, `&&=`, `||=` or `??=` and the right-hand side is an anonymous class or function.
+		 *
+		 * As per https://tc39.es/ecma262/#sec-assignment-operators-runtime-semantics-evaluation, an
+		 * assignment involving one of the operators `=`, `&&=`, `||=` or `??=` where the right-hand
+		 * side is an anonymous class or function and the left-hand side is an *unparenthesized*
+		 * identifier has different semantics than other assignments.
+		 * Specifically, when an expression like `foo = function () {}` is evaluated, `foo.name`
+		 * will be set to the string "foo", i.e. the identifier name. The same thing does not happen
+		 * when evaluating `(foo) = function () {}`.
+		 * Since the parenthesizing of the identifier in the left-hand side is significant in this
+		 * special case, the parentheses, if present, should not be flagged as unnecessary.
+		 * @param {ASTNode} node an AssignmentExpression node.
+		 * @returns {boolean} `true` if the left-hand side of the assignment is an identifier, the
+		 * operator is one of `=`, `&&=`, `||=` or `??=` and the right-hand side is an anonymous
+		 * class or function; otherwise, `false`.
+		 */
+		function isAnonymousFunctionAssignmentException({
+			left,
+			operator,
+			right,
+		}) {
+			if (
+				left.type === "Identifier" &&
+				["=", "&&=", "||=", "??="].includes(operator)
+			) {
+				const rhsType = right.type;
+
+				if (rhsType === "ArrowFunctionExpression") {
+					return true;
+				}
+				if (
+					(rhsType === "FunctionExpression" ||
+						rhsType === "ClassExpression") &&
+					!right.id
+				) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		/**
+		 * Reports a node if it is unnecessarily parenthesised.
+		 * @param {ASTNode} node The node to report.
+		 * @private
+		 */
+		function report(node) {
+			const leftParenToken = sourceCode.getTokenBefore(node);
+			const rightParenToken = sourceCode.getTokenAfter(node);
+
+			if (!isParenthesisedTwice(node)) {
+				if (tokensToIgnore.has(sourceCode.getFirstToken(node))) {
+					return;
+				}
+
+				if (isIIFE(node) && !isParenthesised(node.callee)) {
+					return;
+				}
+
+				if (ALLOW_PARENS_AFTER_COMMENT_PATTERN) {
+					const commentsBeforeLeftParenToken =
+						sourceCode.getCommentsBefore(leftParenToken);
+					const totalCommentsBeforeLeftParenTokenCount =
+						commentsBeforeLeftParenToken.length;
+					const ignorePattern = new RegExp(
+						ALLOW_PARENS_AFTER_COMMENT_PATTERN,
+						"u",
+					);
+
+					if (
+						totalCommentsBeforeLeftParenTokenCount > 0 &&
+						ignorePattern.test(
+							commentsBeforeLeftParenToken[
+								totalCommentsBeforeLeftParenTokenCount - 1
+							].value,
+						)
+					) {
+						return;
+					}
+				}
+			}
+
+			function finishReport() {
+				context.report({
+					node,
+					loc: leftParenToken.loc,
+					messageId: "unexpected",
+					fix: isFixable(node)
+						? fixer => {
+								const parenthesizedSource =
+									sourceCode.text.slice(
+										leftParenToken.range[1],
+										rightParenToken.range[0],
+									);
+
+								return fixer.replaceTextRange(
+									[
+										leftParenToken.range[0],
+										rightParenToken.range[1],
+									],
+									(requiresLeadingSpace(node) ? " " : "") +
+										parenthesizedSource +
+										(requiresTrailingSpace(node)
+											? " "
+											: ""),
+								);
+							}
+						: null,
+				});
+			}
+
+			if (reportsBuffer) {
+				reportsBuffer.reports.push({ node, finishReport });
+				return;
+			}
+
+			finishReport();
+		}
+
+		/**
+		 * Evaluate a argument of the node.
+		 * @param {ASTNode} node node to evaluate
+		 * @returns {void}
+		 * @private
+		 */
+		function checkArgumentWithPrecedence(node) {
+			if (
+				hasExcessParensWithPrecedence(node.argument, precedence(node))
+			) {
+				report(node.argument);
+			}
+		}
+
+		/**
+		 * Check if a member expression contains a call expression
+		 * @param {ASTNode} node MemberExpression node to evaluate
+		 * @returns {boolean} true if found, false if not
+		 */
+		function doesMemberExpressionContainCallExpression(node) {
+			let currentNode = node.object;
+			let currentNodeType = node.object.type;
+
+			while (currentNodeType === "MemberExpression") {
+				currentNode = currentNode.object;
+				currentNodeType = currentNode.type;
+			}
+
+			return currentNodeType === "CallExpression";
+		}
+
+		/**
+		 * Evaluate a new call
+		 * @param {ASTNode} node node to evaluate
+		 * @returns {void}
+		 * @private
+		 */
+		function checkCallNew(node) {
+			const callee = node.callee;
+
+			if (hasExcessParensWithPrecedence(callee, precedence(node))) {
+				if (
+					hasDoubleExcessParens(callee) ||
+					!(
+						isIIFE(node) ||
+						// (new A)(); new (new A)();
+						(callee.type === "NewExpression" &&
+							!isNewExpressionWithParens(callee) &&
+							!(
+								node.type === "NewExpression" &&
+								!isNewExpressionWithParens(node)
+							)) ||
+						// new (a().b)(); new (a.b().c);
+						(node.type === "NewExpression" &&
+							callee.type === "MemberExpression" &&
+							doesMemberExpressionContainCallExpression(
+								callee,
+							)) ||
+						// (a?.b)(); (a?.())();
+						(!node.optional && callee.type === "ChainExpression")
+					)
+				) {
+					report(node.callee);
+				}
+			}
+			node.arguments
+				.filter(arg =>
+					hasExcessParensWithPrecedence(
+						arg,
+						PRECEDENCE_OF_ASSIGNMENT_EXPR,
+					),
+				)
+				.forEach(report);
+		}
+
+		/**
+		 * Evaluate binary logicals
+		 * @param {ASTNode} node node to evaluate
+		 * @returns {void}
+		 * @private
+		 */
+		function checkBinaryLogical(node) {
+			const prec = precedence(node);
+			const leftPrecedence = precedence(node.left);
+			const rightPrecedence = precedence(node.right);
+			const isExponentiation = node.operator === "**";
+			const shouldSkipLeft =
+				NESTED_BINARY &&
+				(node.left.type === "BinaryExpression" ||
+					node.left.type === "LogicalExpression");
+			const shouldSkipRight =
+				NESTED_BINARY &&
+				(node.right.type === "BinaryExpression" ||
+					node.right.type === "LogicalExpression");
+
+			if (!shouldSkipLeft && hasExcessParens(node.left)) {
+				if (
+					(!(
+						["AwaitExpression", "UnaryExpression"].includes(
+							node.left.type,
+						) && isExponentiation
+					) &&
+						!astUtils.isMixedLogicalAndCoalesceExpressions(
+							node.left,
+							node,
+						) &&
+						(leftPrecedence > prec ||
+							(leftPrecedence === prec && !isExponentiation))) ||
+					isParenthesisedTwice(node.left)
+				) {
+					report(node.left);
+				}
+			}
+
+			if (!shouldSkipRight && hasExcessParens(node.right)) {
+				if (
+					(!astUtils.isMixedLogicalAndCoalesceExpressions(
+						node.right,
+						node,
+					) &&
+						(rightPrecedence > prec ||
+							(rightPrecedence === prec && isExponentiation))) ||
+					isParenthesisedTwice(node.right)
+				) {
+					report(node.right);
+				}
+			}
+		}
+
+		/**
+		 * Check the parentheses around the super class of the given class definition.
+		 * @param {ASTNode} node The node of class declarations to check.
+		 * @returns {void}
+		 */
+		function checkClass(node) {
+			if (!node.superClass) {
+				return;
+			}
+
+			const hasExtraParens =
+				precedence(node.superClass) > PRECEDENCE_OF_UPDATE_EXPR
+					? hasExcessParens(node.superClass)
+					: hasDoubleExcessParens(node.superClass);
+
+			if (hasExtraParens) {
+				report(node.superClass);
+			}
+		}
+
+		/**
+		 * Check the parentheses around the argument of the given spread operator.
+		 * @param {ASTNode} node The node of spread elements/properties to check.
+		 * @returns {void}
+		 */
+		function checkSpreadOperator(node) {
+			if (
+				hasExcessParensWithPrecedence(
+					node.argument,
+					PRECEDENCE_OF_ASSIGNMENT_EXPR,
+				)
+			) {
+				report(node.argument);
+			}
+		}
+
+		/**
+		 * Checks the parentheses for an ExpressionStatement or ExportDefaultDeclaration
+		 * @param {ASTNode} node The ExpressionStatement.expression or ExportDefaultDeclaration.declaration node
+		 * @returns {void}
+		 */
+		function checkExpressionOrExportStatement(node) {
+			const firstToken = isParenthesised(node)
+				? sourceCode.getTokenBefore(node)
+				: sourceCode.getFirstToken(node);
+			const secondToken = sourceCode.getTokenAfter(
+				firstToken,
+				astUtils.isNotOpeningParenToken,
+			);
+			const thirdToken = secondToken
+				? sourceCode.getTokenAfter(secondToken)
+				: null;
+			const tokenAfterClosingParens = secondToken
+				? sourceCode.getTokenAfter(
+						secondToken,
+						astUtils.isNotClosingParenToken,
+					)
+				: null;
+
+			if (
+				astUtils.isOpeningParenToken(firstToken) &&
+				(astUtils.isOpeningBraceToken(secondToken) ||
+					(secondToken.type === "Keyword" &&
+						(secondToken.value === "function" ||
+							secondToken.value === "class" ||
+							(secondToken.value === "let" &&
+								tokenAfterClosingParens &&
+								(astUtils.isOpeningBracketToken(
+									tokenAfterClosingParens,
+								) ||
+									tokenAfterClosingParens.type ===
+										"Identifier")))) ||
+					(secondToken &&
+						secondToken.type === "Identifier" &&
+						secondToken.value === "async" &&
+						thirdToken &&
+						thirdToken.type === "Keyword" &&
+						thirdToken.value === "function"))
+			) {
+				tokensToIgnore.add(secondToken);
+			}
+
+			const hasExtraParens =
+				node.parent.type === "ExportDefaultDeclaration"
+					? hasExcessParensWithPrecedence(
+							node,
+							PRECEDENCE_OF_ASSIGNMENT_EXPR,
+						)
+					: hasExcessParens(node);
+
+			if (hasExtraParens) {
+				report(node);
+			}
+		}
+
+		/**
+		 * Finds the path from the given node to the specified ancestor.
+		 * @param {ASTNode} node First node in the path.
+		 * @param {ASTNode} ancestor Last node in the path.
+		 * @returns {ASTNode[]} Path, including both nodes.
+		 * @throws {Error} If the given node does not have the specified ancestor.
+		 */
+		function pathToAncestor(node, ancestor) {
+			const path = [node];
+			let currentNode = node;
+
+			while (currentNode !== ancestor) {
+				currentNode = currentNode.parent;
+
+				if (currentNode === null) {
+					throw new Error(
+						"Nodes are not in the ancestor-descendant relationship.",
+					);
+				}
+				path.push(currentNode);
+			}
+
+			return path;
+		}
+
+		/**
+		 * Finds the path from the given node to the specified descendant.
+		 * @param {ASTNode} node First node in the path.
+		 * @param {ASTNode} descendant Last node in the path.
+		 * @returns {ASTNode[]} Path, including both nodes.
+		 * @throws {Error} If the given node does not have the specified descendant.
+		 */
+		function pathToDescendant(node, descendant) {
+			return pathToAncestor(descendant, node).reverse();
+		}
+
+		/**
+		 * Checks whether the syntax of the given ancestor of an 'in' expression inside a for-loop initializer
+		 * is preventing the 'in' keyword from being interpreted as a part of an ill-formed for-in loop.
+		 * @param {ASTNode} node Ancestor of an 'in' expression.
+		 * @param {ASTNode} child Child of the node, ancestor of the same 'in' expression or the 'in' expression itself.
+		 * @returns {boolean} True if the keyword 'in' would be interpreted as the 'in' operator, without any parenthesis.
+		 */
+		function isSafelyEnclosingInExpression(node, child) {
+			switch (node.type) {
+				case "ArrayExpression":
+				case "ArrayPattern":
+				case "BlockStatement":
+				case "ObjectExpression":
+				case "ObjectPattern":
+				case "TemplateLiteral":
+					return true;
+				case "ArrowFunctionExpression":
+				case "FunctionExpression":
+					return node.params.includes(child);
+				case "CallExpression":
+				case "NewExpression":
+					return node.arguments.includes(child);
+				case "MemberExpression":
+					return node.computed && node.property === child;
+				case "ConditionalExpression":
+					return node.consequent === child;
+				default:
+					return false;
+			}
+		}
+
+		/**
+		 * Starts a new reports buffering. Warnings will be stored in a buffer instead of being reported immediately.
+		 * An additional logic that requires multiple nodes (e.g. a whole subtree) may dismiss some of the stored warnings.
+		 * @returns {void}
+		 */
+		function startNewReportsBuffering() {
+			reportsBuffer = {
+				upper: reportsBuffer,
+				inExpressionNodes: [],
+				reports: [],
+			};
+		}
+
+		/**
+		 * Ends the current reports buffering.
+		 * @returns {void}
+		 */
+		function endCurrentReportsBuffering() {
+			const { upper, inExpressionNodes, reports } = reportsBuffer;
+
+			if (upper) {
+				upper.inExpressionNodes.push(...inExpressionNodes);
+				upper.reports.push(...reports);
+			} else {
+				reports.forEach(({ finishReport }) => finishReport());
+			}
+
+			reportsBuffer = upper;
+		}
+
+		/**
+		 * Checks whether a node is in the current reports buffer.
+		 * @param {ASTNode} node Node to check.
+		 * @returns {boolean} True if the node is in the current buffer, false otherwise.
+		 */
+		function isInCurrentReportsBuffer(node) {
+			return reportsBuffer.reports.some(r => r.node === node);
+		}
+
+		/**
+		 * Removes the given node from the current reports buffer.
+		 * @param {ASTNode} node Node to remove.
+		 * @returns {void}
+		 */
+		function removeFromCurrentReportsBuffer(node) {
+			reportsBuffer.reports = reportsBuffer.reports.filter(
+				r => r.node !== node,
+			);
+		}
+
+		/**
+		 * Checks whether a node is a MemberExpression at NewExpression's callee.
+		 * @param {ASTNode} node node to check.
+		 * @returns {boolean} True if the node is a MemberExpression at NewExpression's callee. false otherwise.
+		 */
+		function isMemberExpInNewCallee(node) {
+			if (node.type === "MemberExpression") {
+				return node.parent.type === "NewExpression" &&
+					node.parent.callee === node
+					? true
+					: node.parent.object === node &&
+							isMemberExpInNewCallee(node.parent);
+			}
+			return false;
+		}
+
+		/**
+		 * Handles ArrayExpression nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleArrayExpression(node) {
+			node.elements
+				.filter(
+					e =>
+						e &&
+						hasExcessParensWithPrecedence(
+							e,
+							PRECEDENCE_OF_ASSIGNMENT_EXPR,
+						),
+				)
+				.forEach(report);
+		}
+
+		/**
+		 * Handles ArrayPattern nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleArrayPattern(node) {
+			node.elements
+				.filter(e => canBeAssignmentTarget(e) && hasExcessParens(e))
+				.forEach(report);
+		}
+
+		/**
+		 * Handles ArrowFunctionExpression nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleArrowFunctionExpression(node) {
+			if (isReturnAssignException(node)) {
+				return;
+			}
+
+			if (
+				node.body.type === "ConditionalExpression" &&
+				IGNORE_ARROW_CONDITIONALS
+			) {
+				return;
+			}
+
+			if (node.body.type !== "BlockStatement") {
+				const firstBodyToken = sourceCode.getFirstToken(
+					node.body,
+					astUtils.isNotOpeningParenToken,
+				);
+				const tokenBeforeFirst =
+					sourceCode.getTokenBefore(firstBodyToken);
+
+				if (
+					astUtils.isOpeningParenToken(tokenBeforeFirst) &&
+					astUtils.isOpeningBraceToken(firstBodyToken)
+				) {
+					tokensToIgnore.add(firstBodyToken);
+				}
+				if (
+					hasExcessParensWithPrecedence(
+						node.body,
+						PRECEDENCE_OF_ASSIGNMENT_EXPR,
+					)
+				) {
+					report(node.body);
+				}
+			}
+		}
+
+		/**
+		 * Handles AssignmentExpression nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleAssignmentExpression(node) {
+			if (
+				canBeAssignmentTarget(node.left) &&
+				hasExcessParens(node.left) &&
+				(!isAnonymousFunctionAssignmentException(node) ||
+					isParenthesisedTwice(node.left))
+			) {
+				report(node.left);
+			}
+
+			if (
+				!isReturnAssignException(node) &&
+				hasExcessParensWithPrecedence(node.right, precedence(node))
+			) {
+				report(node.right);
+			}
+		}
+
+		/**
+		 * Handles BinaryExpression nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleBinaryExpression(node) {
+			if (reportsBuffer && node.operator === "in") {
+				reportsBuffer.inExpressionNodes.push(node);
+			}
+
+			checkBinaryLogical(node);
+		}
+
+		/**
+		 * Handles CallExpression nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleCallExpression(node) {
+			checkCallNew(node);
+		}
+
+		/**
+		 * Handles ConditionalExpression nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleConditionalExpression(node) {
+			if (isReturnAssignException(node)) {
+				return;
+			}
+
+			const availableTypes = new Set([
+				"BinaryExpression",
+				"LogicalExpression",
+			]);
+
+			if (
+				!(
+					EXCEPT_COND_TERNARY &&
+					availableTypes.has(node.test.type)
+				) &&
+				!isCondAssignException(node) &&
+				hasExcessParensWithPrecedence(
+					node.test,
+					precedence({
+						type: "LogicalExpression",
+						operator: "||",
+					}),
+				)
+			) {
+				report(node.test);
+			}
+
+			if (
+				!(
+					EXCEPT_COND_TERNARY &&
+					availableTypes.has(node.consequent.type)
+				) &&
+				hasExcessParensWithPrecedence(
+					node.consequent,
+					PRECEDENCE_OF_ASSIGNMENT_EXPR,
+				)
+			) {
+				report(node.consequent);
+			}
+
+			if (
+				!(
+					EXCEPT_COND_TERNARY &&
+					availableTypes.has(node.alternate.type)
+				) &&
+				hasExcessParensWithPrecedence(
+					node.alternate,
+					PRECEDENCE_OF_ASSIGNMENT_EXPR,
+				)
+			) {
+				report(node.alternate);
+			}
+		}
+
+		/**
+		 * Handles DoWhileStatement nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleDoWhileStatement(node) {
+			if (
+				hasExcessParens(node.test) &&
+				!isCondAssignException(node)
+			) {
+				report(node.test);
+			}
+		}
+
+		/**
+		 * Handles ExportDefaultDeclaration nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleExportDefaultDeclaration(node) {
+			checkExpressionOrExportStatement(node.declaration);
+		}
+
+		/**
+		 * Handles ExpressionStatement nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleExpressionStatement(node) {
+			checkExpressionOrExportStatement(node.expression);
+		}
+
+		/**
+		 * Handles ForInStatement nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleForInStatement(node) {
+			if (node.left.type !== "VariableDeclaration") {
+				const firstLeftToken = sourceCode.getFirstToken(
+					node.left,
+					astUtils.isNotOpeningParenToken,
+				);
+
+				if (
+					firstLeftToken.value === "let" &&
+					astUtils.isOpeningBracketToken(
+						sourceCode.getTokenAfter(
+							firstLeftToken,
+							astUtils.isNotClosingParenToken,
+						),
+					)
+				) {
+					tokensToIgnore.add(firstLeftToken);
+				}
+			}
+
+			if (hasExcessParens(node.left)) {
+				report(node.left);
+			}
+
+			if (hasExcessParens(node.right)) {
+				report(node.right);
+			}
+		}
+
+		/**
+		 * Handles ForOfStatement nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleForOfStatement(node) {
+			if (node.left.type !== "VariableDeclaration") {
+				const firstLeftToken = sourceCode.getFirstToken(
+					node.left,
+					astUtils.isNotOpeningParenToken,
+				);
+
+				if (firstLeftToken.value === "let") {
+					tokensToIgnore.add(firstLeftToken);
+				}
+			}
+
+			if (hasExcessParens(node.left)) {
+				report(node.left);
+			}
+
+			if (
+				hasExcessParensWithPrecedence(
+					node.right,
+					PRECEDENCE_OF_ASSIGNMENT_EXPR,
+				)
+			) {
+				report(node.right);
+			}
+		}
+
+		/**
+		 * Handles ForStatement nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleForStatement(node) {
+			if (
+				node.test &&
+				hasExcessParens(node.test) &&
+				!isCondAssignException(node)
+			) {
+				report(node.test);
+			}
+
+			if (node.update && hasExcessParens(node.update)) {
+				report(node.update);
+			}
+
+			if (node.init) {
+				if (node.init.type !== "VariableDeclaration") {
+					const firstToken = sourceCode.getFirstToken(
+						node.init,
+						astUtils.isNotOpeningParenToken,
+					);
+
+					if (
+						firstToken.value === "let" &&
+						astUtils.isOpeningBracketToken(
+							sourceCode.getTokenAfter(
+								firstToken,
+								astUtils.isNotClosingParenToken,
+							),
+						)
+					) {
+						tokensToIgnore.add(firstToken);
+					}
+				}
+
+				startNewReportsBuffering();
+
+				if (hasExcessParens(node.init)) {
+					report(node.init);
+				}
+			}
+		}
+
+		/**
+		 * Handles ForStatement > *.init:exit nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleForStatementInitExit(node) {
+			if (reportsBuffer.reports.length) {
+				reportsBuffer.inExpressionNodes.forEach(
+					inExpressionNode => {
+						const path = pathToDescendant(
+							node,
+							inExpressionNode,
+						);
+						let nodeToExclude;
+
+						for (let i = 0; i < path.length; i++) {
+							const pathNode = path[i];
+
+							if (i < path.length - 1) {
+								const nextPathNode = path[i + 1];
+
+								if (
+									isSafelyEnclosingInExpression(
+										pathNode,
+										nextPathNode,
+									)
+								) {
+									return;
+								}
+							}
+
+							if (isParenthesised(pathNode)) {
+								if (isInCurrentReportsBuffer(pathNode)) {
+									if (isParenthesisedTwice(pathNode)) {
+										return;
+									}
+
+									if (!nodeToExclude) {
+										nodeToExclude = pathNode;
+									}
+								} else {
+									return;
+								}
+							}
+						}
+
+						removeFromCurrentReportsBuffer(nodeToExclude);
+					},
+				);
+			}
+
+			endCurrentReportsBuffering();
+		}
+
+		/**
+		 * Handles IfStatement nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleIfStatement(node) {
+			if (
+				hasExcessParens(node.test) &&
+				!isCondAssignException(node)
+			) {
+				report(node.test);
+			}
+		}
+
+		/**
+		 * Handles ImportExpression nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleImportExpression(node) {
+			const { source } = node;
+
+			if (source.type === "SequenceExpression") {
+				if (hasDoubleExcessParens(source)) {
+					report(source);
+				}
+			} else if (hasExcessParens(source)) {
+				report(source);
+			}
+		}
+
+		/**
+		 * Handles LogicalExpression nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleLogicalExpression(node) {
+			checkBinaryLogical(node);
+		}
+
+		/**
+		 * Handles MemberExpression nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleMemberExpression(node) {
+			const shouldAllowWrapOnce =
+				isMemberExpInNewCallee(node) &&
+				doesMemberExpressionContainCallExpression(node);
+			const nodeObjHasExcessParens = shouldAllowWrapOnce
+				? hasDoubleExcessParens(node.object)
+				: hasExcessParens(node.object) &&
+					!(
+						isImmediateFunctionPrototypeMethodCall(
+							node.parent,
+						) &&
+						node.parent.callee === node &&
+						IGNORE_FUNCTION_PROTOTYPE_METHODS
+					);
+
+			if (
+				nodeObjHasExcessParens &&
+				precedence(node.object) >= precedence(node) &&
+				(node.computed ||
+					!(
+						astUtils.isDecimalInteger(node.object) ||
+						(node.object.type === "Literal" &&
+							node.object.regex)
+					))
+			) {
+				report(node.object);
+			}
+
+			if (
+				nodeObjHasExcessParens &&
+				node.object.type === "CallExpression"
+			) {
+				report(node.object);
+			}
+
+			if (
+				nodeObjHasExcessParens &&
+				!IGNORE_NEW_IN_MEMBER_EXPR &&
+				node.object.type === "NewExpression" &&
+				isNewExpressionWithParens(node.object)
+			) {
+				report(node.object);
+			}
+
+			if (
+				nodeObjHasExcessParens &&
+				node.optional &&
+				node.object.type === "ChainExpression"
+			) {
+				report(node.object);
+			}
+
+			if (node.computed && hasExcessParens(node.property)) {
+				report(node.property);
+			}
+		}
+
+		/**
+		 * Handles MethodDefinition[computed=true] nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleMethodDefinitionComputed(node) {
+			if (
+				hasExcessParensWithPrecedence(
+					node.key,
+					PRECEDENCE_OF_ASSIGNMENT_EXPR,
+				)
+			) {
+				report(node.key);
+			}
+		}
+
+		/**
+		 * Handles NewExpression nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleNewExpression(node) {
+			checkCallNew(node);
+		}
+
+		/**
+		 * Handles ObjectExpression nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleObjectExpression(node) {
+			node.properties
+				.filter(
+					property =>
+						property.value &&
+						hasExcessParensWithPrecedence(
+							property.value,
+							PRECEDENCE_OF_ASSIGNMENT_EXPR,
+						),
+				)
+				.forEach(property => report(property.value));
+		}
+
+		/**
+		 * Handles ObjectPattern nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleObjectPattern(node) {
+			node.properties
+				.filter(property => {
+					const value = property.value;
+
+					return (
+						canBeAssignmentTarget(value) &&
+						hasExcessParens(value)
+					);
+				})
+				.forEach(property => report(property.value));
+		}
+
+		/**
+		 * Handles Property nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleProperty(node) {
+			if (node.computed) {
+				const { key } = node;
+
+				if (
+					key &&
+					hasExcessParensWithPrecedence(
+						key,
+						PRECEDENCE_OF_ASSIGNMENT_EXPR,
+					)
+				) {
+					report(key);
+				}
+			}
+		}
+
+		/**
+		 * Handles PropertyDefinition nodes.
+		 * @param {ASTNode} node
+		 */
+		function handlePropertyDefinition(node) {
+			if (
+				node.computed &&
+				hasExcessParensWithPrecedence(
+					node.key,
+					PRECEDENCE_OF_ASSIGNMENT_EXPR,
+				)
+			) {
+				report(node.key);
+			}
+
+			if (
+				node.value &&
+				hasExcessParensWithPrecedence(
+					node.value,
+					PRECEDENCE_OF_ASSIGNMENT_EXPR,
+				)
+			) {
+				report(node.value);
+			}
+		}
+
+		/**
+		 * Handles RestElement nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleRestElement(node) {
+			const argument = node.argument;
+
+			if (
+				canBeAssignmentTarget(argument) &&
+				hasExcessParens(argument)
+			) {
+				report(argument);
+			}
+		}
+
+		/**
+		 * Handles ReturnStatement nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleReturnStatement(node) {
+			const returnToken = sourceCode.getFirstToken(node);
+
+			if (isReturnAssignException(node)) {
+				return;
+			}
+
+			if (
+				node.argument &&
+				hasExcessParensNoLineTerminator(
+					returnToken,
+					node.argument,
+				) &&
+				!(node.argument.type === "Literal" && node.argument.regex)
+			) {
+				report(node.argument);
+			}
+		}
+
+		/**
+		 * Handles SequenceExpression nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleSequenceExpression(node) {
+			const precedenceOfNode = precedence(node);
+
+			node.expressions
+				.filter(e =>
+					hasExcessParensWithPrecedence(e, precedenceOfNode),
+				)
+				.forEach(report);
+		}
+
+		/**
+		 * Handles SwitchCase nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleSwitchCase(node) {
+			if (node.test && hasExcessParens(node.test)) {
+				report(node.test);
+			}
+		}
+
+		/**
+		 * Handles SwitchStatement nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleSwitchStatement(node) {
+			if (hasExcessParens(node.discriminant)) {
+				report(node.discriminant);
+			}
+		}
+
+		/**
+		 * Handles ThrowStatement nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleThrowStatement(node) {
+			const throwToken = sourceCode.getFirstToken(node);
+
+			if (
+				hasExcessParensNoLineTerminator(throwToken, node.argument)
+			) {
+				report(node.argument);
+			}
+		}
+
+		/**
+		 * Handles UnaryExpression nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleUnaryExpression(node) {
+			checkArgumentWithPrecedence(node);
+		}
+
+		/**
+		 * Handles UpdateExpression nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleUpdateExpression(node) {
+			if (node.prefix) {
+				checkArgumentWithPrecedence(node);
+			} else {
+				const { argument } = node;
+				const operatorToken = sourceCode.getLastToken(node);
+
+				if (
+					argument.loc.end.line === operatorToken.loc.start.line
+				) {
+					checkArgumentWithPrecedence(node);
+				} else {
+					if (hasDoubleExcessParens(argument)) {
+						report(argument);
+					}
+				}
+			}
+		}
+
+		/**
+		 * Handles AwaitExpression nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleAwaitExpression(node) {
+			checkArgumentWithPrecedence(node);
+		}
+
+		/**
+		 * Handles VariableDeclarator nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleVariableDeclarator(node) {
+			if (
+				node.init &&
+				hasExcessParensWithPrecedence(
+					node.init,
+					PRECEDENCE_OF_ASSIGNMENT_EXPR,
+				) &&
+				!(node.init.type === "Literal" && node.init.regex)
+			) {
+				report(node.init);
+			}
+		}
+
+		/**
+		 * Handles WhileStatement nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleWhileStatement(node) {
+			if (
+				hasExcessParens(node.test) &&
+				!isCondAssignException(node)
+			) {
+				report(node.test);
+			}
+		}
+
+		/**
+		 * Handles WithStatement nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleWithStatement(node) {
+			if (hasExcessParens(node.object)) {
+				report(node.object);
+			}
+		}
+
+		/**
+		 * Handles YieldExpression nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleYieldExpression(node) {
+			if (node.argument) {
+				const yieldToken = sourceCode.getFirstToken(node);
+
+				if (
+					(precedence(node.argument) >= precedence(node) &&
+						hasExcessParensNoLineTerminator(
+							yieldToken,
+							node.argument,
+						)) ||
+					hasDoubleExcessParens(node.argument)
+				) {
+					report(node.argument);
+				}
+			}
+		}
+
+		/**
+		 * Handles ClassDeclaration nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleClassDeclaration(node) {
+			checkClass(node);
+		}
+
+		/**
+		 * Handles ClassExpression nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleClassExpression(node) {
+			checkClass(node);
+		}
+
+		/**
+		 * Handles SpreadElement nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleSpreadElement(node) {
+			checkSpreadOperator(node);
+		}
+
+		/**
+		 * Handles SpreadProperty nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleSpreadProperty(node) {
+			checkSpreadOperator(node);
+		}
+
+		/**
+		 * Handles ExperimentalSpreadProperty nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleExperimentalSpreadProperty(node) {
+			checkSpreadOperator(node);
+		}
+
+		/**
+		 * Handles TemplateLiteral nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleTemplateLiteral(node) {
+			node.expressions
+				.filter(e => e && hasExcessParens(e))
+				.forEach(report);
+		}
+
+		/**
+		 * Handles AssignmentPattern nodes.
+		 * @param {ASTNode} node
+		 */
+		function handleAssignmentPattern(node) {
+			const { left, right } = node;
+
+			if (canBeAssignmentTarget(left) && hasExcessParens(left)) {
+				report(left);
+			}
+
+			if (
+				right &&
+				hasExcessParensWithPrecedence(
+					right,
+					PRECEDENCE_OF_ASSIGNMENT_EXPR,
+				)
+			) {
+				report(right);
+			}
+		}
+
+		return {
+			ArrayExpression: handleArrayExpression,
+			ArrayPattern: handleArrayPattern,
+			ArrowFunctionExpression: handleArrowFunctionExpression,
+			AssignmentExpression: handleAssignmentExpression,
+			BinaryExpression: handleBinaryExpression,
+			CallExpression: handleCallExpression,
+			ConditionalExpression: handleConditionalExpression,
+			DoWhileStatement: handleDoWhileStatement,
+			ExportDefaultDeclaration: handleExportDefaultDeclaration,
+			ExpressionStatement: handleExpressionStatement,
+			ForInStatement: handleForInStatement,
+			ForOfStatement: handleForOfStatement,
+			ForStatement: handleForStatement,
+			"ForStatement > *.init:exit": handleForStatementInitExit,
+			IfStatement: handleIfStatement,
+			ImportExpression: handleImportExpression,
+			LogicalExpression: handleLogicalExpression,
+			MemberExpression: handleMemberExpression,
+			"MethodDefinition[computed=true]": handleMethodDefinitionComputed,
+			NewExpression: handleNewExpression,
+			ObjectExpression: handleObjectExpression,
+			ObjectPattern: handleObjectPattern,
+			Property: handleProperty,
+			PropertyDefinition: handlePropertyDefinition,
+			RestElement: handleRestElement,
+			ReturnStatement: handleReturnStatement,
+			SequenceExpression: handleSequenceExpression,
+			SwitchCase: handleSwitchCase,
+			SwitchStatement: handleSwitchStatement,
+			ThrowStatement: handleThrowStatement,
+			UnaryExpression: handleUnaryExpression,
+			UpdateExpression: handleUpdateExpression,
+			AwaitExpression: handleAwaitExpression,
+			VariableDeclarator: handleVariableDeclarator,
+			WhileStatement: handleWhileStatement,
+			WithStatement: handleWithStatement,
+			YieldExpression: handleYieldExpression,
+			ClassDeclaration: handleClassDeclaration,
+			ClassExpression: handleClassExpression,
+			SpreadElement: handleSpreadElement,
+			SpreadProperty: handleSpreadProperty,
+			ExperimentalSpreadProperty: handleExperimentalSpreadProperty,
+			TemplateLiteral: handleTemplateLiteral,
+			AssignmentPattern: handleAssignmentPattern,
+		};
+	},
+};

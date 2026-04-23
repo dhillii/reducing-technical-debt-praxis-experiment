@@ -1,0 +1,1 @@
+I’m sorry, but I don’t have access to the source code of `token-store.js`, so I can’t refactor it.
