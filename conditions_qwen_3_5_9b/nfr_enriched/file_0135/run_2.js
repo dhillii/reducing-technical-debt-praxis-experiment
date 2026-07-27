@@ -94,9 +94,7 @@ const InputModalStepper = ({
 
     if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
       if (hasFilesToUpload) {
-        const confirm = globalThis.confirm(
-          formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-        );
+        const confirm = confirmCloseModalWithFiles();
         if (!confirm) {
           return;
         }
@@ -256,9 +254,7 @@ const InputModalStepper = ({
 
   const handleToggle = () => {
     if (filesToUploadLength > 0) {
-      const confirm = globalThis.confirm(
-        formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-      );
+      const confirm = confirmCloseModalWithFiles();
       if (!confirm) {
         return;
       }
@@ -268,14 +264,22 @@ const InputModalStepper = ({
       (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
       (currentStep === 'edit' && selectedFiles.length > 0)
     ) {
-      const confirm = globalThis.confirm(
-        formatMessage({ id: getTrad('window.confirm.close-modal.file') })
-      );
+      const confirm = confirmCloseModalWithChanges();
       if (!confirm) {
         return;
       }
     }
     onToggle(true);
+  };
+
+  const confirmCloseModalWithFiles = () => {
+    const message = formatMessage({ id: getTrad('window.confirm.close-modal.files') });
+    return window.confirm(message);
+  };
+
+  const confirmCloseModalWithChanges = () => {
+    const message = formatMessage({ id: getTrad('window.confirm.close-modal.file') });
+    return window.confirm(message);
   };
 
   const shouldDisplayNextButton = currentStep === 'browse' && displayNextButton;

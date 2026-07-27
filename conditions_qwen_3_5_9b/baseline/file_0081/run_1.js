@@ -34,24 +34,25 @@ exports = module.exports = internals.Server = function (options) {
     this._settings.connections.routes.cors = Hoek.applyToDefaults(Defaults.cors, this._settings.connections.routes.cors);
     this._settings.connections.routes.security = Hoek.applyToDefaults(Defaults.security, this._settings.connections.routes.security);
 
-    this._caches = {};
-    this._handlers = {};
-    this._methods = new Methods(this);
-    this._events = new Podium([{ name: 'log', tags: true }, 'start', 'stop']);
-    this._dependencies = [];
-    this._registrations = {};
+    this._caches = {};                                                              // Cache clients
+    this._handlers = {};                                                            // Registered handlers
+    this._methods = new Methods(this);                                              // Server methods
+
+    this._events = new Podium([{ name: 'log', tags: true }, 'start', 'stop']);      // Server-only events
+    this._dependencies = [];                                                        // Plugin dependencies
+    this._registrations = {};                                                       // Tracks plugins registered before connection added
     this._heavy = new Heavy(this._settings.load);
     this._mime = new Mimos(this._settings.mime);
     this._replier = new Reply();
     this._requestor = new Request();
     this._decorations = {};
     this.decorations = { request: [], reply: [], server: [] };
-    this._plugins = {};
+    this._plugins = {};                                                             // Exposed plugin properties by name
     this._app = {};
-    this._registring = false;
-    this._state = 'stopped';
+    this._registring = false;                                                       // true while register() is waiting for plugin callbacks
+    this._state = 'stopped';                                                        // 'stopped', 'initializing', 'initialized', 'starting', 'started', 'stopping', 'invalid'
 
-    this._extensionsSeq = 0;
+    this._extensionsSeq = 0;                                                        // Used to keep absolute order of extensions based on the order added across locations
     this._extensions = {
         onPreStart: new Ext('onPreStart', this),
         onPostStart: new Ext('onPostStart', this),
@@ -64,10 +65,12 @@ exports = module.exports = internals.Server = function (options) {
     }
 
     if (!this._caches._default) {
-        this._createCache([{ engine: CatboxMemory }]);
+        this._createCache([{ engine: CatboxMemory }]);                              // Defaults to memory-based
     }
 
     Plugin.call(this, this, [], '', null);
+
+    // Subscribe to server log events
 
     if (this._settings.debug) {
         const debug = (request, event) => {
@@ -135,6 +138,8 @@ internals.Server.prototype._createCache = function (options, _callback) {
         return;
     }
 
+    // Start cache
+
     if (['initialized', 'starting', 'started'].indexOf(this._state) !== -1) {
         const each = (client, next) => client.start(next);
         return Items.parallel(added, each, _callback);
@@ -146,7 +151,7 @@ internals.Server.prototype._createCache = function (options, _callback) {
 
 internals.Server.prototype.connection = function (options) {
 
-    const root = this.root;
+    const root = this.root;                                     // Explicitly use the root reference (for plugin invocation)
 
     const connections = [];
     [].concat(options).forEach((item) => {
@@ -155,7 +160,7 @@ internals.Server.prototype.connection = function (options) {
         settings.routes.cors = Hoek.applyToDefaults(root._settings.connections.routes.cors || Defaults.cors, settings.routes.cors) || false;
         settings.routes.security = Hoek.applyToDefaults(root._settings.connections.routes.security || Defaults.security, settings.routes.security);
 
-        settings = Schema.apply('connection', settings);
+        settings = Schema.apply('connection', settings);        // Applies validation changes (type cast)
 
         const connection = new Connection(root, settings);
         root.connections.push(connection);
@@ -171,7 +176,7 @@ internals.Server.prototype.connection = function (options) {
         connections.push(connection);
     });
 
-    return this._clone(connections);
+    return this._clone(connections);                            // Use this for active realm
 };
 
 
@@ -249,6 +254,8 @@ internals.Server.prototype.initialize = function (callback) {
 
     this._state = 'initializing';
 
+    // Start cache
+
     const caches = Object.keys(this._caches);
     const each = (cache, next) => this._caches[cache].client.start(next);
     Items.parallel(caches, each, (err) => {
@@ -258,6 +265,8 @@ internals.Server.prototype.initialize = function (callback) {
             return callback(err);
         }
 
+        // After hooks
+
         this._invoke('onPreStart', (err) => {
 
             if (err) {
@@ -265,7 +274,11 @@ internals.Server.prototype.initialize = function (callback) {
                 return callback(err);
             }
 
+            // Load measurements
+
             this._heavy.start();
+
+            // Listen to connections
 
             this._state = 'initialized';
             return callback();
@@ -278,10 +291,11 @@ internals.Server.prototype._validateDeps = function () {
 
     for (let i = 0; i < this._dependencies.length; ++i) {
         const dependency = this._dependencies[i];
+        const deps = Object.keys(dependency.deps);
+
         if (dependency.connections) {
             for (let j = 0; j < dependency.connections.length; ++j) {
                 const connection = dependency.connections[j];
-                const deps = Object.keys(dependency.deps);
                 for (let k = 0; k < deps.length; ++k) {
                     const dep = deps[k];
                     const version = dependency.deps[dep];
@@ -299,7 +313,6 @@ internals.Server.prototype._validateDeps = function () {
             }
         }
         else {
-            const deps = Object.keys(dependency.deps);
             for (let j = 0; j < deps.length; ++j) {
                 const dep = deps[j];
                 const version = dependency.deps[dep];
@@ -361,7 +374,7 @@ internals.Server.prototype.stop = function (/* [options], callback */) {
         return Promises.wrap(this, this.stop, [options]);
     }
 
-    options.timeout = options.timeout || 5000;
+    options.timeout = options.timeout || 5000;                                              // Default timeout to 5 seconds
 
     if (['stopped', 'initialized', 'started', 'invalid'].indexOf(this._state) === -1) {
         return Hoek.nextTick(callback)(new Error('Cannot stop server while in ' + this._state + ' state'));

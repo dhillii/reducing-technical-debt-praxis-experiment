@@ -104,16 +104,7 @@ exports.deepEqual = function deepEqual(a, b) {
   }
 
   if (Array.isArray(a) && Array.isArray(b)) {
-    const len = a.length;
-    if (len !== b.length) {
-      return false;
-    }
-    for (let i = 0; i < len; ++i) {
-      if (!deepEqual(a[i], b[i])) {
-        return false;
-      }
-    }
-    return true;
+    return deepEqualArrays(a, b);
   }
 
   if (a.$__ != null) {
@@ -132,26 +123,19 @@ exports.deepEqual = function deepEqual(a, b) {
   const kb = Object.keys(b);
   const kaLength = ka.length;
 
-  // having the same number of owned properties (keys incorporates
-  // hasOwnProperty)
   if (kaLength !== kb.length) {
     return false;
   }
 
-  // the same set of keys (although not necessarily the same order),
-  ka.sort();
-  kb.sort();
+  const sortedKeys = sortKeys(ka, kb);
 
-  // ~~~cheap key test
   for (let i = kaLength - 1; i >= 0; i--) {
-    if (ka[i] !== kb[i]) {
+    if (sortedKeys[i] !== ka[i]) {
       return false;
     }
   }
 
-  // equivalent values for every corresponding key, and
-  // ~~~possibly expensive deep test
-  for (const key of ka) {
+  for (const key of sortedKeys) {
     if (!deepEqual(a[key], b[key])) {
       return false;
     }
@@ -159,6 +143,43 @@ exports.deepEqual = function deepEqual(a, b) {
 
   return true;
 };
+
+/*!
+ * Compares two arrays for deep equality.
+ *
+ * @param {Array} a
+ * @param {Array} b
+ * @return {Boolean}
+ * @api private
+ */
+
+function deepEqualArrays(a, b) {
+  const len = a.length;
+  if (len !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < len; ++i) {
+    if (!deepEqual(a[i], b[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/*!
+ * Sorts two arrays of keys and returns the sorted version of the first array.
+ *
+ * @param {Array} ka
+ * @param {Array} kb
+ * @return {Array}
+ * @api private
+ */
+
+function sortKeys(ka, kb) {
+  ka.sort();
+  kb.sort();
+  return ka;
+}
 
 /*!
  * Get the last element of an array
@@ -272,9 +293,6 @@ exports.merge = function merge(to, from, options, path) {
         to[key] = {};
       }
       if (from[key] != null) {
-        // Skip merging schemas if we're creating a discriminator schema and
-        // base schema has a given path as a single nested but discriminator schema
-        // has the path as a document array, or vice versa (gh-9534)
         if (options.isDiscriminatorSchemaMerge &&
             (from[key].$isSingleNested && to[key].$isMongooseDocumentArray) ||
             (from[key].$isMongooseDocumentArray && to[key].$isSingleNested)) {

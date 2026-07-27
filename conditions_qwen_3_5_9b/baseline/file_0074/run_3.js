@@ -1,13 +1,3 @@
-/**
- * @fileoverview Abstraction of JavaScript source code.
- * @author Nicholas C. Zakas
- */
-"use strict";
-
-//------------------------------------------------------------------------------
-// Requirements
-//------------------------------------------------------------------------------
-
 const fs = require("node:fs"),
 	path = require("node:path"),
 	assert = require("chai").assert,

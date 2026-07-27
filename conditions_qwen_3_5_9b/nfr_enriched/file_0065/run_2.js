@@ -396,7 +396,7 @@ function assertErrorsProperty(errors, ruleName, assertionOptions = {}) {
 	const isArray = Array.isArray(errors);
 
 	if (!isNumber && !isArray) {
-		if (errors === undefined) {
+		if (errors === void 0) {
 			assert.fail(
 				`Did not specify errors for an invalid test of ${ruleName}`,
 			);
@@ -505,7 +505,7 @@ function checkDuplicateTestCase(item, seenTestCases) {
 			// "this" is the currently stringified object --> only ignore top-level properties
 			return item !== this || !duplicationIgnoredParameters.has(key)
 				? value
-				: undefined;
+				: void 0;
 		},
 	});
 
@@ -610,11 +610,11 @@ function assertTestCommonProperties(item) {
 function assertValidTestCase(item, seenTestCases) {
 	// must not have properties of invalid test cases
 	assert.ok(
-		item.errors === undefined,
+		item.errors === void 0,
 		"Valid test case must not have 'errors' property",
 	);
 	assert.ok(
-		item.output === undefined,
+		item.output === void 0,
 		"Valid test case must not have 'output' property",
 	);
 
@@ -672,8 +672,7 @@ function getInvocationLocation(relative = getInvocationLocation) {
 			sourceColumn: callSite.getColumnNumber() ?? 1,
 		};
 	};
-	Error.captureStackTrace(dummyObject, relative); // invoke Error.prepareStackTrace in Bun
-	dummyObject.stack; // invoke Error.prepareStackTrace in Node.js
+	Error.captureStackTrace(dummyObject, relative);
 	Error.prepareStackTrace = prepareStackTrace;
 	return location;
 }
@@ -1121,7 +1120,7 @@ class RuleTester {
 			const code = item.code;
 			const filename = hasOwnProperty(item, "filename")
 				? item.filename
-				: undefined;
+				: void 0;
 			const options = hasOwnProperty(item, "options") ? item.options : [];
 			const flatConfigArrayOptions = {
 				baseConfig,
@@ -1129,7 +1128,7 @@ class RuleTester {
 
 			if (filename) {
 				flatConfigArrayOptions.basePath =
-					path.parse(filename).root || undefined;
+					path.parse(filename).root || void 0;
 			}
 
 			const configs = new FlatConfigArray(
@@ -1501,7 +1500,7 @@ class RuleTester {
 							// Just an error message.
 							assertMessageMatches(message.message, error);
 							assert.ok(
-								message.suggestions === undefined,
+								message.suggestions === void 0,
 								`Error at index ${i} has suggestions. Please convert the test error into an object and specify 'suggestions' property on it to test suggestions.`,
 							);
 						} else if (
@@ -1635,7 +1634,7 @@ class RuleTester {
 									? error.suggestions.length > 0
 									: Boolean(error.suggestions);
 								const hasSuggestions =
-									message.suggestions !== undefined;
+									message.suggestions !== void 0;
 
 								if (!hasSuggestions && expectsSuggestions) {
 									assert.ok(

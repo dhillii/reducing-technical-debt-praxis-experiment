@@ -226,7 +226,7 @@ export default class OfferPage extends React.Component {
 
     renderSignupTerms() {
         const {site} = this.context;
-        if (!site.portal_signup_terms_html) {
+        if (site.portal_signup_terms_html === null || site.portal_signup_terms_html === '') {
             return null;
         }
 
@@ -437,7 +437,9 @@ export default class OfferPage extends React.Component {
         const {pageData: offer} = this.context;
 
         if (offer.amount <= 0) {
-            return null;
+            return (
+                <></>
+            );
         }
 
         if (offer.type === 'fixed') {
@@ -462,7 +464,7 @@ export default class OfferPage extends React.Component {
     renderBenefits({product}) {
         const benefits = product.benefits || [];
         if (!benefits?.length) {
-            return null;
+            return;
         }
         const benefitsUI = benefits.map((benefit, idx) => {
             return (

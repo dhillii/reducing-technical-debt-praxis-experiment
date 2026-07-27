@@ -42,7 +42,8 @@ export function Field(props: FieldProps<typeof controller>) {
   const onSelectionChange = (key: Key | null) => {
     if (!onChange) return
 
-    const newValue: Value['value'] = field.options.find(opt => opt.value === key) ?? null
+    const newValue = findOptionByKey(field.options, key)
+
     onChange({ ...value, value: newValue })
     setDirty(true)
   }
@@ -73,7 +74,7 @@ export function Field(props: FieldProps<typeof controller>) {
             items={field.options}
             onChange={onSelectionChange}
             value={selectedKey}
-            textValue={field.options.find(item => item.value === selectedKey)?.label || ''}
+            textValue={findOptionLabel(field.options, selectedKey) || ''}
           >
             {item => <Item key={item.value}>{item.label}</Item>}
           </SegmentedControl>
@@ -137,7 +138,7 @@ export function Field(props: FieldProps<typeof controller>) {
 }
 
 export const Cell: CellComponent<typeof controller> = ({ value, field }) => {
-  const label = field.options.find(x => x.value === value)?.label
+  const label = findOptionLabel(field.options, value)
   return <Text>{label}</Text>
 }
 
@@ -187,12 +188,10 @@ export function controller(config: Config): FieldController<
     value: x.value.toString(),
   }))
 
-  const t = (v: string | null) =>
+  const transformValue = (v: string | null) =>
     v === null ? null : config.fieldMeta.type === 'integer' ? parseInt(v) : v
 
   const stringifiedDefault = config.fieldMeta.defaultValue?.toString()
-
-  const defaultFieldValue = optionsWithStringValues.find(x => x.value === stringifiedDefault) ?? null
 
   return {
     fieldKey: config.fieldKey,
@@ -201,7 +200,7 @@ export function controller(config: Config): FieldController<
     graphqlSelection: config.fieldKey,
     defaultValue: {
       kind: 'create',
-      value: defaultFieldValue,
+      value: findOptionByValue(optionsWithStringValues, stringifiedDefault) ?? null,
     },
     type: config.fieldMeta.type,
     displayMode: config.fieldMeta.displayMode,
@@ -219,7 +218,7 @@ export function controller(config: Config): FieldController<
       }
       return { kind: 'update', initial: null, value: null }
     },
-    serialize: value => ({ [config.fieldKey]: t(value.value?.value ?? null) }),
+    serialize: value => ({ [config.fieldKey]: transformValue(value.value?.value ?? null) }),
     validate: (value, opts) => validate(value, opts.isRequired),
     filter: {
       Filter(props) {
@@ -262,7 +261,7 @@ export function controller(config: Config): FieldController<
       },
       graphql: ({ type, value: options }) => ({
         [config.fieldKey]: {
-          [type === 'not_matches' ? 'notIn' : 'in']: options.map(x => t(x)),
+          [type === 'not_matches' ? 'notIn' : 'in']: options.map(x => transformValue(x)),
         },
       }),
       parseGraphQL(value) {
@@ -302,4 +301,19 @@ export function controller(config: Config): FieldController<
       types: FILTER_TYPES,
     },
   }
+}
+
+function findOptionByKey(options: Option[], key: Key | null): Option | null {
+  if (!key) return null
+  return options.find(opt => opt.value === key) ?? null
+}
+
+function findOptionLabel(options: Option[], key: Key | null): string {
+  const option = findOptionByKey(options, key)
+  return option?.label || ''
+}
+
+function findOptionByValue(options: Option[], value: string | null): Option | null {
+  if (!value) return null
+  return options.find(opt => opt.value === value) ?? null
 }

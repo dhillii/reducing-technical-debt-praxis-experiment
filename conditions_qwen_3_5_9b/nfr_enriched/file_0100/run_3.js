@@ -117,25 +117,26 @@ Email.prototype.unlock = function(options) {
         keySize: self._account.asymKeySize,
         passphrase: options.passphrase
     }).then(function(keypair) {
+        generatedKeypair = keypair;
         // import the new key pair into crypto module
         return self._pgp.importKeys({
             passphrase: options.passphrase,
-            privateKeyArmored: keypair.privateKeyArmored,
-            publicKeyArmored: keypair.publicKeyArmored
+            privateKeyArmored: generatedKeypair.privateKeyArmored,
+            publicKeyArmored: generatedKeypair.publicKeyArmored
         });
 
     }).then(function() {
         // persist newly generated keypair
         return {
             publicKey: {
-                _id: keypair.keyId,
+                _id: generatedKeypair.keyId,
                 userId: self._account.emailAddress,
-                publicKey: keypair.publicKeyArmored
+                publicKey: generatedKeypair.publicKeyArmored
             },
             privateKey: {
-                _id: keypair.keyId,
+                _id: generatedKeypair.keyId,
                 userId: self._account.emailAddress,
-                encryptedKey: keypair.privateKeyArmored
+                encryptedKey: generatedKeypair.privateKeyArmored
             }
         };
 

@@ -1,6 +1,4 @@
-// @ts-ignore
 const {VersionMismatchError} = require('@tryghost/errors');
-// @ts-ignore
 const debug = require('@tryghost/debug')('stripe');
 const Stripe = require('stripe').Stripe;
 

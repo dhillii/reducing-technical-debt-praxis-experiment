@@ -197,6 +197,78 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         }
     }
 
+    const getModalSizeClasses = (size: ModalSize): string[] => {
+        switch (size) {
+            case 'sm':
+                return ['max-w-[480px]', 'p-4 md:p-[8vmin]', 'p-8', '-inset-x-8'];
+            case 'md':
+                return ['max-w-[720px]', 'p-4 md:p-[8vmin]', 'p-8', '-inset-x-8'];
+            case 'lg':
+                return ['max-w-[1020px]', 'p-4 md:p-[4vmin]', 'p-7', '-inset-x-8'];
+            case 'xl':
+                return ['max-w-[1240px]0', 'p-4 md:p-[3vmin]', 'p-10', '-inset-x-10 -top-10'];
+            case 'full':
+                return ['h-full', 'p-4 md:p-[3vmin]', 'p-10', '-inset-x-10'];
+            case 'bleed':
+                return ['h-full', 'p-10', '-inset-x-10'];
+            default:
+                return ['p-4 md:p-[8vmin]', 'p-8', '-inset-x-8'];
+        }
+    };
+
+    const getModalSizeConfig = (size: ModalSize): {
+        modalMaxWidth?: string;
+        backdropPadding: string;
+        padding: string;
+        headerInset: string;
+        headerTop?: string;
+    } => {
+        switch (size) {
+            case 'sm':
+                return {
+                    backdropPadding: 'p-4 md:p-[8vmin]',
+                    padding: 'p-8',
+                    headerInset: '-inset-x-8'
+                };
+            case 'md':
+                return {
+                    backdropPadding: 'p-4 md:p-[8vmin]',
+                    padding: 'p-8',
+                    headerInset: '-inset-x-8'
+                };
+            case 'lg':
+                return {
+                    backdropPadding: 'p-4 md:p-[4vmin]',
+                    padding: 'p-7',
+                    headerInset: '-inset-x-8'
+                };
+            case 'xl':
+                return {
+                    backdropPadding: 'p-4 md:p-[3vmin]',
+                    padding: 'p-10',
+                    headerInset: '-inset-x-10 -top-10'
+                };
+            case 'full':
+                return {
+                    backdropPadding: 'p-4 md:p-[3vmin]',
+                    padding: 'p-10',
+                    headerInset: '-inset-x-10'
+                };
+            case 'bleed':
+                return {
+                    backdropPadding: 'p-4 md:p-[3vmin]',
+                    padding: 'p-10',
+                    headerInset: '-inset-x-10'
+                };
+            default:
+                return {
+                    backdropPadding: 'p-4 md:p-[8vmin]',
+                    padding: 'p-8',
+                    headerInset: '-inset-x-8'
+                };
+        }
+    };
+
     let modalClasses = clsx(
         'relative z-50 flex max-h-[100%] w-full flex-col justify-between overflow-x-hidden bg-white dark:bg-black',
         align === 'center' && 'mx-auto',
@@ -227,56 +299,24 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         );
     }
 
-    const sizeConfig = {
-        sm: {
-            modal: 'max-w-[480px]',
-            backdrop: 'p-4 md:p-[8vmin]',
-            padding: 'p-8',
-            header: '-inset-x-8'
-        },
-        md: {
-            modal: 'max-w-[720px]',
-            backdrop: 'p-4 md:p-[8vmin]',
-            padding: 'p-8',
-            header: '-inset-x-8'
-        },
-        lg: {
-            modal: 'max-w-[1020px]',
-            backdrop: 'p-4 md:p-[4vmin]',
-            padding: 'p-7',
-            header: '-inset-x-8'
-        },
-        xl: {
-            modal: 'max-w-[1240px]0',
-            backdrop: 'p-4 md:p-[3vmin]',
-            padding: 'p-10',
-            header: '-inset-x-10 -top-10'
-        },
-        full: {
-            modal: 'h-full',
-            backdrop: 'p-4 md:p-[3vmin]',
-            padding: 'p-10',
-            header: '-inset-x-10'
-        },
-        bleed: {
-            modal: 'h-full',
-            backdrop: 'p-4 md:p-[3vmin]',
-            padding: 'p-10',
-            header: '-inset-x-10'
+    const sizeConfig = getModalSizeConfig(size);
+    const sizeClasses = getModalSizeClasses(size);
+
+    sizeClasses.forEach((cls) => {
+        if (cls.startsWith('max-w-')) {
+            modalClasses = clsx(modalClasses, cls);
+        } else if (cls.startsWith('h-full')) {
+            modalClasses = clsx(modalClasses, cls);
+        } else {
+            backdropClasses = clsx(backdropClasses, cls);
         }
-    };
+    });
 
-    const sizeConfigKey = sizeConfig[size as keyof typeof sizeConfig];
+    paddingClasses = sizeConfig.padding;
+    headerClasses = clsx(headerClasses, sizeConfig.headerInset);
 
-    if (sizeConfigKey) {
-        modalClasses = clsx(modalClasses, sizeConfigKey.modal);
-        backdropClasses = clsx(backdropClasses, sizeConfigKey.backdrop);
-        paddingClasses = sizeConfigKey.padding;
-        headerClasses = clsx(headerClasses, sizeConfigKey.header);
-    } else {
-        backdropClasses = clsx(backdropClasses, 'p-4 md:p-[8vmin]');
-        paddingClasses = 'p-8';
-        headerClasses = clsx(headerClasses, '-inset-x-8');
+    if (size === 'xl') {
+        headerClasses = clsx(headerClasses, sizeConfig.headerTop);
     }
 
     if (!padding) {
@@ -395,7 +435,8 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
                     (<header className={headerClasses}>
                         {title && <Heading level={3}>{title}</Heading>}
                         {topRightContent}
-                    </header>))}
+                    </header>)
+                )}
                 <div className={contentClasses}>
                     {children}
                 </div>

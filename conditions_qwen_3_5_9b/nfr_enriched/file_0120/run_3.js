@@ -127,7 +127,7 @@ const QueryGenerator = {
             columns: tmpColumns.join('')
           };
 
-          tmpTable = _.template('declare @tmp table (<%= columns %>); ', this._templateSettings)(replacement).trim();
+          tmpTable = _.template(tmpTable, this._templateSettings)(replacement).trim();
           outputFragment = ' OUTPUT ' + outputColumns.join('') + ' into @tmp';
           const selectFromTmp = ';select * from @tmp';
 

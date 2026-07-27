@@ -1,8 +1,3 @@
-/**
- * @fileoverview A class of the code path analyzer.
- * @author Toru Nagashima
- */
-
 "use strict";
 
 //------------------------------------------------------------------------------
@@ -31,7 +26,7 @@ function isCaseNode(node) {
 
 /**
  * Checks if a given node appears as the value of a PropertyDefinition node.
- * @param {ASTNode} node The node to check.
+ * @param {ASTNode} node THe node to check.
  * @returns {boolean} `true` if the node is a PropertyDefinition value,
  *      false if not.
  */
@@ -261,7 +256,6 @@ function preprocess(analyzer, node) {
 	const parent = node.parent;
 
 	switch (parent.type) {
-		// The `arguments.length == 0` case is in `postprocess` function.
 		case "CallExpression":
 			if (
 				parent.optional === true &&

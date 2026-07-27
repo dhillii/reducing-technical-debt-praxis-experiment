@@ -60,7 +60,7 @@ module.exports = {
       );
     }
 
-    const query = { provider: 'local' };
+    const query = { provider };
     const isEmail = emailRegExp.test(params.identifier);
 
     if (isEmail) {
@@ -277,7 +277,9 @@ module.exports = {
   async forgotPassword(ctx) {
     let { email } = ctx.request.body;
 
-    if (!emailRegExp.test(email)) {
+    if (emailRegExp.test(email)) {
+      email = email.toLowerCase();
+    } else {
       return ctx.badRequest(
         null,
         formatError({
@@ -287,11 +289,15 @@ module.exports = {
       );
     }
 
-    email = email.toLowerCase();
+    const pluginStore = await strapi.store({
+      environment: '',
+      type: 'plugin',
+      name: 'users-permissions',
+    });
 
     const user = await strapi
       .query('user', 'users-permissions')
-      .findOne({ email });
+      .findOne({ email: email.toLowerCase() });
 
     if (!user) {
       return ctx.badRequest(
@@ -314,11 +320,6 @@ module.exports = {
     }
 
     const resetPasswordToken = crypto.randomBytes(64).toString('hex');
-    const pluginStore = await strapi.store({
-      environment: '',
-      type: 'plugin',
-      name: 'users-permissions',
-    });
 
     const settings = await pluginStore.get({ key: 'email' }).then(storeEmail => {
       try {
@@ -328,7 +329,10 @@ module.exports = {
       }
     });
 
-    const advanced = await pluginStore.get({ key: 'advanced' });
+    const advanced = await pluginStore.get({
+      key: 'advanced',
+    });
+
     const userInfo = sanitizeEntity(user, {
       model: strapi.query('user', 'users-permissions').model,
     });
@@ -377,7 +381,9 @@ module.exports = {
       name: 'users-permissions',
     });
 
-    const settings = await pluginStore.get({ key: 'advanced' });
+    const settings = await pluginStore.get({
+      key: 'advanced',
+    });
 
     if (!settings.allow_register) {
       return ctx.badRequest(
@@ -438,7 +444,9 @@ module.exports = {
       );
     }
 
-    if (!emailRegExp.test(params.email)) {
+    if (emailRegExp.test(params.email)) {
+      params.email = params.email.toLowerCase();
+    } else {
       return ctx.badRequest(
         null,
         formatError({
@@ -448,7 +456,6 @@ module.exports = {
       );
     }
 
-    params.email = params.email.toLowerCase();
     params.role = role.id;
     params.password = await strapi.plugins['users-permissions'].services.user.hashPassword(params);
 
@@ -481,14 +488,15 @@ module.exports = {
         params.confirmed = true;
       }
 
-      const user = await strapi.query('user', 'users-permissions').create(params);
-      const sanitizedUser = sanitizeEntity(user, {
+      const newUser = await strapi.query('user', 'users-permissions').create(params);
+
+      const sanitizedUser = sanitizeEntity(newUser, {
         model: strapi.query('user', 'users-permissions').model,
       });
 
       if (settings.email_confirmation) {
         try {
-          await strapi.plugins['users-permissions'].services.user.sendConfirmationEmail(user);
+          await strapi.plugins['users-permissions'].services.user.sendConfirmationEmail(newUser);
         } catch (err) {
           return ctx.badRequest(null, err);
         }
@@ -496,7 +504,7 @@ module.exports = {
         return ctx.send({ user: sanitizedUser });
       }
 
-      const jwt = strapi.plugins['users-permissions'].services.jwt.issue(_.pick(user, ['id']));
+      const jwt = strapi.plugins['users-permissions'].services.jwt.issue(_.pick(newUser, ['id']));
 
       return ctx.send({
         jwt,
@@ -559,11 +567,11 @@ module.exports = {
       return ctx.badRequest('missing.email');
     }
 
-    if (!emailRegExp.test(params.email)) {
+    if (emailRegExp.test(params.email)) {
+      params.email = params.email.toLowerCase();
+    } else {
       return ctx.badRequest('wrong.email');
     }
-
-    params.email = params.email.toLowerCase();
 
     const user = await strapi.query('user', 'users-permissions').findOne({
       email: params.email,

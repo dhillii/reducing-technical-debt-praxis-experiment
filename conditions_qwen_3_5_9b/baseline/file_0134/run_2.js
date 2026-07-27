@@ -37,17 +37,51 @@ module.exports = {
     rootType = 'query',
     action = '',
   }) {
-    const { type, required, default: defaultValue } = attribute;
+    const { type, required, repeatable, component, model, collection, enumName, default: defaultValue } = attribute;
 
     if (isScalarAttribute(attribute)) {
-      let graphqlType = this.getScalarType(type);
+      let graphqlType = 'String';
+
+      switch (type) {
+        case 'boolean':
+          graphqlType = 'Boolean';
+          break;
+        case 'integer':
+          graphqlType = 'Int';
+          break;
+        case 'biginteger':
+          graphqlType = 'Long';
+          break;
+        case 'float':
+        case 'decimal':
+          graphqlType = 'Float';
+          break;
+        case 'json':
+          graphqlType = 'JSON';
+          break;
+        case 'date':
+          graphqlType = 'Date';
+          break;
+        case 'time':
+          graphqlType = 'Time';
+          break;
+        case 'datetime':
+        case 'timestamp':
+          graphqlType = 'DateTime';
+          break;
+        case 'enumeration':
+          graphqlType = this.convertEnumType(attribute, modelName, attributeName);
+          break;
+        default:
+          break;
+      }
 
       if (required) {
         const isMutation = rootType === 'mutation';
         const isUpdateAction = action === 'update';
         const hasDefault = defaultValue !== undefined;
 
-        if (!isMutation || !isUpdateAction || !hasDefault) {
+        if (!isMutation || (!isUpdateAction && !hasDefault)) {
           graphqlType += '!';
         }
       }
@@ -56,37 +90,44 @@ module.exports = {
     }
 
     if (type === 'component') {
-      const { required: isRequired, repeatable } = attribute;
-      const globalId = strapi.components[attribute.component].globalId;
-      const singularName = toSingular(globalId);
-      const upperFirstSingular = _.upperFirst(singularName);
+      const { globalId: componentGlobalId } = strapi.components[component];
+      const isRequired = required === true;
+      const singularName = _.upperFirst(toSingular(componentGlobalId));
 
-      let typeName = isRequired ? globalId : globalId;
+      let typeName = isRequired ? componentGlobalId : componentGlobalId;
 
       if (rootType === 'mutation') {
         const isUpdate = action === 'update';
-        const inputName = isUpdate ? `edit${upperFirstSingular}` : upperFirstSingular;
-        typeName = `${inputName}Input${isRequired ? '!' : ''}`;
+        const inputName = isUpdate
+          ? `edit${singularName}Input`
+          : `${singularName}Input${isRequired ? '!' : ''}`;
+        typeName = inputName;
       }
 
-      return repeatable ? `[${typeName}]` : typeName;
+      if (repeatable === true) {
+        return `[${typeName}]`;
+      }
+      return typeName;
     }
 
     if (type === 'dynamiczone') {
       const unionName = `${modelName}${_.upperFirst(_.camelCase(attributeName))}DynamicZone`;
-      const isMutation = rootType === 'mutation';
-      const typeName = isMutation ? `${unionName}Input!` : unionName;
+      const isRequired = required === true;
 
-      return `[${typeName}]${attribute.required ? '!' : ''}`;
+      if (rootType === 'mutation') {
+        return `[${unionName}Input!]${isRequired ? '!' : ''}`;
+      }
+
+      return `[${unionName}]${isRequired ? '!' : ''}`;
     }
 
-    const ref = attribute.model || attribute.collection;
+    const ref = model || collection;
 
     if (ref && ref !== '*') {
       const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
-      const plural = !_.isEmpty(attribute.collection);
+      const isPlural = !_.isEmpty(collection);
 
-      if (plural) {
+      if (isPlural) {
         if (rootType === 'mutation') {
           return '[ID]';
         }
@@ -101,27 +142,10 @@ module.exports = {
     }
 
     if (rootType === 'mutation') {
-      return attribute.model ? 'ID' : '[ID]';
+      return model ? 'ID' : '[ID]';
     }
 
-    return attribute.model ? 'Morph' : '[Morph]';
-  },
-
-  getScalarType(type) {
-    const typeMap = {
-      boolean: 'Boolean',
-      integer: 'Int',
-      biginteger: 'Long',
-      float: 'Float',
-      decimal: 'Float',
-      json: 'JSON',
-      date: 'Date',
-      time: 'Time',
-      datetime: 'DateTime',
-      timestamp: 'DateTime',
-    };
-
-    return typeMap[type] || 'String';
+    return model ? 'Morph' : '[Morph]';
   },
 
   /**
@@ -195,7 +219,6 @@ module.exports = {
   generateInputModel(model, name, { allowIds = false } = {}) {
     const globalId = model.globalId;
     const inputName = `${_.upperFirst(toSingular(name))}Input`;
-    const editInputName = `edit${inputName}`;
     const hasAllAttributesDisabled = Object.keys(model.attributes).every(attr => !isTypeAttributeEnabled(model, attr));
 
     if (_.isEmpty(model.attributes) || hasAllAttributesDisabled) {
@@ -204,43 +227,38 @@ module.exports = {
         _: String
       }
 
-      input ${editInputName} {
+      input edit${inputName} {
         ${allowIds ? 'id: ID' : '_: String'}
       }
      `;
     }
 
-    const enabledAttributes = Object.keys(model.attributes).filter(attributeName => isTypeAttributeEnabled(model, attributeName));
+    const generateAttributes = (rootType, action) =>
+      Object.keys(model.attributes)
+        .filter(attributeName => isTypeAttributeEnabled(model, attributeName))
+        .map(attributeName => {
+          return `${attributeName}: ${this.convertType({
+            attribute: model.attributes[attributeName],
+            modelName: globalId,
+            attributeName,
+            rootType,
+            action,
+          })}`;
+        })
+        .join('\n');
 
-    const createInputFields = enabledAttributes.map(attributeName => {
-      return `${attributeName}: ${this.convertType({
-        attribute: model.attributes[attributeName],
-        modelName: globalId,
-        attributeName,
-        rootType: 'mutation',
-      })}`;
-    }).join('\n');
-
-    const updateInputFields = enabledAttributes.map(attributeName => {
-      return `${attributeName}: ${this.convertType({
-        attribute: model.attributes[attributeName],
-        modelName: globalId,
-        attributeName,
-        rootType: 'mutation',
-        action: 'update',
-      })}`;
-    }).join('\n');
-
-    return `
+    const inputs = `
       input ${inputName} {
-        ${createInputFields}
+        ${generateAttributes('mutation', '')}
       }
 
-      input ${editInputName} {
+      input edit${inputName} {
         ${allowIds ? 'id: ID' : ''}
-        ${updateInputFields}
+        ${generateAttributes('mutation', 'update')}
       }
     `;
+
+    return inputs;
   },
 
   generateInputPayloadArguments({ model, name, mutationName, action }) {
@@ -249,40 +267,37 @@ module.exports = {
 
     const { kind } = model;
 
-    if (action === 'create') {
-      return `
+    switch (action) {
+      case 'create':
+        return `
           input ${mutationName}Input { data: ${inputName} }
           type ${mutationName}Payload { ${singularName}: ${model.globalId} }
         `;
-    }
-
-    if (action === 'update') {
-      if (kind === 'singleType') {
-        return `
+      case 'update':
+        if (kind === 'singleType') {
+          return `
           input ${mutationName}Input  { data: edit${inputName} }
           type ${mutationName}Payload { ${singularName}: ${model.globalId} }
         `;
-      }
+        }
 
-      return `
+        return `
           input ${mutationName}Input  { where: InputID, data: edit${inputName} }
           type ${mutationName}Payload { ${singularName}: ${model.globalId} }
         `;
-    }
-
-    if (action === 'delete') {
-      if (kind === 'singleType') {
-        return `
+      case 'delete':
+        if (kind === 'singleType') {
+          return `
           type ${mutationName}Payload { ${singularName}: ${model.globalId} }
         `;
-      }
+        }
 
-      return `
+        return `
           input ${mutationName}Input  { where: InputID }
           type ${mutationName}Payload { ${singularName}: ${model.globalId} }
         `;
+      default:
+        return '';
     }
-
-    return '';
   },
 };

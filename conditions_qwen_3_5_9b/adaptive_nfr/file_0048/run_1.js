@@ -247,6 +247,7 @@ module.exports = class Tier {
         }
 
         let name = validateName(data.name);
+
         let slug = validateSlug(data.slug);
         let description = validateDescription(data.description);
         let welcomePageURL = validateWelcomePageURL(data.welcomePageURL);
@@ -256,7 +257,7 @@ module.exports = class Tier {
         let currency = validateCurrency(data.currency || null, type);
         let trialDays = validateTrialDays(data.trialDays || 0, type);
         let monthlyPrice = validateMonthlyPrice(data.monthlyPrice || null, type);
-        let yearlyPrice = validateYearlyPrice(data.yearlyPrice || null, type);
+        let yearlyPrice = validateYearlyPrice(data.yearlyPrice || null , type);
         let createdAt = validateCreatedAt(data.createdAt);
         let updatedAt = validateUpdatedAt(data.updatedAt);
         let benefits = validateBenefits(data.benefits);

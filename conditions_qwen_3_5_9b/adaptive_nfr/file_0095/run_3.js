@@ -39,10 +39,41 @@ define([
     var Encrypt = Marionette.Object.extend({
 
         initialize: function() {
-            this._initConfigs();
-            this._initKeys();
-            this._initSjcl();
-            this._initRadioReplies();
+
+            // Get configs
+            this.configs = Radio.request('configs', 'get:object');
+            this.keys    = {};
+
+            this.sjcl = new Sjcl(this.configs);
+
+            // Pass requests directly to Sjcl class
+            Radio.reply('encrypt', {
+                'sha256'           : this.sjcl.sha256,
+            }, this.sjcl);
+
+            // Replies
+            Radio.reply('encrypt', {
+                'randomize'        : this.randomize,
+                'change:configs'   : this.changeConfigs,
+
+                // Check auth/password
+                'check:auth'       : this.checkAuth,
+                'check:password'   : this.checkPassword,
+                'save:secureKey'   : this.saveSecureKey,
+                'delete:secureKey' : this.deleteSecureKey,
+
+                // Encrypt/decrypt some string
+                'encrypt'          : this.encrypt,
+                'decrypt'          : this.decrypt,
+
+                // Encrypt/decrypt a model
+                'encrypt:model'    : this.encryptModel,
+                'decrypt:model'    : this.decryptModel,
+
+                // Encrypt/decrypt a collection of models
+                'encrypt:models'   : this.encryptModels,
+                'decrypt:models'   : this.decryptModels
+            }, this);
         },
 
         /**
@@ -64,7 +95,7 @@ define([
          * Change encryption configs. It is useful when re-encrypting data.
          */
         changeConfigs: function(configs) {
-            configs = configs || Radio.request('configs', 'get:object');
+            configs      = configs || Radio.request('configs', 'get:object');
             this.configs = _.extend(this.configs, configs);
         },
 
@@ -74,16 +105,21 @@ define([
          * @return bool
          */
         checkAuth: function() {
-            if (this._hasEncryptionBackup()) {
+            /**
+             * If encryption backup is not empty, it means a user changed
+             * encryption settings.
+             */
+            if (!_.isEmpty(this.configs.encryptBackup)) {
                 Radio.trigger('encrypt', 'changed');
                 return {isChanged: true};
             }
 
-            if (this._isEncryptionDisabled()) {
+            // Encryption is disabled
+            if (!Number(this.configs.encrypt) || this.configs.encryptPass === '') {
                 return true;
             }
 
-            return this._isAuthorized();
+            return !_.isEmpty(this.keys) || this._getSession() !== null;
         },
 
         /**
@@ -96,7 +132,7 @@ define([
         checkPassword: function(password) {
             var pwd = this.configs.encryptPass;
 
-            return this._hashPassword(password)
+            return new Q(this.sjcl.sha256(password))
             .then(function(hash) {
                 return hash.toString() === pwd.toString();
             });
@@ -108,11 +144,14 @@ define([
          * @return promise
          */
         saveSecureKey: function(password) {
-            var self = this;
+            var self  = this;
 
-            return this._deriveKey(password)
+            return new Q(this.sjcl.deriveKey({
+                configs : this.configs,
+                password: password
+            }))
             .then(function(keys) {
-                self.keys.key = keys.key;
+                self.keys.key    = keys.key;
                 self.keys.hexKey = keys.hexKey;
                 self._saveSession();
             });
@@ -135,7 +174,14 @@ define([
          * @return promise
          */
         encrypt: function(str) {
-            return this._encryptString(str);
+            return new Q(this.sjcl.encrypt({
+                configs : this.configs,
+                string  : str,
+                keys    : this.keys,
+
+                // Random initialization vector every time
+                iv      : sjcl.random.randomWords(4, 0),
+            }));
         },
 
         /**
@@ -144,7 +190,11 @@ define([
          * @return promise
          */
         decrypt: function(str) {
-            return this._decryptString(str);
+            return new Q(this.sjcl.decrypt({
+                configs : this.configs,
+                string  : str,
+                keys    : this.keys,
+            }));
         },
 
         /**
@@ -155,7 +205,7 @@ define([
         encryptModel: function(model) {
             var data = _.pick(model.attributes, model.encryptKeys);
 
-            return this._encryptModelData(data)
+            return this.encrypt(data)
             .then(function(encrypted) {
                 model.set('encryptedData', encrypted);
                 return model;
@@ -169,10 +219,10 @@ define([
          */
         decryptModel: function(model) {
             if (model.attributes.encryptedData) {
-                return this._decryptModelFromEncryptedData(model);
+                return this._decryptModel(model);
             }
 
-            return this._decryptModelFromLegacyKeys(model);
+            return this._decryptModelKeys(model);
         },
 
         /**
@@ -181,12 +231,15 @@ define([
          * @return promise
          */
         encryptModels: function(collection) {
-            if (this._isCollectionEmptyOrEncryptionDisabled(collection)) {
+
+            // The collection is empty or PBKDF2 wasn't generated
+            if (!collection.length || !Number(this.configs.encrypt) ||
+                !this.keys.key) {
                 return new Q();
             }
 
             var promises = [],
-                self = this;
+                self     = this;
 
             Radio.trigger('encrypt', 'encrypting:models', collection);
 
@@ -196,7 +249,10 @@ define([
                 });
             }, this);
 
-            return this._processCollectionPromises(promises);
+            return _.reduce(promises, Q.when, new Q())
+            .fail(function(e) {
+                console.error('EncryptModels Error:', e);
+            });
         },
 
         /**
@@ -205,10 +261,13 @@ define([
          * @return promise
          */
         decryptModels: function(collection) {
-            if (this._isCollectionEmptyOrEncryptionDisabled(collection)) {
+
+            // The collection is empty or encryption is disabled
+            if (!collection.length || !Number(this.configs.encrypt)) {
                 return new Q();
             }
 
+            // PBKDF2 wasn't generated
             if (!this.keys.key) {
                 Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
                 return new Q();
@@ -225,7 +284,10 @@ define([
                 });
             }, this);
 
-            return this._processCollectionPromises(promises);
+            return _.reduce(promises, Q.when, new Q())
+            .fail(function(e) {
+                console.error('DecryptModels Error:', e);
+            });
         },
 
         /**
@@ -234,7 +296,19 @@ define([
          * @return promise
          */
         _decryptModel: function(model) {
-            return this._decryptModelFromEncryptedData(model);
+            return new Q(this.sjcl.decrypt({
+                configs : this.configs,
+                string  : model.get('encryptedData'),
+                keys    : this.keys,
+            }))
+            .then(function(data) {
+                _.each(JSON.parse(data), function(val, key) {
+                    model.set(key, val);
+                });
+
+                Radio.trigger('encrypt', 'decrypted:model', model);
+                return model;
+            });
         },
 
         /**
@@ -244,11 +318,15 @@ define([
          */
         _decryptModelKeys: function(model) {
             var promises = [],
-                self = this;
+                self     = this;
 
             _.each(model.encryptKeys, function(key) {
                 promises.push(
-                    new Q(self._decryptLegacyKey(key, model))
+                    new Q(self.sjcl.decryptLegacy({
+                        configs : self.configs,
+                        string  : model.get(key),
+                        keys    : this.keys
+                    }))
                     .then(function(data) {
                         model.set(key, data);
                     })
@@ -287,7 +365,7 @@ define([
                 return null;
             }
 
-            var keys = window.sessionStorage.getItem(this._getSessionKey());
+            var keys  = window.sessionStorage.getItem(this._getSessionKey());
             try {
                 keys = JSON.parse(keys);
                 this.keys = keys || this.keys;
@@ -307,127 +385,6 @@ define([
             var profile = Radio.request('uri', 'profile') || 'default';
             profile = (Number(this.configs.useDefaultConfigs) ? 'default' : profile);
             return 'secureKey.' + profile;
-        },
-
-        // Private initialization methods
-        _initConfigs: function() {
-            this.configs = Radio.request('configs', 'get:object');
-        },
-
-        _initKeys: function() {
-            this.keys = {};
-        },
-
-        _initSjcl: function() {
-            this.sjcl = new Sjcl(this.configs);
-        },
-
-        _initRadioReplies: function() {
-            Radio.reply('encrypt', {
-                'sha256'           : this.sjcl.sha256,
-            }, this.sjcl);
-
-            Radio.reply('encrypt', {
-                'randomize'        : this.randomize,
-                'change:configs'   : this.changeConfigs,
-
-                // Check auth/password
-                'check:auth'       : this.checkAuth,
-                'check:password'   : this.checkPassword,
-                'save:secureKey'   : this.saveSecureKey,
-                'delete:secureKey' : this.deleteSecureKey,
-
-                // Encrypt/decrypt some string
-                'encrypt'          : this.encrypt,
-                'decrypt'          : this.decrypt,
-
-                // Encrypt/decrypt a model
-                'encrypt:model'    : this.encryptModel,
-                'decrypt:model'    : this.decryptModel,
-
-                // Encrypt/decrypt a collection of models
-                'encrypt:models'   : this.encryptModels,
-                'decrypt:models'   : this.decryptModels
-            }, this);
-        },
-
-        // Private helper methods
-        _hasEncryptionBackup: function() {
-            return !_.isEmpty(this.configs.encryptBackup);
-        },
-
-        _isEncryptionDisabled: function() {
-            return !Number(this.configs.encrypt) || this.configs.encryptPass === '';
-        },
-
-        _isAuthorized: function() {
-            return !_.isEmpty(this.keys) || this._getSession() !== null;
-        },
-
-        _hashPassword: function(password) {
-            return new Q(this.sjcl.sha256(password));
-        },
-
-        _deriveKey: function(password) {
-            return new Q(this.sjcl.deriveKey({
-                configs : this.configs,
-                password: password
-            }));
-        },
-
-        _encryptString: function(str) {
-            return new Q(this.sjcl.encrypt({
-                configs : this.configs,
-                string  : str,
-                keys    : this.keys,
-
-                // Random initialization vector every time
-                iv      : sjcl.random.randomWords(4, 0),
-            }));
-        },
-
-        _decryptString: function(str) {
-            return new Q(this.sjcl.decrypt({
-                configs : this.configs,
-                string  : str,
-                keys    : this.keys,
-            }));
-        },
-
-        _encryptModelData: function(data) {
-            return this.encrypt(data);
-        },
-
-        _decryptModelFromEncryptedData: function(model) {
-            return this._decryptModelInternal(model);
-        },
-
-        _decryptModelFromLegacyKeys: function(model) {
-            return this._decryptModelKeys(model);
-        },
-
-        _isCollectionEmptyOrEncryptionDisabled: function(collection) {
-            return !collection.length || !Number(this.configs.encrypt) ||
-                !this.keys.key;
-        },
-
-        _processCollectionPromises: function(promises) {
-            return _.reduce(promises, Q.when, new Q())
-            .fail(function(e) {
-                console.error('EncryptModels Error:', e);
-            });
-        },
-
-        _decryptModelInternal: function(model) {
-            return this._decryptModelFromEncryptedData(model);
-        },
-
-        _decryptLegacyKey: function(key, model) {
-            return this.sjcl.decryptLegacy({
-                configs : this.configs,
-                string  : model.get(key),
-                keys    : this.keys
-            });
         }
 
     });

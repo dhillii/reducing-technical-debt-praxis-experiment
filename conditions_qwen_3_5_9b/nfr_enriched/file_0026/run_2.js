@@ -68,10 +68,7 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     source: {
         endpoint: 'api_top_sources',
         valueKey: 'source',
-        transformValue: v => ({
-            value: v || '',
-            label: v || 'Direct'
-        })
+        transformValue: v => ({value: v || '', label: v || 'Direct'})
     },
     location: {
         endpoint: 'api_top_locations',
@@ -87,13 +84,29 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
         valueKey: 'device',
         transformValue: v => ({
             value: v,
-            label: v === 'mobile-ios' ? 'iOS' :
-                v === 'mobile-android' ? 'Android' :
-                    v === 'desktop' ? 'Desktop' :
-                        v === 'bot' ? 'Bot' :
-                            v === 'unknown' ? 'Unknown' : v
+            label: getDeviceLabel(v)
         })
     }
+};
+
+// Helper to map device codes to human-readable labels
+const getDeviceLabel = (deviceCode: string): string => {
+    if (deviceCode === 'mobile-ios') {
+        return 'iOS';
+    }
+    if (deviceCode === 'mobile-android') {
+        return 'Android';
+    }
+    if (deviceCode === 'desktop') {
+        return 'Desktop';
+    }
+    if (deviceCode === 'bot') {
+        return 'Bot';
+    }
+    if (deviceCode === 'unknown') {
+        return 'Unknown';
+    }
+    return deviceCode;
 };
 
 // Build filter params for Tinybird API, excluding the specified field to avoid circular filtering

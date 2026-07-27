@@ -20,14 +20,6 @@ const DISPLAY_OPTIONS = [{
     value: 'paid'
 }];
 
-const DISPLAY_FILTER_MAP = {
-    'signups': '(feedback.post_id:\'' + '{post_id}' + '\'+feedback.score:1)',
-    'paid': '(feedback.post_id:\'' + '{post_id}' + '\'+feedback.score:0)'
-};
-
-const FEEDBACK_LABELS = ['More like this', 'Less like this'];
-const FEEDBACK_COLORS = ['#F080B2', '#8452f633'];
-
 export default class Analytics extends Component {
     @service ajax;
     @service ghostPaths;
@@ -147,11 +139,13 @@ export default class Analytics extends Component {
 
     get feedbackChartData() {
         const values = [this.post.count.positive_feedback, this.post.count.negative_feedback];
+        const labels = ['More like this', 'Less like this'];
         const links = [
-            {filterParam: DISPLAY_FILTER_MAP['signups']},
-            {filterParam: DISPLAY_FILTER_MAP['paid']}
+            {filterParam: '(feedback.post_id:\'' + this.post.id + '\'+feedback.score:1)'},
+            {filterParam: '(feedback.post_id:\'' + this.post.id + '\'+feedback.score:0)'}
         ];
-        return {values, labels: FEEDBACK_LABELS, links, colors: FEEDBACK_COLORS};
+        const colors = ['#F080B2', '#8452f633'];
+        return {values, labels, links, colors};
     }
 
     @action
@@ -396,8 +390,11 @@ export default class Analytics extends Component {
             return;
         }
 
+        const targets = `${Array.from(element.classList).map(className => `.${className}`).join('')} .new-number span`;
+        const oldNumberTargets = `${Array.from(element.classList).map(className => `.${className}`).join('')} .old-number span`;
+
         anime({
-            targets: `${Array.from(element.classList).map(className => `.${className}`).join('')} .new-number span`,
+            targets: targets,
             translateY: [10,0],
             // translateZ: 0,
             opacity: [0,1],
@@ -408,7 +405,7 @@ export default class Analytics extends Component {
         });
 
         anime({
-            targets: `${Array.from(element.classList).map(className => `.${className}`).join('')} .old-number span`,
+            targets: oldNumberTargets,
             translateY: [0,-10],
             opacity: [1,0],
             easing: 'easeOutExpo',

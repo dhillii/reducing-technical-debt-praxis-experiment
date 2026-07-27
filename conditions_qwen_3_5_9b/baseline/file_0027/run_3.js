@@ -263,14 +263,15 @@ export default class GhPostSettingsMenu extends Component {
     @action
     setPublishedAtBlogDate(date) {
         // date is a Date object that contains the correct date string in the blog timezone
+        let post = this.post;
         let dateString = moment.tz(date, this.settings.get('timezone')).format('YYYY-MM-DD');
 
-        this.post.get('errors').remove('publishedAtBlogDate');
+        post.get('errors').remove('publishedAtBlogDate');
 
-        if (this.post.get('isNew') || date === this.post.get('publishedAtBlogDate')) {
-            this.post.validate({property: 'publishedAtBlog'});
+        if (post.get('isNew') || date === post.get('publishedAtBlogDate')) {
+            post.validate({property: 'publishedAtBlog'});
         } else {
-            this.post.set('publishedAtBlogDate', dateString);
+            post.set('publishedAtBlogDate', dateString);
             return this.savePostTask.perform();
         }
     }

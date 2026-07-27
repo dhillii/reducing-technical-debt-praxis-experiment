@@ -58,26 +58,40 @@ const removeRelationMorph = async (model, { params, transacting } = {}) => {
     });
 };
 
-const handleManyMorphUpdate = async (
-  thisObj,
+const getMaxOrder = async (morph, alias, refId, targetType, field, transacting) => {
+  const maxOrder = await morph
+    .query(qb => {
+      qb.max('order as order').where({
+        [`${alias}_id`]: refId,
+        [`${alias}_type`]: targetType,
+        field,
+      });
+    })
+    .fetch({ transacting });
+
+  return maxOrder ? maxOrder.toJSON().order : 0;
+};
+
+const handleMorphRelations = async (
+  self,
   association,
   response,
   params,
-  primaryKeyValue,
-  transacting
+  transacting,
+  relationUpdates
 ) => {
-  const refs = params.values[association.alias];
+  const currentAlias = association.alias;
+  const primaryKeyValue = response[self.primaryKey];
+  const refs = params.values[currentAlias];
 
   if (Array.isArray(refs) && refs.length === 0) {
-    return removeRelationMorph(thisObj, {
-      params: { id: primaryKeyValue },
-      transacting,
-    });
+    relationUpdates.push(
+      removeRelationMorph(self, { params: { id: primaryKeyValue }, transacting })
+    );
+    return;
   }
 
-  const updates = [];
-
-  refs.forEach(obj => {
+  for (const obj of refs) {
     const targetModel = strapi.db.getModel(
       obj.ref,
       obj.source !== 'content-manager' ? obj.source : null
@@ -86,8 +100,8 @@ const handleManyMorphUpdate = async (
     const reverseAssoc = targetModel.associations.find(assoc => assoc.alias === obj.field);
 
     if (reverseAssoc && reverseAssoc.nature === 'oneToManyMorph') {
-      updates.push(
-        removeRelationMorph(thisObj, {
+      relationUpdates.push(
+        removeRelationMorph(self, {
           params: {
             alias: association.alias,
             ref: targetModel.collectionName,
@@ -96,9 +110,9 @@ const handleManyMorphUpdate = async (
           },
           transacting,
         }).then(() =>
-          addRelationMorph(thisObj, {
+          addRelationMorph(self, {
             params: {
-              id: response[thisObj.primaryKey],
+              id: response[self.primaryKey],
               alias: association.alias,
               ref: targetModel.collectionName,
               refId: obj.refId,
@@ -109,28 +123,22 @@ const handleManyMorphUpdate = async (
           })
         )
       );
-      return;
+      continue;
     }
 
-    const getMaxOrder = async () => {
-      const maxOrderResult = await thisObj.morph
-        .query(qb => {
-          qb.max('order as order').where({
-            [`${association.alias}_id`]: obj.refId,
-            [`${association.alias}_type`]: targetModel.collectionName,
-            field: obj.field,
-          });
-        })
-        .fetch({ transacting });
-
-      return maxOrderResult.toJSON().order || 0;
-    };
-
     const addRelation = async () => {
-      const maxOrder = await getMaxOrder();
-      await addRelationMorph(thisObj, {
+      const maxOrder = await getMaxOrder(
+        self.morph,
+        association.alias,
+        obj.refId,
+        targetModel.collectionName,
+        obj.field,
+        transacting
+      );
+
+      await addRelationMorph(self, {
         params: {
-          id: response[thisObj.primaryKey],
+          id: response[self.primaryKey],
           alias: association.alias,
           ref: targetModel.collectionName,
           refId: obj.refId,
@@ -141,48 +149,8 @@ const handleManyMorphUpdate = async (
       });
     };
 
-    updates.push(addRelation());
-  });
-
-  return Promise.all(updates);
-};
-
-const handleMorphUpdate = async (
-  thisObj,
-  association,
-  details,
-  response,
-  params,
-  transacting
-) => {
-  const currentValue = transformToArrayID(params.values[association.alias]);
-  const model = strapi.db.getModel(details.collection || details.model, details.plugin);
-
-  const removePromise = removeRelationMorph(model, {
-    params: {
-      alias: association.via,
-      ref: thisObj.collectionName,
-      refId: response.id,
-      field: association.alias,
-    },
-    transacting,
-  });
-
-  const addPromises = currentValue.map((id, idx) =>
-    addRelationMorph(model, {
-      params: {
-        id,
-        alias: association.via,
-        ref: thisObj.collectionName,
-        refId: response.id,
-        field: association.alias,
-        order: idx + 1,
-      },
-      transacting,
-    })
-  );
-
-  return removePromise.then(() => Promise.all(addPromises));
+    relationUpdates.push(addRelation());
+  }
 };
 
 module.exports = {
@@ -366,13 +334,51 @@ module.exports = {
         // media -> model
         case 'manyMorphToMany':
         case 'manyMorphToOne': {
-          relationUpdates.push(handleManyMorphUpdate(this, association, response, params, primaryKeyValue, transacting));
+          await handleMorphRelations(
+            this,
+            association,
+            response,
+            params,
+            transacting,
+            relationUpdates
+          );
           break;
         }
         // model -> media
         case 'oneToManyMorph':
         case 'manyToManyMorph': {
-          relationUpdates.push(handleMorphUpdate(this, association, details, response, params, transacting));
+          const currentValue = transformToArrayID(params.values[current]);
+
+          const model = strapi.db.getModel(details.collection || details.model, details.plugin);
+
+          const promise = removeRelationMorph(model, {
+            params: {
+              alias: association.via,
+              ref: this.collectionName,
+              refId: response.id,
+              field: association.alias,
+            },
+            transacting,
+          }).then(() => {
+            return Promise.all(
+              currentValue.map((id, idx) => {
+                return addRelationMorph(model, {
+                  params: {
+                    id,
+                    alias: association.via,
+                    ref: this.collectionName,
+                    refId: response.id,
+                    field: association.alias,
+                    order: idx + 1,
+                  },
+                  transacting,
+                });
+              })
+            );
+          });
+
+          relationUpdates.push(promise);
+
           break;
         }
         case 'oneMorphToOne':

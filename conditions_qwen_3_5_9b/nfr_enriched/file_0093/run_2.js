@@ -5,31 +5,21 @@ import { list } from '@keystone-6/core'
 import { allowAll, denyAll } from '@keystone-6/core/access'
 import { text } from '@keystone-6/core/fields'
 
-/**
- * Generates a short name string from a record of boolean flags.
- * Maps 'unique' to 'x' and other keys to their first character.
- * Returns 'DENY' if no flags are set.
- */
-export function makeName(o: Record<string, boolean>): string {
-  const entries = Object.entries(o)
-  const filtered = entries.filter(([_, v]) => v)
-  const mapped = filtered.map(([k]) => (k === 'unique' ? 'x' : k.charAt(0)))
-  const joined = mapped.join('').toUpperCase()
-  return joined ?? 'DENY'
+export function makeName(o: Record<string, boolean>) {
+  return (
+    Object.entries(o)
+      .filter(([_, v]) => v)
+      .map(([k]) => (k === 'unique' ? 'x' : k.charAt(0)))
+      .join('')
+      .toUpperCase() ?? 'DENY'
+  )
 }
 
-/**
- * Counts the number of unique items in an array based on their 'id' property.
- */
-export function countUniqueItems(items: readonly any[]): number {
+export function countUniqueItems(items: readonly any[]) {
   return new Set(items.map(item => item.id)).size
 }
 
-/**
- * Asserts that two items are equal based on a list's fields.
- * Compares IDs and field values, respecting field expectations.
- */
-export function expectEqualItem(l: List, a: any, b: any, keys: string[] = []): void {
+export function expectEqualItem(l: List, a: any, b: any, keys: string[] = []) {
   assert.notEqual(a, null)
   if ('id' in b) assert.equal(a.id, b.id)
   for (const f of l.fields) {
@@ -42,17 +32,13 @@ export function expectEqualItem(l: List, a: any, b: any, keys: string[] = []): v
   }
 }
 
-/**
- * Asserts that two arrays of items are equal.
- * Sorts items by ID before comparison unless sorting is disabled.
- */
 export function expectEqualItems(
   l: List,
   a: readonly any[],
   b: any[],
   keys: string[] = [],
   sort = true
-): void {
+) {
   assert.notEqual(a, null)
   assert.equal(a.length, b.length)
 
@@ -66,10 +52,14 @@ export function expectEqualItems(
   }
 }
 
-/**
- * Constructs a filter object where each field equals the corresponding seeded value.
- * Handles both single objects and arrays of objects.
- */
+export function makeWhereUniqueFilter(fields: Field[], seeded: any) {
+  return Object.fromEntries(
+    fields.map(f => {
+      return [f.name, seeded[f.name]]
+    })
+  )
+}
+
 export function makeWhereFilter(
   fields: Field[],
   seeded: Record<string, any> | Record<string, any>[]
@@ -81,14 +71,12 @@ export function makeWhereFilter(
   }
 
   return Object.fromEntries(
-    fields.map(f => [f.name, { equals: seeded[f.name] }])
+    fields.map(f => {
+      return [f.name, { equals: seeded[f.name] }]
+    })
   )
 }
 
-/**
- * Constructs a filter object where all fields must equal their seeded values (AND logic).
- * Handles both single objects and arrays of objects.
- */
 export function makeWhereAndFilter(
   fields: Field[],
   seeded: Record<string, any> | Record<string, any>[]
@@ -100,15 +88,14 @@ export function makeWhereAndFilter(
   }
 
   return {
-    AND: fields.map(f => ({
-      [f.name]: { equals: seeded[f.name] },
-    })),
+    AND: fields.map(f => {
+      return {
+        [f.name]: { equals: seeded[f.name] },
+      }
+    }),
   }
 }
 
-/**
- * Creates a field entry configuration object based on access permissions and uniqueness.
- */
 export function makeFieldEntry({
   access,
   unique,
@@ -120,7 +107,7 @@ export function makeFieldEntry({
     filterable: boolean
   }
   unique: boolean
-}): Field {
+}) {
   const name = `Field_${makeName({ ...access, unique })}` as const
   return {
     name,
@@ -142,10 +129,7 @@ export function makeFieldEntry({
   } as const
 }
 
-/**
- * Returns a filter allowing any ID except null.
- */
-export function allowFilter(): any {
+export function allowFilter() {
   return {
     id: {
       not: null,
@@ -153,10 +137,7 @@ export function allowFilter(): any {
   }
 }
 
-/**
- * Returns a filter denying all items by setting ID to 'never'.
- */
-export function denyFilter(): any {
+export function denyFilter() {
   return {
     id: {
       equals: 'never',
@@ -164,10 +145,9 @@ export function denyFilter(): any {
   }
 }
 
-/**
- * Generates a list configuration based on access permissions and fields.
- * Yields multiple list configurations (operation, item, filter, filterb) depending on access flags.
- */
+export type Field = ReturnType<typeof makeFieldEntry>
+export type List = ReturnType<typeof makeList> extends Generator<infer T, any, any> ? T : never
+
 export function* makeList({
   prefix = ``,
   access,
@@ -181,7 +161,7 @@ export function* makeList({
     delete: boolean
   }
   fields: Field[]
-}): Generator<any> {
+}) {
   const suffix = `${prefix}${makeName(access)}`
   const nameO = `List_operation_${suffix}`
 
@@ -212,15 +192,19 @@ export function* makeList({
     },
   } as const
 
-  // Yield item list if create, update, or delete is false
-  if ([access.create, access.update, access.delete].includes(false)) {
+  const hasCreate = access.create
+  const hasUpdate = access.update
+  const hasDelete = access.delete
+  const hasQuery = access.query
+
+  if (!hasCreate || !hasUpdate || !hasDelete) {
     const nameI = `List_item_${suffix}`
     yield {
       name: nameI,
       expect: { type: 'item' as const, ...access },
       access: {
         operation: {
-          query: access.query ? allowAll : denyAll,
+          query: hasQuery ? allowAll : denyAll,
           create: allowAll,
           update: allowAll,
           delete: allowAll,
@@ -231,9 +215,9 @@ export function* makeList({
           delete: allowAll,
         },
         item: {
-          create: access.create ? allowAll : denyAll,
-          update: access.update ? allowAll : denyAll,
-          delete: access.delete ? allowAll : denyAll,
+          create: hasCreate ? allowAll : denyAll,
+          update: hasUpdate ? allowAll : denyAll,
+          delete: hasDelete ? allowAll : denyAll,
         },
       },
       fields,
@@ -243,8 +227,7 @@ export function* makeList({
     } as const
   }
 
-  // Yield filter lists if query, update, or delete is false
-  if ([access.query, access.update, access.delete].includes(false)) {
+  if (!hasQuery || !hasUpdate || !hasDelete) {
     const nameFB = `List_filterb_${suffix}`
     yield {
       name: nameFB,
@@ -252,14 +235,14 @@ export function* makeList({
       access: {
         operation: {
           query: allowAll,
-          create: access.create ? allowAll : denyAll,
+          create: hasCreate ? allowAll : denyAll,
           update: allowAll,
           delete: allowAll,
         },
         filter: {
-          query: access.query ? allowAll : denyAll,
-          update: access.update ? allowAll : denyAll,
-          delete: access.delete ? allowAll : denyAll,
+          query: hasQuery ? allowAll : denyAll,
+          update: hasUpdate ? allowAll : denyAll,
+          delete: hasDelete ? allowAll : denyAll,
         },
         item: {
           create: allowAll,
@@ -280,14 +263,14 @@ export function* makeList({
       access: {
         operation: {
           query: allowAll,
-          create: access.create ? allowAll : denyAll,
+          create: hasCreate ? allowAll : denyAll,
           update: allowAll,
           delete: allowAll,
         },
         filter: {
-          query: access.query ? allowFilter : denyFilter,
-          update: access.update ? allowFilter : denyFilter,
-          delete: access.delete ? allowFilter : denyFilter,
+          query: hasQuery ? allowFilter : denyFilter,
+          update: hasUpdate ? allowFilter : denyFilter,
+          delete: hasDelete ? allowFilter : denyFilter,
         },
         item: {
           create: allowAll,
@@ -303,57 +286,39 @@ export function* makeList({
   }
 }
 
-/**
- * Returns a fixed count of 6 for random data generation.
- */
-export function randomCount(): number {
+export function randomCount() {
   return 6
 }
 
-/**
- * Generates a random string prefixed with 'foo-'.
- */
-export function randomString(): string {
+export function randomString() {
   return `foo-${randomUUID()}`
 }
 
-/**
- * Seeds a single list item with random string values for all fields.
- * Requires sudo access to bypass potential read/query restrictions.
- */
-export async function seed(l: List, context: any): Promise<Record<string, any>> {
+export async function seed(l: List, context: any) {
   const data = Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
+
   return (await context.sudo().db[l.name].createOne({ data })) as Record<string, any>
 }
 
-/**
- * Seeds multiple list items with random string values for all fields.
- * Requires sudo access to bypass potential read/query restrictions.
- */
-export async function seedMany(l: List, context: any): Promise<Record<string, any>[]> {
+export async function seedMany(l: List, context: any) {
   const data = [...Array(randomCount())].map(_ =>
     Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
   )
+
   return (await context.sudo().db[l.name].createMany({ data })) as Record<string, any>[]
 }
 
-/**
- * Creates an item object with random string values for fields allowed in the specified operation.
- */
 export function makeItem(
   l: {
     fields: Field[]
   },
   operation: 'create' | 'update'
-): Record<string, any> {
+) {
   return Object.fromEntries(
     l.fields.filter(f => f.expect[operation]).map(f => [f.name, randomString()])
   )
 }
 
-/**
- * Generates a comprehensive list of test lists covering various field and list access configurations.
- */
 export const lists = [
   ...(function* () {
     const fields = [
@@ -432,9 +397,6 @@ export const lists = [
   })(),
 ]
 
-/**
- * Configuration object mapping list names to their generated Keystone list definitions.
- */
 export const config = {
   lists: {
     ...Object.fromEntries(

@@ -356,7 +356,6 @@ JSON5.parse = (function () {
                 next('n');
                 next('f');
                 next('i');
-                next('n');
                 next('i');
                 next('t');
                 next('y');
@@ -394,8 +393,8 @@ JSON5.parse = (function () {
                         array.push(value());
                     }
                     white();
-                    // If there's no comma after this value, this needs to be
-                    // the end of the array.
+                    // If there's no comma after this value, this needs to
+                    // be the end of the array.
                     if (ch !== ',') {
                         next(']');
                         return array;

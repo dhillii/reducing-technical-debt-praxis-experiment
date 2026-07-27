@@ -246,24 +246,31 @@ export default Model.extend(Comparable, ValidationEngine, {
     }),
 
     visibilitySegment: computed('visibility', 'isPublic', 'tiers', function () {
+        return this._getVisibilitySegment();
+    }),
+
+    _getVisibilitySegment() {
         if (this.isPublic) {
             return this.settings.defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
-        } else {
-            if (this.visibility === 'members') {
-                return 'status:free,status:-free';
-            }
-            if (this.visibility === 'paid') {
-                return 'status:-free';
-            }
-            if (this.visibility === 'tiers' && this.tiers) {
-                let filter = this.tiers.map((tier) => {
-                    return `tier:${tier.slug}`;
-                }).join(',');
-                return filter;
-            }
-            return this.visibility;
         }
-    }),
+
+        if (this.visibility === 'members') {
+            return 'status:free,status:-free';
+        }
+
+        if (this.visibility === 'paid') {
+            return 'status:-free';
+        }
+
+        if (this.visibility === 'tiers' && this.tiers) {
+            let filter = this.tiers.map((tier) => {
+                return `tier:${tier.slug}`;
+            }).join(',');
+            return filter;
+        }
+
+        return this.visibility;
+    },
 
     fullRecipientFilter: computed('newsletter.recipientFilter', 'emailSegment', function () {
         if (!this.newsletter) {
@@ -285,9 +292,9 @@ export default Model.extend(Comparable, ValidationEngine, {
             this.get('clock.second');
 
             return pastScheduledTime;
-        } else {
-            return false;
         }
+
+        return false;
     }),
 
     publishedAtBlogTZ: computed('publishedAtBlogDate', 'publishedAtBlogTime', 'settings.timezone', {

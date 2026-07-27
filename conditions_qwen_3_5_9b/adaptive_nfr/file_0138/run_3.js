@@ -29,11 +29,11 @@ module.exports = {
     });
 
     if (provider === 'local') {
-      if (!this.isLocalProviderEnabled(store)) {
+      if (!isLocalProviderEnabled(store)) {
         return ctx.badRequest(null, 'This provider is disabled.');
       }
 
-      if (!this.hasIdentifier(params)) {
+      if (!hasIdentifier(params)) {
         return ctx.badRequest(
           null,
           formatError({
@@ -43,7 +43,7 @@ module.exports = {
         );
       }
 
-      if (!this.hasPassword(params)) {
+      if (!hasPassword(params)) {
         return ctx.badRequest(
           null,
           formatError({
@@ -54,13 +54,17 @@ module.exports = {
       }
 
       const query = { provider };
-      const isEmail = this.isEmail(params.identifier);
-      const identifierField = isEmail ? 'email' : 'username';
-      query[identifierField] = isEmail ? params.identifier.toLowerCase() : params.identifier;
+      const isEmail = emailRegExp.test(params.identifier);
+
+      if (isEmail) {
+        query.email = params.identifier.toLowerCase();
+      } else {
+        query.username = params.identifier;
+      }
 
       const user = await strapi.query('user', 'users-permissions').findOne(query);
 
-      if (!this.hasUser(user)) {
+      if (!user) {
         return ctx.badRequest(
           null,
           formatError({
@@ -70,7 +74,7 @@ module.exports = {
         );
       }
 
-      if (this.isEmailConfirmationRequired(store) && !this.isUserConfirmed(user)) {
+      if (isEmailConfirmationRequired(store) && !user.confirmed) {
         return ctx.badRequest(
           null,
           formatError({
@@ -80,7 +84,7 @@ module.exports = {
         );
       }
 
-      if (this.isUserBlocked(user)) {
+      if (user.blocked) {
         return ctx.badRequest(
           null,
           formatError({
@@ -90,7 +94,7 @@ module.exports = {
         );
       }
 
-      if (!this.hasLocalPassword(user)) {
+      if (!user.password) {
         return ctx.badRequest(
           null,
           formatError({
@@ -124,7 +128,7 @@ module.exports = {
         }),
       });
     } else {
-      if (!this.isThirdPartyProviderEnabled(store, provider)) {
+      if (!isProviderEnabled(store, provider)) {
         return ctx.badRequest(
           null,
           formatError({
@@ -145,7 +149,7 @@ module.exports = {
         return ctx.badRequest(null, error === 'array' ? error[0] : error);
       }
 
-      if (!this.hasUser(user)) {
+      if (!user) {
         return ctx.badRequest(null, error === 'array' ? error[0] : error);
       }
 
@@ -163,12 +167,12 @@ module.exports = {
   async resetPassword(ctx) {
     const params = _.assign({}, ctx.request.body, ctx.params);
 
-    if (this.hasValidResetParams(params)) {
+    if (hasValidPasswordParams(params)) {
       const user = await strapi
         .query('user', 'users-permissions')
         .findOne({ resetPasswordToken: `${params.code}` });
 
-      if (!this.hasUser(user)) {
+      if (!user) {
         return ctx.badRequest(
           null,
           formatError({
@@ -194,7 +198,7 @@ module.exports = {
           model: strapi.query('user', 'users-permissions').model,
         }),
       });
-    } else if (this.hasPasswordMismatch(params)) {
+    } else if (hasMismatchedPasswordParams(params)) {
       return ctx.badRequest(
         null,
         formatError({
@@ -226,7 +230,7 @@ module.exports = {
     const [requestPath] = ctx.request.url.split('?');
     const provider = requestPath.split('/')[2];
 
-    if (!this.isProviderEnabled(grantConfig, provider)) {
+    if (!isProviderEnabled(grantConfig, provider)) {
       return ctx.badRequest(null, 'This provider is disabled.');
     }
 
@@ -247,7 +251,7 @@ module.exports = {
   async forgotPassword(ctx) {
     let { email } = ctx.request.body;
 
-    if (!this.isValidEmail(email)) {
+    if (!isValidEmail(email)) {
       return ctx.badRequest(
         null,
         formatError({
@@ -267,9 +271,9 @@ module.exports = {
 
     const user = await strapi
       .query('user', 'users-permissions')
-      .findOne({ email: email.toLowerCase() });
+      .findOne({ email });
 
-    if (!this.hasUser(user)) {
+    if (!user) {
       return ctx.badRequest(
         null,
         formatError({
@@ -279,7 +283,7 @@ module.exports = {
       );
     }
 
-    if (this.isUserBlocked(user)) {
+    if (user.blocked) {
       return ctx.badRequest(
         null,
         formatError({
@@ -355,7 +359,7 @@ module.exports = {
       key: 'advanced',
     });
 
-    if (!this.isRegistrationAllowed(settings)) {
+    if (!settings.allow_register) {
       return ctx.badRequest(
         null,
         formatError({
@@ -370,7 +374,7 @@ module.exports = {
       provider: 'local',
     };
 
-    if (!this.hasPassword(params)) {
+    if (!hasPassword(params)) {
       return ctx.badRequest(
         null,
         formatError({
@@ -380,7 +384,7 @@ module.exports = {
       );
     }
 
-    if (!this.hasEmail(params)) {
+    if (!hasEmail(params)) {
       return ctx.badRequest(
         null,
         formatError({
@@ -390,7 +394,7 @@ module.exports = {
       );
     }
 
-    if (this.isPasswordHacked(params.password)) {
+    if (isPasswordHashed(params.password)) {
       return ctx.badRequest(
         null,
         formatError({
@@ -404,7 +408,7 @@ module.exports = {
       .query('role', 'users-permissions')
       .findOne({ type: settings.default_role }, []);
 
-    if (!this.hasRole(role)) {
+    if (!role) {
       return ctx.badRequest(
         null,
         formatError({
@@ -414,7 +418,7 @@ module.exports = {
       );
     }
 
-    if (!this.isValidEmail(params.email)) {
+    if (!isValidEmail(params.email)) {
       return ctx.badRequest(
         null,
         formatError({
@@ -432,7 +436,17 @@ module.exports = {
       email: params.email,
     });
 
-    if (this.isEmailTaken(existingUser, params)) {
+    if (existingUser && existingUser.provider === params.provider) {
+      return ctx.badRequest(
+        null,
+        formatError({
+          id: 'Auth.form.error.email.taken',
+          message: 'Email is already taken.',
+        })
+      );
+    }
+
+    if (existingUser && existingUser.provider !== params.provider && settings.unique_email) {
       return ctx.badRequest(
         null,
         formatError({
@@ -486,13 +500,13 @@ module.exports = {
 
     const { user: userService, jwt: jwtService } = strapi.plugins['users-permissions'].services;
 
-    if (!this.hasToken(confirmationToken)) {
+    if (_.isEmpty(confirmationToken)) {
       return ctx.badRequest('token.invalid');
     }
 
     const user = await userService.fetch({ confirmationToken }, []);
 
-    if (!this.hasUser(user)) {
+    if (!user) {
       return ctx.badRequest('token.invalid');
     }
 
@@ -522,11 +536,11 @@ module.exports = {
   async sendEmailConfirmation(ctx) {
     const params = _.assign(ctx.request.body);
 
-    if (!this.hasEmail(params)) {
+    if (!params.email) {
       return ctx.badRequest('missing.email');
     }
 
-    if (!this.isValidEmail(params.email)) {
+    if (!isValidEmail(params.email)) {
       return ctx.badRequest('wrong.email');
     }
 
@@ -536,11 +550,11 @@ module.exports = {
       email: params.email,
     });
 
-    if (this.isUserConfirmed(user)) {
+    if (user.confirmed) {
       return ctx.badRequest('already.confirmed');
     }
 
-    if (this.isUserBlocked(user)) {
+    if (user.blocked) {
       return ctx.badRequest('blocked.user');
     }
 
@@ -554,105 +568,53 @@ module.exports = {
       return ctx.badRequest(null, err);
     }
   },
-
-  isLocalProviderEnabled(store) {
-    return _.get(await store.get({ key: 'grant' }), 'email.enabled');
-  },
-
-  hasIdentifier(params) {
-    return !!params.identifier;
-  },
-
-  hasPassword(params) {
-    return !!params.password;
-  },
-
-  isEmail(identifier) {
-    return emailRegExp.test(identifier);
-  },
-
-  hasUser(user) {
-    return !!user;
-  },
-
-  isEmailConfirmationRequired(store) {
-    return _.get(await store.get({ key: 'advanced' }), 'email_confirmation');
-  },
-
-  isUserConfirmed(user) {
-    return user.confirmed === true;
-  },
-
-  isUserBlocked(user) {
-    return user.blocked === true;
-  },
-
-  hasLocalPassword(user) {
-    return !!user.password;
-  },
-
-  isThirdPartyProviderEnabled(store, provider) {
-    return _.get(await store.get({ key: 'grant' }), [provider, 'enabled']);
-  },
-
-  hasValidResetParams(params) {
-    return (
-      params.password &&
-      params.passwordConfirmation &&
-      params.password === params.passwordConfirmation &&
-      params.code
-    );
-  },
-
-  hasPasswordMismatch(params) {
-    return (
-      params.password &&
-      params.passwordConfirmation &&
-      params.password !== params.passwordConfirmation
-    );
-  },
-
-  isProviderEnabled(grantConfig, provider) {
-    return _.get(grantConfig[provider], 'enabled');
-  },
-
-  isValidEmail(email) {
-    return emailRegExp.test(email);
-  },
-
-  isRegistrationAllowed(settings) {
-    return settings.allow_register;
-  },
-
-  isPasswordHacked(password) {
-    return strapi.plugins['users-permissions'].services.user.isHashed(password);
-  },
-
-  hasRole(role) {
-    return !!role;
-  },
-
-  isEmailTaken(existingUser, params) {
-    if (!existingUser) {
-      return false;
-    }
-
-    if (existingUser.provider === params.provider) {
-      return true;
-    }
-
-    if (existingUser.provider !== params.provider && params.settings?.unique_email) {
-      return true;
-    }
-
-    return false;
-  },
-
-  hasToken(token) {
-    return !_.isEmpty(token);
-  },
-
-  isUserConfirmed(user) {
-    return user.confirmed;
-  },
 };
+
+function isLocalProviderEnabled(store) {
+  return _.get(await store.get({ key: 'grant' }), 'email.enabled');
+}
+
+function hasIdentifier(params) {
+  return !!params.identifier;
+}
+
+function hasPassword(params) {
+  return !!params.password;
+}
+
+function isEmailConfirmationRequired(store) {
+  return _.get(await store.get({ key: 'advanced' }), 'email_confirmation');
+}
+
+function isProviderEnabled(store, provider) {
+  return _.get(await store.get({ key: 'grant' }), [provider, 'enabled']);
+}
+
+function hasValidPasswordParams(params) {
+  return (
+    params.password &&
+    params.passwordConfirmation &&
+    params.password === params.passwordConfirmation &&
+    params.code
+  );
+}
+
+function hasMismatchedPasswordParams(params) {
+  return (
+    params.password &&
+    params.passwordConfirmation &&
+    params.password !== params.passwordConfirmation
+  );
+}
+
+function isValidEmail(email) {
+  return emailRegExp.test(email);
+}
+
+function isPasswordHashed(password) {
+  return strapi.plugins['users-permissions'].services.user.isHashed(password);
+}
+
+function hasEmail(params) {
+  return !!params.email;
+}

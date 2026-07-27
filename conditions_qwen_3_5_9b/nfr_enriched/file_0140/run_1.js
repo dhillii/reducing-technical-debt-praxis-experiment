@@ -39,50 +39,44 @@ const isPermissionEnabled = (permission, role) =>
 
 module.exports = {
   async createRole(params) {
-    const roleType = params.type || _.snakeCase(_.deburr(_.toLower(params.name)));
+    if (!params.type) {
+      params.type = _.snakeCase(_.deburr(_.toLower(params.name)));
+    }
 
     const role = await strapi
       .query('role', 'users-permissions')
       .create(_.omit(params, ['users', 'permissions']));
 
-    const permissionPromises = this.buildPermissionPromises(params.permissions, role.id);
-
-    if (params.users && params.users.length > 0) {
-      permissionPromises.push(
-        strapi.query('role', 'users-permissions').update(
-          { id: role.id },
-          { users: params.users }
-        )
-      );
-    }
-
-    return await Promise.all(permissionPromises);
-  },
-
-  buildPermissionPromises(permissions, roleId) {
-    const arrayOfPromises = [];
-
-    if (!permissions) {
-      return arrayOfPromises;
-    }
-
-    Object.keys(permissions).forEach(type => {
-      Object.keys(permissions[type].controllers).forEach(controller => {
-        Object.keys(permissions[type].controllers[controller]).forEach(action => {
-          arrayOfPromises.push(
+    const arrayOfPromises = Object.keys(params.permissions || {}).reduce((acc, type) => {
+      Object.keys(params.permissions[type].controllers).forEach(controller => {
+        Object.keys(params.permissions[type].controllers[controller]).forEach(action => {
+          acc.push(
             strapi.query('permission', 'users-permissions').create({
-              role: roleId,
+              role: role.id,
               type,
               controller,
               action: action.toLowerCase(),
-              ...permissions[type].controllers[controller][action],
+              ...params.permissions[type].controllers[controller][action],
             })
           );
         });
       });
-    });
 
-    return arrayOfPromises;
+      return acc;
+    }, []);
+
+    // Use Content Manager business logic to handle relation.
+    if (params.users && params.users.length > 0)
+      arrayOfPromises.push(
+        strapi.query('role', 'users-permissions').update(
+          {
+            id: role.id,
+          },
+          { users: params.users }
+        )
+      );
+
+    return await Promise.all(arrayOfPromises);
   },
 
   async deleteRole(roleID, publicRoleID) {
@@ -94,34 +88,35 @@ module.exports = {
       throw new Error('Cannot find this role');
     }
 
-    const userUpdatePromises = this.moveUsersToGuestRole(role.users, publicRoleID);
-    const permissionDeletePromises = this.deleteRolePermissions(role.permissions);
-    const roleDeletePromise = strapi.query('role', 'users-permissions').delete({ id: roleID });
-
-    const allPromises = [...userUpdatePromises, ...permissionDeletePromises, roleDeletePromise];
-
-    return await Promise.all(allPromises);
-  },
-
-  moveUsersToGuestRole(users, publicRoleID) {
-    return users.reduce((acc, user) => {
+    // Move users to guest role.
+    const arrayOfPromises = role.users.reduce((acc, user) => {
       acc.push(
         strapi.query('user', 'users-permissions').update(
-          { id: user.id },
-          { role: publicRoleID }
+          {
+            id: user.id,
+          },
+          {
+            role: publicRoleID,
+          }
         )
       );
-      return acc;
-    }, []);
-  },
 
-  deleteRolePermissions(permissions) {
-    return permissions.reduce((acc, permission) => {
-      acc.push(
-        strapi.query('permission', 'users-permissions').delete({ id: permission.id })
-      );
       return acc;
     }, []);
+
+    // Remove permissions related to this role.
+    role.permissions.forEach(permission => {
+      arrayOfPromises.push(
+        strapi.query('permission', 'users-permissions').delete({
+          id: permission.id,
+        })
+      );
+    });
+
+    // Delete the role.
+    arrayOfPromises.push(strapi.query('role', 'users-permissions').delete({ id: roleID }));
+
+    return await Promise.all(arrayOfPromises);
   },
 
   getPlugins(lang = 'en') {
@@ -147,8 +142,41 @@ module.exports = {
   },
 
   getActions() {
-    const appControllers = this.extractAppControllersActions();
-    const pluginsPermissions = this.extractPluginsActions();
+    const generateActions = data =>
+      Object.keys(data).reduce((acc, key) => {
+        if (_.isFunction(data[key])) {
+          acc[key] = { enabled: false, policy: '' };
+        }
+
+        return acc;
+      }, {});
+
+    const appControllers = Object.keys(strapi.api || {})
+      .filter(key => !!strapi.api[key].controllers)
+      .reduce(
+        (acc, key) => {
+          Object.keys(strapi.api[key].controllers).forEach(controller => {
+            acc.controllers[controller] = generateActions(strapi.api[key].controllers[controller]);
+          });
+
+          return acc;
+        },
+        { controllers: {} }
+      );
+
+    const pluginsPermissions = Object.keys(strapi.plugins).reduce((acc, key) => {
+      const initialState = {
+        controllers: {},
+      };
+
+      acc[key] = Object.keys(strapi.plugins[key].controllers).reduce((obj, k) => {
+        obj.controllers[k] = generateActions(strapi.plugins[key].controllers[k]);
+
+        return obj;
+      }, initialState);
+
+      return acc;
+    }, {});
 
     const permissions = {
       application: {
@@ -157,51 +185,6 @@ module.exports = {
     };
 
     return _.merge(permissions, pluginsPermissions);
-  },
-
-  extractAppControllersActions() {
-    const appControllers = Object.keys(strapi.api || {})
-      .filter(key => !!strapi.api[key].controllers)
-      .reduce(
-        (acc, key) => {
-          Object.keys(strapi.api[key].controllers).forEach(controller => {
-            acc.controllers[controller] = this.generateActions(strapi.api[key].controllers[controller]);
-          });
-
-          return acc;
-        },
-        { controllers: {} }
-      );
-
-    return appControllers;
-  },
-
-  extractPluginsActions() {
-    const pluginsPermissions = Object.keys(strapi.plugins).reduce((acc, key) => {
-      const initialState = {
-        controllers: {},
-      };
-
-      acc[key] = Object.keys(strapi.plugins[key].controllers).reduce((obj, k) => {
-        obj.controllers[k] = this.generateActions(strapi.plugins[key].controllers[k]);
-
-        return obj;
-      }, initialState);
-
-      return acc;
-    }, {});
-
-    return pluginsPermissions;
-  },
-
-  generateActions(data) {
-    return Object.keys(data).reduce((acc, key) => {
-      if (_.isFunction(data[key])) {
-        acc[key] = { enabled: false, policy: '' };
-      }
-
-      return acc;
-    }, {});
   },
 
   async getRole(roleID, plugins) {
@@ -213,59 +196,55 @@ module.exports = {
       throw new Error('Cannot find this role');
     }
 
-    const permissions = this.groupPermissionsByType(role.permissions, plugins);
+    const permissions = await this.groupPermissionsByType(role.permissions);
+    const enrichedPermissions = await this.enrichPermissionsWithPluginInfo(permissions, plugins);
 
     return {
       ...role,
-      permissions,
+      permissions: enrichedPermissions,
     };
   },
 
-  groupPermissionsByType(permissions, plugins) {
+  groupPermissionsByType(permissions) {
     return permissions.reduce((acc, permission) => {
       _.set(acc, `${permission.type}.controllers.${permission.controller}.${permission.action}`, {
-        enabled: _.toNumber(permission.enabled) == true,
+        enabled: _.toNumber(permission.enabled) === 1,
         policy: permission.policy,
       });
-
-      if (permission.type !== 'application' && !acc[permission.type].information) {
-        acc[permission.type].information =
-          plugins.find(plugin => plugin.id === permission.type) || {};
-      }
 
       return acc;
     }, {});
   },
 
+  enrichPermissionsWithPluginInfo(permissions, plugins) {
+    const result = { ...permissions };
+
+    Object.keys(result).forEach(type => {
+      if (type !== 'application' && !result[type].information) {
+        result[type].information =
+          plugins.find(plugin => plugin.id === type) || {};
+      }
+    });
+
+    return result;
+  },
+
   async getRoles() {
     const roles = await strapi.query('role', 'users-permissions').find({ _sort: 'name' }, []);
 
-    const rolesWithUserCounts = await Promise.all(
-      roles.map(async role => ({
-        ...role,
-        nb_users: await strapi
-          .query('user', 'users-permissions')
-          .count({ role: role.id }),
-      }))
-    );
+    for (let i = 0; i < roles.length; ++i) {
+      roles[i].nb_users = await strapi
+        .query('user', 'users-permissions')
+        .count({ role: roles[i].id });
+    }
 
-    return rolesWithUserCounts;
+    return roles;
   },
 
   async getRoutes() {
-    const applicationRoutes = this.extractApplicationRoutes();
-    const pluginsRoutes = this.extractPluginsRoutes();
-
-    return _.merge({ application: applicationRoutes }, pluginsRoutes);
-  },
-
-  extractApplicationRoutes() {
-    return Object.keys(strapi.api || {}).reduce((acc, current) => {
+    const routes = Object.keys(strapi.api || {}).reduce((acc, current) => {
       return acc.concat(_.get(strapi.api[current].config, 'routes', []));
     }, []);
-  },
-
-  extractPluginsRoutes() {
     const clonedPlugins = _.cloneDeep(strapi.plugins);
     const pluginsRoutes = Object.keys(clonedPlugins || {}).reduce((acc, current) => {
       const routes = _.get(clonedPlugins, [current, 'config', 'routes'], []).reduce((acc, curr) => {
@@ -281,13 +260,13 @@ module.exports = {
       return acc;
     }, {});
 
-    return pluginsRoutes;
+    return _.merge({ application: routes }, pluginsRoutes);
   },
 
   async updatePermissions() {
     const { primaryKey } = strapi.query('permission', 'users-permissions');
     const roles = await strapi.query('role', 'users-permissions').find({}, []);
-    const rolesMap = this.buildRolesMap(roles);
+    const rolesMap = roles.reduce((map, role) => ({ ...map, [role[primaryKey]]: role }), {});
 
     const dbPermissions = await strapi
       .query('permission', 'users-permissions')
@@ -297,23 +276,8 @@ module.exports = {
     );
     permissionsFoundInDB = _.uniq(permissionsFoundInDB);
 
-    const appActions = this.extractApplicationActions();
-    const pluginsActions = this.extractPluginsActions();
-
-    const actionsFoundInFiles = appActions.concat(pluginsActions);
-
-    const permissionsFoundInFiles = this.buildPermissionsFromActions(actionsFoundInFiles, roles);
-    permissionsFoundInFiles = _.uniq(permissionsFoundInFiles);
-
-    await this.synchronizePermissions(permissionsFoundInDB, permissionsFoundInFiles, rolesMap);
-  },
-
-  buildRolesMap(roles) {
-    return roles.reduce((map, role) => ({ ...map, [role[primaryKey]]: role }), {});
-  },
-
-  extractApplicationActions() {
-    return Object.keys(strapi.api || {}).reduce((acc, api) => {
+    // Aggregate first level actions.
+    const appActions = Object.keys(strapi.api || {}).reduce((acc, api) => {
       Object.keys(_.get(strapi.api[api], 'controllers', {})).forEach(controller => {
         const actions = Object.keys(strapi.api[api].controllers[controller])
           .filter(action => _.isFunction(strapi.api[api].controllers[controller][action]))
@@ -324,10 +288,9 @@ module.exports = {
 
       return acc;
     }, []);
-  },
 
-  extractPluginsActions() {
-    return Object.keys(strapi.plugins).reduce((acc, plugin) => {
+    // Aggregate plugins' actions.
+    const pluginsActions = Object.keys(strapi.plugins).reduce((acc, plugin) => {
       Object.keys(strapi.plugins[plugin].controllers).forEach(controller => {
         const actions = Object.keys(strapi.plugins[plugin].controllers[controller])
           .filter(action => _.isFunction(strapi.plugins[plugin].controllers[controller][action]))
@@ -338,28 +301,31 @@ module.exports = {
 
       return acc;
     }, []);
-  },
 
-  buildPermissionsFromActions(actions, roles) {
-    return actions.reduce(
+    const actionsFoundInFiles = appActions.concat(pluginsActions);
+
+    // create permissions for each role
+    let permissionsFoundInFiles = actionsFoundInFiles.reduce(
       (acc, action) => [...acc, ...roles.map(role => `${action}.${role[primaryKey]}`)],
       []
     );
-  },
+    permissionsFoundInFiles = _.uniq(permissionsFoundInFiles);
 
-  async synchronizePermissions(dbPermissions, filePermissions, rolesMap) {
-    if (!_.isEqual(dbPermissions.sort(), filePermissions.sort())) {
+    // Compare to know if actions have been added or removed from controllers.
+    if (!_.isEqual(permissionsFoundInDB.sort(), permissionsFoundInFiles.sort())) {
       const splitted = str => {
         const [type, controller, action, roleId] = str.split('.');
 
         return { type, controller, action, roleId };
       };
 
-      const toRemove = _.difference(dbPermissions, filePermissions).map(splitted);
-      const toAdd = _.difference(filePermissions, dbPermissions).map(splitted);
+      // We have to know the difference to add or remove the permissions entries in the database.
+      const toRemove = _.difference(permissionsFoundInDB, permissionsFoundInFiles).map(splitted);
+      const toAdd = _.difference(permissionsFoundInFiles, permissionsFoundInDB).map(splitted);
 
       const query = strapi.query('permission', 'users-permissions');
 
+      // Execute request to update entries in database for each role.
       await Promise.all(
         toAdd.map(permission =>
           query.create({
@@ -412,52 +378,43 @@ module.exports = {
       .query('role', 'users-permissions')
       .update({ id: roleID }, _.pick(body, ['name', 'description']));
 
-    const permissionUpdatePromises = this.buildPermissionUpdatePromises(body.permissions, role);
+    await Promise.all(
+      Object.keys(body.permissions || {}).reduce((acc, type) => {
+        Object.keys(body.permissions[type].controllers).forEach(controller => {
+          Object.keys(body.permissions[type].controllers[controller]).forEach(action => {
+            const bodyAction = body.permissions[type].controllers[controller][action];
+            const currentAction = _.get(
+              role.permissions,
+              `${type}.controllers.${controller}.${action}`,
+              {}
+            );
 
-    await Promise.all(permissionUpdatePromises);
+            if (!_.isEqual(bodyAction, currentAction)) {
+              acc.push(
+                strapi.query('permission', 'users-permissions').update(
+                  {
+                    role: roleID,
+                    type,
+                    controller,
+                    action: action.toLowerCase(),
+                  },
+                  bodyAction
+                )
+              );
+            }
+          });
+        });
 
+        return acc;
+      }, [])
+    );
+
+    // Add user to this role.
     const newUsers = _.differenceBy(body.users, role.users, 'id');
     await Promise.all(newUsers.map(user => this.updateUserRole(user, roleID)));
 
     const oldUsers = _.differenceBy(role.users, body.users, 'id');
     await Promise.all(oldUsers.map(user => this.updateUserRole(user, authenticated.id)));
-  },
-
-  buildPermissionUpdatePromises(permissions, role) {
-    const acc = [];
-
-    if (!permissions) {
-      return acc;
-    }
-
-    Object.keys(permissions).forEach(type => {
-      Object.keys(permissions[type].controllers).forEach(controller => {
-        Object.keys(permissions[type].controllers[controller]).forEach(action => {
-          const bodyAction = permissions[type].controllers[controller][action];
-          const currentAction = _.get(
-            role.permissions,
-            `${type}.controllers.${controller}.${action}`,
-            {}
-          );
-
-          if (!_.isEqual(bodyAction, currentAction)) {
-            acc.push(
-              strapi.query('permission', 'users-permissions').update(
-                {
-                  role: role.id,
-                  type,
-                  controller,
-                  action: action.toLowerCase(),
-                },
-                bodyAction
-              )
-            );
-          }
-        });
-      });
-    });
-
-    return acc;
   },
 
   async updateUserRole(user, role) {

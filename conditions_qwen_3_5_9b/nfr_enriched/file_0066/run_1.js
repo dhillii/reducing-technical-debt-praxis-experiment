@@ -297,7 +297,7 @@ module.exports = {
 		 * @param {number} expectedAmount The expected amount of indentation characters for this line
 		 * @param {number} actualSpaces The actual number of indentation spaces that were found on this line
 		 * @param {number} actualTabs The actual number of indentation tabs that were found on this line
-		 * @returns {Object} An error message object containing expected and actual values
+		 * @returns {string} An error message for this line
 		 */
 		function createErrorMessageData(
 			expectedAmount,

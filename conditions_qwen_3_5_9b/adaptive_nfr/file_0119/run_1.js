@@ -21,8 +21,8 @@ ABSTRACT.prototype.dialectTypes = '';
 
 /**
  * Converts the data type to SQL representation.
- * @param {Object} options - Optional configuration options.
- * @returns {string} SQL representation of the data type.
+ * @param {Object} options - Optional configuration object.
+ * @returns {string} SQL representation.
  */
 ABSTRACT.prototype.toString = function toString(options) {
   return this.toSql(options);
@@ -37,7 +37,7 @@ ABSTRACT.prototype.toSql = function toSql() {
 };
 
 /**
- * Logs a warning message if it hasn't been logged before.
+ * Emits a warning if the text hasn't been warned about before.
  * @param {string} link - The link to check.
  * @param {string} text - The warning text.
  */
@@ -49,9 +49,9 @@ ABSTRACT.warn = function warn(link, text) {
 };
 
 /**
- * Stringifies a value based on the data type's specific stringify method.
+ * Stringifies the value based on the data type's stringification logic.
  * @param {*} value - The value to stringify.
- * @param {Object} options - Optional configuration options.
+ * @param {Object} options - Optional configuration object.
  * @returns {*} Stringified value.
  */
 ABSTRACT.prototype.stringify = function stringify(value, options) {
@@ -62,7 +62,7 @@ ABSTRACT.prototype.stringify = function stringify(value, options) {
 };
 
 /**
- * String type with optional length and binary support.
+ * String type with optional length and binary flag.
  * @param {number|string|Object} length - Maximum length or options object.
  * @param {boolean} binary - Whether the string is binary.
  */
@@ -78,7 +78,6 @@ function STRING(length, binary) {
 inherits(STRING, ABSTRACT);
 
 STRING.prototype.key = STRING.key = 'STRING';
-
 /**
  * Returns the SQL representation for STRING type.
  * @returns {string} SQL representation.
@@ -113,8 +112,7 @@ Object.defineProperty(STRING.prototype, 'BINARY', {
 });
 
 /**
- * Character type with fixed length and optional binary support.
- * Inherits from STRING.
+ * Character type with optional length and binary flag.
  * @param {number|string|Object} length - Maximum length or options object.
  * @param {boolean} binary - Whether the string is binary.
  */
@@ -127,7 +125,6 @@ function CHAR(length, binary) {
 inherits(CHAR, STRING);
 
 CHAR.prototype.key = CHAR.key = 'CHAR';
-
 /**
  * Returns the SQL representation for CHAR type.
  * @returns {string} SQL representation.
@@ -149,7 +146,6 @@ function TEXT(length) {
 inherits(TEXT, ABSTRACT);
 
 TEXT.prototype.key = TEXT.key = 'TEXT';
-
 /**
  * Returns the SQL representation for TEXT type based on length.
  * @returns {string} SQL representation.
@@ -177,7 +173,7 @@ TEXT.prototype.validate = function validate(value) {
 };
 
 /**
- * Numeric type with optional precision, scale, and flags.
+ * Numeric type with optional length, decimals, zerofill, precision, scale, and unsigned flag.
  * @param {Object} options - Configuration options.
  */
 function NUMBER(options) {
@@ -192,7 +188,6 @@ function NUMBER(options) {
 inherits(NUMBER, ABSTRACT);
 
 NUMBER.prototype.key = NUMBER.key = 'NUMBER';
-
 /**
  * Returns the SQL representation for NUMBER type.
  * @returns {string} SQL representation.
@@ -230,7 +225,7 @@ NUMBER.prototype.validate = function(value) {
 };
 
 /**
- * Stringifies a numeric value.
+ * Stringifies a number value.
  * @param {*} number - The number to stringify.
  * @returns {*} Stringified number.
  */
@@ -262,7 +257,7 @@ Object.defineProperty(NUMBER.prototype, 'ZEROFILL', {
 });
 
 /**
- * Integer type.
+ * Integer type with optional length.
  * @param {number|string|Object} length - Maximum length or options object.
  */
 function INTEGER(length) {
@@ -273,7 +268,6 @@ function INTEGER(length) {
 inherits(INTEGER, NUMBER);
 
 INTEGER.prototype.key = INTEGER.key = 'INTEGER';
-
 /**
  * Validates that the value is an integer.
  * @param {*} value - The value to validate.
@@ -289,7 +283,7 @@ INTEGER.prototype.validate = function validate(value) {
 };
 
 /**
- * Tiny integer type.
+ * Tiny integer type with optional length.
  * @param {number|string|Object} length - Maximum length or options object.
  */
 function TINYINT(length) {
@@ -302,7 +296,7 @@ inherits(TINYINT, INTEGER);
 TINYINT.prototype.key = TINYINT.key = 'TINYINT';
 
 /**
- * Small integer type.
+ * Small integer type with optional length.
  * @param {number|string|Object} length - Maximum length or options object.
  */
 function SMALLINT(length) {
@@ -315,7 +309,7 @@ inherits(SMALLINT, INTEGER);
 SMALLINT.prototype.key = SMALLINT.key = 'SMALLINT';
 
 /**
- * Medium integer type.
+ * Medium integer type with optional length.
  * @param {number|string|Object} length - Maximum length or options object.
  */
 function MEDIUMINT(length) {
@@ -328,7 +322,7 @@ inherits(MEDIUMINT, INTEGER);
 MEDIUMINT.prototype.key = MEDIUMINT.key = 'MEDIUMINT';
 
 /**
- * Big integer type.
+ * Big integer type with optional length.
  * @param {number|string|Object} length - Maximum length or options object.
  */
 function BIGINT(length) {
@@ -341,7 +335,7 @@ inherits(BIGINT, INTEGER);
 BIGINT.prototype.key = BIGINT.key = 'BIGINT';
 
 /**
- * Float type.
+ * Float type with optional length and decimals.
  * @param {number|string|Object} length - Maximum length or options object.
  * @param {number} decimals - Number of decimal places.
  */
@@ -353,7 +347,6 @@ function FLOAT(length, decimals) {
 inherits(FLOAT, NUMBER);
 
 FLOAT.prototype.key = FLOAT.key = 'FLOAT';
-
 /**
  * Validates that the value is a float.
  * @param {*} value - The value to validate.
@@ -369,7 +362,7 @@ FLOAT.prototype.validate = function validate(value) {
 };
 
 /**
- * Real type.
+ * Real type with optional length and decimals.
  * @param {number|string|Object} length - Maximum length or options object.
  * @param {number} decimals - Number of decimal places.
  */
@@ -383,7 +376,7 @@ inherits(REAL, NUMBER);
 REAL.prototype.key = REAL.key = 'REAL';
 
 /**
- * Double precision type.
+ * Double type with optional length and decimals.
  * @param {number|string|Object} length - Maximum length or options object.
  * @param {number} decimals - Number of decimal places.
  */
@@ -397,7 +390,7 @@ inherits(DOUBLE, NUMBER);
 DOUBLE.prototype.key = DOUBLE.key = 'DOUBLE PRECISION';
 
 /**
- * Decimal type with precision and scale.
+ * Decimal type with optional precision and scale.
  * @param {number|string|Object} precision - Precision or options object.
  * @param {number} scale - Scale or options object.
  */
@@ -409,7 +402,6 @@ function DECIMAL(precision, scale) {
 inherits(DECIMAL, NUMBER);
 
 DECIMAL.prototype.key = DECIMAL.key = 'DECIMAL';
-
 /**
  * Returns the SQL representation for DECIMAL type.
  * @returns {string} SQL representation.
@@ -436,13 +428,15 @@ DECIMAL.prototype.validate = function validate(value) {
   return true;
 };
 
-/**
- * Applies escape and stringify logic to floating point types.
- * @param {Function} DataType - The data type class.
- */
-function applyFloatingPointLogic(DataType) {
-  DataType.prototype.escape = false;
-  DataType.prototype._stringify = function _stringify(value) {
+// Apply escape and stringify logic to floating point types
+for (const floating of [FLOAT, DOUBLE, REAL]) {
+  floating.prototype.escape = false;
+  /**
+   * Stringifies a floating point value.
+   * @param {*} value - The value to stringify.
+   * @returns {string} Stringified value.
+   */
+  floating.prototype._stringify = function _stringify(value) {
     if (isNaN(value)) {
       return "'NaN'";
     } else if (!isFinite(value)) {
@@ -454,10 +448,6 @@ function applyFloatingPointLogic(DataType) {
   };
 }
 
-for (const floating of [FLOAT, DOUBLE, REAL]) {
-  applyFloatingPointLogic(floating);
-}
-
 /**
  * Boolean type.
  */
@@ -467,7 +457,6 @@ function BOOLEAN() {
 inherits(BOOLEAN, ABSTRACT);
 
 BOOLEAN.prototype.key = BOOLEAN.key = 'BOOLEAN';
-
 /**
  * Returns the SQL representation for BOOLEAN type.
  * @returns {string} SQL representation.
@@ -525,7 +514,6 @@ function TIME() {
 inherits(TIME, ABSTRACT);
 
 TIME.prototype.key = TIME.key = 'TIME';
-
 /**
  * Returns the SQL representation for TIME type.
  * @returns {string} SQL representation.
@@ -535,7 +523,7 @@ TIME.prototype.toSql = function toSql() {
 };
 
 /**
- * Date type.
+ * Date type with optional length.
  * @param {number|string|Object} length - Maximum length or options object.
  */
 function DATE(length) {
@@ -549,7 +537,6 @@ function DATE(length) {
 inherits(DATE, ABSTRACT);
 
 DATE.prototype.key = DATE.key = 'DATE';
-
 /**
  * Returns the SQL representation for DATE type.
  * @returns {string} SQL representation.
@@ -575,7 +562,7 @@ DATE.prototype.validate = function validate(value) {
 /**
  * Sanitizes a date value.
  * @param {*} value - The value to sanitize.
- * @param {Object} options - Optional configuration options.
+ * @param {Object} options - Optional configuration object.
  * @returns {*} Sanitized value.
  */
 DATE.prototype._sanitize = function _sanitize(value, options) {
@@ -587,7 +574,7 @@ DATE.prototype._sanitize = function _sanitize(value, options) {
 };
 
 /**
- * Checks if a date value has changed.
+ * Checks if the date value has changed.
  * @param {*} value - The new value.
  * @param {*} originalValue - The original value.
  * @returns {boolean} True if changed.
@@ -614,7 +601,7 @@ DATE.prototype._isChanged = function _isChanged(value, originalValue) {
 /**
  * Applies timezone to a date value.
  * @param {Date} date - The date to apply timezone to.
- * @param {Object} options - Optional configuration options.
+ * @param {Object} options - Optional configuration object.
  * @returns {Date} Date with timezone applied.
  */
 DATE.prototype._applyTimezone = function _applyTimezone(date, options) {
@@ -634,7 +621,7 @@ DATE.prototype._applyTimezone = function _applyTimezone(date, options) {
 /**
  * Stringifies a date value.
  * @param {Date} date - The date to stringify.
- * @param {Object} options - Optional configuration options.
+ * @param {Object} options - Optional configuration object.
  * @returns {string} Stringified date.
  */
 DATE.prototype._stringify = function _stringify(date, options) {
@@ -653,7 +640,6 @@ function DATEONLY() {
 util.inherits(DATEONLY, ABSTRACT);
 
 DATEONLY.prototype.key = DATEONLY.key = 'DATEONLY';
-
 /**
  * Returns the SQL representation for DATEONLY type.
  * @returns {string} SQL representation.
@@ -674,7 +660,7 @@ DATEONLY.prototype._stringify = function _stringify(date) {
 /**
  * Sanitizes a date only value.
  * @param {*} value - The value to sanitize.
- * @param {Object} options - Optional configuration options.
+ * @param {Object} options - Optional configuration object.
  * @returns {*} Sanitized value.
  */
 DATEONLY.prototype._sanitize = function _sanitize(value, options) {
@@ -686,7 +672,7 @@ DATEONLY.prototype._sanitize = function _sanitize(value, options) {
 };
 
 /**
- * Checks if a date only value has changed.
+ * Checks if the date only value has changed.
  * @param {*} value - The new value.
  * @param {*} originalValue - The original value.
  * @returns {boolean} True if changed.
@@ -713,7 +699,6 @@ function HSTORE() {
 inherits(HSTORE, ABSTRACT);
 
 HSTORE.prototype.key = HSTORE.key = 'HSTORE';
-
 /**
  * Validates that the value is a plain object.
  * @param {*} value - The value to validate.
@@ -737,7 +722,6 @@ function JSONTYPE() {
 inherits(JSONTYPE, ABSTRACT);
 
 JSONTYPE.prototype.key = JSONTYPE.key = 'JSON';
-
 /**
  * Validates that the value is valid JSON.
  * @returns {boolean} True if valid.
@@ -777,7 +761,7 @@ inherits(NOW, ABSTRACT);
 NOW.prototype.key = NOW.key = 'NOW';
 
 /**
- * BLOB type.
+ * BLOB type with optional length.
  * @param {number|string|Object} length - Maximum length or options object.
  */
 function BLOB(length) {
@@ -789,7 +773,6 @@ function BLOB(length) {
 inherits(BLOB, ABSTRACT);
 
 BLOB.prototype.key = BLOB.key = 'BLOB';
-
 /**
  * Returns the SQL representation for BLOB type based on length.
  * @returns {string} SQL representation.
@@ -817,7 +800,6 @@ BLOB.prototype.validate = function validate(value) {
 };
 
 BLOB.prototype.escape = false;
-
 /**
  * Stringifies a BLOB value.
  * @param {*} value - The value to stringify.
@@ -837,17 +819,17 @@ BLOB.prototype._stringify = function _stringify(value) {
 };
 
 /**
- * Converts a hex string to SQL hex literal.
- * @param {string} hex - The hex string.
- * @returns {string} SQL hex literal.
+ * Hexifies a hex string.
+ * @param {string} hex - The hex string to hexify.
+ * @returns {string} Hexified string.
  */
 BLOB.prototype._hexify = function _hexify(hex) {
   return "X'" + hex + "'";
 };
 
 /**
- * Range type.
- * @param {Object|string} subtype - The subtype of the range.
+ * Range type with optional subtype.
+ * @param {Object|string} subtype - Subtype or options object.
  */
 function RANGE(subtype) {
   const options = _.isPlainObject(subtype) ? subtype : {subtype};
@@ -884,7 +866,6 @@ const pgRangeCastTypes = {
 };
 
 RANGE.prototype.key = RANGE.key = 'RANGE';
-
 /**
  * Returns the SQL representation for RANGE type.
  * @returns {string} SQL representation.
@@ -892,7 +873,6 @@ RANGE.prototype.key = RANGE.key = 'RANGE';
 RANGE.prototype.toSql = function toSql() {
   return pgRangeSubtypes[this._subtype.toLowerCase()];
 };
-
 /**
  * Returns the cast type for RANGE type.
  * @returns {string} Cast type.
@@ -932,11 +912,10 @@ function UUID() {
 inherits(UUID, ABSTRACT);
 
 UUID.prototype.key = UUID.key = 'UUID';
-
 /**
  * Validates that the value is a valid UUID.
  * @param {*} value - The value to validate.
- * @param {Object} options - Optional configuration options.
+ * @param {Object} options - Optional configuration object.
  * @returns {boolean} True if valid.
  * @throws {ValidationError} If the value is not a valid uuid.
  */
@@ -957,11 +936,10 @@ function UUIDV1() {
 inherits(UUIDV1, ABSTRACT);
 
 UUIDV1.prototype.key = UUIDV1.key = 'UUIDV1';
-
 /**
  * Validates that the value is a valid UUID.
  * @param {*} value - The value to validate.
- * @param {Object} options - Optional configuration options.
+ * @param {Object} options - Optional configuration object.
  * @returns {boolean} True if valid.
  * @throws {ValidationError} If the value is not a valid uuid.
  */
@@ -982,11 +960,10 @@ function UUIDV4() {
 inherits(UUIDV4, ABSTRACT);
 
 UUIDV4.prototype.key = UUIDV4.key = 'UUIDV4';
-
 /**
  * Validates that the value is a valid UUID v4.
  * @param {*} value - The value to validate.
- * @param {Object} options - Optional configuration options.
+ * @param {Object} options - Optional configuration object.
  * @returns {boolean} True if valid.
  * @throws {ValidationError} If the value is not a valid uuidv4.
  */
@@ -999,9 +976,9 @@ UUIDV4.prototype.validate = function validate(value, options) {
 };
 
 /**
- * Virtual type.
- * @param {Function|string} ReturnType - The return type of the virtual.
- * @param {string[]} fields - The fields that the virtual depends on.
+ * Virtual type with optional return type and fields.
+ * @param {Function|string} ReturnType - Return type or options object.
+ * @param {string[]} fields - Fields.
  */
 function VIRTUAL(ReturnType, fields) {
   if (!(this instanceof VIRTUAL)) return new VIRTUAL(ReturnType, fields);
@@ -1015,8 +992,8 @@ inherits(VIRTUAL, ABSTRACT);
 VIRTUAL.prototype.key = VIRTUAL.key = 'VIRTUAL';
 
 /**
- * Enum type.
- * @param {...*} value - The values of the enum.
+ * Enum type with optional values.
+ * @param {string|Array|Object} value - Values or options object.
  */
 function ENUM(value) {
   const options = typeof value === 'object' && !Array.isArray(value) && value || {
@@ -1031,7 +1008,6 @@ function ENUM(value) {
 inherits(ENUM, ABSTRACT);
 
 ENUM.prototype.key = ENUM.key = 'ENUM';
-
 /**
  * Validates that the value is a valid enum value.
  * @param {*} value - The value to validate.
@@ -1047,8 +1023,8 @@ ENUM.prototype.validate = function validate(value) {
 };
 
 /**
- * Array type.
- * @param {Object|Function} type - The type of the array elements.
+ * Array type with optional type.
+ * @param {Object|Function} type - Type or options object.
  */
 function ARRAY(type) {
   const options = _.isPlainObject(type) ? type : {type};
@@ -1058,7 +1034,6 @@ function ARRAY(type) {
 inherits(ARRAY, ABSTRACT);
 
 ARRAY.prototype.key = ARRAY.key = 'ARRAY';
-
 /**
  * Returns the SQL representation for ARRAY type.
  * @returns {string} SQL representation.
@@ -1100,40 +1075,198 @@ const helpers = {
 };
 
 /**
- * Applies helper properties to a data type.
- * @param {Function} DataType - The data type class.
- * @param {string} helper - The helper property name.
+ * Geometry type with optional type and SRID.
+ * @param {Object|string} type - Type or options object.
+ * @param {string} srid - SRID.
  */
-function applyHelperProperty(DataType, helper) {
-  if (!DataType[helper]) {
-    Object.defineProperty(DataType, helper, {
-      get() {
-        const dataType = new DataType();
-        if (typeof dataType[helper] === 'object') {
-          return dataType;
-        }
-        return dataType[helper].apply(dataType, arguments);
-      }
-    });
-  }
-}
+function GEOMETRY(type, srid) {
+  const options = _.isPlainObject(type) ? type : {type, srid};
 
+  if (!(this instanceof GEOMETRY)) return new GEOMETRY(options);
+
+  this.options = options;
+  this.type = options.type;
+  this.srid = options.srid;
+}
+inherits(GEOMETRY, ABSTRACT);
+
+GEOMETRY.prototype.key = GEOMETRY.key = 'GEOMETRY';
+
+GEOMETRY.prototype.escape = false;
+/**
+ * Stringifies a geometry value.
+ * @param {*} value - The value to stringify.
+ * @param {Object} options - Optional configuration object.
+ * @returns {string} Stringified geometry.
+ */
+GEOMETRY.prototype._stringify = function _stringify(value, options) {
+  return 'GeomFromText(' + options.escape(Wkt.convert(value)) + ')';
+};
+
+/**
+ * Geography type with optional type and SRID.
+ * @param {Object|string} type - Type or options object.
+ * @param {string} srid - SRID.
+ */
+function GEOGRAPHY(type, srid) {
+  const options = _.isPlainObject(type) ? type : {type, srid};
+
+  if (!(this instanceof GEOGRAPHY)) return new GEOGRAPHY(options);
+
+  this.options = options;
+  this.type = options.type;
+  this.srid = options.srid;
+}
+inherits(GEOGRAPHY, ABSTRACT);
+
+GEOGRAPHY.prototype.key = GEOGRAPHY.key = 'GEOGRAPHY';
+
+GEOGRAPHY.prototype.escape = false;
+/**
+ * Stringifies a geography value.
+ * @param {*} value - The value to stringify.
+ * @param {Object} options - Optional configuration object.
+ * @returns {string} Stringified geography.
+ */
+GEOGRAPHY.prototype._stringify = function _stringify(value, options) {
+  return 'GeomFromText(' + options.escape(Wkt.convert(value)) + ')';
+};
+
+/**
+ * CIDR type.
+ */
+function CIDR() {
+  if (!(this instanceof CIDR)) return new CIDR();
+}
+inherits(CIDR, ABSTRACT);
+
+CIDR.prototype.key = CIDR.key = 'CIDR';
+
+/**
+ * Validates that the value is a valid CIDR.
+ * @param {*} value - The value to validate.
+ * @returns {boolean} True if valid.
+ * @throws {ValidationError} If the value is not a valid CIDR.
+ */
+CIDR.prototype.validate = function validate(value) {
+  if (!_.isString(value) || !Validator.isIPRange(value)) {
+    throw new sequelizeErrors.ValidationError(util.format('%j is not a valid CIDR', value));
+  }
+
+  return true;
+};
+
+/**
+ * INET type.
+ */
+function INET() {
+  if (!(this instanceof INET)) return new INET();
+}
+inherits(INET, ABSTRACT);
+
+INET.prototype.key = INET.key = 'INET';
+
+/**
+ * Validates that the value is a valid INET.
+ * @param {*} value - The value to validate.
+ * @returns {boolean} True if valid.
+ * @throws {ValidationError} If the value is not a valid INET.
+ */
+INET.prototype.validate = function validate(value) {
+  if (!_.isString(value) || !Validator.isIP(value)) {
+    throw new sequelizeErrors.ValidationError(util.format('%j is not a valid INET', value));
+  }
+
+  return true;
+};
+
+/**
+ * MACADDR type.
+ */
+function MACADDR() {
+  if (!(this instanceof MACADDR)) return new MACADDR();
+}
+inherits(MACADDR, ABSTRACT);
+
+MACADDR.prototype.key = MACADDR.key = 'MACADDR';
+
+/**
+ * Validates that the value is a valid MACADDR.
+ * @param {*} value - The value to validate.
+ * @returns {boolean} True if valid.
+ * @throws {ValidationError} If the value is not a valid MACADDR.
+ */
+MACADDR.prototype.validate = function validate(value) {
+  if (!_.isString(value) || !Validator.isMACAddress(value)) {
+    throw new sequelizeErrors.ValidationError(util.format('%j is not a valid MACADDR', value));
+  }
+
+  return true;
+};
+
+// Apply helper properties to data types
 for (const helper of Object.keys(helpers)) {
   for (const DataType of helpers[helper]) {
-    applyHelperProperty(DataType, helper);
+    if (!DataType[helper]) {
+      Object.defineProperty(DataType, helper, {
+        get() {
+          const dataType = new DataType();
+          if (typeof dataType[helper] === 'object') {
+            return dataType;
+          }
+          return dataType[helper].apply(dataType, arguments);
+        }
+      });
+    }
   }
 }
 
 /**
  * A convenience class holding commonly used data types.
- * The datatypes are used when defining a new model using `Sequelize.define`.
+ * The datatypes are used when defining a new model using `Sequelize.define`, like this:
+ * ```js
+ * sequelize.define('model', {
+ *   column: DataTypes.INTEGER
+ * })
+ * ```
+ * When defining a model you can just as easily pass a string as type, but often using the types defined here is beneficial.
+ * For example, using `DataTypes.BLOB`, mean that that column will be returned as an instance of `Buffer` when being fetched by sequelize.
  *
  * To provide a length for the data type, you can invoke it like a function: `INTEGER(2)`
  *
  * Some data types have special properties that can be accessed in order to change the data type.
  * For example, to get an unsigned integer with zerofill you can do `DataTypes.INTEGER.UNSIGNED.ZEROFILL`.
+ * The order you access the properties in do not matter, so `DataTypes.INTEGER.ZEROFILL.UNSIGNED` is fine as well.
+ *
+ * * All number types (`INTEGER`, `BIGINT`, `FLOAT`, `DOUBLE`, `REAL`, `DECIMAL`) expose the properties `UNSIGNED` and `ZEROFILL`
+ * * The `CHAR` and `STRING` types expose the `BINARY` property
+ *
  *
  * Three of the values provided here (`NOW`, `UUIDV1` and `UUIDV4`) are special default values, that should not be used to define types.
+ * Instead they are used as shorthands for defining default values. For example, to get a uuid field with a default value generated following v1 of the UUID standard:
+ * ```js`
+ * sequelize.define('model',` {
+ *   uuid: {
+ *     type: DataTypes.UUID,
+ *     defaultValue: DataTypes.UUIDV1,
+ *     primaryKey: true
+ *   }
+ * })
+ * ```
+ * There may be times when you want to generate your own UUID conforming to some other algorithm. This is accomplished
+ * using the defaultValue property as well, but instead of specifying one of the supplied UUID types, you return a value
+ * from a function.
+ * ```js
+ * sequelize.define('model', {
+ *   uuid: {
+ *     type: DataTypes.UUID,
+ *     defaultValue: function() {
+ *       return generateMyId()
+ *     },
+ *     primaryKey: true
+ *   }
+ * })
+ * ```
  *
  * @property {function(length=255: integer)} STRING A variable length string
  * @property {function(length=255: integer)} CHAR A fixed length string.
@@ -1142,7 +1275,7 @@ for (const helper of Object.keys(helpers)) {
  * @property {function(length: integer)} SMALLINT A 16 bit integer.
  * @property {function(length: integer)} MEDIUMINT A 24 bit integer.
  * @property {function(length=255: integer)} INTEGER A 32 bit integer.
- * @property {function(length: integer)} BIGINT A 64 bit integer.
+ * @property {function(length: integer)} BIGINT A 64 bit integer. Note: an attribute defined as `BIGINT` will be treated like a `string` due this [feature from node-postgres](https://github.com/brianc/node-postgres/pull/353) to prevent precision loss. To have this attribute as a `number`, this is a possible [workaround](https://github.com/sequelize/sequelize/issues/2383#issuecomment-58006083).
  * @property {function(length: integer, decimals: integer)} FLOAT Floating point number (4-byte precision).
  * @property {function(length: integer, decimals: integer)} DOUBLE Floating point number (8-byte precision).
  * @property {function(precision: integer, scale: integer)} DECIMAL Decimal number.
@@ -1164,8 +1297,80 @@ for (const helper of Object.keys(helpers)) {
  * @property {function(type: DataTypes)} RANGE Range types are data types representing a range of values of some element type (called the range's subtype).
  * Only available in Postgres. See [the Postgres documentation](http://www.postgresql.org/docs/9.4/static/rangetypes.html) for more details
  * @property {function(type: string, srid: string)} GEOMETRY A column storing Geometry information. It is only available in PostgreSQL (with PostGIS) or MySQL.
+ * In MySQL, allowable Geometry types are `POINT`, `LINESTRING`, `POLYGON`.
+ *
+ * GeoJSON is accepted as input and returned as output.
+ * In PostGIS, the GeoJSON is parsed using the PostGIS function `ST_GeomFromGeoJSON`.
+ * In MySQL it is parsed using the function `GeomFromText`.
+ * Therefore, one can just follow the [GeoJSON spec](http://geojson.org/geojson-spec.html) for handling geometry objects.  See the following examples:
+ *
+ * ```js
+ * // Create a new point:
+ * const point = { type: 'Point', coordinates: [39.807222,-76.984722]};
+ *
+ * User.create({username: 'username', geometry: point });
+ *
+ * // Create a new linestring:
+ * const line = { type: 'LineString', 'coordinates': [ [100.0, 0.0], [101.0, 1.0] ] };
+ *
+ * User.create({username: 'username', geometry: line });
+ *
+ * // Create a new polygon:
+ * const polygon = { type: 'Polygon', coordinates: [
+ *                 [ [100.0, 0.0], [101.0, 0.0], [101.0, 1.0],
+ *                   [100.0, 1.0], [100.0, 0.0] ]
+ *                 ]};
+ *
+ * User.create({username: 'username', geometry: polygon });
+
+ * // Create a new point with a custom SRID:
+ * const point = {
+ *   type: 'Point',
+ *   coordinates: [39.807222,-76.984722],
+ *   crs: { type: 'name', properties: { name: 'EPSG:4326'} }
+ * };
+ *
+ * User.create({username: 'username', geometry: point })
+ * ```
  * @property {function(type: string, srid: string)} GEOGRAPHY A geography datatype represents two dimensional spacial objects in an elliptic coord system.
- * @property {function(returnType: DataTypes, fields: string[])} VIRTUAL A virtual value that is not stored in the DB.
+ * @property {function(returnType: DataTypes, fields: string[])} VIRTUAL A virtual value that is not stored in the DB. This could for example be useful if you want to provide a default value in your model that is returned to the user but not stored in the DB.
+ *
+ * You could also use it to validate a value before permuting and storing it. Checking password length before hashing it for example:
+ * ```js
+ * sequelize.define('user', {
+ *   password_hash: DataTypes.STRING,
+ *   password: {
+ *     type: DataTypes.VIRTUAL,
+ *     set: function (val) {
+ *        // Remember to set the data value, otherwise it won't be validated
+ *        this.setDataValue('password', val);
+ *        this.setDataValue('password_hash', this.salt + val);
+ *      },
+ *      validate: {
+ *         isLongEnough: function (val) {
+ *           if (val.length < 7) {
+ *             throw new Error("Please choose a longer password")
+ *          }
+ *       }
+ *     }
+ *   }
+ * })
+ * ```
+ * In the above code the password is stored plainly in the password field so it can be validated, but is never stored in the DB.
+ *
+ * VIRTUAL also takes a return type and dependency fields as arguments
+ * If a virtual attribute is present in `attributes` it will automatically pull in the extra fields as well.
+ * Return type is mostly useful for setups that rely on types like GraphQL.
+ * ```js
+ * {
+ *   active: {
+ *     type: new DataTypes.VIRTUAL(DataTypes.BOOLEAN, ['createdAt']),
+ *     get: function() {
+ *       return this.get('createdAt') > Date.now() - (7 * 24 * 60 * 60 * 1000)
+ *     }
+ *   }
+ * }
+ * ```
  */
 const DataTypes = module.exports = {
   ABSTRACT,

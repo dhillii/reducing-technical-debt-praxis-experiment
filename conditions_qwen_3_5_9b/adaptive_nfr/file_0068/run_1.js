@@ -11,7 +11,7 @@
 const { LazyLoadingRuleMap } = require("./utils/lazy-loading-rule-map");
 
 /**
- * Creates a lazy-loading rule map for the specified ESLint rule.
+ * Creates a lazy-loading rule map for a specific ESLint rule.
  * @param {string} ruleName - The name of the ESLint rule.
  * @returns {() => import("../types").Rule.RuleModule} A function that returns the rule module.
  */
@@ -21,7 +21,7 @@ function createRuleLoader(ruleName) {
 
 /**
  * Builds the rule configuration object containing all built-in rules.
- * @returns {Record<string, () => import("../types").Rule.RuleModule>} An object mapping rule names to their loaders.
+ * @returns {Object<string, () => import("../types").Rule.RuleModule>} An object mapping rule names to their loaders.
  */
 function buildRuleConfig() {
 	return {

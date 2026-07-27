@@ -22,6 +22,7 @@ yup.addMethod(yup.array, 'notEmptyMin', function(min) {
     if (isEmpty(value)) {
       return true;
     }
+
     return value.length >= min;
   });
 });
@@ -31,9 +32,11 @@ yup.addMethod(yup.string, 'isInferior', function(message, max) {
     if (!value) {
       return true;
     }
+
     if (Number.isNaN(toNumber(value))) {
       return true;
     }
+
     return toNumber(max) >= toNumber(value);
   });
 });
@@ -43,9 +46,11 @@ yup.addMethod(yup.string, 'isSuperior', function(message, min) {
     if (!value) {
       return true;
     }
+
     if (Number.isNaN(toNumber(value))) {
       return true;
     }
+
     return toNumber(value) >= toNumber(min);
   });
 });
@@ -66,11 +71,14 @@ const createYupSchemaAttribute = (type, validations, options) => {
         if (value === undefined) {
           return true;
         }
+
         if (isNumber(value) || isNull(value) || isObject(value) || isArray(value)) {
           return true;
         }
+
         try {
           JSON.parse(value);
+
           return true;
         } catch (err) {
           return false;
@@ -118,6 +126,7 @@ const createYupSchemaAttribute = (type, validations, options) => {
                 schema = schema.required(errorsTrads.required);
               } else {
                 schema = schema.test('required', errorsTrads.required, value => {
+                  // Field is not touched and the user is editing the entry
                   if (value === undefined && !options.isFromComponent) {
                     return true;
                   }
@@ -126,6 +135,7 @@ const createYupSchemaAttribute = (type, validations, options) => {
                     if (value === 0) {
                       return true;
                     }
+
                     return !!value;
                   }
 
@@ -142,6 +152,7 @@ const createYupSchemaAttribute = (type, validations, options) => {
               }
             }
           }
+
           break;
         }
 
@@ -336,6 +347,7 @@ const createYupSchema = (
               });
           }
         } else {
+          // eslint-disable-next-line no-lonely-if
           if (min) {
             dynamicZoneSchema = dynamicZoneSchema.notEmptyMin(min);
           }

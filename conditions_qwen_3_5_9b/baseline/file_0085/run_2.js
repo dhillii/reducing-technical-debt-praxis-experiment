@@ -1,3 +1,5 @@
+// @ts-expect-error
+import dumbPasswords from 'dumb-passwords'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useSlotId } from '@react-aria/utils'
 
@@ -18,32 +20,6 @@ import type {
   FieldControllerConfig,
   FieldProps,
 } from '../../../../types'
-
-import dumbPasswords from 'dumb-passwords'
-
-type Validation = {
-  rejectCommon: boolean
-  match: {
-    regex: RegExp
-    explanation: string
-  } | null
-  length: {
-    min: number
-    max: number | null
-  }
-}
-
-type Value =
-  | {
-      kind: 'initial'
-      isSet: boolean | null
-    }
-  | {
-      kind: 'editing'
-      isSet: boolean | null
-      value: string
-      confirm: string
-    }
 
 function validate(
   value: Value,
@@ -200,7 +176,7 @@ export function Field(props: FieldProps<typeof controller>) {
           />
           <TextField
             aria-label={`confirm ${field.label}`}
-            aria-describedby={messageId}
+            aria-describedby={messageId} // don't repeat the description announcement for the confirm field
             // @ts-expect-error — needs to be fixed in "@keystar/ui"
             isInvalid={!!validationMessage}
             onBlur={() => setTouched({ ...touched, confirm: true })}
@@ -250,6 +226,45 @@ export const Cell: CellComponent<typeof controller> = ({ value }) => {
   )
 }
 
+type Validation = {
+  rejectCommon: boolean
+  match: {
+    regex: RegExp
+    explanation: string
+  } | null
+  length: {
+    min: number
+    max: number | null
+  }
+}
+
+export type PasswordFieldMeta = {
+  isNullable: boolean
+  validation: {
+    rejectCommon: boolean
+    match: {
+      regex: { source: string; flags: string }
+      explanation: string
+    } | null
+    length: {
+      min: number
+      max: number | null
+    }
+  }
+}
+
+type Value =
+  | {
+      kind: 'initial'
+      isSet: boolean | null
+    }
+  | {
+      kind: 'editing'
+      isSet: boolean | null
+      value: string
+      confirm: string
+    }
+
 export function controller(config: FieldControllerConfig<PasswordFieldMeta>): FieldController<
   Value,
   boolean | null,
@@ -270,7 +285,6 @@ export function controller(config: FieldControllerConfig<PasswordFieldMeta>): Fi
             explanation: config.fieldMeta.validation.match.explanation,
           },
   }
-
   return {
     fieldKey: config.fieldKey,
     label: config.label,
@@ -333,20 +347,5 @@ export function controller(config: FieldControllerConfig<PasswordFieldMeta>): Fi
               },
             },
           },
-  }
-}
-
-export type PasswordFieldMeta = {
-  isNullable: boolean
-  validation: {
-    rejectCommon: boolean
-    match: {
-      regex: { source: string; flags: string }
-      explanation: string
-    } | null
-    length: {
-      min: number
-      max: number | null
-    }
   }
 }

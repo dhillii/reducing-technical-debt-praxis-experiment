@@ -14,9 +14,9 @@ const { getManyRelations } = require('./utils/associations');
 const migrateSchemas = async ({ ORM, loadedModel, definition, connection, model }, context) => {
   // Add created_at and updated_at field if timestamp option is true
   if (loadedModel.hasTimestamps) {
-    const timestampKeys = loadedModel.hasTimestamps;
-    definition.attributes[timestampKeys[0]] = { type: 'currentTimestamp' };
-    definition.attributes[timestampKeys[1]] = { type: 'currentTimestamp' };
+    const timestampFields = loadedModel.hasTimestamps;
+    definition.attributes[timestampFields[0]] = { type: 'currentTimestamp' };
+    definition.attributes[timestampFields[1]] = { type: 'currentTimestamp' };
   }
 
   // Equilize tables
@@ -101,8 +101,9 @@ const migrateSchemas = async ({ ORM, loadedModel, definition, connection, model 
 
   // Remove from attributes (auto handled by bookshelf and not displayed on ctb)
   if (loadedModel.hasTimestamps) {
-    delete definition.attributes[loadedModel.hasTimestamps[0]];
-    delete definition.attributes[loadedModel.hasTimestamps[1]];
+    const timestampFields = loadedModel.hasTimestamps;
+    delete definition.attributes[timestampFields[0]];
+    delete definition.attributes[timestampFields[1]];
   }
 };
 
@@ -162,7 +163,7 @@ const buildColType = ({ name, attribute, table, tableExists = false, definition,
     return table.specificType(name, attribute.columnType);
   }
 
-  const typeMap = {
+  const typeToBuilder = {
     uuid: () => table.uuid(name),
     uid: () => {
       table.unique(name);
@@ -195,9 +196,9 @@ const buildColType = ({ name, attribute, table, tableExists = false, definition,
     boolean: () => table.boolean(name),
   };
 
-  const typeHandler = typeMap[attribute.type];
-  if (typeHandler) {
-    return typeHandler();
+  const builder = typeToBuilder[attribute.type];
+  if (builder) {
+    return builder();
   }
 
   return null;

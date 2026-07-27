@@ -89,29 +89,31 @@ const InputModalStepper = ({
     goNext();
   };
 
-  const goBack = (elementName = null) => {
-    const hasFilesToUpload = !isEmpty(filesToUpload);
+  const hasFilesToUpload = () => !isEmpty(filesToUpload);
 
+  const shouldConfirmClose = (elementName, currentStep) => {
     if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
-      if (hasFilesToUpload) {
-        const confirm = globalThis.confirm(
-          formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-        );
-        if (!confirm) {
-          return;
-        }
+      return hasFilesToUpload();
+    }
+    if (elementName === 'backButton' && backButtonDestination && currentStep === 'browse') {
+      return hasFilesToUpload();
+    }
+    return false;
+  };
+
+  const handleBackNavigation = (elementName = null) => {
+    const hasFiles = hasFilesToUpload();
+
+    if (shouldConfirmClose(elementName, currentStep)) {
+      const confirm = globalThis.confirm(
+        formatMessage({ id: getTrad('window.confirm.close-modal.files') })
+      );
+      if (!confirm) {
+        return;
       }
-      goTo(backButtonDestination);
-      handleClearFilesToUploadAndDownload();
-      return;
     }
 
-    if (
-      elementName === 'backButton' &&
-      backButtonDestination &&
-      currentStep === 'browse' &&
-      hasFilesToUpload
-    ) {
+    if (elementName === 'backButton' && backButtonDestination && currentStep === 'browse' && hasFiles) {
       goTo(backButtonDestination);
       return;
     }
@@ -156,7 +158,7 @@ const InputModalStepper = ({
 
   const handleGoToAddBrowseFiles = () => {
     handleCleanFilesError();
-    goBack();
+    handleBackNavigation();
   };
 
   const handleSubmitEditNewFile = e => {
@@ -171,31 +173,33 @@ const InputModalStepper = ({
     goNext();
   };
 
-  const handleCloseModalWarning = async () => {
-    if (shouldDeleteFile) {
-      const { id } = fileToEdit;
-      try {
-        const requestURL = getRequestUrl(`files/${id}`);
-        await request(requestURL, { method: 'DELETE' });
-        setShouldDeleteFile(false);
-        handleFileSelection({ target: { name: id } });
-        goToList();
-      } catch (err) {
-        console.error(err);
-        const status = get(err, 'response.status', get(err, 'status', null));
-        const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
-        const errorMessage = get(
-          err,
-          ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
-          get(err, ['response', 'payload', 'message'], statusText)
-        );
-        strapi.notification.toggle({
-          type: 'warning',
-          message: errorMessage,
-        });
-        if (status) {
-          handleSetFileToEditError(errorMessage);
-        }
+  const handleDeleteFile = async () => {
+    if (!shouldDeleteFile) {
+      return;
+    }
+
+    const { id } = fileToEdit;
+    try {
+      const requestURL = getRequestUrl(`files/${id}`);
+      await request(requestURL, { method: 'DELETE' });
+      setShouldDeleteFile(false);
+      handleFileSelection({ target: { name: id } });
+      goToList();
+    } catch (err) {
+      console.error(err);
+      const status = get(err, 'response.status', get(err, 'status', null));
+      const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
+      const errorMessage = get(
+        err,
+        ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
+        get(err, ['response', 'payload', 'message'], statusText)
+      );
+      strapi.notification.toggle({
+        type: 'warning',
+        message: errorMessage,
+      });
+      if (status) {
+        handleSetFileToEditError(errorMessage);
       }
     }
   };
@@ -208,21 +212,26 @@ const InputModalStepper = ({
   ) => {
     e.preventDefault();
     submitEditExistingFile();
+
     if (isSubmittingAfterCrop) {
       emitEvent('didCropFile', {
         duplicatedFile: shouldDuplicateMedia,
         location: 'content-manager',
       });
     }
+
     const headers = {};
     const formData = new FormData();
     const didCropFile = file instanceof File;
     const { abortController, id, fileInfo } = fileToEdit;
     const requestURL = shouldDuplicateMedia ? `/${pluginId}` : `/${pluginId}?id=${id}`;
+
     if (didCropFile) {
       formData.append('files', file);
     }
+
     formData.append('fileInfo', JSON.stringify(fileInfo));
+
     try {
       const editedFile = await request(
         requestURL,
@@ -245,9 +254,11 @@ const InputModalStepper = ({
         ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
         get(err, ['response', 'payload', 'message'], statusText)
       );
+
       if (status === 413) {
         errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
       }
+
       if (status) {
         handleSetFileToEditError(errorMessage);
       }
@@ -263,6 +274,7 @@ const InputModalStepper = ({
         return;
       }
     }
+
     if (
       (currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles)) ||
       (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
@@ -275,6 +287,7 @@ const InputModalStepper = ({
         return;
       }
     }
+
     onToggle(true);
   };
 
@@ -287,7 +300,7 @@ const InputModalStepper = ({
     <>
       <Modal isOpen={isOpen} onToggle={handleToggle} onClosed={handleCloseModal}>
         <ModalHeader
-          goBack={goBack}
+          goBack={handleBackNavigation}
           HeaderComponent={HeaderComponent}
           headerBreadcrumbs={headerBreadcrumbs}
           withBackButton={withBackButton}
@@ -324,6 +337,7 @@ const InputModalStepper = ({
             withBackButton={withBackButton}
           />
         )}
+
         <ModalFooter>
           <section>
             <Button type="button" color="cancel" onClick={handleToggle}>
@@ -373,6 +387,7 @@ const InputModalStepper = ({
                 >
                   {formatMessage({ id: getTrad('control-card.replace-media') })}
                 </Button>
+
                 <Button
                   disabled={isFormDisabled || areButtonsDisabledOnEditExistingFile}
                   color="success"
@@ -392,7 +407,7 @@ const InputModalStepper = ({
         </ModalFooter>
       </Modal>
       <PopUpWarning
-        onClosed={handleCloseModalWarning}
+        onClosed={handleDeleteFile}
         isOpen={isWarningDeleteOpen}
         toggleModal={toggleModalWarning}
         popUpWarningType="danger"

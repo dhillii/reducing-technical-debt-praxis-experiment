@@ -389,7 +389,7 @@ describe("ast-utils", () => {
 			const sourceCode = new SourceCode(code, ast);
 			const comments = sourceCode.getAllComments();
 
-			comments.forEach(assertFalse);
+			comments.forEach assertFalse);
 		});
 
 		it("should return false if it is not a directive block comment", () => {
@@ -403,7 +403,7 @@ describe("ast-utils", () => {
 			const sourceCode = new SourceCode(code, ast);
 			const comments = sourceCode.getAllComments();
 
-			comments.forEach(assertFalse);
+			comments.forEach assertFalse);
 		});
 
 		it("should return true if it is a directive line comment", () => {
@@ -417,7 +417,7 @@ describe("ast-utils", () => {
 			const sourceCode = new SourceCode(code, ast);
 			const comments = sourceCode.getAllComments();
 
-			comments.forEach(assertTrue);
+			comments.forEach assertTrue);
 		});
 
 		it("should return true if it is a directive block comment", () => {
@@ -435,7 +435,7 @@ describe("ast-utils", () => {
 			const sourceCode = new SourceCode(code, ast);
 			const comments = sourceCode.getAllComments();
 
-			comments.forEach(assertTrue);
+			comments.forEach assertTrue);
 		});
 	});
 

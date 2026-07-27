@@ -87,43 +87,46 @@ const QueryGenerator = {
   },
 
   createTableQuery(tableName, attributes, options) {
-    const query = "IF OBJECT_ID('<%= table %>', 'U') IS NULL CREATE TABLE <%= table %> (<%= attributes %>)",
-      primaryKeys = [],
-      foreignKeys = {},
-      attrStr = [];
+    const query = "IF OBJECT_ID('<%= table %>', 'U') IS NULL CREATE TABLE <%= table %> (<%= attributes %>)";
+    const primaryKeys = [];
+    const foreignKeys = {};
+    const attrStr = [];
+
+    const processAttribute = (attr, dataType) => {
+      let match;
+      if (_.includes(dataType, 'PRIMARY KEY')) {
+        primaryKeys.push(attr);
+
+        if (_.includes(dataType, 'REFERENCES')) {
+          // MSSQL doesn't support inline REFERENCES declarations: move to the end
+          match = dataType.match(/^(.+) (REFERENCES.*)$/);
+          attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1].replace(/PRIMARY KEY/, ''));
+          foreignKeys[attr] = match[2];
+        } else {
+          attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType.replace(/PRIMARY KEY/, ''));
+        }
+      } else if (_.includes(dataType, 'REFERENCES')) {
+        // MSSQL doesn't support inline REFERENCES declarations: move to the end
+        match = dataType.match(/^(.+) (REFERENCES.*)$/);
+        attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1]);
+        foreignKeys[attr] = match[2];
+      } else {
+        attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType);
+      }
+    };
 
     for (const attr in attributes) {
       if (attributes.hasOwnProperty(attr)) {
-        const dataType = attributes[attr];
-        let match;
-
-        if (_.includes(dataType, 'PRIMARY KEY')) {
-          primaryKeys.push(attr);
-
-          if (_.includes(dataType, 'REFERENCES')) {
-            // MSSQL doesn't support inline REFERENCES declarations: move to the end
-            match = dataType.match(/^(.+) (REFERENCES.*)$/);
-            attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1].replace(/PRIMARY KEY/, ''));
-            foreignKeys[attr] = match[2];
-          } else {
-            attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType.replace(/PRIMARY KEY/, ''));
-          }
-        } else if (_.includes(dataType, 'REFERENCES')) {
-          // MSSQL doesn't support inline REFERENCES declarations: move to the end
-          match = dataType.match(/^(.+) (REFERENCES.*)$/);
-          attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1]);
-          foreignKeys[attr] = match[2];
-        } else {
-          attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType);
-        }
+        processAttribute(attr, attributes[attr]);
       }
     }
 
     const values = {
-        table: this.quoteTable(tableName),
-        attributes: attrStr.join(', ')
-      },
-      pkString = primaryKeys.map(pk => { return this.quoteIdentifier(pk); }).join(', ');
+      table: this.quoteTable(tableName),
+      attributes: attrStr.join(', ')
+    };
+
+    const pkString = primaryKeys.map(pk => { return this.quoteIdentifier(pk); }).join(', ');
 
     if (options.uniqueKeys) {
       _.each(options.uniqueKeys, (columns, indexName) => {
@@ -233,11 +236,10 @@ const QueryGenerator = {
 
   changeColumnQuery(tableName, attributes) {
     const query = 'ALTER TABLE <%= tableName %> <%= query %>;';
-    const attrString = [],
-      constraintString = [];
+    const attrString = [];
+    const constraintString = [];
 
-    for (const attributeName in attributes) {
-      const definition = attributes[attributeName];
+    const processAttribute = (attributeName, definition) => {
       if (definition.match(/REFERENCES/)) {
         constraintString.push(_.template('<%= fkName %> FOREIGN KEY (<%= attrName %>) <%= definition %>', this._templateSettings)({
           fkName: this.quoteIdentifier(attributeName + '_foreign_idx'),
@@ -250,6 +252,10 @@ const QueryGenerator = {
           definition
         }));
       }
+    };
+
+    for (const attributeName in attributes) {
+      processAttribute(attributeName, attributes[attributeName]);
     }
 
     let finalQuery = '';
@@ -294,7 +300,7 @@ const QueryGenerator = {
       outputFragment = ' OUTPUT INSERTED.*';
     }
 
-    _.forEach(attrValueHashes, attrValueHash => {
+    const processAttrValueHash = (attrValueHash) => {
       // special case for empty objects with primary keys
       const fields = Object.keys(attrValueHash);
       const firstAttr = attributes[fields[0]];
@@ -316,7 +322,9 @@ const QueryGenerator = {
           allAttributes.push(key);
         }
       });
-    });
+    };
+
+    _.forEach(attrValueHashes, processAttrValueHash);
 
     if (allAttributes.length > 0) {
       _.forEach(attrValueHashes, attrValueHash => {
@@ -373,29 +381,37 @@ const QueryGenerator = {
     let needIdentityInsertWrapper = false;
 
     //Obtain primaryKeys, uniquekeys and identity attrs from rawAttributes as model is not passed
-    for (const key in model.rawAttributes) {
-      if (model.rawAttributes[key].primaryKey) {
-        primaryKeysAttrs.push(model.rawAttributes[key].field || key);
+    const extractModelAttributes = () => {
+      for (const key in model.rawAttributes) {
+        if (model.rawAttributes[key].primaryKey) {
+          primaryKeysAttrs.push(model.rawAttributes[key].field || key);
+        }
+        if (model.rawAttributes[key].unique) {
+          uniqueAttrs.push(model.rawAttributes[key].field || key);
+        }
+        if (model.rawAttributes[key].autoIncrement) {
+          identityAttrs.push(model.rawAttributes[key].field || key);
+        }
       }
-      if (model.rawAttributes[key].unique) {
-        uniqueAttrs.push(model.rawAttributes[key].field || key);
-      }
-      if (model.rawAttributes[key].autoIncrement) {
-        identityAttrs.push(model.rawAttributes[key].field || key);
-      }
-    }
+    };
+
+    extractModelAttributes();
 
     //Add unique indexes defined by indexes option to uniqueAttrs
-    for (const index of model.options.indexes) {
-      if (index.unique && index.fields) {
-        for (const field of index.fields) {
-          const fieldName = typeof field === 'string' ? field : field.name || field.attribute;
-          if (uniqueAttrs.indexOf(fieldName) === -1 && model.rawAttributes[fieldName]) {
-            uniqueAttrs.push(fieldName);
+    const addUniqueIndexes = () => {
+      for (const index of model.options.indexes) {
+        if (index.unique && index.fields) {
+          for (const field of index.fields) {
+            const fieldName = typeof field === 'string' ? field : field.name || field.attribute;
+            if (uniqueAttrs.indexOf(fieldName) === -1 && model.rawAttributes[fieldName]) {
+              uniqueAttrs.push(fieldName);
+            }
           }
         }
       }
-    }
+    };
+
+    addUniqueIndexes();
 
     const updateKeys = Object.keys(updateValues);
     const insertKeys = Object.keys(insertValues);
@@ -626,9 +642,7 @@ const QueryGenerator = {
     let key,
       attribute;
 
-    for (key in attributes) {
-      attribute = attributes[key];
-
+    const processAttribute = (key, attribute) => {
       if (attribute.references) {
 
         if (existingConstraints.indexOf(attribute.references.model.toString()) !== -1) {
@@ -648,6 +662,10 @@ const QueryGenerator = {
 
       if (key && !attribute.field) attribute.field = key;
       result[attribute.field || key] = this.attributeToSQL(attribute, options);
+    };
+
+    for (key in attributes) {
+      processAttribute(key, attributes[key]);
     }
 
     return result;

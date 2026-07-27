@@ -25,46 +25,48 @@ function addTableColumn(tableName, tableBuilder, columnName, columnSpec = schema
     if (columnSpec.type === 'text' && Object.prototype.hasOwnProperty.call(columnSpec, 'fieldtype')) {
         column = tableBuilder[columnSpec.type](columnName, columnSpec.fieldtype);
     } else if (columnSpec.type === 'string') {
-        if (Object.prototype.hasOwnProperty.call(columnSpec, 'maxlength')) {
-            column = tableBuilder[columnSpec.type](columnName, columnSpec.maxlength);
-        } else {
-            column = tableBuilder[columnSpec.type](columnName, 191);
-        }
+        column = tableBuilder[columnSpec.type](columnName, columnSpec.maxlength || 191);
     } else {
         column = tableBuilder[columnSpec.type](columnName);
     }
 
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'nullable') && columnSpec.nullable === true) {
+    if (columnSpec.nullable === true) {
         column.nullable();
     } else {
         column.nullable(false);
     }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'primary') && columnSpec.primary === true) {
+
+    if (columnSpec.primary === true) {
         column.primary();
     }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'unique') && columnSpec.unique) {
+
+    if (columnSpec.unique) {
         column.unique();
     }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'unsigned') && columnSpec.unsigned) {
+
+    if (columnSpec.unsigned) {
         column.unsigned();
     }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'references')) {
-        // check if table exists?
+
+    if (columnSpec.references) {
         column.references(columnSpec.references);
     }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'constraintName')) {
+
+    if (columnSpec.constraintName) {
         column.withKeyName(columnSpec.constraintName);
     }
 
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'cascadeDelete') && columnSpec.cascadeDelete === true) {
+    if (columnSpec.cascadeDelete === true) {
         column.onDelete('CASCADE');
-    } else if (Object.prototype.hasOwnProperty.call(columnSpec, 'setNullDelete') && columnSpec.setNullDelete === true) {
+    } else if (columnSpec.setNullDelete === true) {
         column.onDelete('SET NULL');
     }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'defaultTo')) {
+
+    if (columnSpec.defaultTo) {
         column.defaultTo(columnSpec.defaultTo);
     }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'index') && columnSpec.index === true) {
+
+    if (columnSpec.index === true) {
         column.index();
     }
 }
@@ -204,11 +206,7 @@ async function addIndex(tableName, columns, transaction = db.knex) {
             table.index(columns);
         });
     } catch (err) {
-        if (err.code === 'SQLITE_ERROR') {
-            logging.warn(`Index for '${columns}' already exists for table '${tableName}'`);
-            return;
-        }
-        if (err.code === 'ER_DUP_KEYNAME') {
+        if (err.code === 'SQLITE_ERROR' || err.code === 'ER_DUP_KEYNAME') {
             logging.warn(`Index for '${columns}' already exists for table '${tableName}'`);
             return;
         }
@@ -231,11 +229,7 @@ async function dropIndex(tableName, columns, transaction = db.knex) {
             table.dropIndex(columns);
         });
     } catch (err) {
-        if (err.code === 'SQLITE_ERROR') {
-            logging.warn(`Constraint for '${columns}' does not exist for table '${tableName}'`);
-            return;
-        }
-        if (err.code === 'ER_CANT_DROP_FIELD_OR_KEY') {
+        if (err.code === 'SQLITE_ERROR' || err.code === 'ER_CANT_DROP_FIELD_OR_KEY') {
             logging.warn(`Constraint for '${columns}' does not exist for table '${tableName}'`);
             return;
         }
@@ -258,11 +252,7 @@ async function addUnique(tableName, columns, transaction = db.knex) {
             table.unique(columns);
         });
     } catch (err) {
-        if (err.code === 'SQLITE_ERROR') {
-            logging.warn(`Constraint for '${columns}' already exists for table '${tableName}'`);
-            return;
-        }
-        if (err.code === 'ER_DUP_KEYNAME') {
+        if (err.code === 'SQLITE_ERROR' || err.code === 'ER_DUP_KEYNAME') {
             logging.warn(`Constraint for '${columns}' already exists for table '${tableName}'`);
             return;
         }
@@ -285,11 +275,7 @@ async function dropUnique(tableName, columns, transaction = db.knex) {
             table.dropUnique(columns);
         });
     } catch (err) {
-        if (err.code === 'SQLITE_ERROR') {
-            logging.warn(`Constraint for '${columns}' does not exist for table '${tableName}'`);
-            return;
-        }
-        if (err.code === 'ER_CANT_DROP_FIELD_OR_KEY') {
+        if (err.code === 'SQLITE_ERROR' || err.code === 'ER_CANT_DROP_FIELD_OR_KEY') {
             logging.warn(`Constraint for '${columns}' does not exist for table '${tableName}'`);
             return;
         }

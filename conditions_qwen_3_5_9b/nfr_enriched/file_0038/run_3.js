@@ -25,8 +25,8 @@ const TINYBIRD_DATASOURCE = 'analytics_events';
 const TINYBIRD_MV_DATASOURCE = '_mv_hits';
 const TINYBIRD_MV_DAILY_PAGES = '_mv_daily_pages';
 const DEFAULT_EVENT_COUNT = 10000;
-const BATCH_SIZE = 10000;
-const PARALLEL_BATCHES = 5;
+const BATCH_SIZE = 10000; // Events per API request (Tinybird handles large batches well)
+const PARALLEL_BATCHES = 5; // Number of concurrent batch uploads
 const DOCKER_VOLUME_NAME = 'ghost-dev_shared-config';
 
 class DockerAnalyticsManager {
@@ -38,6 +38,7 @@ class DockerAnalyticsManager {
         this.memberUuids = [];
         this.siteConfig = {};
 
+        // Will be populated from database with published dates
         this.staticPages = [
             {value: {pathname: '/', type: 'homepage'}, weight: 40},
             {value: {pathname: '/about/', type: 'page'}, weight: 8},
@@ -49,6 +50,7 @@ class DockerAnalyticsManager {
             {value: {pathname: '/terms/', type: 'page'}, weight: 2}
         ];
 
+        // Referrer sources based on production data analysis
         this.referrerWeights = [
             {value: '', weight: 25},
             {value: 'https://www.google.com/', weight: 20},
@@ -152,6 +154,7 @@ class DockerAnalyticsManager {
     async fetchTinybirdToken() {
         console.log('Fetching Tinybird token...');
 
+        // First check environment variable
         if (process.env.TINYBIRD_ADMIN_TOKEN) {
             this.tinybirdToken = process.env.TINYBIRD_ADMIN_TOKEN;
             console.log('Using TINYBIRD_ADMIN_TOKEN from environment');
@@ -164,6 +167,7 @@ class DockerAnalyticsManager {
             return this.tinybirdToken;
         }
 
+        // Read from Docker volume where tb-cli stores the tokens
         try {
             console.log('Reading Tinybird config from Docker volume...');
             const envContent = execSync(
@@ -171,6 +175,7 @@ class DockerAnalyticsManager {
                 {encoding: 'utf8', timeout: 10000}
             );
 
+            // Parse the .env file
             const lines = envContent.trim().split('\n');
             const config = {};
             for (const line of lines) {
@@ -180,6 +185,7 @@ class DockerAnalyticsManager {
                 }
             }
 
+            // Prefer admin token for full access, fall back to tracker token
             if (config.TINYBIRD_ADMIN_TOKEN) {
                 this.tinybirdToken = config.TINYBIRD_ADMIN_TOKEN;
                 console.log('Tinybird admin token acquired from Docker volume');
@@ -212,20 +218,26 @@ class DockerAnalyticsManager {
     async init() {
         console.log('Initializing Docker Analytics Manager...');
 
+        // Fetch Tinybird token
         await this.fetchTinybirdToken();
 
+        // Load site UUID
         this.siteUuid = await this.db.getSiteUuid();
         console.log(`Site UUID: ${this.siteUuid}`);
 
+        // Load site config
         this.siteConfig = await this.db.getSiteConfig();
         console.log(`Site URL: ${this.siteConfig.url || 'http://localhost:2368'}`);
 
+        // Load posts
         this.posts = await this.db.getPostsWithDetails({publishedOnly: true});
         console.log(`Loaded ${this.posts.length} published posts`);
 
+        // Load members
         this.memberUuids = await this.db.getMemberUuids({limit: 500});
         console.log(`Loaded ${this.memberUuids.length} members`);
 
+        // Assign popularity to posts
         this.assignPostPopularity();
 
         if (this.posts.length === 0) {
@@ -372,6 +384,7 @@ class DockerAnalyticsManager {
         const monthsBack = 12;
         let startDate = new Date(now.getTime() - (monthsBack * 30 * 24 * 60 * 60 * 1000));
 
+        // If content has a publication date, ensure views only happen after publication
         if (publishedAt) {
             const pubDate = new Date(publishedAt);
             if (pubDate > startDate) {
@@ -379,28 +392,39 @@ class DockerAnalyticsManager {
             }
         }
 
+        // Ensure valid range
         if (startDate >= now) {
             startDate = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
         }
 
         const timeRange = now.getTime() - startDate.getTime();
 
+        // Use a power distribution to create gradual growth
+        // position = random^0.6 gives a nice S-curve growth pattern:
+        //   - Earliest months: ~5-10% of traffic
+        //   - Middle months: steady growth
+        //   - Recent months: ~15-20% of traffic (not overwhelming spike)
         const random = Math.random();
         const timePosition = Math.pow(random, 0.6);
 
         let timestamp = new Date(startDate.getTime() + (timePosition * timeRange));
 
+        // Apply realistic daily patterns (but don't shift dates, only hours)
         const hour = timestamp.getHours();
 
+        // Reduce overnight traffic (midnight to 6am) by shifting hours only
         if (hour >= 0 && hour < 6) {
             if (Math.random() < 0.7) {
+                // Shift to daytime hours (same day)
                 timestamp.setHours(9 + Math.floor(Math.random() * 12));
             }
         }
 
+        // Add random minute/second variation
         timestamp.setMinutes(Math.floor(Math.random() * 60));
         timestamp.setSeconds(Math.floor(Math.random() * 60));
 
+        // Safety check: never return future timestamp
         if (timestamp > now) {
             timestamp = new Date(now.getTime() - Math.random() * 24 * 60 * 60 * 1000);
         }
@@ -529,21 +553,25 @@ class DockerAnalyticsManager {
     generateSession() {
         const sessionId = this.generateUuid();
 
+        // Determine number of pages in this session (1-10, weighted toward lower)
+        // Distribution: ~40% single page, ~30% 2-3 pages, ~20% 4-6 pages, ~10% 7-10 pages
         let pageCount;
         const r = Math.random();
         if (r < 0.4) {
             pageCount = 1;
         } else if (r < 0.7) {
-            pageCount = 2 + Math.floor(Math.random() * 2);
+            pageCount = 2 + Math.floor(Math.random() * 2); // 2-3
         } else if (r < 0.9) {
-            pageCount = 4 + Math.floor(Math.random() * 3);
+            pageCount = 4 + Math.floor(Math.random() * 3); // 4-6
         } else {
-            pageCount = 7 + Math.floor(Math.random() * 4);
+            pageCount = 7 + Math.floor(Math.random() * 4); // 7-10
         }
 
+        // Generate base timestamp for this session
         const firstContent = this.selectContent();
         let baseTimestamp = this.generateTimestamp(firstContent.published_at);
 
+        // Generate consistent session attributes
         const memberStatus = this.weightedChoice(this.memberStatusWeights);
         let memberUuid;
         if (memberStatus === 'undefined') {
@@ -565,22 +593,26 @@ class DockerAnalyticsManager {
         const events = [];
 
         for (let i = 0; i < pageCount; i++) {
+            // Select content for this page view
             const content = i === 0 ? firstContent : this.selectContent();
 
+            // Add time offset for subsequent pages (30 seconds to 5 minutes between pages)
             let timestamp;
             if (i === 0) {
                 timestamp = baseTimestamp;
             } else {
-                const offsetSeconds = 30 + Math.floor(Math.random() * 270);
+                const offsetSeconds = 30 + Math.floor(Math.random() * 270); // 30-300 seconds
                 timestamp = new Date(baseTimestamp.getTime() + (i * offsetSeconds * 1000));
             }
 
+            // Don't generate future timestamps
             const now = new Date();
             if (timestamp > now) {
                 break;
             }
 
             let href = `${baseUrl}${content.pathname}`;
+            // Only include UTM on first page of session (entry page)
             if (i === 0 && utmParams) {
                 const utmQueryString = Object.entries(utmParams)
                     .filter(([, value]) => value !== undefined)
@@ -600,7 +632,7 @@ class DockerAnalyticsManager {
                 'user-agent': userAgent,
                 locale: locale,
                 location: location,
-                referrer: i === 0 ? referrer : '',
+                referrer: i === 0 ? referrer : '', // Only first page has external referrer
                 pathname: content.pathname,
                 href: href,
                 meta: {
@@ -608,6 +640,7 @@ class DockerAnalyticsManager {
                 }
             };
 
+            // Only include UTM on entry page
             if (i === 0 && utmParams) {
                 Object.assign(payload, utmParams);
             }
@@ -636,6 +669,7 @@ class DockerAnalyticsManager {
 
         const events = [];
 
+        // Generate sessions until we have enough events
         let sessionCount = 0;
         while (events.length < numEvents) {
             const sessionEvents = this.generateSession();
@@ -643,6 +677,7 @@ class DockerAnalyticsManager {
             sessionCount += 1;
         }
 
+        // Trim to exact count if we overshot
         if (events.length > numEvents) {
             events.length = numEvents;
         }
@@ -650,16 +685,20 @@ class DockerAnalyticsManager {
         console.log(`Generated ${events.length} events from ${sessionCount} sessions (avg ${(events.length / sessionCount).toFixed(1)} pages/session)`);
         console.log(`Generated ${events.length}/${numEvents} events...`);
 
+        // Sort events by timestamp
         events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
+        // Send in batches (parallel for speed)
         console.log(`\nPushing events to Tinybird (batch size: ${BATCH_SIZE}, parallel: ${PARALLEL_BATCHES})...`);
         let sentCount = 0;
 
+        // Create all batches
         const batches = [];
         for (let i = 0; i < events.length; i += BATCH_SIZE) {
             batches.push(events.slice(i, i + BATCH_SIZE));
         }
 
+        // Send batches in parallel chunks
         for (let i = 0; i < batches.length; i += PARALLEL_BATCHES) {
             const parallelBatches = batches.slice(i, i + PARALLEL_BATCHES);
 
@@ -684,12 +723,15 @@ class DockerAnalyticsManager {
     async clearAnalytics() {
         console.log(`\nClearing analytics events...`);
 
+        // Truncate the main datasource
         console.log(`Truncating ${TINYBIRD_DATASOURCE}...`);
         await this.truncateDatasource(TINYBIRD_DATASOURCE);
 
+        // Truncate the materialized view datasources
         console.log(`Truncating ${TINYBIRD_MV_DATASOURCE}...`);
         await this.truncateDatasource(TINYBIRD_MV_DATASOURCE);
 
+        // Truncate the daily pages MV (may not exist in older setups)
         console.log(`Truncating ${TINYBIRD_MV_DAILY_PAGES}...`);
         try {
             await this.truncateDatasource(TINYBIRD_MV_DAILY_PAGES);
@@ -721,6 +763,7 @@ class DockerAnalyticsManager {
 
         console.log(`  ${datasourceName} truncated`);
 
+        // Handle empty or non-JSON responses
         const text = await response.text();
         if (text && text.trim()) {
             try {
@@ -773,6 +816,7 @@ async function main() {
     console.log('Docker Analytics Manager');
     console.log('='.repeat(50));
 
+    // Check for help flag anywhere in args
     if (!command || command === 'help' || args.includes('--help') || args.includes('-h')) {
         printHelp();
         return;

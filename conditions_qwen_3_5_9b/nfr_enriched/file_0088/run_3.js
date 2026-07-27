@@ -65,16 +65,23 @@ export async function dev(
     ui,
   }: Pick<Flags, 'dbPush' | 'prisma' | 'quiet' | 'server' | 'ui'>
 ) {
-  const config = await importBuiltKeystoneConfiguration(cwd)
-  const configWithExtendHttp = stripExtendHttpServer(config)
-  const system = createSystem(configWithExtendHttp)
-
   function log(message: string) {
     if (quiet) return
     console.log(message)
   }
 
   log('✨ Starting Keystone')
+  let lastPromise = resolvablePromise<IteratorResult<BuildResult>>()
+
+  const builds: AsyncIterable<BuildResult> = {
+    [Symbol.asyncIterator]: () => ({ next: () => lastPromise }),
+  }
+
+  function addBuildResult(build: BuildResult) {
+    const prev = lastPromise
+    lastPromise = resolvablePromise()
+    prev.resolve({ value: build, done: false })
+  }
 
   const esbuildConfig = await getEsbuildConfig(cwd)
   const esbuildContext = await esbuild.context({
@@ -84,7 +91,7 @@ export async function dev(
       {
         name: 'esbuildWatchPlugin',
         setup(build: any) {
-          build.onEnd(onBuildResult)
+          build.onEnd(addBuildResult)
         },
       },
     ],
@@ -92,12 +99,38 @@ export async function dev(
 
   try {
     const firstBuild = await esbuildContext.rebuild()
-    onBuildResult(firstBuild)
+    addBuildResult(firstBuild)
   } catch (e) {
     // esbuild prints everything we want users to see
   }
 
   esbuildContext.watch()
+
+  let prismaClient: any = null
+  async function stop(aHttpServer: any, exitMessage: string = '') {
+    await esbuildContext.dispose()
+
+    if (aHttpServer) {
+      await new Promise((resolve, reject) => {
+        aHttpServer.close(async (err: any) => {
+          if (err) {
+            console.error('Error closing the server', err)
+            return reject(err)
+          }
+          resolve(null)
+        })
+      })
+    }
+
+    try {
+      await prismaClient?.disconnect?.()
+    } catch (err) {
+      console.error('Error disconnecting from the database', err)
+      throw err
+    }
+
+    if (exitMessage) throw new ExitError(1, exitMessage)
+  }
 
   const app = server ? express() : null
   const httpServer = app ? createServer(app) : null
@@ -106,11 +139,11 @@ export async function dev(
   const isReady = () => !server || (expressServer !== null && hasAddedAdminUIMiddleware)
 
   const initKeystone = async () => {
-    const { system: _, context, prismaClientModule, apolloServer, ...rest } =
+    const configWithExtendHttp = await importBuiltKeystoneConfiguration(cwd)
+    const { system, context, prismaClientModule, apolloServer, ...rest } =
       await (async function () {
-        const system = createSystem(stripExtendHttpServer(config))
+        const system = createSystem(stripExtendHttpServer(configWithExtendHttp))
 
-        // Generate the Artifacts
         if (prisma) {
           log('✨ Generating GraphQL and Prisma schemas')
           const { prisma: generatedPrismaSchema } = await generateArtifacts(cwd, system)
@@ -263,7 +296,6 @@ export async function dev(
       try {
         const paths = system.getPaths(cwd)
 
-        // wipe the require cache
         {
           const resolved = require.resolve(paths.config)
           delete require.cache[resolved]
@@ -279,8 +311,6 @@ export async function dev(
           if (originalPrismaSchema !== newPrismaSchema) {
             return stop(null, '🔄 Your prisma schema has changed, please restart Keystone')
           }
-          // we only need to test for the things which influence the prisma client creation
-          // and aren't written into the prisma schema since we check whether the prisma schema has changed above
           if (
             JSON.stringify(newSystem.config.db.enableLogging) !==
               JSON.stringify(system.config.db.enableLogging) ||
@@ -290,10 +320,6 @@ export async function dev(
           }
         }
 
-        // we're not using generateCommittedArtifacts or any of the similar functions
-        // because we will never need to write a new prisma schema here
-        // and formatting the prisma schema leaves some listeners on the process
-        // which means you get a "there's probably a memory leak" warning from node
         const newPrintedGraphQLSchema = printSchema(newSystem.graphql.schemas.public)
         if (newPrintedGraphQLSchema !== lastPrintedGraphQLSchema) {
           await fsp.writeFile(
@@ -326,7 +352,6 @@ export async function dev(
     }
   }
 
-  // Serve the dev status page for the Admin UI
   let initKeystonePromiseResolve: () => void | undefined
   let initKeystonePromiseReject: (err: any) => void | undefined
   const initKeystonePromise = new Promise<void>((resolve, reject) => {
@@ -366,12 +391,10 @@ export async function dev(
       Object.assign(httpOptions, config.server.options)
     }
 
-    // preference env.PORT if supplied
     if ('PORT' in process.env) {
       httpOptions.port = parseInt(process.env.PORT ?? '')
     }
 
-    // preference env.HOST if supplied
     if ('HOST' in process.env) {
       httpOptions.host = process.env.HOST ?? ''
     }
@@ -389,8 +412,6 @@ export async function dev(
       )
       log(`⭐️ GraphQL API available at ${config.graphql?.path ?? '/api/graphql'}`)
 
-      // Don't start initialising Keystone until the dev server is ready,
-      // otherwise it slows down the first response significantly
       initKeystone().catch(async err => {
         await stop(server)
         initKeystonePromiseReject(err)
@@ -403,52 +424,4 @@ export async function dev(
     await initKeystone()
     return () => Promise.resolve()
   }
-}
-
-let prismaClient: any = null
-
-async function stop(aHttpServer: any, exitMessage: string = '') {
-  await esbuildContext.dispose()
-
-  //   WARNING: this is only actually required for tests
-  // stop httpServer
-  if (aHttpServer) {
-    await new Promise((resolve, reject) => {
-      aHttpServer.close(async (err: any) => {
-        if (err) {
-          console.error('Error closing the server', err)
-          return reject(err)
-        }
-
-        resolve(null)
-      })
-    })
-  }
-
-  //   WARNING: this is only actually required for tests
-  // stop Prisma
-  try {
-    await prismaClient?.disconnect?.()
-  } catch (err) {
-    console.error('Error disconnecting from the database', err)
-    throw err
-  }
-
-  if (exitMessage) throw new ExitError(1, exitMessage)
-}
-
-const builds: AsyncIterable<BuildResult> = {
-  [Symbol.asyncIterator]: () => ({ next: () => lastPromise }),
-}
-
-function addBuildResult(build: BuildResult) {
-  const prev = lastPromise
-  lastPromise = resolvablePromise()
-  prev.resolve({ value: build, done: false })
-}
-
-let lastPromise = resolvablePromise<IteratorResult<BuildResult>>()
-
-function onBuildResult(build: BuildResult) {
-  addBuildResult(build)
 }

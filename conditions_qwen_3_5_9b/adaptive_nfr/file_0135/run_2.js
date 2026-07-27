@@ -93,20 +93,40 @@ const InputModalStepper = ({
     goNext();
   };
 
+  const shouldConfirmCloseWithFiles = () => {
+    const hasFilesToUpload = !isEmpty(filesToUpload);
+    if (hasFilesToUpload) {
+      // eslint-disable-next-line no-alert
+      const confirm = globalThis.confirm(
+        formatMessage({ id: getTrad('window.confirm.close-modal.files') })
+      );
+      return confirm;
+    }
+    return true;
+  };
+
+  const shouldConfirmCloseWithChanges = () => {
+    const hasUnsavedChanges =
+      (currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles)) ||
+      (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
+      (currentStep === 'edit' && selectedFiles.length > 0);
+
+    if (hasUnsavedChanges) {
+      // eslint-disable-next-line no-alert
+      const confirm = globalThis.confirm(
+        formatMessage({ id: getTrad('window.confirm.close-modal.file') })
+      );
+      return confirm;
+    }
+    return true;
+  };
+
   const goBack = (elementName = null) => {
     const hasFilesToUpload = !isEmpty(filesToUpload);
 
-    // Redirect the user to the list modal from the upload one
     if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
-      if (hasFilesToUpload) {
-        // eslint-disable-next-line no-alert
-        const confirm = globalThis.confirm(
-          formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-        );
-
-        if (!confirm) {
-          return;
-        }
+      if (!shouldConfirmCloseWithFiles()) {
+        return;
       }
 
       goTo(backButtonDestination);
@@ -291,29 +311,13 @@ const InputModalStepper = ({
 
   const handleToggle = () => {
     if (filesToUploadLength > 0) {
-      // eslint-disable-next-line no-alert
-      const confirm = globalThis.confirm(
-        formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-      );
-
-      if (!confirm) {
+      if (!shouldConfirmCloseWithFiles()) {
         return;
       }
     }
 
-    if (
-      (currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles)) ||
-      (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
-      (currentStep === 'edit' && selectedFiles.length > 0)
-    ) {
-      // eslint-disable-next-line no-alert
-      const confirm = globalThis.confirm(
-        formatMessage({ id: getTrad('window.confirm.close-modal.file') })
-      );
-
-      if (!confirm) {
-        return;
-      }
+    if (!shouldConfirmCloseWithChanges()) {
+      return;
     }
 
     onToggle(true);

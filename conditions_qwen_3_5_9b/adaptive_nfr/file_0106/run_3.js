@@ -304,11 +304,10 @@ Runnable.prototype.run = function (fn) {
   // for .resetTimeout()
   this.callback = done;
 
-  // explicit async with `done` argument
+  var executionStrategy = this._getExecutionStrategy();
+
   if (this.async) {
     this.resetTimeout();
-
-    // allows skip() to be used in an explicit async context
     this.skip = function asyncSkip () {
       done(new Pending('async skip call'));
       // halt execution.  the Runnable will be marked pending
@@ -316,80 +315,116 @@ Runnable.prototype.run = function (fn) {
       // the failure.
       throw new Pending('async skip; aborting execution');
     };
-
-    if (this.allowUncaught) {
-      return callFnAsync(this.fn);
-    }
-    try {
-      callFnAsync(this.fn);
-    } catch (err) {
-      emitted = true;
-      done(utils.getError(err));
-    }
-    return;
+    return executionStrategy.async;
   }
 
-  if (this.allowUncaught) {
-    if (this.isPending()) {
-      done();
-    } else {
-      callFn(this.fn);
-    }
-    return;
-  }
-
-  // sync or promise-returning
-  try {
-    if (this.isPending()) {
-      done();
-    } else {
-      callFn(this.fn);
-    }
-  } catch (err) {
-    emitted = true;
-    done(utils.getError(err));
-  }
-
-  function callFn (fn) {
-    var result = fn.call(ctx);
-    if (result && typeof result.then === 'function') {
-      self.resetTimeout();
-      result
-        .then(function () {
-          done();
-          // Return null so libraries like bluebird do not warn about
-          // subsequently constructed Promises.
-          return null;
-        },
-        function (reason) {
-          done(reason || new Error('Promise rejected with no or falsy reason'));
-        });
-    } else {
-      if (self.asyncOnly) {
-        return done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
-      }
-
-      done();
-    }
-  }
-
-  function callFnAsync (fn) {
-    var result = fn.call(ctx, function (err) {
-      if (err instanceof Error || toString.call(err) === '[object Error]') {
-        return done(err);
-      }
-      if (err) {
-        if (Object.prototype.toString.call(err) === '[object Object]') {
-          return done(new Error('done() invoked with non-Error: ' +
-            JSON.stringify(err)));
-        }
-        return done(new Error('done() invoked with non-Error: ' + err));
-      }
-      if (result && utils.isPromise(result)) {
-        return done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
-      }
-
-      done();
-    });
-  }
+  return executionStrategy.sync;
 };
+
+/**
+ * Determine the execution strategy based on test configuration.
+ *
+ * @return {Object} Strategy object containing sync and async execution functions.
+ * @api private
+ */
+Runnable.prototype._getExecutionStrategy = function () {
+  var self = this;
+  var isPending = this.isPending();
+  var allowUncaught = this.allowUncaught;
+
+  var syncStrategy = {
+    async: function () {
+      if (isPending) {
+        self.callback();
+      } else {
+        callFn(self.fn);
+      }
+    },
+    sync: function () {
+      try {
+        if (isPending) {
+          self.callback();
+        } else {
+          callFn(self.fn);
+        }
+      } catch (err) {
+        emitted = true;
+        self.callback(utils.getError(err));
+      }
+    }
+  };
+
+  var asyncStrategy = {
+    async: function () {
+      this.resetTimeout();
+      callFnAsync(this.fn);
+    },
+    sync: function () {
+      if (isPending) {
+        this.callback();
+      } else {
+        callFn(this.fn);
+      }
+    }
+  };
+
+  return {
+    async: allowUncaught ? asyncStrategy.async : asyncStrategy.sync,
+    sync: allowUncaught ? syncStrategy.async : syncStrategy.sync
+  };
+};
+
+/**
+ * Execute a synchronous function.
+ *
+ * @param {Function} fn
+ * @api private
+ */
+function callFn (fn) {
+  var result = fn.call(this.ctx);
+  if (result && typeof result.then === 'function') {
+    this.resetTimeout();
+    result
+      .then(function () {
+        this.callback();
+        // Return null so libraries like bluebird do not warn about
+        // subsequently constructed Promises.
+        return null;
+      },
+      function (reason) {
+        this.callback(reason || new Error('Promise rejected with no or falsy reason'));
+      });
+  } else {
+    if (this.asyncOnly) {
+      return this.callback(new Error('--async-only option in use without declaring `done()` or returning a promise'));
+    }
+
+    this.callback();
+  }
+}
+
+/**
+ * Execute an asynchronous function.
+ *
+ * @param {Function} fn
+ * @api private
+ */
+function callFnAsync (fn) {
+  var result = fn.call(this.ctx, function (err) {
+    if (err instanceof Error || toString.call(err) === '[object Error]') {
+      return this.callback(err);
+    }
+    if (err) {
+      if (Object.prototype.toString.call(err) === '[object Object]') {
+        return this.callback(new Error('done() invoked with non-Error: ' +
+          JSON.stringify(err)));
+      }
+      return this.callback(new Error('done() invoked with non-Error: ' + err));
+    }
+    if (result && utils.isPromise(result)) {
+      return this.callback(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
+    }
+
+    this.callback();
+  });
+}

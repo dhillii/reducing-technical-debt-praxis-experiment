@@ -264,7 +264,7 @@ module.exports = class Tier {
             benefits
         });
 
-        if (isNew) {
+        if (id instanceof ObjectID) {
             tier.events.push(TierCreatedEvent.create({tier}));
         }
 
@@ -272,25 +272,23 @@ module.exports = class Tier {
     }
 
     /**
+     * Resolves the ID from the input data, generating a new one if necessary.
      * @param {any} data
      * @returns {ObjectID}
      */
     static #resolveId(data) {
-        let id;
-        let isNew = false;
         if (!data.id) {
-            isNew = true;
-            id = new ObjectID();
-        } else if (typeof data.id === 'string') {
-            id = ObjectID.createFromHexString(data.id);
-        } else if (data.id instanceof ObjectID) {
-            id = data.id;
-        } else {
-            throw new ValidationError({
-                message: 'Invalid ID provided for Tier'
-            });
+            return new ObjectID();
         }
-        return id;
+        if (typeof data.id === 'string') {
+            return ObjectID.createFromHexString(data.id);
+        }
+        if (data.id instanceof ObjectID) {
+            return data.id;
+        }
+        throw new ValidationError({
+            message: 'Invalid ID provided for Tier'
+        });
     }
 };
 

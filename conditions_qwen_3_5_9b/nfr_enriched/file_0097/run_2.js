@@ -41,7 +41,7 @@ define([
         },
 
         /**
-         * Overwrite `fetch` method to handle pagination.
+         * Overrite `fetch` method.
          */
         fetch: function(options) {
             options = options || {};
@@ -59,8 +59,13 @@ define([
             var self = this;
 
             var success = function(resp) {
+                // Keep full collection in memory
                 self.fullCollection = self.clone();
+
+                // Sort the collection
                 self.fullCollection.sortItOut();
+
+                // Pagination
                 self._updateTotalPages();
                 self.getPage(options.page || self.state.firstPage);
 
@@ -72,10 +77,10 @@ define([
             options.success = success;
 
             return Backbone.Collection.prototype.fetch.call(this, options)
-                .then(function(resp) {
-                    options.success(resp);
-                    return resp;
-                });
+            .then(function(resp) {
+                options.success(resp);
+                return resp;
+            });
         },
 
         /**
@@ -116,17 +121,11 @@ define([
             return this;
         },
 
-        /**
-         * Retrieves the next page of models.
-         */
         getNextPage: function() {
             var models = this.getPage(this.state.currentPage + 1);
             this.reset(models);
         },
 
-        /**
-         * Retrieves the previous page of models.
-         */
         getPreviousPage: function() {
             var models = this.getPage(this.state.currentPage - 1);
             this.reset(models);
@@ -149,9 +148,6 @@ define([
             return this.models;
         },
 
-        /**
-         * Calculates the offset for a given page number.
-         */
         getOffset: function(number) {
             return (
                 (this.state.firstPage === 0 ? number : number - 1) *
@@ -159,22 +155,16 @@ define([
             );
         },
 
-        /**
-         * Checks if there is a previous page available.
-         */
         hasPreviousPage: function() {
             return this.state.currentPage !== this.state.firstPage;
         },
 
-        /**
-         * Checks if there is a next page available.
-         */
         hasNextPage: function() {
             return this.state.currentPage !== this.state.totalPages - 1;
         },
 
         /**
-         * Sorts the full collection based on the comparator.
+         * It is used to sort models in full collection.
          */
         sortFullCollection: function() {
             if (!this.fullCollection) {
@@ -210,10 +200,6 @@ define([
             return this.models;
         },
 
-        /**
-         * Retrieves the next item in the collection.
-         * @param {string} id - The ID of the current model.
-         */
         getNextItem: function(id) {
             // The collection is empty
             if (this.length === 0) {
@@ -233,10 +219,6 @@ define([
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
         },
 
-        /**
-         * Retrieves the previous item in the collection.
-         * @param {string} id - The ID of the current model.
-         */
         getPreviousItem: function(id) {
             // The collection is empty
             if (this.length === 0) {
@@ -267,7 +249,7 @@ define([
                 return false;
             }
 
-            var coll  = this.fullCollection || this,
+            var coll = this.fullCollection || this,
                 index = this.indexOf(model);
 
             coll.remove(model);
@@ -316,7 +298,7 @@ define([
             }
 
             // If the model already exists, update it
-            var coll     = this.fullCollection || this,
+            var coll = this.fullCollection || this,
                 colModel = coll.get(model.id);
 
             if (colModel) {

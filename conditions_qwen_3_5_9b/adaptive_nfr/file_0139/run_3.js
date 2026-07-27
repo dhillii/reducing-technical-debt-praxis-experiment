@@ -17,19 +17,22 @@ const jwt = require('jsonwebtoken');
 /**
  * Connect thanks to a third-party provider.
  *
- * @param {String} provider
- * @param {Object} query
- * @return {Promise}
+ *
+ * @param {String}    provider
+ * @param {String}    access_token
+ *
+ * @return  {*}
  */
 
 const connect = (provider, query) => {
   const access_token = query.access_token || query.code || query.oauth_token;
 
-  if (!access_token) {
-    return Promise.reject([null, { message: 'No access_token.' }]);
-  }
-
   return new Promise((resolve, reject) => {
+    if (!access_token) {
+      return reject([null, { message: 'No access_token.' }]);
+    }
+
+    // Get the profile.
     getProfile(provider, query, async (err, profile) => {
       if (err) {
         return reject([null, err]);
@@ -103,8 +106,7 @@ const connect = (provider, query) => {
 /**
  * Helper to get profiles
  *
- * @param {String} provider
- * @param {Object} query
+ * @param {String}   provider
  * @param {Function} callback
  */
 
@@ -159,16 +161,18 @@ const getProfile = async (provider, query, callback) => {
       break;
     }
     case 'cognito': {
+      // get the id_token
       const idToken = query.id_token;
+      // decode the jwt token
       const tokenPayload = jwt.decode(idToken);
       if (!tokenPayload) {
         callback(new Error('unable to decode jwt token'));
-        return;
+      } else {
+        callback(null, {
+          username: tokenPayload['cognito:username'],
+          email: tokenPayload.email,
+        });
       }
-      callback(null, {
-        username: tokenPayload['cognito:username'],
-        email: tokenPayload.email,
-      });
       break;
     }
     case 'facebook': {
@@ -232,29 +236,32 @@ const getProfile = async (provider, query, callback) => {
             return callback(err);
           }
 
-          if (userbody.email) {
-            return callback(null, {
-              username: userbody.login,
-              email: userbody.email,
-            });
+          if (!userbody.email) {
+            github
+              .query()
+              .get('user/emails')
+              .auth(access_token)
+              .request((err, res, emailsbody) => {
+                if (err) {
+                  return callback(err);
+                }
+
+                const primaryEmail = Array.isArray(emailsbody)
+                  ? emailsbody.find(email => email.primary === true)
+                  : null;
+
+                callback(null, {
+                  username: userbody.login,
+                  email: primaryEmail ? primaryEmail.email : null,
+                });
+              });
+            return;
           }
 
-          github
-            .query()
-            .get('user/emails')
-            .auth(access_token)
-            .request((err, res, emailsbody) => {
-              if (err) {
-                return callback(err);
-              }
-
-              return callback(null, {
-                username: userbody.login,
-                email: Array.isArray(emailsbody)
-                  ? emailsbody.find(email => email.primary === true).email
-                  : null,
-              });
-            });
+          callback(null, {
+            username: userbody.login,
+            email: userbody.email,
+          });
         });
       break;
     }
@@ -342,8 +349,9 @@ const getProfile = async (provider, query, callback) => {
           if (err) {
             callback(err);
           } else {
+            const username = `${body.response[0].last_name} ${body.response[0].first_name}`;
             callback(null, {
-              username: `${body.response[0].last_name} ${body.response[0].first_name}`,
+              username: username,
               email: query.raw.email,
             });
           }
@@ -413,45 +421,48 @@ const getProfile = async (provider, query, callback) => {
           },
         },
       });
+      try {
+        const getDetailsRequest = () => {
+          return new Promise((resolve, reject) => {
+            linkedIn
+              .query()
+              .get('me')
+              .auth(access_token)
+              .request((err, res, body) => {
+                if (err) {
+                  return reject(err);
+                }
+                resolve(body);
+              });
+          });
+        };
 
-      const getDetailsRequest = () => {
-        return new Promise((resolve, reject) => {
-          linkedIn
-            .query()
-            .get('me')
-            .auth(access_token)
-            .request((err, res, body) => {
-              if (err) {
-                return reject(err);
-              }
-              resolve(body);
-            });
+        const getEmailRequest = () => {
+          return new Promise((resolve, reject) => {
+            linkedIn
+              .query()
+              .get('emailAddress?q=members&projection=(elements*(handle~))')
+              .auth(access_token)
+              .request((err, res, body) => {
+                if (err) {
+                  return reject(err);
+                }
+                resolve(body);
+              });
+          });
+        };
+
+        const { localizedFirstName } = await getDetailsRequest();
+        const { elements } = await getEmailRequest();
+        const email = elements[0]['handle~'];
+
+        callback(null, {
+          username: localizedFirstName,
+          email: email.emailAddress,
         });
-      };
-
-      const getEmailRequest = () => {
-        return new Promise((resolve, reject) => {
-          linkedIn
-            .query()
-            .get('emailAddress?q=members&projection=(elements*(handle~))')
-            .auth(access_token)
-            .request((err, res, body) => {
-              if (err) {
-                return reject(err);
-              }
-              resolve(body);
-            });
-        });
-      };
-
-      const { localizedFirstName } = await getDetailsRequest();
-      const { elements } = await getEmailRequest();
-      const email = elements[0]['handle~'];
-
-      callback(null, {
-        username: localizedFirstName,
-        email: email.emailAddress,
-      });
+      } catch (err) {
+        callback(err);
+      }
       break;
     }
     case 'reddit': {
@@ -550,6 +561,7 @@ const getProfile = async (provider, query, callback) => {
           if (err) {
             callback(err);
           } else {
+            // CAS attribute may be in body.attributes or "FLAT", depending on CAS config
             const username = body.attributes
               ? body.attributes.strapiusername || body.id || body.sub
               : body.strapiusername || body.id || body.sub;

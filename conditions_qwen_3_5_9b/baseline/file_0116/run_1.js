@@ -1,3 +1,21 @@
+var path      = require('path');
+var os        = require('os');
+var util      = require('util');
+var chalk     = require('ansis');
+var fclone    = require('fclone');
+var semver    = require('semver');
+var dayjs     = require('dayjs');
+
+/**
+ * Copyright 2013-2022 the PM2 project authors. All rights reserved.
+ * Use of this source code is governed by a license that
+ * can be found in the LICENSE file.
+ */
+
+/**
+ * Common Utilities ONLY USED IN ->CLI<-
+ */
+
 var fs        = require('fs');
 var path      = require('path');
 var os        = require('os');
@@ -16,9 +34,9 @@ var which     = require('./tools/which.js');
 var Common = module.exports;
 
 function homedir() {
-  var env = process.env;
-  var home = env.HOME;
-  var user = env.LOGNAME || env.USER || env.LNAME || env.USERNAME;
+  const env = process.env;
+  let home = env.HOME;
+  const user = env.LOGNAME || env.USER || env.LNAME || env.USERNAME;
 
   if (process.platform === 'win32') {
     return env.USERPROFILE || env.HOMEDRIVE + env.HOMEPATH || home || null;
@@ -44,17 +62,17 @@ function resolveHome(filepath) {
 
 Common.determineSilentCLI = function() {
   // pm2 should ignore -s --silent -v if they are after '--'
-  var variadicArgsDashesPos = process.argv.indexOf('--');
-  var s1opt = process.argv.indexOf('--silent')
-  var s2opt = process.argv.indexOf('-s')
+  const variadicArgsDashesPos = process.argv.indexOf('--');
+  const s1opt = process.argv.indexOf('--silent');
+  const s2opt = process.argv.indexOf('-s');
 
   if (process.env.PM2_SILENT || (variadicArgsDashesPos > -1 &&
-       (s1opt != -1 && s1opt < variadicArgsDashesPos) &&
-       (s2opt != -1 != s2opt < variadicArgsDashesPos)) ||
-      (variadicArgsDashesPos == -1 && (s1opt > -1 || s2opt > -1))) {
-    for (var key in console){
-      var code = key.charCodeAt(0);
-      if (code >= 97 && code <= 122){
+       (s1opt !== -1 && s1opt < variadicArgsDashesPos) &&
+       (s2opt !== -1 && s2opt < variadicArgsDashesPos)) ||
+      (variadicArgsDashesPos === -1 && (s1opt > -1 || s2opt > -1))) {
+    for (const key in console) {
+      const code = key.charCodeAt(0);
+      if (code >= 97 && code <= 122) {
         console[key] = function(){};
       }
     }
@@ -63,7 +81,7 @@ Common.determineSilentCLI = function() {
 }
 
 Common.printVersion = function() {
-  var variadicArgsDashesPos = process.argv.indexOf('--');
+  const variadicArgsDashesPos = process.argv.indexOf('--');
 
   if (process.argv.indexOf('-v') > -1 && process.argv.indexOf('-v') < variadicArgsDashesPos) {
     console.log(pkg.version);
@@ -73,12 +91,12 @@ Common.printVersion = function() {
 
 Common.lockReload = function() {
   try {
-    var t1 = fs.readFileSync(cst.PM2_RELOAD_LOCKFILE).toString();
+    const t1 = fs.readFileSync(cst.PM2_RELOAD_LOCKFILE).toString();
 
     // Check if content and if time < 30 return locked
     // Else if content detected (lock file staled), allow and rewritte
-    if (t1 && t1 != '') {
-      var diff = dayjs().diff(parseInt(t1));
+    if (t1 && t1 !== '') {
+      const diff = dayjs().diff(parseInt(t1));
       if (diff < cst.RELOAD_LOCK_TIMEOUT)
         return diff;
     }
@@ -116,7 +134,7 @@ Common.prepareAppConf = function(opts, app) {
   if (!app.script)
     return new Error('No script path - aborting');
 
-  var cwd = null;
+  let cwd = null;
 
   if (app.cwd) {
     cwd = path.resolve(app.cwd);
@@ -132,7 +150,7 @@ Common.prepareAppConf = function(opts, app) {
   }
 
   // CWD option resolving
-  cwd && (cwd[0] != '/') && (cwd = path.resolve(process.cwd(), cwd));
+  cwd && (cwd[0] !== '/') && (cwd = path.resolve(process.cwd(), cwd));
   cwd = cwd || opts.cwd;
 
   // Full path script resolution
@@ -140,7 +158,7 @@ Common.prepareAppConf = function(opts, app) {
 
   // If script does not exist after resolution
   if (!fs.existsSync(app.pm_exec_path)) {
-    var ckd;
+    let ckd;
     // Try resolve command available in $PATH
     if ((ckd = which(app.script))) {
       if (typeof(ckd) !== 'string')
@@ -155,7 +173,7 @@ Common.prepareAppConf = function(opts, app) {
   /**
    * Auto detect .map file and enable source map support automatically
    */
-  if (app.disable_source_map_support != true) {
+  if (app.disable_source_map_support !== true) {
     try {
       fs.accessSync(app.pm_exec_path + '.map', fs.constants.R_OK);
       app.source_map_support = true;
@@ -168,7 +186,7 @@ Common.prepareAppConf = function(opts, app) {
   // Set current env by first adding the process environment and then extending/replacing it
   // with env specified on command-line or JSON file.
 
-  var env = {};
+  const env = {};
 
   /**
    * Do not copy internal pm2 environment variables if acting on process
@@ -188,8 +206,8 @@ Common.prepareAppConf = function(opts, app) {
       return envObj
     }
 
-    var new_env = {};
-    var allowedKeys = app.filter_env.reduce((acc, current) =>
+    const new_env = {};
+    const allowedKeys = app.filter_env.reduce((acc, current) =>
                                             acc.filter( item => !item.includes(current)), Object.keys(envObj))
     allowedKeys.forEach( key => new_env[key] = envObj[key]);
     return new_env
@@ -215,10 +233,10 @@ Common.prepareAppConf = function(opts, app) {
   /**
    * Scary
    */
-  var formated_app_name = app.name.replace(/[^a-zA-Z0-9\\.\\-]/g, '-');
+  const formated_app_name = app.name.replace(/[^a-zA-Z0-9\\.\\-]/g, '-');
 
   ['log', 'out', 'error', 'pid'].forEach(function(f){
-    var af = app[f + '_file'], ps, ext = (f == 'pid' ? 'pid':'log'), isStd = !~['log', 'pid'].indexOf(f);
+    const af = app[f + '_file'], ps, ext = (f == 'pid' ? 'pid':'log'), isStd = !~['log', 'pid'].indexOf(f);
     if (af) af = resolveHome(af);
 
     if ((f == 'log' && typeof af == 'boolean' && af) || (f != 'log' && !af)) {
@@ -226,7 +244,7 @@ Common.prepareAppConf = function(opts, app) {
     } else if ((f != 'log' || (f == 'log' && af)) && af !== 'NULL' && af !== '/dev/null') {
       ps = [cwd, af];
 
-      var dir = path.dirname(path.resolve(cwd, af));
+      const dir = path.dirname(path.resolve(cwd, af));
       if (!fs.existsSync(dir)) {
         Common.printError(cst.PREFIX_MSG_WARNING + 'Folder does not exist: ' + dir);
         Common.printOut(cst.PREFIX_MSG + 'Creating folder: ' + dir);
@@ -294,17 +312,17 @@ Common.getConfigFileCandidates = function (name) {
  * @return {Object} config object
  */
 Common.parseConfig = function(confObj, filename) {
-  var yamljs = require('js-yaml');
-  var vm     = require('vm');
+  const yamljs = require('js-yaml');
+  const vm     = require('vm');
 
-  var isConfigFile = Common.isConfigFile(filename);
+  const isConfigFile = Common.isConfigFile(filename);
 
   if (!filename ||
       filename == 'pipe' ||
       filename == 'none' ||
       isConfigFile == 'json') {
-    var code = '(' + confObj + ')';
-    var sandbox = {};
+    const code = '(' + confObj + ')';
+    const sandbox = {};
 
     return vm.runInThisContext(code, sandbox, {
       filename: path.resolve(filename),
@@ -316,7 +334,7 @@ Common.parseConfig = function(confObj, filename) {
     return yamljs.load(confObj.toString());
   }
   else if (isConfigFile == 'js' || isConfigFile == 'mjs') {
-    var confPath = require.resolve(path.resolve(filename));
+    const confPath = require.resolve(path.resolve(filename));
     delete require.cache[confPath];
     return require(confPath);
   }
@@ -371,35 +389,35 @@ Common.sink.determineExecMode = function(app) {
     app.instances = 1;
 };
 
-var resolveNodeInterpreter = function(app) {
+const resolveNodeInterpreter = function(app) {
   if (app.exec_mode && app.exec_mode.indexOf('cluster') > -1) {
     Common.printError(cst.PREFIX_MSG_WARNING + chalk.bold.yellow('Choosing the Node.js version in cluster mode is not supported'));
     return false;
   }
 
-  var nvm_path = cst.IS_WINDOWS ? process.env.NVM_HOME : process.env.NVM_DIR;
+  const nvm_path = cst.IS_WINDOWS ? process.env.NVM_HOME : process.env.NVM_DIR;
   if (!nvm_path) {
     Common.printError(cst.PREFIX_MSG_ERR + chalk.red('NVM is not available in PATH'));
     Common.printError(cst.PREFIX_MSG_ERR + chalk.red('Fallback to node in PATH'));
-    var msg = cst.IS_WINDOWS
+    const msg = cst.IS_WINDOWS
       ? 'https://github.com/coreybutler/nvm-windows/releases/'
       : '$ curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash';
     Common.printOut(cst.PREFIX_MSG_ERR + chalk.bold('Install NVM:\n' + msg));
   }
   else {
-    var node_version  = app.exec_interpreter.split('@')[1];
-    var path_to_node  = cst.IS_WINDOWS
+    const node_version  = app.exec_interpreter.split('@')[1];
+    const path_to_node  = cst.IS_WINDOWS
       ? '/v' + node_version + '/node.exe'
       : semver.satisfies(node_version, '>= 0.12.0')
           ? '/versions/node/v' + node_version + '/bin/node'
           : '/v' + node_version + '/bin/node';
-    var nvm_node_path  = path.join(nvm_path, path_to_node);
+    const nvm_node_path  = path.join(nvm_path, path_to_node);
     try {
       fs.accessSync(nvm_node_path);
     } catch(e) {
       Common.printOut(cst.PREFIX_MSG + 'Installing Node v%s', node_version);
-      var nvm_bin = path.join(nvm_path, 'nvm.' + (cst.IS_WINDOWS ? 'exe' : 'sh'));
-      var nvm_cmd = cst.IS_WINDOWS
+      const nvm_bin = path.join(nvm_path, 'nvm.' + (cst.IS_WINDOWS ? 'exe' : 'sh'));
+      const nvm_cmd = cst.IS_WINDOWS
         ? nvm_bin + ' install ' + node_version
         : '. ' + nvm_bin + ' ; nvm install ' + node_version;
 
@@ -430,9 +448,9 @@ var resolveNodeInterpreter = function(app) {
  * Resolve interpreter
  */
 Common.sink.resolveInterpreter = function(app) {
-  var noInterpreter = !app.exec_interpreter;
-  var extName = path.extname(app.pm_exec_path);
-  var betterInterpreter = extItps[extName];
+  const noInterpreter = !app.exec_interpreter;
+  const extName = path.extname(app.pm_exec_path);
+  const betterInterpreter = extItps[extName];
 
   // Bun support
   if (noInterpreter && (extName == '.js' || extName == '.ts') && cst.IS_BUN === true) {
@@ -562,10 +580,10 @@ Common.safeExtend = function(origin, add){
   if (!add || typeof add != 'object') return origin;
 
   //Ignore PM2's set environment variables from the nested env
-  var keysToIgnore = ['name', 'exec_mode', 'env', 'args', 'pm_cwd', 'exec_interpreter', 'pm_exec_path', 'node_args', 'pm_out_log_path', 'pm_err_log_path', 'pm_pid_path', 'pm_id', 'status', 'pm_uptime', 'created_at', 'windowsHide', 'username', 'merge_logs', 'kill_retry_time', 'prev_restart_delay', 'instance_var', 'unstable_restarts', 'restart_time', 'axm_actions', 'pmx_module', 'command', 'watch', 'filter_env', 'versioning', 'vizion_runing', 'MODULE_DEBUG', 'pmx', 'axm_options', 'created_at', 'watch', 'vizion', 'axm_dynamic', 'axm_monitor', 'instances', 'automation', 'autostart', 'autorestart', 'stop_exit_codes', 'unstable_restart', 'treekill', 'exit_code', 'vizion'];
+  const keysToIgnore = ['name', 'exec_mode', 'env', 'args', 'pm_cwd', 'exec_interpreter', 'pm_exec_path', 'node_args', 'pm_out_log_path', 'pm_err_log_path', 'pm_pid_path', 'pm_id', 'status', 'pm_uptime', 'created_at', 'windowsHide', 'username', 'merge_logs', 'kill_retry_time', 'prev_restart_delay', 'instance_var', 'unstable_restarts', 'restart_time', 'axm_actions', 'pmx_module', 'command', 'watch', 'filter_env', 'versioning', 'vizion_runing', 'MODULE_DEBUG', 'pmx', 'axm_options', 'created_at', 'watch', 'vizion', 'axm_dynamic', 'axm_monitor', 'instances', 'automation', 'autostart', 'autorestart', 'stop_exit_codes', 'unstable_restart', 'treekill', 'exit_code', 'vizion'];
 
-  var keys = Object.keys(add);
-  var i = keys.length;
+  const keys = Object.keys(add);
+  let i = keys.length;
   while (i--) {
   	//Only copy stuff into the env that we don't have already.
   	if(keysToIgnore.indexOf(keys[i]) == -1 && add[keys[i]] != '[object Object]')
@@ -588,14 +606,14 @@ Common.safeExtend = function(origin, add){
  * @returns {Object} The app.env variables object.
  */
 Common.mergeEnvironmentVariables = function(app_env, env_name, deploy_conf) {
-  var app = fclone(app_env);
+  const app = fclone(app_env);
 
-  var new_conf = {
+  const new_conf = {
     env : {}
   }
 
   // Stringify possible object
-  for (var key in app.env) {
+  for (const key in app.env) {
     if (typeof app.env[key] == 'object') {
       app.env[key] = JSON.stringify(app.env[key]);
     }
@@ -625,7 +643,7 @@ Common.mergeEnvironmentVariables = function(app_env, env_name, deploy_conf) {
 
   delete new_conf.exec_mode
 
-  var res = {
+  const res = {
     current_conf: {}
   }
 
@@ -653,9 +671,9 @@ Common.mergeEnvironmentVariables = function(app_env, env_name, deploy_conf) {
  * @return app
  */
 Common.resolveAppAttributes = function(opts, conf) {
-  var conf_copy = fclone(conf);
+  const conf_copy = fclone(conf);
 
-  var app = Common.prepareAppConf(opts, conf_copy);
+  const app = Common.prepareAppConf(opts, conf_copy);
   if (app instanceof Error) {
     throw new Error(app.message);
   }
@@ -676,10 +694,10 @@ Common.verifyConfs = function(appConfs) {
   // Make sure it is an Array.
   appConfs = [].concat(appConfs);
 
-  var verifiedConf = [];
+  const verifiedConf = [];
 
-  for (var i = 0; i < appConfs.length; i++) {
-    var app = appConfs[i];
+  for (let i = 0; i < appConfs.length; i++) {
+    const app = appConfs[i];
 
     if (app.exec_mode)
       app.exec_mode = app.exec_mode.replace(/^(fork|cluster)$/, '$1_mode');
@@ -714,7 +732,7 @@ Common.verifyConfs = function(appConfs) {
      * Then automatically start the script with bash -c and set a name eq to command
      */
     if (app.script && app.script.indexOf(' ') > -1 && cst.IS_WINDOWS === false) {
-      var _script = app.script;
+      const _script = app.script;
 
       if (which('bash')) {
         app.script = 'bash';
@@ -760,8 +778,8 @@ Common.verifyConfs = function(appConfs) {
       }
 
       // 3/ Resolve user info via /etc/password
-      var passwd = require('./tools/passwd.js')
-      var users
+      const passwd = require('./tools/passwd.js')
+      const users
       try {
         users = passwd.getUsers()
       } catch(e) {
@@ -769,7 +787,7 @@ Common.verifyConfs = function(appConfs) {
         return new Error(e);
       }
 
-      var user_info = users[app.uid || app.user]
+      const user_info = users[app.uid || app.user]
       if (!user_info) {
         Common.printError(`${cst.PREFIX_MSG_ERR} User ${app.uid || app.user} cannot be found`);
         return new Error(`${cst.PREFIX_MSG_ERR} User ${app.uid || app.user} cannot be found`);
@@ -780,14 +798,14 @@ Common.verifyConfs = function(appConfs) {
 
       // 4/ Resolve group id if gid is specified
       if (app.gid) {
-        var groups
+        const groups
         try {
           groups = passwd.getGroups()
         } catch(e) {
           Common.printError(e);
           return new Error(e);
         }
-        var group_info = groups[app.gid]
+        const group_info = groups[app.gid]
         if (!group_info) {
           Common.printError(`${cst.PREFIX_MSG_ERR} Group ${app.gid} cannot be found`);
           return new Error(`${cst.PREFIX_MSG_ERR} Group ${app.gid} cannot be found`);
@@ -831,7 +849,7 @@ Common.verifyConfs = function(appConfs) {
       app.merge_logs = true;
     }
 
-    var ret;
+    let ret;
 
     if (app.cron_restart) {
       if ((ret = Common.sink.determineCron(app)) instanceof Error)
@@ -841,7 +859,7 @@ Common.verifyConfs = function(appConfs) {
     /**
      * Now validation configuration
      */
-    var ret = Config.validateJSON(app);
+    const ret = Config.validateJSON(app);
     if (ret.errors && ret.errors.length > 0){
       ret.errors.forEach(function(err) { warn(err) });
       return new Error(ret.errors);
@@ -860,7 +878,7 @@ Common.verifyConfs = function(appConfs) {
  * @returns {String}
  */
 Common.getCurrentUsername = function(){
-  var current_user = '';
+  let current_user = '';
 
   if (os.userInfo) {
     try {
@@ -885,7 +903,7 @@ Common.getCurrentUsername = function(){
 Common.renderApplicationName = function(conf){
   if (!conf.name && conf.script){
     conf.name = conf.script !== undefined ? path.basename(conf.script) : 'undefined';
-    var lastDot = conf.name.lastIndexOf('.');
+    const lastDot = conf.name.lastIndexOf('.');
     if (lastDot > 0){
       conf.name = conf.name.slice(0, lastDot);
     }

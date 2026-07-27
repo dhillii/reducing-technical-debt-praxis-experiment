@@ -51,7 +51,7 @@ class PopupContent extends React.Component {
     }
 
     notifyContainerHeightChange() {
-        // Placeholder for future height change notification logic
+        // Placeholder for future implementation to notify parent of container height changes.
     }
 
     handlePopupClose(e) {
@@ -96,10 +96,10 @@ function SearchBox() {
         };
     }, [dispatch, inputRef]);
 
-    const baseClassName = 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white';
-    const className = searchValue
-        ? `${baseClassName} rounded-t-lg shadow`
-        : `${baseClassName} rounded-lg`;
+    let className = 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-t-lg shadow';
+    if (!searchValue) {
+        className = 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-lg';
+    }
 
     return (
         <div className={className} ref={containerRef}>
@@ -130,13 +130,11 @@ function SearchBox() {
 
 function SearchClearIcon() {
     const {searchValue = '', dispatch} = useContext(AppContext);
-
     if (!searchValue) {
         return (
             <SearchIcon className='text-neutral-900' alt='Search' />
         );
     }
-
     return (
         <button alt='Clear' className='-mb-[1px]' onClick={() => {
             dispatch('update', {
@@ -150,7 +148,6 @@ function SearchClearIcon() {
 
 function Loading() {
     const {indexComplete, searchValue} = useContext(AppContext);
-
     if (!indexComplete && searchValue) {
         return (
             <CircleAnimated className='shrink-0' />
@@ -178,11 +175,10 @@ function CancelButton() {
 
 function TagListItem({tag, selectedResult, setSelectedResult}) {
     const {name, url, id} = tag;
-    const baseClassName = 'flex items-center py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
-    const className = id === selectedResult
-        ? `${baseClassName} bg-neutral-100`
-        : baseClassName;
-
+    let className = 'flex items-center py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
+    if (id === selectedResult) {
+        className += ' bg-neutral-100';
+    }
     return (
         <div
             className={className}
@@ -208,14 +204,15 @@ function TagResults({tags, selectedResult, setSelectedResult}) {
         return null;
     }
 
-    const TagItems = tags.map((d) => (
-        <TagListItem
-            key={d.name}
-            tag={d}
-            {...{selectedResult, setSelectedResult}}
-        />
-    ));
-
+    const TagItems = tags.map((d) => {
+        return (
+            <TagListItem
+                key={d.name}
+                tag={d}
+                {...{selectedResult, setSelectedResult}}
+            />
+        );
+    });
     return (
         <div className='border-t border-gray-200 py-3 px-4 sm:px-7'>
             <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Tags')}</h1>
@@ -227,11 +224,10 @@ function TagResults({tags, selectedResult, setSelectedResult}) {
 function PostListItem({post, selectedResult, setSelectedResult}) {
     const {searchValue} = useContext(AppContext);
     const {title, excerpt, url, id} = post;
-    const baseClassName = 'py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
-    const className = id === selectedResult
-        ? `${baseClassName} bg-neutral-100`
-        : baseClassName;
-
+    let className = 'py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
+    if (id === selectedResult) {
+        className += ' bg-neutral-100';
+    }
     return (
         <div
             className={className}
@@ -257,6 +253,7 @@ function PostListItem({post, selectedResult, setSelectedResult}) {
 function getMatchIndexes({text, highlight}) {
     let highlightRegexText = '';
     highlight?.split(' ').forEach((d, idx) => {
+        // escape regex syntax in search queries
         const e = String(d).replace(/\W/g, '\\&');
         if (idx > 0) {
             highlightRegexText += `|^` + e + `|\\s` + e;
@@ -265,7 +262,7 @@ function getMatchIndexes({text, highlight}) {
         }
     });
     const matchRegex = new RegExp(`${highlightRegexText}`, 'ig');
-    const matches = text?.matchAll(matchRegex);
+    let matches = text?.matchAll(matchRegex);
     const indexes = [];
     for (const match of matches) {
         indexes.push({
@@ -316,7 +313,6 @@ function HighlightedSection({text = '', highlight = '', isExcerpt}) {
     text = text || '';
     highlight = highlight || '';
     let {parts, highlightIndexes} = getHighlightParts({text, highlight});
-
     if (isExcerpt && highlightIndexes?.[0]) {
         const startIdx = highlightIndexes?.[0]?.startIdx;
         if (startIdx > 50) {
@@ -386,20 +382,16 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
     const {t} = useContext(AppContext);
     const [maxPosts, setMaxPosts] = useState(DEFAULT_MAX_POSTS);
     const [paginatedPosts, setPaginatedPosts] = useState([]);
-
     useEffect(() => {
         setMaxPosts(DEFAULT_MAX_POSTS);
     }, [posts]);
-
     useEffect(() => {
         setPaginatedPosts(posts?.slice(0, maxPosts + 1));
     }, [maxPosts, posts]);
-
     if (!posts?.length) {
         return null;
     }
-
-    const PostItems = useMemo(() => {
+    function PostItems() {
         return paginatedPosts.map(d => (
             <PostListItem
                 key={d.title}
@@ -407,12 +399,11 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
                 {...{selectedResult, setSelectedResult}}
             />
         ));
-    }, [paginatedPosts, selectedResult, setSelectedResult]);
-
+    }
     return (
         <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
             <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Posts')}</h1>
-            {PostItems}
+            <PostItems/>
             <ShowMoreButton setMaxPosts={setMaxPosts} maxPosts={maxPosts} posts={posts} />
         </div>
     );
@@ -420,11 +411,10 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
 
 function AuthorListItem({author, selectedResult, setSelectedResult}) {
     const {name, profile_image: profileImage, url, id} = author;
-    const baseClassName = 'py-[1rem] -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer flex items-center';
-    const className = id === selectedResult
-        ? `${baseClassName} bg-neutral-100`
-        : baseClassName;
-
+    let className = 'py-[1rem] -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer flex items-center';
+    if (id === selectedResult) {
+        className += ' bg-neutral-100';
+    }
     return (
         <div
             className={className}
@@ -444,16 +434,15 @@ function AuthorListItem({author, selectedResult, setSelectedResult}) {
 }
 
 function AuthorAvatar({name, avatar}) {
-    const hasAvatar = avatar?.length;
-    const character = name.charAt(0);
-
-    if (hasAvatar) {
+    const Avatar = avatar?.length;
+    const Character = name.charAt(0);
+    if (Avatar) {
         return (
             <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name}/>
         );
     }
     return (
-        <div className='rounded-full bg-neutral-200 w-7 h-7 me-2 flex items-center justify-center font-bold'><span className="text-neutral-400">{character}</span></div>
+        <div className='rounded-full bg-neutral-200 w-7 h-7 me-2 flex items-center justify-center font-bold'><span className="text-neutral-400">{Character}</span></div>
     );
 }
 
@@ -464,13 +453,15 @@ function AuthorResults({authors, selectedResult, setSelectedResult}) {
         return null;
     }
 
-    const AuthorItems = authors.map((d) => (
-        <AuthorListItem
-            key={d.name}
-            author={d}
-            {...{selectedResult, setSelectedResult}}
-        />
-    ));
+    const AuthorItems = authors.map((d) => {
+        return (
+            <AuthorListItem
+                key={d.name}
+                author={d}
+                {...{selectedResult, setSelectedResult}}
+            />
+        );
+    });
 
     return (
         <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
@@ -539,7 +530,7 @@ function Results({posts, authors, tags}) {
     }, [allResults]);
 
     useEffect(() => {
-        const handleKeyup = (event) => {
+        let keyUphandler = (event) => {
             const selectedResultIdx = allResults.findIndex((d) => {
                 return d.id === selectedResult;
             });
@@ -559,12 +550,12 @@ function Results({posts, authors, tags}) {
             }
         };
 
-        const containerNode = containerRef?.current;
-        containerNode?.ownerDocument.removeEventListener('keyup', handleKeyup);
-        containerNode?.ownerDocument.addEventListener('keyup', handleKeyup);
+        const containeRefNode = containerRef?.current;
+        containeRefNode?.ownerDocument.removeEventListener('keyup', keyUphandler);
+        containeRefNode?.ownerDocument.addEventListener('keyup', keyUphandler);
 
         return () => {
-            containerNode?.ownerDocument?.removeEventListener('keyup', handleKeyup);
+            containeRefNode?.ownerDocument?.removeEventListener('keyup', keyUphandler);
         };
     }, [allResults, selectedResult]);
 

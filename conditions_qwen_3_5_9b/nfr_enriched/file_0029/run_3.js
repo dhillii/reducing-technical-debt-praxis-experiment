@@ -141,8 +141,8 @@ export default class Analytics extends Component {
         const values = [this.post.count.positive_feedback, this.post.count.negative_feedback];
         const labels = ['More like this', 'Less like this'];
         const links = [
-            {filterParam: `(feedback.post_id:'${this.post.id}'+feedback.score:1)`},
-            {filterParam: `(feedback.post_id:'${this.post.id}'+feedback.score:0)`}
+            {filterParam: '(feedback.post_id:\'' + this.post.id + '\'+feedback.score:1)'},
+            {filterParam: '(feedback.post_id:\'' + this.post.id + '\'+feedback.score:0)'}
         ];
         const colors = ['#F080B2', '#8452f633'];
         return {values, labels, links, colors};
@@ -201,7 +201,7 @@ export default class Analytics extends Component {
     }
 
     updateLinkData(linksData) {
-        const cleanedLinks = linksData.map((link) => {
+        let cleanedLinks = linksData.map((link) => {
             return {
                 ...link,
                 link: {
@@ -390,11 +390,19 @@ export default class Analytics extends Component {
             return;
         }
 
-        const classNameList = Array.from(element.classList);
-        const selectors = classNameList.map(className => `.${className}`).join(' ');
+        const classSelectors = this.buildClassSelectors(element);
+        this.animateNewNumbers(classSelectors);
+        this.animateOldNumbers(classSelectors);
+    }
 
+    buildClassSelectors(element) {
+        const classes = Array.from(element.classList);
+        return classes.map(className => `.${className}`).join('');
+    }
+
+    animateNewNumbers(classSelectors) {
         anime({
-            targets: `${selectors} .new-number span`,
+            targets: `${classSelectors} .new-number span`,
             translateY: [10,0],
             // translateZ: 0,
             opacity: [0,1],
@@ -403,9 +411,11 @@ export default class Analytics extends Component {
             duration: 1000,
             delay: (el, i) => 100 + 30 * i
         });
+    }
 
+    animateOldNumbers(classSelectors) {
         anime({
-            targets: `${selectors} .old-number span`,
+            targets: `${classSelectors} .old-number span`,
             translateY: [0,-10],
             opacity: [1,0],
             easing: 'easeOutExpo',

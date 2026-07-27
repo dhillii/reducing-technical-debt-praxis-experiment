@@ -52,13 +52,13 @@ export const AccountPlanPageStyles = `
 `;
 
 function getConfirmationPageTitle({confirmationType}) {
-    const titleMap = {
-        changePlan: t('Confirm subscription'),
-        cancel: t('Cancel subscription'),
-        subscribe: t('Subscribe'),
-        offerRetention: 'Before you go'
+    const typeMap = {
+        'changePlan': t('Confirm subscription'),
+        'cancel': t('Cancel subscription'),
+        'subscribe': t('Subscribe'),
+        'offerRetention': 'Before you go'
     };
-    return titleMap[confirmationType] || '';
+    return typeMap[confirmationType] || '';
 }
 
 const Header = ({showConfirmation, confirmationType}) => {
@@ -137,93 +137,85 @@ const PlanConfirmationSection = ({plan, type, onConfirm}) => {
     const product = getProductFromPrice({site, priceId: plan?.id});
     const priceLabel = hasMultipleProductsFeature({site}) ? product?.name : t('Price');
 
-    const renderAccountSection = () => (
-        <section>
-            <div className='gh-portal-list-detail'>
-                <h3>{t('Account')}</h3>
-                <p>{member.email}</p>
-            </div>
-        </section>
-    );
-
-    const renderPriceSection = () => (
-        <section>
-            <div className='gh-portal-list-detail'>
-                <h3>{priceLabel}</h3>
-                <p>{planStartMessage}</p>
-            </div>
-        </section>
-    );
-
-    const renderChangePlanContent = () => (
-        <div className='gh-portal-logged-out-form-container'>
-            <div className='gh-portal-list mb6'>
-                {renderAccountSection()}
-                {renderPriceSection()}
-            </div>
-            <ActionButton
-                dataTestId={'confirm-action'}
-                onClick={e => onConfirm(e, plan)}
-                isRunning={isRunning}
-                isPrimary={true}
-                brandColor={brandColor}
-                label={label}
-                style={{
-                    width: '100%',
-                    height: '40px'
-                }}
-            />
-        </div>
-    );
-
-    const renderCancelContent = () => (
-        <div className="gh-portal-logged-out-form-container gh-portal-cancellation-form">
-            <p>
-                <Interpolate
-                    string={t(`If you cancel your subscription now, you will continue to have access until {periodEnd}.`)}
-                    mapping={{
-                        periodEnd: <strong>{getDateString(subscription.current_period_end)}</strong>
-                    }}
-                />
-            </p>
-            <section className='gh-portal-input-section'>
-                <div className='gh-portal-input-labelcontainer'>
-                    <label className='gh-portal-input-label'>{t('Cancellation reason')}</label>
+    const renderContent = (type) => {
+        if (type === 'changePlan') {
+            return (
+                <div className='gh-portal-logged-out-form-container'>
+                    <div className='gh-portal-list mb6'>
+                        <section>
+                            <div className='gh-portal-list-detail'>
+                                <h3>{t('Account')}</h3>
+                                <p>{member.email}</p>
+                            </div>
+                        </section>
+                        <section>
+                            <div className='gh-portal-list-detail'>
+                                <h3>{priceLabel}</h3>
+                                <p>{planStartMessage}</p>
+                            </div>
+                        </section>
+                    </div>
+                    <ActionButton
+                        dataTestId={'confirm-action'}
+                        onClick={e => onConfirm(e, plan)}
+                        isRunning={isRunning}
+                        isPrimary={true}
+                        brandColor={brandColor}
+                        label={label}
+                        style={{
+                            width: '100%',
+                            height: '40px'
+                        }}
+                    />
                 </div>
-                <textarea
-                    data-test-input='cancellation-reason'
-                    className='gh-portal-input'
-                    key='cancellation_reason'
-                    label='Cancellation reason'
-                    type='text'
-                    name='cancellation_reason'
-                    placeholder=''
-                    value={reason}
-                    onChange={e => setReason(e.target.value)}
-                    rows="2"
-                    maxLength="500"
-                />
-            </section>
-            <ActionButton
-                dataTestId={'confirm-cancel-subscription'}
-                onClick={e => onConfirm(e, reason)}
-                isRunning={isRunning}
-                isPrimary={true}
-                brandColor={brandColor}
-                label={t('Confirm cancellation')}
-                style={{
-                    width: '100%',
-                    height: '40px'
-                }}
-            />
-        </div>
-    );
+            );
+        } else {
+            return (
+                <div className="gh-portal-logged-out-form-container gh-portal-cancellation-form">
+                    <p>
+                        <Interpolate
+                            string={t(`If you cancel your subscription now, you will continue to have access until {periodEnd}.`)}
+                            mapping={{
+                                periodEnd: <strong>{getDateString(subscription.current_period_end)}</strong>
+                            }}
+                        />
+                    </p>
+                    <section className='gh-portal-input-section'>
+                        <div className='gh-portal-input-labelcontainer'>
+                            <label className='gh-portal-input-label'>{t('Cancellation reason')}</label>
+                        </div>
+                        <textarea
+                            data-test-input='cancellation-reason'
+                            className='gh-portal-input'
+                            key='cancellation_reason'
+                            label='Cancellation reason'
+                            type='text'
+                            name='cancellation_reason'
+                            placeholder=''
+                            value={reason}
+                            onChange={e => setReason(e.target.value)}
+                            rows="2"
+                            maxLength="500"
+                        />
+                    </section>
+                    <ActionButton
+                        dataTestId={'confirm-cancel-subscription'}
+                        onClick={e => onConfirm(e, reason)}
+                        isRunning={isRunning}
+                        isPrimary={true}
+                        brandColor={brandColor}
+                        label={t('Confirm cancellation')}
+                        style={{
+                            width: '100%',
+                            height: '40px'
+                        }}
+                    />
+                </div>
+            );
+        }
+    };
 
-    if (type === 'changePlan') {
-        return renderChangePlanContent();
-    } else {
-        return renderCancelContent();
-    }
+    return renderContent(type);
 };
 
 // For paid members
@@ -263,31 +255,28 @@ function PlansOrProductSection({selectedPlan, onPlanSelect, onPlanCheckout, chan
 
 // TODO: Add i18n once copy is finalized
 function getOfferMessage(offer, originalPrice, currency, amountOff) {
-    const monthLabel = (months) => months === 1 ? '1 month' : `${months} months`;
-    const dayLabel = (months) => months * 30;
+    const durationMap = {
+        'forever': () => `Enjoy ${amountOff} off forever.`,
+        'once': () => `Save ${amountOff} on your next billing cycle. Then ${currency}${originalPrice}/${offer.cadence}.`,
+        'repeating': (months) => {
+            if (months === 1) {
+                return `Save ${amountOff} on your next billing cycle. Then ${currency}${originalPrice}/${offer.cadence}.`;
+            }
+            return `Save ${amountOff} on your next ${months} billing cycles. Then ${currency}${originalPrice}/${offer.cadence}.`;
+        }
+    };
 
-    if (offer.type === 'free_months') {
-        const months = offer.amount;
-        return `Enjoy ${monthLabel(months)} on us. Your next billing date will be pushed back by ${dayLabel(months)} days.`;
-    }
+    const typeHandler = (offer) => {
+        if (offer.type === 'free_months') {
+            const months = offer.amount;
+            const monthLabel = months === 1 ? '1 month' : `${months} months`;
+            const dayLabel = months * 30;
+            return `Enjoy ${monthLabel} on us. Your next billing date will be pushed back by ${dayLabel} days.`;
+        }
+        return durationMap[offer.duration]?.(offer.duration_in_months) || '';
+    };
 
-    if (offer.duration === 'forever') {
-        return `Enjoy ${amountOff} off forever.`;
-    }
-
-    if (offer.duration === 'once') {
-        return `Save ${amountOff} on your next billing cycle. Then ${currency}${originalPrice}/${offer.cadence}.`;
-    }
-
-    if (offer.duration === 'repeating' && offer.duration_in_months === 1) {
-        return `Save ${amountOff} on your next billing cycle. Then ${currency}${originalPrice}/${offer.cadence}.`;
-    }
-
-    if (offer.duration === 'repeating' && offer.duration_in_months > 1) {
-        return `Save ${amountOff} on your next ${offer.duration_in_months} billing cycles. Then ${currency}${originalPrice}/${offer.cadence}.`;
-    }
-
-    return '';
+    return typeHandler(offer);
 }
 
 const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineOffer}) => {
@@ -409,41 +398,42 @@ const PlansContainer = ({
 }) => {
     const {member, site} = useContext(AppContext);
 
-    const renderUpgradePlanSection = () => (
+    const renderUpgradePlan = () => (
         <UpgradePlanSection
             {...{plans, selectedPlan, onPlanSelect, onPlanCheckout}}
         />
     );
 
-    const renderChangePlanSection = () => (
+    const renderChangePlan = () => (
         <ChangePlanSection
             {...{plans, selectedPlan,
                 onCancelSubscription, onPlanSelect}}
         />
     );
 
-    const renderRetentionOfferSection = () => {
+    const renderRetentionOffer = () => {
+        if (!pendingOffer) return null;
+
         const offerProduct = pendingOffer.tier
             ? getProductFromId({site, productId: pendingOffer.tier.id})
             : getMemberActiveProduct({member, site});
         const offerPrice = pendingOffer.cadence === 'month' ? offerProduct?.monthlyPrice : offerProduct?.yearlyPrice;
 
         // Skip retention offer if product or price is invalid
-        if (offerProduct && offerPrice) {
-            return (
-                <RetentionOfferSection
-                    offer={pendingOffer}
-                    product={offerProduct}
-                    price={offerPrice}
-                    onAcceptOffer={onAcceptRetentionOffer}
-                    onDeclineOffer={onDeclineRetentionOffer}
-                />
-            );
-        }
-        return null;
+        if (!offerProduct || !offerPrice) return null;
+
+        return (
+            <RetentionOfferSection
+                offer={pendingOffer}
+                product={offerProduct}
+                price={offerPrice}
+                onAcceptOffer={onAcceptRetentionOffer}
+                onDeclineOffer={onDeclineRetentionOffer}
+            />
+        );
     };
 
-    const renderPlanConfirmationSection = () => (
+    const renderConfirmation = () => (
         <PlanConfirmationSection
             {...{plan: confirmationPlan, type: confirmationType, onConfirm}}
         />
@@ -451,21 +441,21 @@ const PlansContainer = ({
 
     // Plan upgrade flow for free member or complimentary member
     if (!isPaidMember({member}) || isComplimentaryMember({member})) {
-        return renderUpgradePlanSection();
+        return renderUpgradePlan();
     }
 
     // Plan change flow for a paid member
     if (!showConfirmation) {
-        return renderChangePlanSection();
+        return renderChangePlan();
     }
 
     // Retention offer flow - shown before cancellation confirmation
-    if (confirmationType === 'offerRetention' && pendingOffer) {
-        return renderRetentionOfferSection();
+    if (confirmationType === 'offerRetention') {
+        return renderRetentionOffer();
     }
 
     // Plan confirmation flow for cancel/update flows
-    return renderPlanConfirmationSection();
+    return renderConfirmation();
 };
 
 export default class AccountPlanPage extends React.Component {

@@ -14,6 +14,86 @@ type PaidMembersChangeChartProps = {
     isLoading: boolean;
 };
 
+type DataPoint = {date: string; signups: number; cancellations: number};
+
+// Helper function to fill missing data points with zeros
+// Moved outside component to prevent recreation on each render
+const fillMissingDataPoints = (data: DataPoint[], dateRange: number, overrideStrategy?: 'none' | 'weekly' | 'monthly' | 'monthly-exact') => {
+    if (dateRange === 1) {
+        const today = moment().format('YYYY-MM-DD');
+        const todayData = data.find(item => item.date === today);
+
+        return [{
+            date: today,
+            signups: todayData?.signups || 0,
+            cancellations: todayData?.cancellations || 0
+        }];
+    }
+
+    const {startDate, endDate} = getRangeDates(dateRange);
+    const dateSpan = moment(endDate).diff(moment(startDate), 'days');
+    const strategy = determineAggregationStrategy(dateRange, dateSpan, 'sum', overrideStrategy);
+
+    const dataMap = new Map(data.map(item => [item.date, item]));
+    const filledData: DataPoint[] = [];
+    const seenKeys = new Set<string>();
+
+    const processPeriods = (periodType: 'month' | 'week' | 'day') => {
+        let currentPeriod = moment(startDate);
+        let endPeriod = periodType === 'month' ? moment(endDate).startOf('month') : periodType === 'week' ? moment(endDate).startOf('week') : moment(endDate);
+
+        if (periodType === 'month') {
+            currentPeriod = moment(startDate).startOf('month');
+        } else if (periodType === 'week') {
+            currentPeriod = moment(startDate).startOf('week');
+        }
+
+        while (currentPeriod.isSameOrBefore(endPeriod)) {
+            const dateKey = currentPeriod.format('YYYY-MM-DD');
+            if (!seenKeys.has(dateKey)) {
+                seenKeys.add(dateKey);
+                const existingData = dataMap.get(dateKey);
+                if (existingData) {
+                    filledData.push(existingData);
+                } else {
+                    filledData.push({
+                        date: dateKey,
+                        signups: 0,
+                        cancellations: 0
+                    });
+                }
+            }
+            currentPeriod.add(1, periodType);
+        }
+    };
+
+    if (strategy === 'monthly') {
+        processPeriods('month');
+    } else if (strategy === 'weekly') {
+        processPeriods('week');
+    } else {
+        const currentDate = moment(startDate);
+        const endMoment = moment(endDate);
+
+        while (currentDate.isSameOrBefore(endMoment)) {
+            const dateKey = currentDate.format('YYYY-MM-DD');
+            const existingData = dataMap.get(dateKey);
+            if (existingData) {
+                filledData.push(existingData);
+            } else {
+                filledData.push({
+                    date: dateKey,
+                    signups: 0,
+                    cancellations: 0
+                });
+            }
+            currentDate.add(1, 'day');
+        }
+    }
+
+    return filledData;
+};
+
 type ResolutionOption = 'daily' | 'weekly' | 'monthly';
 
 // Helper to calculate actual date span for YTD ranges
@@ -28,82 +108,27 @@ const getActualDateSpan = (range: number): number => {
 // Helper to determine available resolutions based on range
 const getAvailableResolutions = (range: number): ResolutionOption[] => {
     const actualSpan = getActualDateSpan(range);
-    if (actualSpan < 30) return ['daily'];
-    if (actualSpan >= 91) return ['weekly', 'monthly'];
-    return ['daily', 'weekly'];
+
+    if (actualSpan < 30) {
+        return ['daily'];
+    } else if (actualSpan >= 91) {
+        return ['weekly', 'monthly'];
+    } else {
+        return ['daily', 'weekly'];
+    }
 };
 
 // Helper to get default resolution for a range
 const getDefaultResolution = (range: number): ResolutionOption => {
     const actualSpan = getActualDateSpan(range);
-    if (actualSpan < 30) return 'daily';
-    if (actualSpan >= 91) return 'monthly';
-    return 'weekly';
-};
 
-// Helper function to fill missing data points with zeros
-const fillMissingDataPoints = (
-    data: {date: string; signups: number; cancellations: number}[],
-    dateRange: number,
-    overrideStrategy?: 'none' | 'weekly' | 'monthly' | 'monthly-exact'
-) => {
-    if (dateRange === 1) {
-        const today = moment().format('YYYY-MM-DD');
-        const todayData = data.find(item => item.date === today);
-        return [{
-            date: today,
-            signups: todayData?.signups || 0,
-            cancellations: todayData?.cancellations || 0
-        }];
-    }
-
-    const {startDate, endDate} = getRangeDates(dateRange);
-    const dateSpan = moment(endDate).diff(moment(startDate), 'days');
-    const strategy = determineAggregationStrategy(dateRange, dateSpan, 'sum', overrideStrategy);
-
-    const dataMap = new Map(data.map(item => [item.date, item]));
-    const filledData: {date: string; signups: number; cancellations: number}[] = [];
-    const seenKeys = new Set<string>();
-
-    if (strategy === 'monthly') {
-        const currentPeriod = moment(startDate).startOf('month');
-        const endPeriod = moment(endDate).startOf('month');
-
-        while (currentPeriod.isSameOrBefore(endPeriod)) {
-            const dateKey = currentPeriod.format('YYYY-MM-DD');
-            if (!seenKeys.has(dateKey)) {
-                seenKeys.add(dateKey);
-                const existingData = dataMap.get(dateKey);
-                filledData.push(existingData || {date: dateKey, signups: 0, cancellations: 0});
-            }
-            currentPeriod.add(1, 'month');
-        }
-    } else if (strategy === 'weekly') {
-        const currentPeriod = moment(startDate).startOf('week');
-        const endPeriod = moment(endDate).startOf('week');
-
-        while (currentPeriod.isSameOrBefore(endPeriod)) {
-            const dateKey = currentPeriod.format('YYYY-MM-DD');
-            if (!seenKeys.has(dateKey)) {
-                seenKeys.add(dateKey);
-                const existingData = dataMap.get(dateKey);
-                filledData.push(existingData || {date: dateKey, signups: 0, cancellations: 0});
-            }
-            currentPeriod.add(1, 'week');
-        }
+    if (actualSpan < 30) {
+        return 'daily';
+    } else if (actualSpan >= 91) {
+        return 'monthly';
     } else {
-        const currentDate = moment(startDate);
-        const endMoment = moment(endDate);
-
-        while (currentDate.isSameOrBefore(endMoment)) {
-            const dateKey = currentDate.format('YYYY-MM-DD');
-            const existingData = dataMap.get(dateKey);
-            filledData.push(existingData || {date: dateKey, signups: 0, cancellations: 0});
-            currentDate.add(1, 'day');
-        }
+        return 'weekly';
     }
-
-    return filledData;
 };
 
 const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
@@ -119,81 +144,130 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
     }, [range]);
 
     const availableResolutions = useMemo(() => getAvailableResolutions(range), [range]);
+
     const aggregationStrategy = useMemo(() => {
         switch (selectedResolution) {
-        case 'daily': return 'none' as const;
-        case 'weekly': return 'weekly' as const;
-        case 'monthly': return 'monthly' as const;
+        case 'daily':
+            return 'none' as const;
+        case 'weekly':
+            return 'weekly' as const;
+        case 'monthly':
+            return 'monthly' as const;
         }
     }, [selectedResolution]);
 
-    const processChartData = (
-        data: {date: string; signups?: number; cancellations?: number}[] | {date: string; paid_subscribed?: number; paid_canceled?: number}[],
-        isSubscriptionData: boolean
-    ): {date: string; rawDate: string; new: number; cancelled: number}[] => {
-        if (data.length === 0) return [];
-
-        if (range === 1) {
-            const today = moment().format('YYYY-MM-DD');
-            const todayData = data.find(item => item.date === today);
-            const newCount = isSubscriptionData ? todayData?.signups : todayData?.paid_subscribed;
-            const cancelledCount = isSubscriptionData ? todayData?.cancellations : todayData?.paid_canceled;
-
-            return [{
-                date: formatDisplayDateWithRange(today, range),
-                rawDate: today,
-                new: newCount || 0,
-                cancelled: -(cancelledCount || 0)
-            }];
-        }
-
-        const signupsKey = isSubscriptionData ? 'signups' : 'paid_subscribed';
-        const cancellationsKey = isSubscriptionData ? 'cancellations' : 'paid_canceled';
-
-        const subscribedData = sanitizeChartData(data, range, signupsKey, 'sum', aggregationStrategy);
-        const canceledData = sanitizeChartData(data, range, cancellationsKey, 'sum', aggregationStrategy);
-
-        const canceledMap = new Map(canceledData.map(c => [c.date, c]));
-        const combinedData = subscribedData.map(item => ({
-            date: item.date,
-            [signupsKey]: item[signupsKey] || 0,
-            [cancellationsKey]: canceledMap.get(item.date)?.[cancellationsKey] || 0
-        }));
-
-        const combinedDatesSet = new Set(combinedData.map(item => item.date));
-        canceledData.forEach((cancelItem) => {
-            if (!combinedDatesSet.has(cancelItem.date)) {
-                combinedData.push({
-                    date: cancelItem.date,
-                    [signupsKey]: 0,
-                    [cancellationsKey]: cancelItem[cancellationsKey] || 0
-                });
-            }
-        });
-
-        combinedData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-        const filledData = fillMissingDataPoints(combinedData, range, aggregationStrategy);
-
-        return filledData.map((item) => {
-            let effectiveRange = range;
-            if (selectedResolution === 'weekly' && range < 91) effectiveRange = 91;
-            else if (selectedResolution === 'monthly' && range < 365) effectiveRange = 365;
-
-            return {
-                date: formatDisplayDateWithRange(item.date, effectiveRange),
-                rawDate: item.date,
-                new: item[signupsKey] || 0,
-                cancelled: -(item[cancellationsKey] || 0)
-            };
-        });
-    };
-
     const paidChangeChartData = useMemo(() => {
         if (subscriptionData && subscriptionData.length > 0) {
-            return processChartData(subscriptionData, true);
+            if (range === 1) {
+                const today = moment().format('YYYY-MM-DD');
+                const todayData = subscriptionData.find(item => item.date === today);
+
+                return [{
+                    date: formatDisplayDateWithRange(today, range),
+                    rawDate: today,
+                    new: todayData?.signups || 0,
+                    cancelled: -(todayData?.cancellations || 0)
+                }];
+            }
+
+            const signupsData = sanitizeChartData(subscriptionData, range, 'signups', 'sum', aggregationStrategy);
+            const cancellationsData = sanitizeChartData(subscriptionData, range, 'cancellations', 'sum', aggregationStrategy);
+
+            const cancellationsMap = new Map(cancellationsData.map(c => [c.date, c]));
+
+            const combinedData = signupsData.map(item => ({
+                date: item.date,
+                signups: item.signups || 0,
+                cancellations: cancellationsMap.get(item.date)?.cancellations || 0
+            }));
+
+            const combinedDatesSet = new Set(combinedData.map(item => item.date));
+            cancellationsData.forEach((cancelItem) => {
+                if (!combinedDatesSet.has(cancelItem.date)) {
+                    combinedData.push({
+                        date: cancelItem.date,
+                        signups: 0,
+                        cancellations: cancelItem.cancellations || 0
+                    });
+                }
+            });
+
+            combinedData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+            const filledData = fillMissingDataPoints(combinedData, range, aggregationStrategy);
+
+            return filledData.map((item) => {
+                let effectiveRange = range;
+                if (selectedResolution === 'weekly' && range < 91) {
+                    effectiveRange = 91;
+                } else if (selectedResolution === 'monthly' && range < 365) {
+                    effectiveRange = 365;
+                }
+
+                return {
+                    date: formatDisplayDateWithRange(item.date, effectiveRange),
+                    rawDate: item.date,
+                    new: item.signups || 0,
+                    cancelled: -(item.cancellations || 0)
+                };
+            });
+        } else {
+            if (!memberData || memberData.length === 0) {
+                return [];
+            }
+
+            if (range === 1) {
+                const today = moment().format('YYYY-MM-DD');
+                const todayData = memberData.find(item => item.date === today);
+
+                return [{
+                    date: formatDisplayDateWithRange(today, range),
+                    rawDate: today,
+                    new: todayData?.paid_subscribed || 0,
+                    cancelled: -(todayData?.paid_canceled || 0)
+                }];
+            }
+
+            const subscribedData = sanitizeChartData(memberData, range, 'paid_subscribed', 'sum', aggregationStrategy);
+            const canceledData = sanitizeChartData(memberData, range, 'paid_canceled', 'sum', aggregationStrategy);
+
+            const canceledMap = new Map(canceledData.map(c => [c.date, c]));
+
+            const combinedData = subscribedData.map(item => ({
+                date: item.date,
+                paid_subscribed: item.paid_subscribed || 0,
+                paid_canceled: canceledMap.get(item.date)?.paid_canceled || 0
+            }));
+
+            const combinedDatesSet = new Set(combinedData.map(item => item.date));
+            canceledData.forEach((cancelItem) => {
+                if (!combinedDatesSet.has(cancelItem.date)) {
+                    combinedData.push({
+                        date: cancelItem.date,
+                        paid_subscribed: 0,
+                        paid_canceled: cancelItem.paid_canceled || 0
+                    });
+                }
+            });
+
+            combinedData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+            return combinedData.map((item) => {
+                let effectiveRange = range;
+                if (selectedResolution === 'weekly' && range < 91) {
+                    effectiveRange = 91;
+                } else if (selectedResolution === 'monthly' && range < 365) {
+                    effectiveRange = 365;
+                }
+
+                return {
+                    date: formatDisplayDateWithRange(item.date, effectiveRange),
+                    rawDate: item.date,
+                    new: item.paid_subscribed || 0,
+                    cancelled: -(item.paid_canceled || 0)
+                };
+            });
         }
-        return processChartData(memberData, false);
     }, [memberData, subscriptionData, range, aggregationStrategy, selectedResolution]);
 
     const paidChangeChartConfig = {
@@ -213,7 +287,9 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
         return {new: totalNew, cancelled: totalCancelled};
     }, [paidChangeChartData]);
 
-    if (isLoading) return null;
+    if (isLoading) {
+        return null;
+    }
 
     const hasData = paidChangeChartData.length > 0 && (totals.new > 0 || totals.cancelled > 0);
 
@@ -288,8 +364,11 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
                                         formatter={(value, name, payload, index) => {
                                             const rawValue = Number(value);
                                             let displayValue = '0';
-                                            if (rawValue === 0) displayValue = '0';
-                                            else displayValue = rawValue < 0 ? formatNumber(rawValue * -1) : formatNumber(rawValue);
+                                            if (rawValue === 0) {
+                                                displayValue = '0';
+                                            } else {
+                                                displayValue = rawValue < 0 ? formatNumber(rawValue * -1) : formatNumber(rawValue);
+                                            }
 
                                             const newValue = Number(payload?.payload?.new || 0);
                                             const cancelledValue = Number(payload?.payload?.cancelled || 0);
@@ -310,9 +389,9 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
                                             return (
                                                 <div className='flex w-full flex-col'>
                                                     {index === 0 &&
-                                                        <div className="mb-1 text-sm font-medium text-foreground">
-                                                            {tooltipDate}
-                                                        </div>
+                                            <div className="mb-1 text-sm font-medium text-foreground">
+                                                {tooltipDate}
+                                            </div>
                                                     }
                                                     <div className='flex w-full items-center justify-between gap-4'>
                                                         <div className='flex items-center gap-1'>
@@ -331,14 +410,14 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
                                                         </div>
                                                     </div>
                                                     {index === 1 &&
-                                                        <div className='mt-1 flex w-full items-center justify-between gap-4 border-t pt-1'>
-                                                            <span className='text-sm text-muted-foreground'>
-                                                                Net change
-                                                            </span>
-                                                            <div className="ml-auto flex items-baseline gap-0.5 font-mono font-medium tabular-nums text-foreground">
-                                                                {netChangeFormatted}
-                                                            </div>
-                                                        </div>
+                                            <div className='mt-1 flex w-full items-center justify-between gap-4 border-t pt-1'>
+                                                <span className='text-sm text-muted-foreground'>
+                                                    Net change
+                                                </span>
+                                                <div className="ml-auto flex items-baseline gap-0.5 font-mono font-medium tabular-nums text-foreground">
+                                                    {netChangeFormatted}
+                                                </div>
+                                            </div>
                                                     }
                                                 </div>
                                             );

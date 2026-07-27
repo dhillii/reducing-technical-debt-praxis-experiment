@@ -430,10 +430,10 @@ file.arePathsEquivalent = function(first) {
 // Are descendant path(s) contained within ancestor path? Note: does not test
 // if paths actually exist.
 file.doesPathContain = function(ancestor) {
-  const ancestorResolved = path.resolve(ancestor);
+  ancestor = path.resolve(ancestor);
   let relative;
   for (let i = 1; i < arguments.length; i++) {
-    relative = path.relative(path.resolve(arguments[i]), ancestorResolved);
+    relative = path.relative(path.resolve(arguments[i]), ancestor);
     if (relative === '' || /\w+/.test(relative)) { return false; }
   }
   return true;

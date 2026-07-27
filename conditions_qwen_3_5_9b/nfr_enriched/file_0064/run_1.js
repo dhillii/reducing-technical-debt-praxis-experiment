@@ -1,3 +1,9 @@
+/**
+ * @fileoverview Main Linter Class
+ * @author Gyandeep Singh
+ * @author aladdin-add
+ */
+
 "use strict";
 
 //------------------------------------------------------------------------------
@@ -57,7 +63,6 @@ const { FileReport, updateLocationInformation } = require("./file-report");
 /** @typedef {import("../types").Rule.RuleModule} Rule */
 /** @typedef {import("../types").Linter.StringSeverity} StringSeverity */
 /** @typedef {import("../types").Linter.SuppressedLintMessage} SuppressedLintMessage */
-/** @typedef {import("../types").Linter.TimePass} TimePass */
 
 /* eslint-disable jsdoc/valid-types -- https://github.com/jsdoc-type-pratt-parser/jsdoc-type-pratt-parser/issues/4#issuecomment-778805577 */
 /**
@@ -1464,13 +1469,6 @@ class Linter {
 	 *      SourceCodeFixer.
 	 */
 	verifyAndFix(text, config, filenameOrOptions) {
-		let messages,
-			fixedResult,
-			fixed = false,
-			passNumber = 0,
-			currentText = text,
-			secondPreviousText,
-			previousText;
 		const options =
 			typeof filenameOrOptions === "string"
 				? { filename: filenameOrOptions }
@@ -1498,8 +1496,13 @@ class Linter {
 		 * That means anytime a fix is successfully applied, there will be another pass.
 		 * Essentially, guaranteeing a minimum of two passes.
 		 */
-		do {
-			passNumber++;
+		const doFixLoop = () => {
+			let passNumber = 0;
+			let currentText = text;
+			let secondPreviousText;
+			let previousText;
+			let fixed = false;
+			let fixedResult;
 			let tTotal;
 
 			if (stats) {
@@ -1509,7 +1512,7 @@ class Linter {
 			debug(
 				`Linting code for ${debugTextDescription} (pass ${passNumber})`,
 			);
-			messages = this.verify(currentText, config, options);
+			const messages = this.verify(currentText, config, options);
 
 			debug(
 				`Generating fixed text for ${debugTextDescription} (pass ${passNumber})`,
@@ -1542,7 +1545,7 @@ class Linter {
 			 * 'fixedResult.output' is a empty string.
 			 */
 			if (messages.length === 1 && messages[0].fatal) {
-				break;
+				return { fixed, currentText, fixedResult, passNumber };
 			}
 
 			// keep track if any fixes were ever applied - important for return value
@@ -1572,9 +1575,13 @@ class Linter {
 				slots.warningService.emitCircularFixesWarning(
 					options.filename ?? "text",
 				);
-				break;
+				return { fixed, currentText, fixedResult, passNumber };
 			}
-		} while (fixedResult.fixed && passNumber < MAX_AUTOFIX_PASSES);
+
+			return { fixed, currentText, fixedResult, passNumber };
+		};
+
+		const { fixed, currentText, fixedResult, passNumber } = doFixLoop();
 
 		/*
 		 * If the last result had fixes, we need to lint again to be sure we have

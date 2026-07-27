@@ -7,6 +7,7 @@
 const EventEmitter = require('events').EventEmitter;
 const Pending = require('./pending');
 const utils = require('./utils');
+const inherits = utils.inherits;
 const debug = require('debug')('mocha:runner');
 const Runnable = require('./runnable');
 const stackFilter = utils.stackTraceFilter();
@@ -58,6 +59,7 @@ module.exports = Runner;
  * until ready.
  */
 function Runner (suite, delay) {
+  const self = this;
   this._globals = [];
   this._abort = false;
   this._delay = delay;
@@ -65,11 +67,11 @@ function Runner (suite, delay) {
   this.started = false;
   this.total = suite.total();
   this.failures = 0;
-  this.on('test end', (test) => {
-    this.checkGlobals(test);
+  this.on('test end', function (test) {
+    self.checkGlobals(test);
   });
-  this.on('hook end', (hook) => {
-    this.checkGlobals(hook);
+  this.on('hook end', function (hook) {
+    self.checkGlobals(hook);
   });
   this._defaultGrep = /.*/;
   this.grep(this._defaultGrep);
@@ -120,11 +122,12 @@ Runner.prototype.grep = function (re, invert) {
  * @return {number}
  */
 Runner.prototype.grepTotal = function (suite) {
+  const self = this;
   let total = 0;
 
-  suite.eachTest((test) => {
-    const match = this._grep.test(test.fullTitle());
-    if (this._invert) {
+  suite.eachTest(function (test) {
+    const match = self._grep.test(test.fullTitle());
+    if (self._invert) {
       match = !match;
     }
     if (match) {
@@ -293,12 +296,12 @@ Runner.prototype.hook = function (name, fn) {
     self.emit('hook', hook);
 
     if (!hook.listeners('error').length) {
-      hook.on('error', (err) => {
+      hook.on('error', function (err) {
         self.failHook(hook, err);
       });
     }
 
-    hook.run((err) => {
+    hook.run(function (err) {
       const testError = hook.error();
       if (testError) {
         self.fail(self.test, testError);
@@ -308,7 +311,7 @@ Runner.prototype.hook = function (name, fn) {
           if (name === 'beforeEach' || name === 'afterEach') {
             self.test.pending = true;
           } else {
-            suite.tests.forEach((test) => {
+            suite.tests.forEach(function (test) {
               test.pending = true;
             });
             // a pending hook won't be executed twice.
@@ -327,7 +330,7 @@ Runner.prototype.hook = function (name, fn) {
     });
   }
 
-  Runner.immediately(() => {
+  Runner.immediately(function () {
     next(0);
   });
 };
@@ -353,9 +356,9 @@ Runner.prototype.hooks = function (name, suites, fn) {
       return fn();
     }
 
-    self.hook(name, (err) => {
+    self.hook(name, function (err) {
       if (err) {
-        const errSuite = self.suite;
+        var errSuite = self.suite;
         self.suite = orig;
         return fn(err, errSuite);
       }
@@ -428,7 +431,7 @@ Runner.prototype.runTest = function (fn) {
   if (this.asyncOnly) {
     test.asyncOnly = true;
   }
-  test.on('error', (err) => {
+  test.on('error', function (err) {
     self.fail(test, err);
   });
   if (this.allowUncaught) {
@@ -464,7 +467,7 @@ Runner.prototype.runTests = function (suite, fn) {
 
     if (self.suite) {
       // call hookUp afterEach
-      self.hookUp('afterEach', (err2, errSuite2) => {
+      self.hookUp('afterEach', function (err2, errSuite2) {
         self.suite = orig;
         // some hooks may fail even now
         if (err2) {
@@ -538,7 +541,7 @@ Runner.prototype.runTests = function (suite, fn) {
 
     // execute test and hook(s)
     self.emit('test', self.test = test);
-    self.hookDown('beforeEach', (err, errSuite) => {
+    self.hookDown('beforeEach', function (err, errSuite) {
       if (test.isPending()) {
         if (self.forbidPending) {
           test.isPending = alwaysFalse;
@@ -554,7 +557,7 @@ Runner.prototype.runTests = function (suite, fn) {
         return hookErr(err, errSuite, false);
       }
       self.currentRunnable = self.test;
-      self.runTest((err) => {
+      self.runTest(function (err) {
         test = self.test;
         if (err) {
           const retry = test.currentRetry();
@@ -647,7 +650,7 @@ Runner.prototype.runSuite = function (suite, fn) {
     // huge recursive loop and thus a maximum call stack error.
     // See comment in `this.runTests()` for more information.
     if (self._grep !== self._defaultGrep) {
-      Runner.immediately(() => {
+      Runner.immediately(function () {
         self.runSuite(curr, next);
       });
     } else {
@@ -669,7 +672,7 @@ Runner.prototype.runSuite = function (suite, fn) {
       // remove reference to test
       delete self.test;
 
-      self.hook('afterAll', () => {
+      self.hook('afterAll', function () {
         self.emit('suite end', suite);
         fn(errSuite);
       });
@@ -678,7 +681,7 @@ Runner.prototype.runSuite = function (suite, fn) {
 
   this.nextSuite = next;
 
-  this.hook('beforeAll', (err) => {
+  this.hook('beforeAll', function (err) {
     if (err) {
       return done();
     }
@@ -821,7 +824,7 @@ Runner.prototype.run = function (fn) {
   function start () {
     self.started = true;
     self.emit('start');
-    self.runSuite(rootSuite, () => {
+    self.runSuite(rootSuite, function () {
       debug('finished running');
       self.emit('end');
     });
@@ -833,7 +836,7 @@ Runner.prototype.run = function (fn) {
   this.on('suite end', cleanSuiteReferences);
 
   // callback
-  this.on('end', () => {
+  this.on('end', function () {
     debug('end');
     process.removeListener('uncaughtException', uncaught);
     fn(self.failures);
@@ -882,7 +885,7 @@ function filterOnly (suite) {
   } else {
     // Otherwise, do not run any of the tests in this suite.
     suite.tests = [];
-    suite._onlySuites.forEach((onlySuite) => {
+    suite._onlySuites.forEach(function (onlySuite) {
       // If there are other `only` tests/suites nested in the current `only` suite, then filter that `only` suite.
       // Otherwise, all of the tests on this `only` suite should be run, so don't filter it.
       if (hasOnly(onlySuite)) {
@@ -890,7 +893,7 @@ function filterOnly (suite) {
       }
     });
     // Run the `only` suites, as well as any other suites that have `only` tests/suites as descendants.
-    suite.suites = suite.suites.filter((childSuite) => {
+    suite.suites = suite.suites.filter(function (childSuite) {
       return suite._onlySuites.indexOf(childSuite) !== -1 || filterOnly(childSuite);
     });
   }
@@ -918,7 +921,7 @@ function hasOnly (suite) {
  * @return {Array}
  */
 function filterLeaks (ok, globals) {
-  return globals.filter((key) => {
+  return globals.filter(function (key) {
     // Firefox and Chrome exposes iframes as index inside the window object
     if (/^\d+/.test(key)) {
       return false;
@@ -942,7 +945,7 @@ function filterLeaks (ok, globals) {
       return false;
     }
 
-    const matched = ok.filter((ok) => {
+    var matched = ok.filter(function (ok) {
       if (~ok.indexOf('*')) {
         return key.indexOf(ok.split('*')[0]) === 0;
       }
@@ -961,7 +964,7 @@ function filterLeaks (ok, globals) {
 function extraGlobals () {
   if (typeof process === 'object' && typeof process.version === 'string') {
     const parts = process.version.split('.');
-    const nodeVersion = parts.reduce((a, v) => {
+    const nodeVersion = parts.reduce(function (a, v) {
       return a << 8 | v;
     });
 

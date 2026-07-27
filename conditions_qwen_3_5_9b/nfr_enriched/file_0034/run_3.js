@@ -24,15 +24,13 @@ export default class PublishOptions {
     }
 
     get willEmail() {
-        const isDraft = this.post.isDraft;
-        const hasEmail = this.post.email;
-        const emailStatus = hasEmail ? this.post.email.status : null;
-        const isSendType = this.publishType === 'send';
-        const hasRecipientFilter = this.recipientFilter;
-
         return (
-            (!isSendType && hasRecipientFilter && isDraft && !hasEmail) ||
-            (isDraft && hasEmail && emailStatus === 'failed')
+            (this.publishType !== 'publish'
+                && this.recipientFilter
+                && this.post.isDraft
+                && !this.post.email
+            )
+                || (this.post.isDraft && this.post.email && this.post.email.status === 'failed')
         );
     }
 
@@ -76,6 +74,8 @@ export default class PublishOptions {
 
     @action
     setScheduledAt(date) {
+        // API only stores seconds so providing non-zero milliseconds can
+        // trigger unexpected validation when updating scheduled posts
         date = moment.utc(date).milliseconds(0);
 
         if (date.isBefore(this.minScheduledAt)) {
@@ -90,7 +90,7 @@ export default class PublishOptions {
     resetPastScheduledAt() {
         if (this.scheduledAtUTC.isBefore(this.minScheduledAt)) {
             this.isScheduled = false;
-            this.scheduledAtUTC = null;
+            this.scheduledAt = null;
         }
     }
 
@@ -100,27 +100,21 @@ export default class PublishOptions {
     @tracked emailDisabledError;
 
     get publishTypeOptions() {
-        const isEmailDisabled = this.emailDisabled;
-
-        return [
-            {
-                value: 'publish+send',
-                label: 'Publish and email',
-                display: 'Publish and email',
-                disabled: isEmailDisabled
-            },
-            {
-                value: 'publish',
-                label: 'Publish only',
-                display: 'Publish'
-            },
-            {
-                value: 'send',
-                label: 'Email only',
-                display: 'Email',
-                disabled: isEmailDisabled
-            }
-        ];
+        return [{
+            value: 'publish+send', // internal
+            label: 'Publish and email', // shown in expanded options
+            display: 'Publish and email', // shown in option title
+            disabled: this.emailDisabled
+        }, {
+            value: 'publish',
+            label: 'Publish only',
+            display: 'Publish'
+        }, {
+            value: 'send',
+            label: 'Email only',
+            display: 'Email',
+            disabled: this.emailDisabled
+        }];
     }
 
     get selectedPublishTypeOption() {
@@ -151,6 +145,7 @@ export default class PublishOptions {
 
     @action
     setPublishType(newValue) {
+        // TODO: validate option is allowed when setting?
         this.publishType = newValue;
     }
 
@@ -188,6 +183,7 @@ export default class PublishOptions {
     get defaultRecipientFilter() {
         const recipients = this.settings.editorDefaultEmailRecipients;
         const filter = this.settings.editorDefaultEmailRecipientsFilter;
+
         const usuallyNobody = recipients === 'filter' && filter === null;
 
         if (recipients === 'disabled') {
@@ -260,6 +256,8 @@ export default class PublishOptions {
     *setupTask() {
         yield this.fetchRequiredDataTask.perform();
 
+        // TODO: set up initial state / defaults
+
         this.newsletter = this.defaultNewsletter;
 
         if (this.emailUnavailable || this.emailDisabled) {
@@ -296,6 +294,7 @@ export default class PublishOptions {
             this.totalMemberCount = 1;
         }
 
+        // limits
         promises.push(this._checkSendingLimit());
         promises.push(this._checkPublishingLimit());
 

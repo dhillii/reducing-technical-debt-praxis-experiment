@@ -31,17 +31,28 @@ module.exports = function(CLI) {
    * Install pm2-sysmonit
    */
   CLI.prototype.launchSysMonitoring = function(cb) {
-    var shouldSkip = shouldSkipSysMonitoring();
+    var shouldSkip = function() {
+      return (this.pm2_configuration && this.pm2_configuration.sysmonit != 'true') ||
+             process.env.TRAVIS ||
+             global.it === 'function' ||
+             cst.IS_WINDOWS === true;
+    };
 
-    if (shouldSkip) {
+    var shouldResolvePath = function() {
+      try {
+        return path.dirname(require.resolve('pm2-sysmonit'));
+      } catch(e) {
+        return null;
+      }
+    };
+
+    if (shouldSkip.call(this)) {
       return cb ? cb(null) : null;
     }
 
-    var filepath;
+    var filepath = shouldResolvePath.call(this);
 
-    try {
-      filepath = path.dirname(require.resolve('pm2-sysmonit'));
-    } catch(e) {
+    if (!filepath) {
       return cb ? cb(null) : null;
     }
 
@@ -57,13 +68,6 @@ module.exports = function(CLI) {
       return cb ? cb(null) : this.speedList();
     });
   };
-
-  function shouldSkipSysMonitoring() {
-    return (this.pm2_configuration && this.pm2_configuration.sysmonit != 'true') ||
-        process.env.TRAVIS ||
-        global.it === 'function' ||
-        cst.IS_WINDOWS === true;
-  }
 
   /**
    * Show application environment
@@ -103,104 +107,80 @@ module.exports = function(CLI) {
     var Log = require('./Log');
 
     that.Client.executeRemote('getReport', {}, function(err, report) {
-      if (err || !report) {
-        return printReportHeader();
+      console.log();
+      console.log();
+      console.log();
+      console.log('```');
+      fmt.title('PM2 report');
+      fmt.field('Date', new Date());
+      fmt.sep();
+
+      if (report && !err) {
+        fmt.title(chalk.bold.blue('Daemon'));
+        fmt.field('pm2d version', report.pm2_version);
+        fmt.field('node version', report.node_version);
+        fmt.field('node path', report.node_path);
+        fmt.field('argv', report.argv);
+        fmt.field('argv0', report.argv0);
+        fmt.field('user', report.user);
+        fmt.field('uid', report.uid);
+        fmt.field('gid', report.gid);
+        fmt.field('uptime', dayjs(new Date()).diff(report.started_at, 'minute') + 'min');
       }
 
-      printReportHeader();
-      printDaemonInfo(report);
-      printCliInfo();
-      printSystemInfo();
-      printProcessList();
-      printDaemonLogs();
-      printReportFooter();
+      fmt.sep();
+      fmt.title(chalk.bold.blue('CLI'));
+      fmt.field('local pm2', pkg.version);
+      fmt.field('node version', process.versions.node);
+      fmt.field('node path', process.env['_'] || 'not found');
+      fmt.field('argv', process.argv);
+      fmt.field('argv0', process.argv0);
+      fmt.field('user', process.env.USER || process.env.LNAME || process.env.USERNAME);
+      if (cst.IS_WINDOWS === false && process.geteuid) {
+        fmt.field('uid', process.geteuid());
+      }
+      if (cst.IS_WINDOWS === false && process.getegid) {
+        fmt.field('gid', process.getegid());
+      }
+
+      var os = require('os');
+
+      fmt.sep();
+      fmt.title(chalk.bold.blue('System info'));
+      fmt.field('arch', os.arch());
+      fmt.field('platform', os.platform());
+      fmt.field('type', os.type());
+      fmt.field('cpus', os.cpus()[0].model);
+      fmt.field('cpus nb', Object.keys(os.cpus()).length);
+      fmt.field('freemem', os.freemem());
+      fmt.field('totalmem', os.totalmem());
+      fmt.field('home', os.homedir());
+
+      that.Client.executeRemote('getMonitorData', {}, function(err, list) {
+        fmt.sep();
+        fmt.title(chalk.bold.blue('PM2 list'));
+        UX.list(list, that.gl_interact_infos);
+
+        fmt.sep();
+        fmt.title(chalk.bold.blue('Daemon logs'));
+        Log.tail([{
+          path     : cst.PM2_LOG_FILE_PATH,
+          app_name : 'PM2',
+          type     : 'PM2'
+        }], 20, false, function() {
+          console.log('```');
+          console.log();
+          console.log();
+
+          console.log(chalk.bold.green('Please copy/paste the above report in your issue on https://github.com/Unitech/pm2/issues'));
+
+          console.log();
+          console.log();
+          that.exitCli(cst.SUCCESS_EXIT);
+        });
+      });
     });
   };
-
-  function printReportHeader() {
-    console.log();
-    console.log();
-    console.log();
-    console.log('```');
-    fmt.title('PM2 report');
-    fmt.field('Date', new Date());
-    fmt.sep();
-  }
-
-  function printDaemonInfo(report) {
-    fmt.title(chalk.bold.blue('Daemon'));
-    fmt.field('pm2d version', report.pm2_version);
-    fmt.field('node version', report.node_version);
-    fmt.field('node path', report.node_path);
-    fmt.field('argv', report.argv);
-    fmt.field('argv0', report.argv0);
-    fmt.field('user', report.user);
-    fmt.field('uid', report.uid);
-    fmt.field('gid', report.gid);
-    fmt.field('uptime', dayjs(new Date()).diff(report.started_at, 'minute') + 'min');
-  }
-
-  function printCliInfo() {
-    fmt.sep();
-    fmt.title(chalk.bold.blue('CLI'));
-    fmt.field('local pm2', pkg.version);
-    fmt.field('node version', process.versions.node);
-    fmt.field('node path', process.env['_'] || 'not found');
-    fmt.field('argv', process.argv);
-    fmt.field('argv0', process.argv0);
-    fmt.field('user', process.env.USER || process.env.LNAME || process.env.USERNAME);
-    if (cst.IS_WINDOWS === false && process.geteuid) {
-      fmt.field('uid', process.geteuid());
-    }
-    if (cst.IS_WINDOWS === false && process.getegid) {
-      fmt.field('gid', process.getegid());
-    }
-  }
-
-  function printSystemInfo() {
-    var os = require('os');
-
-    fmt.sep();
-    fmt.title(chalk.bold.blue('System info'));
-    fmt.field('arch', os.arch());
-    fmt.field('platform', os.platform());
-    fmt.field('type', os.type());
-    fmt.field('cpus', os.cpus()[0].model);
-    fmt.field('cpus nb', Object.keys(os.cpus()).length);
-    fmt.field('freemem', os.freemem());
-    fmt.field('totalmem', os.totalmem());
-    fmt.field('home', os.homedir());
-  }
-
-  function printProcessList() {
-    that.Client.executeRemote('getMonitorData', {}, function(err, list) {
-      fmt.sep();
-      fmt.title(chalk.bold.blue('PM2 list'));
-      UX.list(list, that.gl_interact_infos);
-    });
-  }
-
-  function printDaemonLogs() {
-    Log.tail([{
-      path     : cst.PM2_LOG_FILE_PATH,
-      app_name : 'PM2',
-      type     : 'PM2'
-    }], 20, false, function() {
-      printReportFooter();
-    });
-  }
-
-  function printReportFooter() {
-    console.log('```');
-    console.log();
-    console.log();
-
-    console.log(chalk.bold.green('Please copy/paste the above report in your issue on https://github.com/Unitech/pm2/issues'));
-
-    console.log();
-    console.log();
-    that.exitCli(cst.SUCCESS_EXIT);
-  }
 
   CLI.prototype.getPID = function(app_name, cb) {
     var that = this;
@@ -230,7 +210,7 @@ module.exports = function(CLI) {
       }
       return cb(null, pids);
     });
-  };
+  }
 
   /**
    * Create PM2 memory snapshot
@@ -247,13 +227,12 @@ module.exports = function(CLI) {
         ext: '.cpuprofile',
         action: 'profileCPU'
       };
-    } else if (type == 'mem') {
+    }
+    if (type == 'mem') {
       cmd = {
         ext: '.heapprofile',
         action: 'profileMEM'
       };
-    } else {
-      return that.exitCli(cst.ERROR_EXIT);
     }
 
     var file = path.join(process.cwd(), dayjs().format('dd-HH:mm:ss') + cmd.ext);
@@ -272,6 +251,7 @@ module.exports = function(CLI) {
       return cb ? cb.apply(null, arguments) : that.exitCli(cst.SUCCESS_EXIT);
     });
   };
+
 
   function basicMDHighlight(lines) {
     console.log('\n\n+-------------------------------------+')
@@ -296,7 +276,6 @@ module.exports = function(CLI) {
     })
     console.log('+-------------------------------------+')
   }
-
   /**
    * pm2 create command
    * create boilerplate of application for fast try
@@ -607,9 +586,9 @@ module.exports = function(CLI) {
     var filepath = path.resolve(path.dirname(module.filename), './Serve.js');
 
     if (typeof commander.name === 'string') {
-      opts.name = commander.name;
+      opts.name = commander.name
     } else {
-      opts.name = 'static-page-server-' + servePort;
+      opts.name = 'static-page-server-' + servePort
     }
     if (!opts.env) {
       opts.env = {};
@@ -623,7 +602,7 @@ module.exports = function(CLI) {
       opts.env.PM2_SERVE_BASIC_AUTH_PASSWORD = opts.basicAuthPassword;
     }
     if (opts.monitor) {
-      opts.env.PM2_SERVE_MONITOR = opts.monitor;
+      opts.env.PM2_SERVE_MONITOR = opts.monitor
     }
     opts.cwd = servePath;
 
@@ -783,7 +762,7 @@ module.exports = function(CLI) {
       that.Client.executeRemote('getMonitorData', {}, function(err, list) {
         if (err) {
           console.error('Error retrieving process list: ' + err);
-          that.exitCli(cst.ERROR_EXIT);
+          that.exitCli(conf.ERROR_EXIT);
         }
 
         Monit.refresh(list);

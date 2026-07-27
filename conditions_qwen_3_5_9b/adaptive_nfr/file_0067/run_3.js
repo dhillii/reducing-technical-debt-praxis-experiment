@@ -1,12 +1,3 @@
-/**
- * @fileoverview This rule sets a specific indentation style and width for your code
- *
- * @author Teddy Katz
- * @author Vitaly Puzrin
- * @author Gyandeep Singh
- * @deprecated in ESLint v8.53.0
- */
-
 "use strict";
 
 //------------------------------------------------------------------------------

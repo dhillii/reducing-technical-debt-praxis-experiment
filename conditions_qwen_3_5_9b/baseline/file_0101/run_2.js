@@ -1,11 +1,11 @@
 'use strict';
 
-const ngModule = angular.module('woServices');
+var ngModule = angular.module('woServices');
 ngModule.service('keychain', Keychain);
 module.exports = Keychain;
 
-const DB_PUBLICKEY = 'publickey';
-const DB_PRIVATEKEY = 'privatekey';
+var DB_PUBLICKEY = 'publickey',
+    DB_PRIVATEKEY = 'privatekey';
 
 /**
  * A high-level Data-Access Api for handling Keypair synchronization
@@ -148,15 +148,16 @@ Keychain.prototype.getReceiverPublicKey = function(userId) {
 
     // search local keyring for public key
     return self._lawnchairDAO.list(DB_PUBLICKEY).then(function(allPubkeys) {
-        const userIds = [];
-        let pubkey = _.findWhere(allPubkeys, {
+        let userIds;
+        // query primary email address
+        const pubkey = _.findWhere(allPubkeys, {
             userId: userId
         });
         // query mutliple userIds
         if (!pubkey) {
             for (let i = 0, match; i < allPubkeys.length; i++) {
-                const userIdsForKey = self._pgp.getKeyParams(allPubkeys[i].publicKey).userIds;
-                match = _.findWhere(userIdsForKey, {
+                userIds = self._pgp.getKeyParams(allPubkeys[i].publicKey).userIds;
+                match = _.findWhere(userIds, {
                     emailAddress: userId
                 });
                 if (match) {
@@ -233,8 +234,7 @@ Keychain.prototype.getUserKeyPair = function(userId) {
     });
 
     function syncKeypair(keypairId) {
-        let savedPubkey;
-        let savedPrivkey;
+        let savedPubkey, savedPrivkey;
         // persist key pair in local storage
         return self.lookupPublicKey(keypairId).then(function(pub) {
             savedPubkey = pub;

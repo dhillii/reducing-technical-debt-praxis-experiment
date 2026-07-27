@@ -164,7 +164,10 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 return res.json();
             } else {
                 const humanError = await HumanReadableError.fromApiResponse(res);
-                throw humanError ?? new Error('Failed to save feedback');
+                if (humanError) {
+                    throw humanError;
+                }
+                throw new Error('Failed to save feedback');
             }
         }
     };
@@ -589,11 +592,11 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 const stripe = window.Stripe(result.publicKey);
                 return stripe.redirectToCheckout({
                     sessionId: result.sessionId
-                }).then(function (result) {
-                    if (result.error) {
-                        throw new Error(result.error.message);
-                    }
                 });
+            }).then(function (result) {
+                if (result.error) {
+                    throw new Error(result.error.message);
+                }
             }).catch(function (err) {
                 throw err;
             });

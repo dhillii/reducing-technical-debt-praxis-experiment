@@ -411,24 +411,20 @@ function ItemPage({ listKey }: ItemPageProps) {
               (list.isSingleton ? (
                 itemId === '1' ? (
                   <ItemNotFound>
-                    <Text>
-                      &quot;{list.label}&quot; doesn&apos;t exist, or you don&apos;t have access to it.
-                    </Text>
+                    <Text>“{list.label}” doesn’t exist, or you don’t have access to it.</Text>
                     {!list.hideCreate && <CreateButtonLink list={list} />}
                   </ItemNotFound>
                 ) : (
                   <ItemNotFound>
                     <Text>
-                      An item with ID{' '}
-                      <strong>&quot;{itemId}&quot;</strong> does not exist.
+                      An item with ID <strong>“{itemId}”</strong> does not exist.
                     </Text>
                   </ItemNotFound>
                 )
               ) : (
                 <ItemNotFound>
                   <Text>
-                    The item with ID{' '}
-                    <strong>&quot;{itemId}&quot;</strong> doesn&apos;t exist, or you don&apos;t have
+                    The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have
                     access to it.
                   </Text>
                 </ItemNotFound>

@@ -1,36 +1,40 @@
 module.exports = function() {
-  var hotApplyOnUpdate = true;
-  var hotCurrentHash = $hash$;
-  var hotCurrentModuleData = {};
-  var hotCurrentChildModule;
-  var hotCurrentParents = [];
-  var hotCurrentParentsTemp = [];
 
-  function hotCreateRequire(moduleId) {
+  var hotApplyOnUpdate = true;
+  var hotCurrentHash = $hash$; // eslint-disable-line no-unused-vars
+  var hotCurrentModuleData = {};
+  var hotCurrentChildModule; // eslint-disable-line no-unused-vars
+  var hotCurrentParents = []; // eslint-disable-line no-unused-vars
+  var hotCurrentParentsTemp = []; // eslint-disable-line no-unused-vars
+
+  function hotCreateRequire(moduleId) { // eslint-disable-line no-unused-vars
     var me = installedModules[moduleId];
     if (!me) return $require$;
 
     var fn = function(request) {
-      if (me.hot.active) {
-        if (installedModules[request]) {
-          if (installedModules[request].parents.indexOf(moduleId) < 0) {
-            installedModules[request].parents.push(moduleId);
-          }
-        } else {
-          hotCurrentParents = [moduleId];
-          hotCurrentChildModule = request;
-        }
-        if (me.children.indexOf(request) < 0) {
-          me.children.push(request);
-        }
-      } else {
+      if (!me.hot.active) {
         console.warn("[HMR] unexpected require(" + request + ") from disposed module " + moduleId);
         hotCurrentParents = [];
+        return $require$(request);
       }
+
+      if (installedModules[request]) {
+        if (installedModules[request].parents.indexOf(moduleId) < 0) {
+          installedModules[request].parents.push(moduleId);
+        }
+      } else {
+        hotCurrentParents = [moduleId];
+        hotCurrentChildModule = request;
+      }
+
+      if (me.children.indexOf(request) < 0) {
+        me.children.push(request);
+      }
+
       return $require$(request);
     };
 
-    var ObjectFactory = function(name) {
+    var ObjectFactory = function ObjectFactory(name) {
       return {
         configurable: true,
         enumerable: true,
@@ -75,14 +79,17 @@ module.exports = function() {
     return fn;
   }
 
-  function hotCreateModule(moduleId) {
+  function hotCreateModule(moduleId) { // eslint-disable-line no-unused-vars
     var hot = {
+      // private stuff
       _acceptedDependencies: {},
       _declinedDependencies: {},
       _selfAccepted: false,
       _selfDeclined: false,
       _disposeHandlers: [],
       _main: hotCurrentChildModule !== moduleId,
+
+      // Module API
       active: true,
       accept: function(dep, callback) {
         if (typeof dep === "undefined") {
@@ -120,6 +127,8 @@ module.exports = function() {
           hot._disposeHandlers.splice(idx, 1);
         }
       },
+
+      // Management API
       check: hotCheck,
       apply: hotApply,
       status: function(l) {
@@ -135,6 +144,8 @@ module.exports = function() {
           hotStatusHandlers.splice(idx, 1);
         }
       },
+
+      //inherit from previous dispose call
       data: hotCurrentModuleData[moduleId]
     };
     hotCurrentChildModule = undefined;
@@ -151,6 +162,7 @@ module.exports = function() {
     }
   }
 
+  // while downloading
   var hotWaitingFiles = 0;
   var hotChunksLoading = 0;
   var hotWaitingFilesMap = {};
@@ -158,8 +170,8 @@ module.exports = function() {
   var hotAvailableFilesMap = {};
   var hotDeferred;
 
-  var hotUpdate;
-  var hotUpdateNewHash;
+  // The update info
+  var hotUpdate, hotUpdateNewHash;
 
   function toModuleId(id) {
     var isNumber = (+id) + "" === id;
@@ -190,7 +202,8 @@ module.exports = function() {
         };
       });
       hotUpdate = {};
-      {
+      /*foreachInstalledChunks*/
+      { // eslint-disable-line no-lone-blocks
         /*globals chunkId */
         hotEnsureUpdateChunk(chunkId);
       }
@@ -201,7 +214,7 @@ module.exports = function() {
     });
   }
 
-  function hotAddUpdateChunk(chunkId, moreModules) {
+  function hotAddUpdateChunk(chunkId, moreModules) { // eslint-disable-line no-unused-vars
     if (!hotAvailableFilesMap[chunkId] || !hotRequestedFilesMap[chunkId]) {
       return;
     }
@@ -230,9 +243,7 @@ module.exports = function() {
     hotSetStatus("ready");
     var deferred = hotDeferred;
     hotDeferred = null;
-    if (!deferred) {
-      return;
-    }
+    if (!deferred) return;
     if (hotApplyOnUpdate) {
       hotApply(hotApplyOnUpdate).then(function(result) {
         deferred.resolve(result);
@@ -344,13 +355,15 @@ module.exports = function() {
       }
     }
 
+    // at begin all updates modules are outdated
+    // the "outdated" status can propagate to parents if they don't accept the children
     var outdatedDependencies = {};
     var outdatedModules = [];
     var appliedUpdate = {};
 
-    function warnUnexpectedRequire() {
+    var warnUnexpectedRequire = function warnUnexpectedRequire() {
       console.warn("[HMR] unexpected require(" + result.moduleId + ") to disposed module");
-    }
+    };
 
     for (var id in hotUpdate) {
       if (Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
@@ -434,6 +447,7 @@ module.exports = function() {
       }
     }
 
+    // Store self accepted outdated modules to require them later by the module system
     var outdatedSelfAcceptedModules = [];
     for (i = 0; i < outdatedModules.length; i++) {
       moduleId = outdatedModules[i];
@@ -445,6 +459,7 @@ module.exports = function() {
       }
     }
 
+    // Now in "dispose" phase
     hotSetStatus("dispose");
     Object.keys(hotAvailableFilesMap).forEach(function(chunkId) {
       if (hotAvailableFilesMap[chunkId] === false) {
@@ -463,6 +478,7 @@ module.exports = function() {
 
       var data = {};
 
+      // Call dispose handlers
       var disposeHandlers = module.hot._disposeHandlers;
       for (j = 0; j < disposeHandlers.length; j++) {
         cb = disposeHandlers[j];
@@ -470,10 +486,13 @@ module.exports = function() {
       }
       hotCurrentModuleData[moduleId] = data;
 
+      // disable module (this disables requires from this module)
       module.hot.active = false;
 
+      // remove module from cache
       delete installedModules[moduleId];
 
+      // remove "parents" references from all children
       for (j = 0; j < module.children.length; j++) {
         var child = installedModules[module.children[j]];
         if (!child) {
@@ -486,6 +505,7 @@ module.exports = function() {
       }
     }
 
+    // remove outdated dependency from module children
     var dependency;
     var moduleOutdatedDependencies;
     for (moduleId in outdatedDependencies) {
@@ -504,16 +524,19 @@ module.exports = function() {
       }
     }
 
+    // Not in "apply" phase
     hotSetStatus("apply");
 
     hotCurrentHash = hotUpdateNewHash;
 
+    // insert new code
     for (moduleId in appliedUpdate) {
       if (Object.prototype.hasOwnProperty.call(appliedUpdate, moduleId)) {
         modules[moduleId] = appliedUpdate[moduleId];
       }
     }
 
+    // call accept handlers
     var error = null;
     for (moduleId in outdatedDependencies) {
       if (Object.prototype.hasOwnProperty.call(outdatedDependencies, moduleId)) {
@@ -551,6 +574,7 @@ module.exports = function() {
       }
     }
 
+    // Load self accepted modules
     for (i = 0; i < outdatedSelfAcceptedModules.length; i++) {
       var item = outdatedSelfAcceptedModules[i];
       moduleId = item.module;
@@ -596,6 +620,7 @@ module.exports = function() {
       }
     }
 
+    // handle errors in accept handlers and self accepted module load
     if (error) {
       hotSetStatus("fail");
       return Promise.reject(error);

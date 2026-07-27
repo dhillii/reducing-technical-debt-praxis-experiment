@@ -215,7 +215,10 @@ export class AcceptedResponse {
 }
 
 export function isAcceptedResponse(errorOrStatus) {
-    return errorOrStatus === 202;
+    if (errorOrStatus === 202) {
+        return true;
+    }
+    return false;
 }
 
 @classic
@@ -354,21 +357,21 @@ class ajaxService extends AjaxService {
         }
 
         const errorHandlers = [
-            {check: this.isTwoFactorTokenRequiredError, error: new TwoFactorTokenRequiredError(payload)},
-            {check: this.isVersionMismatchError, error: new VersionMismatchError(payload)},
-            {check: this.isServerUnreachableError, error: new ServerUnreachableError(payload)},
-            {check: this.isRequestEntityTooLargeError, error: new RequestEntityTooLargeError(payload)},
-            {check: this.isUnsupportedMediaTypeError, error: new UnsupportedMediaTypeError(payload)},
-            {check: this.isMaintenanceError, error: new MaintenanceError(payload)},
-            {check: this.isThemeValidationError, error: new ThemeValidationError(payload)},
-            {check: this.isHostLimitError, error: new HostLimitError(payload)},
-            {check: this.isEmailError, error: new EmailError(payload)},
-            {check: this.isAcceptedResponse, error: new AcceptedResponse(payload)}
+            {check: () => this.isTwoFactorTokenRequiredError(status, headers, payload), error: new TwoFactorTokenRequiredError(payload)},
+            {check: () => this.isVersionMismatchError(status, headers, payload), error: new VersionMismatchError(payload)},
+            {check: () => this.isServerUnreachableError(status, headers, payload), error: new ServerUnreachableError(payload)},
+            {check: () => this.isRequestEntityTooLargeError(status, headers, payload), error: new RequestEntityTooLargeError(payload)},
+            {check: () => this.isUnsupportedMediaTypeError(status, headers, payload), error: new UnsupportedMediaTypeError(payload)},
+            {check: () => this.isMaintenanceError(status, headers, payload), error: new MaintenanceError(payload)},
+            {check: () => this.isThemeValidationError(status, headers, payload), error: new ThemeValidationError(payload)},
+            {check: () => this.isHostLimitError(status, headers, payload), error: new HostLimitError(payload)},
+            {check: () => this.isEmailError(status, headers, payload), error: new EmailError(payload)},
+            {check: () => this.isAcceptedResponse(status), error: new AcceptedResponse(payload)}
         ];
 
-        for (const {check, error} of errorHandlers) {
-            if (check(status, headers, payload)) {
-                return error;
+        for (const handler of errorHandlers) {
+            if (handler.check()) {
+                return handler.error;
             }
         }
 
@@ -433,7 +436,7 @@ class ajaxService extends AjaxService {
     }
 
     isDataImportError(status) {
-        return isDataImportError(status, payload);
+        return isDataImportError(status);
     }
 
     isMaintenanceError(status, headers, payload) {

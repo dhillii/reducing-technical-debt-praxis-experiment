@@ -44,7 +44,7 @@ module.exports = function(CLI) {
     this.start({
       script: filepath
     }, {
-      started_as_module: true
+      started_as_module : true
     }, (err, res) => {
       if (err) {
         Common.printError(cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + err.message || err);
@@ -89,6 +89,7 @@ module.exports = function(CLI) {
    */
   CLI.prototype.report = function() {
     var that = this;
+
     var Log = require('./Log');
 
     that.Client.executeRemote('getReport', {}, function(err, report) {
@@ -149,9 +150,9 @@ module.exports = function(CLI) {
         fmt.sep();
         fmt.title(chalk.bold.blue('Daemon logs'));
         Log.tail([{
-          path: cst.PM2_LOG_FILE_PATH,
-          app_name: 'PM2',
-          type: 'PM2'
+          path     : cst.PM2_LOG_FILE_PATH,
+          app_name : 'PM2',
+          type     : 'PM2'
         }], 20, false, function() {
           console.log('```');
           console.log();
@@ -224,7 +225,7 @@ module.exports = function(CLI) {
 
     console.log(`Starting ${cmd.action} profiling for ${time}ms...`);
     that.Client.executeRemote(cmd.action, {
-      pwd: file,
+      pwd : file,
       timeout: time
     }, function(err) {
       if (err) {
@@ -310,7 +311,7 @@ module.exports = function(CLI) {
 
       });
     });
-  };
+  }
 
   /**
    * Description
@@ -325,8 +326,8 @@ module.exports = function(CLI) {
     }
 
     var packet = {
-      pm_id: pm_id,
-      line: line + (separator || '\n')
+      pm_id : pm_id,
+      line : line + (separator || '\n')
     };
 
     that.Client.executeRemote('sendLineToStdin', packet, function(err, res) {
@@ -442,7 +443,7 @@ module.exports = function(CLI) {
       params = null;
     }
     var cmd = {
-      msg: action_name
+      msg : action_name
     };
     var counter = 0;
     var process_wait_count = 0;
@@ -495,8 +496,8 @@ module.exports = function(CLI) {
     var that = this;
 
     that.Client.executeRemote('sendSignalToProcessName', {
-      signal: signal,
-      process_name: process_name
+      signal : signal,
+      process_name : process_name
     }, function(err, list) {
       if (err) {
         Common.printError(err);
@@ -518,8 +519,8 @@ module.exports = function(CLI) {
     var that = this;
 
     that.Client.executeRemote('sendSignalToProcessId', {
-      signal: signal,
-      process_id: process_id
+      signal : signal,
+      process_id : process_id
     }, function(err, list) {
       if (err) {
         Common.printError(err);
@@ -543,7 +544,7 @@ module.exports = function(CLI) {
       }
       return cb ? cb(null) : this.speedList();
     });
-  };
+  }
 
   /**
    * API method to launch a process that will serve directory over http
@@ -565,9 +566,9 @@ module.exports = function(CLI) {
     var filepath = path.resolve(path.dirname(module.filename), './Serve.js');
 
     if (typeof commander.name === 'string')
-      opts.name = commander.name;
+      opts.name = commander.name
     else
-      opts.name = 'static-page-server-' + servePort;
+      opts.name = 'static-page-server-' + servePort
     if (!opts.env)
       opts.env = {};
     opts.env.PM2_SERVE_PORT = servePort;
@@ -579,11 +580,11 @@ module.exports = function(CLI) {
       opts.env.PM2_SERVE_BASIC_AUTH_PASSWORD = opts.basicAuthPassword;
     }
     if (opts.monitor) {
-      opts.env.PM2_SERVE_MONITOR = opts.monitor;
+      opts.env.PM2_SERVE_MONITOR = opts.monitor
     }
     opts.cwd = servePath;
 
-    this.start(filepath, opts, function (err, res) {
+    this.start(filepath, opts,  function (err, res) {
       if (err) {
         Common.printError(cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + err.message || err);
         return cb ? cb(err) : that.speedList(cst.ERROR_EXIT);
@@ -591,7 +592,7 @@ module.exports = function(CLI) {
       Common.printOut(cst.PREFIX_MSG + 'Serving ' + servePath + ' on port ' + servePort);
       return cb ? cb(null, res) : that.speedList();
     });
-  };
+  }
 
   /**
    * Ping daemon - if PM2 daemon not launched, it will launch it
@@ -657,7 +658,7 @@ module.exports = function(CLI) {
       templatePath = path.join(cst.TEMPLATE_FOLDER, cst.APP_CONF_TPL);
 
     var sample = fs.readFileSync(templatePath);
-    var dt = sample.toString();
+    var dt     = sample.toString();
     var f_name = 'ecosystem.config.js';
     var pwd = process.env.PWD || process.cwd();
 
@@ -692,8 +693,8 @@ module.exports = function(CLI) {
         that.exitCli(cst.ERROR_EXIT);
       }
       bus.on('log:*', function(type, data) {
-        Dashboard.log(type, data);
-      });
+        Dashboard.log(type, data)
+      })
     });
 
     process.on('SIGINT', function() {

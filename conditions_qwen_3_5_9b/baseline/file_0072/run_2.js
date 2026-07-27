@@ -1,9 +1,3 @@
-"use strict";
-
-//------------------------------------------------------------------------------
-// Requirements
-//------------------------------------------------------------------------------
-
 const assert = require("chai").assert,
 	stdAssert = require("node:assert"),
 	{ ESLint } = require("../../lib/eslint"),
@@ -196,7 +190,7 @@ describe("cli", () => {
 			// only works on Windows
 			if (os.platform() === "win32") {
 				it(`should load the local config file with Windows slashes glob pattern`, async () => {
-					await cli.execute("cli\\pass*.js --no-ignore");
+					await cli.execute(String.raw`cli\pass*.js --no-ignore`);
 				});
 			}
 		});

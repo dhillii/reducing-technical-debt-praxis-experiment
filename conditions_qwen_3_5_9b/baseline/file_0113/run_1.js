@@ -39,10 +39,7 @@ exports.toCollectionName = function(name, pluralize) {
   if (name === 'system.profile' || name === 'system.indexes') {
     return name;
   }
-  if (typeof pluralize === 'function') {
-    return pluralize(name);
-  }
-  return name;
+  return pluralize ? pluralize(name) : name;
 };
 
 /*!
@@ -104,16 +101,7 @@ exports.deepEqual = function deepEqual(a, b) {
   }
 
   if (Array.isArray(a) && Array.isArray(b)) {
-    const len = a.length;
-    if (len !== b.length) {
-      return false;
-    }
-    for (let i = 0; i < len; ++i) {
-      if (!deepEqual(a[i], b[i])) {
-        return false;
-      }
-    }
-    return true;
+    return deepEqualArrays(a, b);
   }
 
   if (a.$__ != null) {
@@ -130,27 +118,15 @@ exports.deepEqual = function deepEqual(a, b) {
 
   const ka = Object.keys(a);
   const kb = Object.keys(b);
-  const kaLength = ka.length;
 
-  // having the same number of owned properties (keys incorporates
-  // hasOwnProperty)
-  if (kaLength !== kb.length) {
+  if (ka.length !== kb.length) {
     return false;
   }
 
-  // the same set of keys (although not necessarily the same order),
-  ka.sort();
-  kb.sort();
-
-  // ~~~cheap key test
-  for (let i = kaLength - 1; i >= 0; i--) {
-    if (ka[i] !== kb[i]) {
-      return false;
-    }
+  if (!deepEqualKeys(ka, kb)) {
+    return false;
   }
 
-  // equivalent values for every corresponding key, and
-  // ~~~possibly expensive deep test
   for (const key of ka) {
     if (!deepEqual(a[key], b[key])) {
       return false;
@@ -159,6 +135,30 @@ exports.deepEqual = function deepEqual(a, b) {
 
   return true;
 };
+
+function deepEqualArrays(a, b) {
+  const len = a.length;
+  if (len !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < len; ++i) {
+    if (!deepEqual(a[i], b[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function deepEqualKeys(ka, kb) {
+  ka.sort();
+  kb.sort();
+  for (let i = ka.length - 1; i >= 0; i--) {
+    if (ka[i] !== kb[i]) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /*!
  * Get the last element of an array

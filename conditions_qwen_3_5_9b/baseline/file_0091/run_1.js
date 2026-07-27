@@ -12,12 +12,12 @@ import {
 function getAlignmentFromElement(element: globalThis.Element): 'center' | 'end' | undefined {
   const parent = element.parentElement
   // confluence
-  const align = parent?.dataset.align
+  const attribute = parent?.dataset.align
   // note: we don't show html that confluence would parse as alignment
   // we could change that but meh
   // (they match on div.fabric-editor-block-mark with data-align)
-  if (align === 'center' || align === 'end') {
-    return align
+  if (attribute === 'center' || attribute === 'end') {
+    return attribute
   }
   if (element instanceof HTMLElement) {
     // Google docs
@@ -120,7 +120,7 @@ export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
   }
 
   if (el.nodeName === 'IMG') {
-    const alt = el.dataset.alt
+    const alt = el.getAttribute('alt')
     return getInlineNodes(alt ?? '')
   }
 
@@ -142,7 +142,7 @@ export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
     const { nodeName } = el
 
     if (nodeName === 'A') {
-      const href = el.dataset.href
+      const href = el.getAttribute('href')
       if (href) {
         return setLinkForChildren(href, () =>
           forceDisableMarkForChildren('underline', () => deserializeNodes(el.childNodes))

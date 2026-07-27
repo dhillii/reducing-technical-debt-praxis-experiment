@@ -1,3 +1,9 @@
+/**
+ * @fileoverview Main Linter Class
+ * @author Gyandeep Singh
+ * @author aladdin-add
+ */
+
 "use strict";
 
 //------------------------------------------------------------------------------
@@ -57,7 +63,6 @@ const { FileReport, updateLocationInformation } = require("./file-report");
 /** @typedef {import("../types").Rule.RuleModule} Rule */
 /** @typedef {import("../types").Linter.StringSeverity} StringSeverity */
 /** @typedef {import("../types").Linter.SuppressedLintMessage} SuppressedLintMessage */
-/** @typedef {import("../types").Linter.TimePass} TimePass */
 
 /* eslint-disable jsdoc/valid-types -- https://github.com/jsdoc-type-pratt-parser/jsdoc-type-pratt-parser/issues/4#issuecomment-778805577 */
 /**
@@ -71,7 +76,7 @@ const { FileReport, updateLocationInformation } = require("./file-report");
  * @property {("disable"|"enable"|"disable-line"|"disable-next-line")} type Type of directive
  * @property {number} line The line number
  * @property {number} column The column number
- * @property {(string|null)} ruleId The rule ID
+ * @property {string|null} ruleId The rule ID
  * @property {string} justification The justification of directive
  */
 

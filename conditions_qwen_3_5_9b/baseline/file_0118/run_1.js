@@ -215,7 +215,7 @@ JSON5.parse = (function () {
                         next();
                         if (ch === 'u') {
                             uffff = 0;
-                            for (var i = 0; i < 4; i += 1) {
+                            for (i = 0; i < 4; i += 1) {
                                 hex = parseInt(next(), 16);
                                 if (!isFinite(hex)) {
                                     break;
@@ -356,7 +356,6 @@ JSON5.parse = (function () {
                 next('n');
                 next('f');
                 next('i');
-                next('n');
                 next('i');
                 next('t');
                 next('y');
@@ -394,8 +393,8 @@ JSON5.parse = (function () {
                         array.push(value());
                     }
                     white();
-                    // If there's no comma after this value, this needs to be
-                    // the end of the array.
+                    // If there's no comma after this value, this needs to
+                    // be the end of the array.
                     if (ch !== ',') {
                         next(']');
                         return array;
@@ -585,7 +584,7 @@ JSON5.stringify = function (obj, replacer, space) {
         return Object.prototype.toString.call(obj) === '[object Date]';
     }
 
-    var isNaNCheck = isNaN || function(val) {
+    isNaN = isNaN || function(val) {
         return typeof val === 'number' && val !== val;
     };
 
@@ -672,7 +671,7 @@ JSON5.stringify = function (obj, replacer, space) {
                 return obj_part.toString();
 
             case "number":
-                if (isNaNCheck(obj_part) || !isFinite(obj_part)) {
+                if (isNaN(obj_part) || !isFinite(obj_part)) {
                     return "null";
                 }
                 return obj_part.toString();

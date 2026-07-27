@@ -34,9 +34,34 @@ exports = module.exports = internals.Plugin = function (server, connections, env
     this.settings = this.root._settings;
     this.version = Package.version;
 
-    this.realm = internals.buildRealm(env);
+    this.realm = typeof env !== 'string' ? env : {
+        _extensions: {
+            onPreAuth: new Ext('onPreAuth', this.root),
+            onPostAuth: new Ext('onPostAuth', this.root),
+            onPreHandler: new Ext('onPreHandler', this.root),
+            onPostHandler: new Ext('onPostHandler', this.root),
+            onPreResponse: new Ext('onPreResponse', this.root)
+        },
+        modifiers: {
+            route: {}
+        },
+        plugin: env,
+        pluginOptions: {},
+        plugins: {},
+        settings: {
+            bind: undefined,
+            files: {
+                relativeTo: undefined
+            }
+        }
+    };
 
-    this.auth = internals.buildAuth(this);
+    this.auth = {
+        default: (opts) => this._applyChild('auth.default', 'auth', 'default', [opts]),
+        scheme: (name, scheme) => this._applyChild('auth.scheme', 'auth', 'scheme', [name, scheme]),
+        strategy: (name, scheme, mode, opts) => this._applyChild('auth.strategy', 'auth', 'strategy', [name, scheme, mode, opts]),
+        test: (name, request, next) => request.connection.auth.test(name, request, next)
+    };
 
     this.cache = internals.cache(this);
     this._single();
@@ -49,6 +74,8 @@ exports = module.exports = internals.Plugin = function (server, connections, env
         this[method] = this.root._decorations[method];
     }
 };
+
+Hoek.inherits(internals.Plugin, Podium);
 
 
 internals.Plugin.prototype._single = function () {
@@ -72,7 +99,12 @@ internals.Plugin.prototype._single = function () {
 
 internals.Plugin.prototype.select = function (/* labels */) {
 
-    const labels = internals.collectLabels(arguments);
+    let labels = [];
+    for (let i = 0; i < arguments.length; ++i) {
+        labels.push(arguments[i]);
+    }
+
+    labels = Hoek.flatten(labels);
     return this._select(labels);
 };
 
@@ -122,10 +154,61 @@ internals.Plugin.prototype.register = function (plugins /*, [options], callback 
         return Promises.wrap(this, this.register, [plugins, options]);
     }
 
-    options = internals.applyRouteModifiers(options, this.realm);
+    if (this.realm.modifiers.route.prefix ||
+        this.realm.modifiers.route.vhost) {
+
+        options = Hoek.clone(options);
+        options.routes = options.routes || {};
+
+        options.routes.prefix = (this.realm.modifiers.route.prefix || '') + (options.routes.prefix || '') || undefined;
+        options.routes.vhost = this.realm.modifiers.route.vhost || options.routes.vhost;
+    }
+
     options = Schema.apply('register', options);
 
-    const registrations = internals.prepareRegistrations(plugins);
+    const registrations = [];
+    plugins = [].concat(plugins);
+    for (let i = 0; i < plugins.length; ++i) {
+        let plugin = plugins[i];
+
+        if (typeof plugin === 'function') {
+            if (!plugin.register) {                                 // plugin is register() function
+                plugin = { register: plugin };
+            }
+            else {
+                plugin = Hoek.shallow(plugin);                      // Convert function to object
+            }
+        }
+
+        if (plugin.register.register) {                             // Required plugin
+            plugin.register = plugin.register.register;
+        }
+
+        plugin = Schema.apply('plugin', plugin);
+
+        const attributes = plugin.register.attributes;
+        const registration = {
+            register: plugin.register,
+            name: attributes.name || attributes.pkg.name,
+            version: attributes.version || attributes.pkg.version,
+            multiple: attributes.multiple,
+            pluginOptions: plugin.options,
+            dependencies: attributes.dependencies,
+            connections: attributes.connections,
+            requirements: attributes.requirements,
+            options: {
+                once: attributes.once || (plugin.once !== undefined ? plugin.once : options.once),
+                routes: {
+                    prefix: plugin.routes.prefix || options.routes.prefix,
+                    vhost: plugin.routes.vhost || options.routes.vhost
+                },
+                select: plugin.select || options.select
+            }
+        };
+
+        registrations.push(registration);
+    }
+
     this.root._registring = true;
 
     const each = (item, next) => {
@@ -292,19 +375,12 @@ internals.Plugin.prototype.decorate = function (type, property, method, options)
     this.root.decorations.server.push(property);
 
     this[property] = method;
-    internals.propagateDecoration(this, property, method);
-};
-
-
-internals.propagateDecoration = function (plugin, property, method) {
-
-    let parent = plugin._parent;
+    let parent = this._parent;
     while (parent) {
         parent[property] = method;
         parent = parent._parent;
     }
 };
-
 
 internals.Plugin.prototype.dependency = function (dependencies, after) {
 
@@ -313,11 +389,22 @@ internals.Plugin.prototype.dependency = function (dependencies, after) {
 
     // Normalize to { plugin: version }
 
-    const normalizedDeps = internals.normalizeDependencies(dependencies);
-    this.root._dependencies.push({ plugin: this.realm.plugin, connections: this.connections, deps: normalizedDeps });
+    if (typeof dependencies === 'string') {
+        dependencies = { [dependencies]: '*' };
+    }
+    else if (Array.isArray(dependencies)) {
+        const map = {};
+        for (const dependency of dependencies) {
+            map[dependency] = '*';
+        }
+
+        dependencies = map;
+    }
+
+    this.root._dependencies.push({ plugin: this.realm.plugin, connections: this.connections, deps: dependencies });
 
     if (after) {
-        this.ext('onPreStart', after, { after: Object.keys(normalizedDeps) });
+        this.ext('onPreStart', after, { after: Object.keys(dependencies) });
     }
 };
 
@@ -514,143 +601,4 @@ internals.Plugin.prototype._applyChild = function (type, child, func, args) {
         const obj = this.connections[i][child];
         obj[func].apply(obj, args);
     }
-};
-
-
-// Helper Functions
-
-
-internals.buildRealm = function (env) {
-
-    if (typeof env !== 'string') {
-        return env;
-    }
-
-    return {
-        _extensions: {
-            onPreAuth: new Ext('onPreAuth', this.root),
-            onPostAuth: new Ext('onPostAuth', this.root),
-            onPreHandler: new Ext('onPreHandler', this.root),
-            onPostHandler: new Ext('onPostHandler', this.root),
-            onPreResponse: new Ext('onPreResponse', this.root)
-        },
-        modifiers: {
-            route: {}
-        },
-        plugin: env,
-        pluginOptions: {},
-        plugins: {},
-        settings: {
-            bind: undefined,
-            files: {
-                relativeTo: undefined
-            }
-        }
-    };
-};
-
-
-internals.buildAuth = function (plugin) {
-
-    return {
-        default: (opts) => plugin._applyChild('auth.default', 'auth', 'default', [opts]),
-        scheme: (name, scheme) => plugin._applyChild('auth.scheme', 'auth', 'scheme', [name, scheme]),
-        strategy: (name, scheme, mode, opts) => plugin._applyChild('auth.strategy', 'auth', 'strategy', [name, scheme, mode, opts]),
-        test: (name, request, next) => request.connection.auth.test(name, request, next)
-    };
-};
-
-
-internals.collectLabels = function (args) {
-
-    let labels = [];
-    for (let i = 0; i < args.length; ++i) {
-        labels.push(args[i]);
-    }
-
-    return Hoek.flatten(labels);
-};
-
-
-internals.applyRouteModifiers = function (options, realm) {
-
-    if (realm.modifiers.route.prefix ||
-        realm.modifiers.route.vhost) {
-
-        options = Hoek.clone(options);
-        options.routes = options.routes || {};
-
-        options.routes.prefix = (realm.modifiers.route.prefix || '') + (options.routes.prefix || '') || undefined;
-        options.routes.vhost = realm.modifiers.route.vhost || options.routes.vhost;
-    }
-
-    return options;
-};
-
-
-internals.prepareRegistrations = function (plugins) {
-
-    plugins = [].concat(plugins);
-    const registrations = [];
-
-    for (let i = 0; i < plugins.length; ++i) {
-        let plugin = plugins[i];
-
-        if (typeof plugin === 'function') {
-            if (!plugin.register) {                                 // plugin is register() function
-                plugin = { register: plugin };
-            }
-            else {
-                plugin = Hoek.shallow(plugin);                      // Convert function to object
-            }
-        }
-
-        if (plugin.register.register) {                             // Required plugin
-            plugin.register = plugin.register.register;
-        }
-
-        plugin = Schema.apply('plugin', plugin);
-
-        const attributes = plugin.register.attributes;
-        const registration = {
-            register: plugin.register,
-            name: attributes.name || attributes.pkg.name,
-            version: attributes.version || attributes.pkg.version,
-            multiple: attributes.multiple,
-            pluginOptions: plugin.options,
-            dependencies: attributes.dependencies,
-            connections: attributes.connections,
-            requirements: attributes.requirements,
-            options: {
-                once: attributes.once || (plugin.once !== undefined ? plugin.once : {}),
-                routes: {
-                    prefix: plugin.routes.prefix,
-                    vhost: plugin.routes.vhost
-                },
-                select: plugin.select
-            }
-        };
-
-        registrations.push(registration);
-    }
-
-    return registrations;
-};
-
-
-internals.normalizeDependencies = function (dependencies) {
-
-    if (typeof dependencies === 'string') {
-        return { [dependencies]: '*' };
-    }
-    else if (Array.isArray(dependencies)) {
-        const map = {};
-        for (const dependency of dependencies) {
-            map[dependency] = '*';
-        }
-
-        return map;
-    }
-
-    return dependencies;
 };

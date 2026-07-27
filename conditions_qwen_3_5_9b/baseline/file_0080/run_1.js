@@ -29,6 +29,8 @@ internals.Generator.prototype.request = function (connection, req, res, options)
 
     const request = new internals.Request(connection, req, res, options);
 
+    // Decorate
+
     if (this._decorations) {
         const properties = Object.keys(this._decorations);
         for (let i = 0; i < properties.length; ++i) {
@@ -58,8 +60,12 @@ internals.Request = function (connection, req, res, options) {
 
     Podium.decorate(this, internals.emitter);
 
+    // Take measurement as soon as possible
+
     this._bench = new Hoek.Bench();
     const now = Date.now();
+
+    // Public members
 
     this.connection = connection;
     this.server = connection.server;
@@ -68,8 +74,10 @@ internals.Request = function (connection, req, res, options) {
     this.query = null;
     this.path = null;
     this.method = null;
-    this.mime = null;
+    this.mime = null;                       // Set if payload is parsed
     this.headers = req.headers;
+
+    // Request info
 
     this.info = {
         received: now,
@@ -82,64 +90,76 @@ internals.Request = function (connection, req, res, options) {
 
     this.info.hostname = this.info.host.split(':')[0];
 
-    this.setUrl = this._setUrl;
+    this.setUrl = this._setUrl;             // Decoration removed after 'onRequest'
     this.setMethod = this._setMethod;
 
-    this._setUrl(req.url, this.connection.settings.router.stripTrailingSlash);
-    this._setMethod(req.method);
+    this._setUrl(req.url, this.connection.settings.router.stripTrailingSlash);      // Sets: this.url, this.path, this.query
+    this._setMethod(req.method);                                                    // Sets: this.method
 
     this.id = now + ':' + connection.info.id + ':' + connection._requestCounter.value++;
     if (connection._requestCounter.value > connection._requestCounter.max) {
         connection._requestCounter.value = connection._requestCounter.min;
     }
 
-    this.app = (options.app ? Hoek.shallow(options.app) : {});
-    this.plugins = (options.plugins ? Hoek.shallow(options.plugins) : {});
+    this.app = (options.app ? Hoek.shallow(options.app) : {});              // Place for application-specific state without conflicts with hapi, should not be used by plugins
+    this.plugins = (options.plugins ? Hoek.shallow(options.plugins) : {});  // Place for plugins to store state without conflicts with hapi, should be namespaced using plugin name
 
-    this._route = this.connection._router.specials.notFound.route;
+    this._route = this.connection._router.specials.notFound.route;    // Used prior to routing (only settings are used, not the handler)
     this.route = this._route.public;
 
     this.auth = {
         isAuthenticated: false,
-        credentials: options.credentials || null,
-        artifacts: options.artifacts || null,
+        credentials: options.credentials || null,       // Special keys: 'app', 'user', 'scope'
+        artifacts: options.artifacts || null,           // Scheme-specific artifacts
         strategy: null,
         mode: null,
         error: null
     };
 
-    this.pre = {};
-    this.preResponses = {};
+    this.pre = {};                          // Pre raw values
+    this.preResponses = {};                 // Pre response values
+
+    // Assigned elsewhere:
 
     this.orig = {};
     this.params = {};
-    this.paramsArray = [];
+    this.paramsArray = [];              // Array of path parameters in path order
     this.payload = null;
     this.state = null;
     this.jsonp = null;
     this.response = null;
 
+    // Semi-public members
+
     this.raw = { req, res };
 
-    this.tail = this.addTail = this._addTail;
+    this.tail = this.addTail = this._addTail;       // Removed once wagging
+
+    // Private members
 
     this._states = {};
-    this._entity = {};
+    this._entity = {};                  // Entity information set via reply.entity()
     this._logger = [];
     this._allowInternals = !!options.allowInternals;
     this._expectContinue = !!options.expectContinue;
-    this._isPayloadPending = !!(req.headers['content-length'] || req.headers['transfer-encoding']);
-    this._isBailed = false;
-    this._isReplied = false;
-    this._isFinalized = false;
-    this._tails = {};
-    this._tailIds = 0;
+    this._isPayloadPending = !!(req.headers['content-length'] || req.headers['transfer-encoding']);      // false when incoming payload fully processed
+    this._isBailed = false;             // true when lifecycle should end
+    this._isReplied = false;            // true when response processing started
+    this._isFinalized = false;          // true when request completed (may be waiting on tails to complete)
+    this._tails = {};                   // tail id -> name (tracks pending tails)
+    this._tailIds = 0;                  // Used to generate a unique tail id
     this._protect = new Protect(this);
     this.domain = this._protect.domain;
 
-    this.info.acceptEncoding = this.connection._compression.accept(this);
+    // Encoding
+
+    this.info.acceptEncoding = this.connection._compression.accept(this);       // Delay until request object fully initialized
+
+    // Listen to request state
 
     this._listenRequest();
+
+    // Log request
 
     const about = {
         method: this.method,
@@ -147,7 +167,7 @@ internals.Request = function (connection, req, res, options) {
         agent: this.raw.req.headers['user-agent']
     };
 
-    this._log(['received'], about, now);
+    this._log(['received'], about, now);     // Must be last for object to be fully constructed
 };
 
 Hoek.inherits(internals.Request, Podium);
@@ -155,38 +175,40 @@ Hoek.inherits(internals.Request, Podium);
 
 internals.Request.prototype._listenRequest = function () {
 
-    const self = this;
+    this._onEnd = () => {
 
-    const _onEnd = () => {
-        self._isPayloadPending = false;
+        this._isPayloadPending = false;
     };
 
-    this.raw.req.once('end', _onEnd);
+    this.raw.req.once('end', this._onEnd);
 
-    const _onClose = () => {
-        self._log(['request', 'closed', 'error']);
-        self._isPayloadPending = false;
-        self._isBailed = true;
+    this._onClose = () => {
+
+        this._log(['request', 'closed', 'error']);
+        this._isPayloadPending = false;
+        this._isBailed = true;
     };
 
-    this.raw.req.once('close', _onClose);
+    this.raw.req.once('close', this._onClose);
 
-    const _onError = (err) => {
-        self._log(['request', 'error'], err);
-        self._isPayloadPending = false;
+    this._onError = (err) => {
+
+        this._log(['request', 'error'], err);
+        this._isPayloadPending = false;
     };
 
-    this.raw.req.once('error', _onError);
+    this.raw.req.once('error', this._onError);
 
-    const _onAbort = () => {
-        self._log(['request', 'abort', 'error']);
-        self._isPayloadPending = false;
-        self._isBailed = true;
+    this._onAbort = () => {
 
-        self.emit('disconnect');
+        this._log(['request', 'abort', 'error']);
+        this._isPayloadPending = false;
+        this._isBailed = true;
+
+        this.emit('disconnect');
     };
 
-    this.raw.req.once('aborted', _onAbort);
+    this.raw.req.once('aborted', this._onAbort);
 };
 
 
@@ -194,7 +216,9 @@ internals.Request.prototype._setUrl = function (url, stripTrailingSlash) {
 
     url = (typeof url === 'string' ? Url.parse(url, true) : Hoek.clone(url));
 
-    let path = this.connection._router.normalize(url.pathname || '');
+    // Apply path modifications
+
+    let path = this.connection._router.normalize(url.pathname || '');        // pathname excludes query
 
     if (stripTrailingSlash &&
         path.length > 1 &&
@@ -203,11 +227,15 @@ internals.Request.prototype._setUrl = function (url, stripTrailingSlash) {
         path = path.slice(0, -1);
     }
 
+    // Update derived url properties
+
     if (path !== url.pathname) {
         url.pathname = path;
         url.path = url.search ? path + url.search : path;
         url.href = Url.format(url);
     }
+
+    // Store request properties
 
     this.url = url;
     this.query = url.query;
@@ -243,7 +271,7 @@ internals.Request.prototype.log = function (tags, data, timestamp, _internal) {
             update = update();
         }
 
-        this._logger.push(update[1]);
+        this._logger.push(update[1]);       // Add to request array
     }
 
     this.connection.emit({ name: internal ? 'request-internal' : 'request', tags }, update);
@@ -299,6 +327,8 @@ internals.Request.prototype.getLog = function (tags, internal) {
 
 internals.Request.prototype._execute = function () {
 
+    // Execute onRequest extensions (can change request method and url)
+
     if (!this.connection._extensions.onRequest.nodes) {
         return this._match();
     }
@@ -312,6 +342,8 @@ internals.Request.prototype._execute = function () {
 
 internals.Request.prototype._match = function (err) {
 
+    // Undecorate request
+
     this.setUrl = undefined;
     this.setMethod = undefined;
 
@@ -324,6 +356,8 @@ internals.Request.prototype._match = function (err) {
 
         return this._reply(Boom.badRequest('Invalid path'));
     }
+
+    // Lookup route
 
     const match = this.connection._router.route(this.method, this.path, this.info.hostname);
     if (!match.route.settings.isInternal ||
@@ -355,11 +389,11 @@ internals.Request.prototype._lifecycle = function () {
         if (this._isReplied ||
             this._isBailed) {
 
-            return next(Boom.internal('Already closed'));
+            return next(Boom.internal('Already closed'));                       // Error is not used
         }
 
-        if (typeof func !== 'function') {
-            return this._invoke(func, next);
+        if (typeof func !== 'function') {                                       // Extension point
+            return this._invoke(func, next);                                    // next() called with response object which ends processing (treated like error)
         }
 
         return func(this, next);
@@ -374,12 +408,12 @@ internals.Request.prototype._setTimeouts = function () {
     if (this.raw.req.socket &&
         this.route.settings.timeout.socket !== undefined) {
 
-        this.raw.req.socket.setTimeout(this.route.settings.timeout.socket || 0);
+        this.raw.req.socket.setTimeout(this.route.settings.timeout.socket || 0);    // Value can be false or positive
     }
 
     let serverTimeout = this.route.settings.timeout.server;
     if (serverTimeout) {
-        serverTimeout = Math.floor(serverTimeout - this._bench.elapsed());
+        serverTimeout = Math.floor(serverTimeout - this._bench.elapsed());          // Calculate the timeout from when the request was constructed
         const timeoutReply = () => {
 
             this._log(['request', 'server', 'timeout', 'error'], { timeout: serverTimeout, elapsed: this._bench.elapsed() });
@@ -407,7 +441,7 @@ internals.Request.prototype._invoke = function (event, callback) {
                     this._setResponse(override);
                 }
 
-                return next(result);
+                return next(result);            // next() called with response object which ends processing (treated like error)
             };
 
             const options = { postHandler: (event.type === 'onPostHandler' || event.type === 'onPreResponse') };
@@ -424,7 +458,7 @@ internals.Request.prototype._invoke = function (event, callback) {
 
 internals.Request.prototype._reply = function (exit) {
 
-    if (this._isReplied) {
+    if (this._isReplied) {                                  // Prevent any future responses to this request
         return;
     }
 
@@ -436,17 +470,17 @@ internals.Request.prototype._reply = function (exit) {
         return this._finalize();
     }
 
-    if (this.response &&
+    if (this.response &&                                    // Can be null if response coming from exit
         this.response.closed) {
 
         if (this.response.end) {
-            this.raw.res.end();
+            this.raw.res.end();                             // End the response in case it wasn't already closed
         }
 
         return this._finalize();
     }
 
-    if (exit) {
+    if (exit) {                                             // Can be a valid response or error (if returned from an ext, already handled because this.response is also set)
         this._setResponse(Response.wrap(exit, this));
     }
 
@@ -454,7 +488,7 @@ internals.Request.prototype._reply = function (exit) {
 
     const transmit = (err) => {
 
-        if (err) {
+        if (err) {                                          // Can be valid response or error
             this._setResponse(Response.wrap(err, this));
         }
 
@@ -490,6 +524,8 @@ internals.Request.prototype._finalize = function () {
     if (Object.keys(this._tails).length === 0) {
         this.connection.emit('tail', this);
     }
+
+    // Cleanup
 
     this.raw.req.removeListener('end', this._onEnd);
     this.raw.req.removeListener('close', this._onClose);
@@ -538,7 +574,7 @@ internals.Request.prototype._addTail = function (name) {
     const drop = () => {
 
         if (!this._tails[tailId]) {
-            this._log(['tail', 'remove', 'error'], { name, id: tailId });
+            this._log(['tail', 'remove', 'error'], { name, id: tailId });             // Already removed
             return;
         }
 
@@ -559,7 +595,7 @@ internals.Request.prototype._addTail = function (name) {
 };
 
 
-internals.Request.prototype._setState = function (name, value, options) {
+internals.Request.prototype._setState = function (name, value, options) {          // options: see Defaults.state
 
     const state = { name, value };
     if (options) {

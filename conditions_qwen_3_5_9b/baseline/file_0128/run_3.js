@@ -259,7 +259,7 @@ module.exports = {
 
             // Clear relations to refModel
             const reverseAssoc = refModel.associations.find(assoc => assoc.alias === obj.field);
-            if (reverseAssoc && reverseAssoc.nature === 'oneToManyMorph') {
+            if (reverseAssoc?.nature === 'oneToManyMorph') {
               relationUpdates.push(
                 removeRelationMorph(
                   this,
@@ -383,7 +383,7 @@ module.exports = {
       .session(session)
       .populate(populate);
 
-    return updatedEntity?.toObject ? updatedEntity.toObject() : updatedEntity;
+    return updatedEntity && updatedEntity.toObject ? updatedEntity.toObject() : updatedEntity;
   },
 
   deleteRelations(entry, { session = null } = {}) {
@@ -472,7 +472,7 @@ module.exports = {
                     assoc => assoc.alias === field
                   );
 
-                  if (reverseAssoc && reverseAssoc.nature === 'oneToManyMorph') {
+                  if (reverseAssoc?.nature === 'oneToManyMorph') {
                     return targetModel.updateMany(
                       {
                         [targetModel.primaryKey]: val.ref && (val.ref._id || val.ref),

@@ -200,7 +200,12 @@ connection.onmessage = function (e) {
   }
 };
 
-function getMessageHandler(type) {
+/**
+ * Dispatches the appropriate handler based on the message type.
+ * @param {string} messageType - The type of the message.
+ * @returns {Function|null} - The handler function or null if no handler exists.
+ */
+function getMessageHandler(messageType) {
   var handlers = {
     hash: handleAvailableHash,
     stillOk: handleSuccess,
@@ -209,10 +214,14 @@ function getMessageHandler(type) {
     warnings: handleWarnings,
     errors: handleErrors,
   };
-  return handlers[type];
+  return handlers[messageType] || null;
 }
 
-function reloadPage() {
+/**
+ * Reloads the page when content changes.
+ * @param {Object} message - The message object.
+ */
+function reloadPage(message) {
   // Triggered when a file from `contentBase` changed.
   window.location.reload();
 }

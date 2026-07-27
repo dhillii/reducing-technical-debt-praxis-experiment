@@ -41,7 +41,7 @@ define([
         },
 
         /**
-         * Overwrite `fetch` method to handle pagination.
+         * Overrite `fetch` method.
          */
         fetch: function(options) {
             options = options || {};
@@ -58,7 +58,7 @@ define([
 
             var self = this;
 
-            var successHandler = function(resp) {
+            var success = function(resp) {
                 // Keep full collection in memory
                 self.fullCollection = self.clone();
 
@@ -74,7 +74,7 @@ define([
                 }
             };
 
-            options.success = successHandler;
+            options.success = success;
 
             return Backbone.Collection.prototype.fetch.call(this, options)
             .then(function(resp) {
@@ -121,17 +121,11 @@ define([
             return this;
         },
 
-        /**
-         * Retrieves the next page of models.
-         */
         getNextPage: function() {
             var models = this.getPage(this.state.currentPage + 1);
             this.reset(models);
         },
 
-        /**
-         * Retrieves the previous page of models.
-         */
         getPreviousPage: function() {
             var models = this.getPage(this.state.currentPage - 1);
             this.reset(models);
@@ -154,9 +148,6 @@ define([
             return this.models;
         },
 
-        /**
-         * Calculates the offset for a given page number.
-         */
         getOffset: function(number) {
             return (
                 (this.state.firstPage === 0 ? number : number - 1) *
@@ -164,22 +155,16 @@ define([
             );
         },
 
-        /**
-         * Checks if there is a previous page available.
-         */
         hasPreviousPage: function() {
             return this.state.currentPage !== this.state.firstPage;
         },
 
-        /**
-         * Checks if there is a next page available.
-         */
         hasNextPage: function() {
             return this.state.currentPage !== this.state.totalPages - 1;
         },
 
         /**
-         * Sorts the full collection based on the comparator.
+         * It is used to sort models in full collection.
          */
         sortFullCollection: function() {
             if (!this.fullCollection) {
@@ -215,10 +200,6 @@ define([
             return this.models;
         },
 
-        /**
-         * Retrieves the next item in the collection.
-         * Triggers `page:next` or `page:end` if at the end.
-         */
         getNextItem: function(id) {
             // The collection is empty
             if (this.length === 0) {
@@ -238,10 +219,6 @@ define([
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
         },
 
-        /**
-         * Retrieves the previous item in the collection.
-         * Triggers `page:previous` or `page:start` if at the beginning.
-         */
         getPreviousItem: function(id) {
             // The collection is empty
             if (this.length === 0) {
@@ -272,7 +249,7 @@ define([
                 return false;
             }
 
-            var coll  = this.fullCollection || this,
+            var coll = this.fullCollection || this,
                 index = this.indexOf(model);
 
             coll.remove(model);

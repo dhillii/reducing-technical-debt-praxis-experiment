@@ -275,7 +275,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
   const { autoFocus, onChange, schema, value } = props
   const { listKey, label, description, filter, sort, many } = schema
   const list = useList(listKey)
-  const formValue = useMemo(() => {
+  const formValue = (function () {
     if (many) {
       if (value !== null && !('length' in value)) throw TypeError('bad value')
       const manyValue =
@@ -310,7 +310,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
       initialValue: oneValue,
       value: oneValue,
     }
-  }, [many, value])
+  })()
 
   return (
     <RelationshipFieldView

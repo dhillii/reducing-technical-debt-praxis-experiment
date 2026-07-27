@@ -1,7 +1,3 @@
-/**
- * @fileoverview Abstraction of JavaScript source code.
- * @author Nicholas C. Zakas
- */
 "use strict";
 
 //------------------------------------------------------------------------------

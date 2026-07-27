@@ -123,7 +123,7 @@ const ModalStepper = ({
         })
       );
     } catch (err) {
-      console.error('Download files failed', err);
+      console.error('Error downloading files', err);
     }
   };
 
@@ -196,7 +196,7 @@ const ModalStepper = ({
         message: errorMessage,
       });
     } finally {
-      setShowModalConfirmButtonLoading(false);
+      setShowModalConfirmButtonLoading(true);
       toggleModalWarning();
     }
 

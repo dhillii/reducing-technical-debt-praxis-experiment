@@ -178,6 +178,91 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
     | 'closed'
   >('closed')
 
+  const handleOpenItem = useCallback(
+    (index: number) => {
+      const element = elements.at(index)
+      if (!element) return
+      setModalState({
+        index,
+        value: previewPropsToValue(element),
+        forceValidation: false,
+      })
+    },
+    [elements]
+  )
+
+  const handleAdd = useCallback(() => {
+    onChange([...elements.map(x => ({ key: x.key })), { key: undefined }])
+  }, [elements, onChange])
+
+  const handleCloseModal = useCallback(() => {
+    setModalState('closed')
+  }, [])
+
+  const handleModalChange = useCallback(
+    (cb: (value: unknown) => unknown) => {
+      setModalState(state => {
+        if (state === 'closed') return state
+        return {
+          index: modalState.index,
+          forceValidation: state.forceValidation,
+          value: cb(state.value),
+        }
+      })
+    },
+    [modalState]
+  )
+
+  const handleCancel = useCallback(() => {
+    handleCloseModal()
+  }, [handleCloseModal])
+
+  const handleDone = useCallback(() => {
+    if (!clientSideValidateProp(elements.at(modalState.index)!.schema, modalState.value)) {
+      setModalState(state => ({
+        ...(state as any) /* TODO FIXME */,
+        forceValidation: true,
+      }))
+      return
+    }
+    previewPropsOnChange(modalState.value, elements.at(modalState.index)!)
+    handleCloseModal()
+  }, [elements, modalState, handleCloseModal])
+
+  const renderModalContent = useCallback(() => {
+    if (props.schema.element.kind === 'child') return null
+    if (modalState === 'closed') return null
+    const element = elements.at(modalState.index)
+    if (!element) return null
+
+    return (
+      <Dialog>
+        <Heading>Edit item</Heading>
+        <Content>
+          <ArrayFieldItemModalContent
+            onChange={handleModalChange}
+            schema={element.schema as any /* TODO FIXME */}
+            value={modalState.value}
+          />
+        </Content>
+        <ButtonGroup>
+          <Button
+            prominence="low"
+            onPress={handleCancel}
+          >
+            Cancel
+          </Button>
+          <Button
+            prominence="high"
+            onPress={handleDone}
+          >
+            Done
+          </Button>
+        </ButtonGroup>
+      </Dialog>
+    )
+  }, [modalState, elements, props.schema.element.kind, handleModalChange, handleCancel, handleDone])
+
   return (
     <Field label={label} labelElementType="span">
       {groupProps => (
@@ -185,85 +270,19 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
           <ArrayFieldListView
             {...props}
             aria-label={label ?? ''}
-            onOpenItem={index => {
-              const element = elements.at(index)
-              if (!element) return
-              setModalState({
-                index,
-                value: previewPropsToValue(element),
-                forceValidation: false,
-              })
-            }}
+            onOpenItem={handleOpenItem}
           />
           <ActionButton
             alignSelf="start"
             autoFocus={props.autoFocus}
-            onPress={() => {
-              onChange([...elements.map(x => ({ key: x.key })), { key: undefined }])
-            }}
+            onPress={handleAdd}
           >
             Add
           </ActionButton>
           <DialogContainer
-            onDismiss={() => {
-              setModalState('closed')
-            }}
+            onDismiss={handleCloseModal}
           >
-            {(() => {
-              if (props.schema.element.kind === 'child') return
-              if (modalState === 'closed') return
-              const element = elements.at(modalState.index)
-              if (!element) return
-              const onModalChange = (cb: (value: unknown) => unknown) => {
-                setModalState(state => {
-                  if (state === 'closed') return state
-                  return {
-                    index: modalState.index,
-                    forceValidation: state.forceValidation,
-                    value: cb(state.value),
-                  }
-                })
-              }
-
-              return (
-                <Dialog>
-                  <Heading>Edit item</Heading>
-                  <Content>
-                    <ArrayFieldItemModalContent
-                      onChange={onModalChange}
-                      schema={element.schema as any /* TODO FIXME */}
-                      value={modalState.value}
-                    />
-                  </Content>
-                  <ButtonGroup>
-                    <Button
-                      prominence="low"
-                      onPress={() => {
-                        setModalState('closed')
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      prominence="high"
-                      onPress={() => {
-                        if (!clientSideValidateProp(element.schema, modalState.value)) {
-                          setModalState(state => ({
-                            ...(state as any) /* TODO FIXME */,
-                            forceValidation: true,
-                          }))
-                          return
-                        }
-                        previewPropsOnChange(modalState.value, element)
-                        setModalState('closed')
-                      }}
-                    >
-                      Done
-                    </Button>
-                  </ButtonGroup>
-                </Dialog>
-              )
-            })()}
+            {renderModalContent()}
           </DialogContainer>
         </VStack>
       )}
@@ -275,7 +294,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
   const { autoFocus, onChange, schema, value } = props
   const { listKey, label, description, filter, sort, many } = schema
   const list = useList(listKey)
-  const formValue = useMemo(() => {
+  const formValue = (function () {
     if (many) {
       if (value !== null && !('length' in value)) throw TypeError('bad value')
       const manyValue =
@@ -310,7 +329,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
       initialValue: oneValue,
       value: oneValue,
     }
-  }, [many, value])
+  })()
 
   return (
     <RelationshipFieldView

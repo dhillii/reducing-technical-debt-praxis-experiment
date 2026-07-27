@@ -253,7 +253,7 @@ class Stats {
 			});
 		}
 
-		const fnModule = (module) => {
+		function fnModule(module) {
 			const obj = {
 				id: module.id,
 				identifier: module.identifier(),
@@ -303,7 +303,7 @@ class Stats {
 				obj.source = module._source.source();
 			}
 			return obj;
-		};
+		}
 		if(showChunks) {
 			obj.chunks = compilation.chunks.map(chunk => {
 				const obj = {
@@ -812,6 +812,8 @@ class Stats {
 	}
 
 	static presetToOptions(name) {
+		//Accepted values: none, errors-only, minimal, normal, verbose
+		//Any other falsy value will behave as 'none', truthy values as 'normal'
 		const pn = (typeof name === "string") && name.toLowerCase() || name;
 		if(pn === "none" || !pn) {
 			return {
@@ -844,6 +846,7 @@ class Stats {
 				entrypoints: pn === "verbose",
 				chunks: pn !== "errors-only",
 				chunkModules: pn === "verbose",
+				//warnings: pn !== "errors-only",
 				errorDetails: pn !== "errors-only" && pn !== "minimal",
 				reasons: pn === "verbose",
 				depth: pn === "verbose",
@@ -869,7 +872,7 @@ class Stats {
 		if(!innerOptions)
 			return options;
 		const childOptions = Object.assign({}, options);
-		delete childOptions.children;
+		delete childOptions.children; // do not inherit children
 		return Object.assign(childOptions, innerOptions);
 	}
 }

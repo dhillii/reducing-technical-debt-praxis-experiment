@@ -521,9 +521,9 @@ export const sanitizeChartData = <T extends {date: string}>(data: T[], range: nu
     }
 
     if (range >= 91 && range <= 356) {
-        return aggregateData(data, 'week', fieldName, aggregationType);
+        return aggregateData(data, range, fieldName, aggregationType, 'week');
     } else if (range > 356) {
-        return aggregateData(data, 'month', fieldName, aggregationType);
+        return aggregateData(data, range, fieldName, aggregationType, 'month');
     }
 
     // Return original data for ranges < 91 days
@@ -531,55 +531,56 @@ export const sanitizeChartData = <T extends {date: string}>(data: T[], range: nu
 };
 
 /**
- * Aggregates data based on a time period (week or month)
- * @param data The source data
- * @param period The period to aggregate by ('week' or 'month')
- * @param fieldName The field name to aggregate
- * @param aggregationType The type of aggregation ('sum', 'avg', or 'exact')
+ * Aggregates chart data based on the specified interval (week or month).
+ * @param data The chart data to aggregate
+ * @param range The date range in days
+ * @param fieldName The name of the field to use for calculations
+ * @param aggregationType The type of aggregation to use: 'sum', 'avg', or 'exact'
+ * @param intervalType The interval type: 'week' or 'month'
  */
-function aggregateData<T extends {date: string}>(data: T[], period: 'week' | 'month', fieldName: keyof T, aggregationType: 'sum' | 'avg' | 'exact'): T[] {
-    const aggregatedData: T[] = [];
-    let currentPeriod = moment(data[0].date).startOf(period);
-    let periodTotal = 0;
-    let periodCount = 0;
+const aggregateData = <T extends {date: string}>(data: T[], range: number, fieldName: keyof T, aggregationType: 'sum' | 'avg' | 'exact', intervalType: 'week' | 'month'): T[] => {
+    const intervalData: T[] = [];
+    let currentInterval = moment(data[0].date).startOf(intervalType);
+    let intervalTotal = 0;
+    let intervalCount = 0;
     let lastValue = 0;
 
     data.forEach((item, index) => {
         const itemDate = moment(item.date);
-        if (itemDate.isSame(currentPeriod, period)) {
-            periodTotal += Number(item[fieldName]);
-            periodCount += 1;
+        if (itemDate.isSame(currentInterval, intervalType)) {
+            intervalTotal += Number(item[fieldName]);
+            intervalCount += 1;
             lastValue = Number(item[fieldName]);
         } else {
-            // Add the value for the previous period
-            aggregatedData.push({
+            // Add the value for the previous interval
+            intervalData.push({
                 ...data[index - 1],
-                date: currentPeriod.format('YYYY-MM-DD'),
-                [fieldName]: aggregationType === 'sum' ? periodTotal :
-                    aggregationType === 'avg' ? (periodCount > 0 ? periodTotal / periodCount : 0) :
+                date: currentInterval.format('YYYY-MM-DD'),
+                [fieldName]: aggregationType === 'sum' ? intervalTotal :
+                    aggregationType === 'avg' ? (intervalCount > 0 ? intervalTotal / intervalCount : 0) :
                         lastValue
             } as T);
 
-            // Start new period
-            currentPeriod = itemDate.startOf(period);
-            periodTotal = Number(item[fieldName]);
-            periodCount = 1;
+            // Start new interval
+            currentInterval = itemDate.startOf(intervalType);
+            intervalTotal = Number(item[fieldName]);
+            intervalCount = 1;
             lastValue = Number(item[fieldName]);
         }
 
         // Handle the last item
         if (index === data.length - 1) {
-            aggregatedData.push({
+            intervalData.push({
                 ...item,
-                date: currentPeriod.format('YYYY-MM-DD'),
-                [fieldName]: aggregationType === 'sum' ? periodTotal :
-                    aggregationType === 'avg' ? (periodCount > 0 ? periodTotal / periodCount : 0) :
+                date: currentInterval.format('YYYY-MM-DD'),
+                [fieldName]: aggregationType === 'sum' ? intervalTotal :
+                    aggregationType === 'avg' ? (intervalCount > 0 ? intervalTotal / intervalCount : 0) :
                         lastValue
             } as T);
         }
     });
 
-    return aggregatedData;
+    return intervalData;
 };
 
 /**

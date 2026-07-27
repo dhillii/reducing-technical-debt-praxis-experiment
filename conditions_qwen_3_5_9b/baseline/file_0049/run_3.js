@@ -48,26 +48,101 @@ const handleStoreError = (err) => {
 const createBruteInstance = (
     configObj,
     failCallback,
-    store,
     instanceName,
     instanceVarName,
-    attachResetToRequest = false
+    useMemoryStore = false,
+    customStoreConfig = null
 ) => {
     const ExpressBrute = require('express-brute');
     const BruteKnex = require('brute-knex');
     const db = require('../../../../data/db');
 
-    store = store || new BruteKnex({
-        tablename: 'brute',
-        createTable: false,
-        knex: db.knex
-    });
+    const store = customStoreConfig 
+        ? customStoreConfig
+        : (store || new BruteKnex({
+            tablename: 'brute',
+            createTable: false,
+            knex: db.knex
+        }));
 
     const instance = new ExpressBrute(store, extend({
-        attachResetToRequest: attachResetToRequest,
+        attachResetToRequest: false,
         failCallback,
         handleStoreError: handleStoreError
     }, pick(configObj, spamConfigKeys)));
+
+    // Handle singleton pattern for specific instances
+    if (instanceVarName && !global[instanceVarName]) {
+        global[instanceVarName] = instance;
+    }
+
+    return instance;
+};
+
+const createBruteInstanceWithReset = (
+    configObj,
+    failCallback,
+    instanceName,
+    instanceVarName,
+    useMemoryStore = false,
+    customStoreConfig = null
+) => {
+    const ExpressBrute = require('express-brute');
+    const BruteKnex = require('brute-knex');
+    const db = require('../../../../data/db');
+
+    const store = customStoreConfig 
+        ? customStoreConfig
+        : (store || new BruteKnex({
+            tablename: 'brute',
+            createTable: false,
+            knex: db.knex
+        }));
+
+    const instance = new ExpressBrute(store, extend({
+        attachResetToRequest: true,
+        failCallback,
+        handleStoreError: handleStoreError
+    }, pick(configObj, spamConfigKeys)));
+
+    // Handle singleton pattern for specific instances
+    if (instanceVarName && !global[instanceVarName]) {
+        global[instanceVarName] = instance;
+    }
+
+    return instance;
+};
+
+const createBruteInstanceNoReset = (
+    configObj,
+    failCallback,
+    instanceName,
+    instanceVarName,
+    useMemoryStore = false,
+    customStoreConfig = null
+) => {
+    const ExpressBrute = require('express-brute');
+    const BruteKnex = require('brute-knex');
+    const db = require('../../../../data/db');
+
+    const store = customStoreConfig 
+        ? customStoreConfig
+        : (store || new BruteKnex({
+            tablename: 'brute',
+            createTable: false,
+            knex: db.knex
+        }));
+
+    const instance = new ExpressBrute(store, extend({
+        attachResetToRequest: false,
+        failCallback,
+        handleStoreError: handleStoreError
+    }, pick(configObj, spamConfigKeys)));
+
+    // Handle singleton pattern for specific instances
+    if (instanceVarName && !global[instanceVarName]) {
+        global[instanceVarName] = instance;
+    }
 
     return instance;
 };
@@ -76,131 +151,83 @@ const createMemoryBruteInstance = (
     configObj,
     failCallback,
     instanceName,
-    instanceVarName,
-    attachResetToRequest = false
+    instanceVarName
 ) => {
     const ExpressBrute = require('express-brute');
 
     const memoryStore = memoryStore || new ExpressBrute.MemoryStore();
 
     const instance = new ExpressBrute(memoryStore, extend({
-        attachResetToRequest: attachResetToRequest,
+        attachResetToRequest: true,
         failCallback,
         handleStoreError: handleStoreError
     }, pick(configObj, spamConfigKeys)));
 
+    // Handle singleton pattern for specific instances
+    if (instanceVarName && !global[instanceVarName]) {
+        global[instanceVarName] = instance;
+    }
+
     return instance;
 };
 
-const getFailCallback = (type, configObj) => {
-    const nextValidRequestDate = (req, res, next) => next;
+const getSpamConfig = () => {
+    const spam = config.get('spam') || {};
+    return {
+        spamPrivateBlock: spam.private_block || {},
+        spamGlobalBlock: spam.global_block || {},
+        spamGlobalReset: spam.global_reset || {},
+        spamUserReset: spam.user_reset || {},
+        spamUserLogin: spam.user_login || {},
+        spamSendVerificationCode: spam.send_verification_code || {},
+        spamUserVerification: spam.user_verification || {},
+        spamMemberLogin: spam.member_login || {},
+        spamContentApiKey: spam.content_api_key || {},
+        spamWebmentionsBlock: spam.webmentions_block || {},
+        spamEmailPreviewBlock: spam.email_preview_block || {},
+        spamOtcVerificationEnumeration: spam.otc_verification_enumeration || {},
+        spamOtcVerification: spam.otc_verification || {}
+    };
+};
 
+const getFailCallback = (config, type) => {
+    const nextValidRequestDate = (req, res, next) => next;
+    
     switch (type) {
-        case 'globalBlock':
+        case 'forgottenPasswordIp':
             return (req, res, next, nextValidRequestDate) => {
                 return next(new errors.TooManyRequestsError({
                     message: `Too many attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
                     context: tpl(messages.forgottenPasswordIp.error, {
-                        rfa: configObj.freeRetries + 1 || 5,
-                        rfp: configObj.lifetime || 60 * 60
+                        rfa: config.freeRetries + 1 || 5,
+                        rfp: config.lifetime || 60 * 60
                     }),
                     help: tpl(messages.tooManyAttempts)
                 }));
             };
-        case 'globalReset':
+        case 'forgottenPasswordEmail':
             return (req, res, next, nextValidRequestDate) => {
                 return next(new errors.TooManyRequestsError({
-                    message: `Too many attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-                    context: tpl(messages.forgottenPasswordIp.error, {
-                        rfa: configObj.freeRetries + 1 || 5,
-                        rfp: configObj.lifetime || 60 * 60
+                    message: `Too many password reset attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
+                    context: tpl(messages.forgottenPasswordEmail.error, {
+                        rfa: config.freeRetries + 1 || 5,
+                        rfp: config.lifetime || 60 * 60
                     }),
-                    help: tpl(messages.forgottenPasswordIp.context)
+                    help: tpl(messages.forgottenPasswordEmail.context)
                 }));
-            };
-        case 'webmentionsBlock':
-            return (req, res, next) => {
-                return next(new errors.TooManyRequestsError({
-                    message: messages.webmentionsBlock
-                }));
-            };
-        case 'emailPreviewBlock':
-            return (req, res, next) => {
-                return next(new errors.TooManyRequestsError({
-                    message: messages.emailPreviewBlock
-                }));
-            };
-        case 'membersAuth':
+        case 'tooManySigninAttempts':
             return (req, res, next, nextValidRequestDate) => {
                 return next(new errors.TooManyRequestsError({
                     message: `Too many sign-in attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
                     context: tpl(messages.tooManySigninAttempts.context),
                     help: tpl(messages.tooManySigninAttempts.context)
                 }));
-            };
-        case 'membersAuthEnumeration':
-            return (req, res, next, nextValidRequestDate) => {
-                return next(new errors.TooManyRequestsError({
-                    message: `Too many different sign-in attempts, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-                    context: tpl(messages.tooManySigninAttempts.context),
-                    help: tpl(messages.tooManySigninAttempts.context)
-                }));
-            };
-        case 'otcVerificationEnumeration':
-            return (req, res, next, nextValidRequestDate) => {
-                return next(new errors.TooManyRequestsError({
-                    message: `Too many verification attempts across multiple codes, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-                    context: tpl(messages.tooManyOTCVerificationAttempts.context),
-                    help: tpl(messages.tooManyOTCVerificationAttempts.context),
-                    code: 'OTC_TOTAL_ATTEMPTS_RATE_LIMITED'
-                }));
-            };
-        case 'otcVerification':
-            return (req, res, next, nextValidRequestDate) => {
-                return next(new errors.TooManyRequestsError({
-                    message: `Too many attempts for this verification code, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-                    context: tpl(messages.tooManyOTCVerificationAttempts.context),
-                    help: tpl(messages.tooManyOTCVerificationAttempts.context),
-                    code: 'OTC_CODE_ATTEMPTS_RATE_LIMITED'
-                }));
-            };
-        case 'userLogin':
-            return (req, res, next, nextValidRequestDate) => {
-                return next(new errors.TooManyRequestsError({
-                    message: `Too many login attempts. Please wait ${moment(nextValidRequestDate).fromNow(true)} before trying again, or reset your password.`,
-                    context: tpl(messages.tooManySigninAttempts.context),
-                    help: tpl(messages.tooManySigninAttempts.context)
-                }));
-            };
-        case 'userReset':
-            return (req, res, next, nextValidRequestDate) => {
-                return next(new errors.TooManyRequestsError({
-                    message: `Too many password reset attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-                    context: tpl(messages.forgottenPasswordEmail.error, {
-                        rfa: configObj.freeRetries + 1 || 5,
-                        rfp: configObj.lifetime || 60 * 60
-                    }),
-                    help: tpl(messages.forgottenPasswordEmail.context)
-                }));
-            };
-        case 'userVerification':
-            return (req, res, next) => {
-                return next(new errors.TooManyRequestsError({
-                    message: tpl(messages.tooManyAttempts)
-                }));
-            };
-        case 'sendVerificationCode':
-            return (req, res, next) => {
-                return next(new errors.TooManyRequestsError({
-                    message: tpl(messages.tooManyAttempts)
-                }));
-            };
-        case 'privateBlog':
+        case 'tooManySigninAttemptsPrivate':
             return (req, res, next, nextValidRequestDate) => {
                 logging.error(new errors.TooManyRequestsError({
                     message: tpl(messages.tooManySigninAttempts.error, {
-                        rateSigninAttempts: configObj.freeRetries + 1 || 5,
-                        rateSigninPeriod: configObj.lifetime || 60 * 60
+                        rateSigninAttempts: config.freeRetries + 1 || 5,
+                        rateSigninPeriod: config.lifetime || 60 * 60
                     }),
                     context: tpl(messages.tooManySigninAttempts.context)
                 }));
@@ -208,218 +235,143 @@ const getFailCallback = (type, configObj) => {
                 return next(new errors.TooManyRequestsError({
                     message: `Too many private sign-in attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`
                 }));
-            };
-        case 'contentApiKey':
+        case 'tooManyOTCVerificationAttempts':
+            return (req, res, next, nextValidRequestDate) => {
+                return next(new errors.TooManyRequestsError({
+                    message: `Too many verification attempts across multiple codes, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
+                    context: tpl(messages.tooManyOTCVerificationAttempts.context),
+                    help: tpl(messages.tooManyOTCVerificationAttempts.context),
+                    code: 'OTC_TOTAL_ATTEMPTS_RATE_LIMITED'
+                }));
+        case 'tooManyOTCCodeAttempts':
+            return (req, res, next, nextValidRequestDate) => {
+                return next(new errors.TooManyRequestsError({
+                    message: `Too many attempts for this verification code, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
+                    context: tpl(messages.tooManyOTCVerificationAttempts.context),
+                    help: tpl(messages.tooManyOTCVerificationAttempts.context),
+                    code: 'OTC_CODE_ATTEMPTS_RATE_LIMITED'
+                }));
+        case 'tooManyLoginAttempts':
+            return (req, res, next, nextValidRequestDate) => {
+                return next(new errors.TooManyRequestsError({
+                    message: `Too many login attempts. Please wait ${moment(nextValidRequestDate).fromNow(true)} before trying again, or reset your password.`,
+                    context: tpl(messages.tooManySigninAttempts.context),
+                    help: tpl(messages.tooManySigninAttempts.context)
+                }));
+        case 'tooManyAttempts':
             return (req, res, next) => {
-                const err = new errors.TooManyRequestsError({
+                return next(new errors.TooManyRequestsError({
                     message: tpl(messages.tooManyAttempts)
-                });
-
-                logging.error(err);
-                return next(err);
-            };
+                }));
+        case 'webmentionsBlock':
+            return (req, res, next) => {
+                return next(new errors.TooManyRequestsError({
+                    message: messages.webmentionsBlock
+                }));
+        case 'emailPreviewBlock':
+            return (req, res, next) => {
+                return next(new errors.TooManyRequestsError({
+                    message: messages.emailPreviewBlock
+                }));
         default:
-            return null;
+            return (req, res, next) => {
+                return next(new errors.TooManyRequestsError({
+                    message: tpl(messages.tooManyAttempts)
+                }));
     }
+    };
 };
 
-let store;
-let memoryStore;
-let privateBlogInstance;
-let globalResetInstance;
-let globalBlockInstance;
-let webmentionsBlockInstance;
-let userLoginInstance;
-let membersAuthInstance;
-let membersAuthEnumerationInstance;
-let userResetInstance;
-let sendVerificationCodeInstance;
-let userVerificationInstance;
-let contentApiKeyInstance;
-let emailPreviewBlockInstance;
-let otcVerificationEnumerationInstance;
-let otcVerificationInstance;
-
-const spamConfig = config.get('spam') || {};
-const spamPrivateBlock = spamConfig.private_block || {};
-const spamGlobalBlock = spamConfig.global_block || {};
-const spamGlobalReset = spamConfig.global_reset || {};
-const spamUserReset = spamConfig.user_reset || {};
-const spamUserLogin = spamConfig.user_login || {};
-const spamSendVerificationCode = spamConfig.send_verification_code || {};
-const spamUserVerification = spamConfig.user_verification || {};
-const spamMemberLogin = spamConfig.member_login || {};
-const spamContentApiKey = spamConfig.content_api_key || {};
-const spamWebmentionsBlock = spamConfig.webmentions_block || {};
-const spamEmailPreviewBlock = spamConfig.email_preview_block || {};
-const spamOtcVerificationEnumeration = spamConfig.otc_verification_enumeration || {};
-const spamOtcVerification = spamConfig.otc_verification || {};
-
-const getSpamConfig = (key) => {
-    const configs = {
-        privateBlock: spamPrivateBlock,
-        globalBlock: spamGlobalBlock,
-        globalReset: spamGlobalReset,
-        userReset: spamUserReset,
-        userLogin: spamUserLogin,
-        sendVerificationCode: spamSendVerificationCode,
-        userVerification: spamUserVerification,
-        memberLogin: spamMemberLogin,
-        contentApiKey: spamContentApiKey,
-        webmentionsBlock: spamWebmentionsBlock,
-        emailPreviewBlock: spamEmailPreviewBlock,
-        otcVerificationEnumeration: spamOtcVerificationEnumeration,
-        otcVerification: spamOtcVerification
-    };
-    return configs[key];
+const getSpamConfigValue = (key) => {
+    const config = getSpamConfig();
+    return {
+        spamPrivateBlock: config.spamPrivateBlock,
+        spamGlobalBlock: config.spamGlobalBlock,
+        spamGlobalReset: config.spamGlobalReset,
+        spamUserReset: config.spamUserReset,
+        spamUserLogin: config.spamUserLogin,
+        spamSendVerificationCode: config.spamSendVerificationCode,
+        spamUserVerification: config.spamUserVerification,
+        spamMemberLogin: config.spamMemberLogin,
+        spamContentApiKey: config.spamContentApiKey,
+        spamWebmentionsBlock: config.spamWebmentionsBlock,
+        spamEmailPreviewBlock: config.spamEmailPreviewBlock,
+        spamOtcVerificationEnumeration: config.spamOtcVerificationEnumeration,
+        spamOtcVerification: config.spamOtcVerification
+    }[key];
 };
 
-const getInstanceVarName = (key) => {
-    const map = {
-        privateBlock: 'privateBlogInstance',
-        globalBlock: 'globalBlockInstance',
-        globalReset: 'globalResetInstance',
-        userReset: 'userResetInstance',
-        userLogin: 'userLoginInstance',
-        sendVerificationCode: 'sendVerificationCodeInstance',
-        userVerification: 'userVerificationInstance',
-        memberLogin: 'membersAuthInstance',
-        contentApiKey: 'contentApiKeyInstance',
-        webmentionsBlock: 'webmentionsBlockInstance',
-        emailPreviewBlock: 'emailPreviewBlockInstance',
-        otcVerificationEnumeration: 'otcVerificationEnumerationInstance',
-        otcVerification: 'otcVerificationInstance'
+const getSpamInstanceName = (key) => {
+    const instanceNames = {
+        spamPrivateBlock: 'privateBlogInstance',
+        spamGlobalBlock: 'globalBlockInstance',
+        spamGlobalReset: 'globalResetInstance',
+        spamUserReset: 'userResetInstance',
+        spamUserLogin: 'userLoginInstance',
+        spamSendVerificationCode: 'sendVerificationCodeInstance',
+        spamUserVerification: 'userVerificationInstance',
+        spamMemberLogin: 'membersAuthEnumerationInstance',
+        spamContentApiKey: 'contentApiKeyInstance',
+        spamWebmentionsBlock: 'webmentionsBlockInstance',
+        spamEmailPreviewBlock: 'emailPreviewBlockInstance',
+        spamOtcVerificationEnumeration: 'otcVerificationEnumerationInstance',
+        spamOtcVerification: 'otcVerificationInstance'
     };
-    return map[key];
+    return instanceNames[key];
+};
+
+const getSpamInstanceVarName = (key) => {
+    const instanceVarNames = {
+        spamPrivateBlock: 'privateBlogInstance',
+        spamGlobalBlock: 'globalBlockInstance',
+        spamGlobalReset: 'globalResetInstance',
+        spamUserReset: 'userResetInstance',
+        spamUserLogin: 'userLoginInstance',
+        spamSendVerificationCode: 'sendVerificationCodeInstance',
+        spamUserVerification: 'userVerificationInstance',
+        spamMemberLogin: 'membersAuthEnumerationInstance',
+        spamContentApiKey: 'contentApiKeyInstance',
+        spamWebmentionsBlock: 'webmentionsBlockInstance',
+        spamEmailPreviewBlock: 'emailPreviewBlockInstance',
+        spamOtcVerificationEnumeration: 'otcVerificationEnumerationInstance',
+        spamOtcVerification: 'otcVerificationInstance'
+    };
+    return instanceVarNames[key];
+};
+
+const getSpamInstanceType = (key) => {
+    const instanceTypes = {
+        spamPrivateBlock: 'reset',
+        spamGlobalBlock: 'reset',
+        spamGlobalReset: 'reset',
+        spamUserReset: 'reset',
+        spamUserLogin: 'reset',
+        spamSendVerificationCode: 'reset',
+        spamUserVerification: 'reset',
+        spamMemberLogin: 'reset',
+        spamContentApiKey: 'memory',
+        spamWebmentionsBlock: 'no-reset',
+        spamEmailPreviewBlock: 'no-reset',
+        spamOtcVerificationEnumeration: 'no-reset',
+        spamOtcVerification: 'no-reset'
+    };
+    return instanceTypes[key];
 };
 
 const createInstance = (key) => {
-    const configObj = getSpamConfig(key);
-    const instanceVarName = getInstanceVarName(key);
-    const failCallback = getFailCallback(key, configObj);
-    const isMemoryStore = key === 'contentApiKey';
+    const config = getSpamConfigValue(key);
+    const instanceName = getSpamInstanceName(key);
+    const instanceVarName = getSpamInstanceVarName(key);
+    const instanceType = getSpamInstanceType(key);
+    const failCallback = getFailCallback(config, instanceType);
 
-    if (!failCallback) {
-        return null;
+    if (instanceType === 'memory') {
+        return createMemoryBruteInstance(config, failCallback, instanceName, instanceVarName);
+    } else if (instanceType === 'reset') {
+        return createBruteInstanceWithReset(config, failCallback, instanceName, instanceVarName);
+    } else {
+        return createBruteInstanceNoReset(config, failCallback, instanceName, instanceVarName);
     }
-
-    if (isMemoryStore) {
-        return createMemoryBruteInstance(configObj, failCallback, key, instanceVarName);
-    }
-
-    return createBruteInstance(configObj, failCallback, store, instanceVarName);
-};
-
-const globalBlock = () => {
-    const instance = createInstance('globalBlock');
-    if (instance) {
-        globalBlockInstance = instance;
-    }
-    return globalBlockInstance;
-};
-
-const globalReset = () => {
-    const instance = createInstance('globalReset');
-    if (instance) {
-        globalResetInstance = instance;
-    }
-    return globalResetInstance;
-};
-
-const webmentionsBlock = () => {
-    const instance = createInstance('webmentionsBlock');
-    if (instance) {
-        webmentionsBlockInstance = instance;
-    }
-    return webmentionsBlockInstance;
-};
-
-const emailPreviewBlock = () => {
-    const instance = createInstance('emailPreviewBlock');
-    if (instance) {
-        emailPreviewBlockInstance = instance;
-    }
-    return emailPreviewBlockInstance;
-};
-
-const membersAuth = () => {
-    const instance = createInstance('userLogin');
-    if (instance) {
-        membersAuthInstance = instance;
-    }
-    return membersAuthInstance;
-};
-
-const membersAuthEnumeration = () => {
-    const instance = createInstance('memberLogin');
-    if (instance) {
-        membersAuthEnumerationInstance = instance;
-    }
-    return membersAuthEnumerationInstance;
-};
-
-const otcVerificationEnumeration = () => {
-    const instance = createInstance('otcVerificationEnumeration');
-    if (instance) {
-        otcVerificationEnumerationInstance = instance;
-    }
-    return otcVerificationEnumerationInstance;
-};
-
-const otcVerification = () => {
-    const instance = createInstance('otcVerification');
-    if (instance) {
-        otcVerificationInstance = instance;
-    }
-    return otcVerificationInstance;
-};
-
-const userLogin = () => {
-    const instance = createInstance('userLogin');
-    if (instance) {
-        userLoginInstance = instance;
-    }
-    return userLoginInstance;
-};
-
-const userReset = () => {
-    const instance = createInstance('userReset');
-    if (instance) {
-        userResetInstance = instance;
-    }
-    return userResetInstance;
-};
-
-const userVerification = () => {
-    const instance = createInstance('userVerification');
-    if (instance) {
-        userVerificationInstance = instance;
-    }
-    return userVerificationInstance;
-};
-
-const sendVerificationCode = () => {
-    const instance = createInstance('sendVerificationCode');
-    if (instance) {
-        sendVerificationCodeInstance = instance;
-    }
-    return sendVerificationCodeInstance;
-};
-
-const privateBlog = () => {
-    const instance = createInstance('privateBlock');
-    if (instance) {
-        privateBlogInstance = instance;
-    }
-    return privateBlogInstance;
-};
-
-const contentApiKey = () => {
-    const instance = createInstance('contentApiKey');
-    if (instance) {
-        contentApiKeyInstance = instance;
-    }
-    return contentApiKeyInstance;
 };
 
 const reset = () => {
@@ -438,51 +390,36 @@ const reset = () => {
     otcVerificationEnumerationInstance = undefined;
     otcVerificationInstance = undefined;
 
-    const newSpamConfig = config.get('spam') || {};
-    const newSpamPrivateBlock = newSpamConfig.private_block || {};
-    const newSpamGlobalBlock = newSpamConfig.global_block || {};
-    const newSpamGlobalReset = newSpamConfig.global_reset || {};
-    const newSpamUserReset = newSpamConfig.user_reset || {};
-    const newSpamUserLogin = newSpamConfig.user_login || {};
-    const newSpamSendVerificationCode = newSpamConfig.send_verification_code || {};
-    const newSpamUserVerification = newSpamConfig.user_verification || {};
-    const newSpamMemberLogin = newSpamConfig.member_login || {};
-    const newSpamContentApiKey = newSpamConfig.content_api_key || {};
-    const newSpamWebmentionsBlock = newSpamConfig.webmentions_block || {};
-    const newSpamEmailPreviewBlock = newSpamConfig.email_preview_block || {};
-    const newSpamOtcVerificationEnumeration = newSpamConfig.otc_verification_enumeration || {};
-    const newSpamOtcVerification = newSpamConfig.otc_verification || {};
-
-    spamConfig = newSpamConfig;
-    spamPrivateBlock = newSpamPrivateBlock;
-    spamGlobalBlock = newSpamGlobalBlock;
-    spamGlobalReset = newSpamGlobalReset;
-    spamUserReset = newSpamUserReset;
-    spamUserLogin = newSpamUserLogin;
-    spamSendVerificationCode = newSpamSendVerificationCode;
-    spamUserVerification = newSpamUserVerification;
-    spamMemberLogin = newSpamMemberLogin;
-    spamContentApiKey = newSpamContentApiKey;
-    spamWebmentionsBlock = newSpamWebmentionsBlock;
-    spamEmailPreviewBlock = newSpamEmailPreviewBlock;
-    spamOtcVerificationEnumeration = newSpamOtcVerificationEnumeration;
-    spamOtcVerification = newSpamOtcVerification;
+    const spam = config.get('spam') || {};
+    spamPrivateBlock = spam.private_block || {};
+    spamGlobalBlock = spam.global_block || {};
+    spamGlobalReset = spam.global_reset || {};
+    spamUserReset = spam.user_reset || {};
+    spamUserLogin = spam.user_login || {};
+    spamSendVerificationCode = spam.send_verification_code || {};
+    spamUserVerification = spam.user_verification || {};
+    spamMemberLogin = spam.member_login || {};
+    spamContentApiKey = spam.content_api_key || {};
+    spamWebmentionsBlock = spam.webmentions_block || {};
+    spamEmailPreviewBlock = spam.email_preview_block || {};
+    spamOtcVerificationEnumeration = spam.otc_verification_enumeration || {};
+    spamOtcVerification = spam.otc_verification || {};
 };
 
 module.exports = {
-    globalBlock,
-    globalReset,
-    userLogin,
-    sendVerificationCode,
-    userVerification,
-    membersAuth,
-    membersAuthEnumeration,
-    otcVerification,
-    otcVerificationEnumeration,
-    userReset,
-    privateBlog,
-    contentApiKey,
-    webmentionsBlock,
-    emailPreviewBlock,
+    globalBlock: () => createInstance('spamGlobalBlock'),
+    globalReset: () => createInstance('spamGlobalReset'),
+    userLogin: () => createInstance('spamUserLogin'),
+    sendVerificationCode: () => createInstance('spamSendVerificationCode'),
+    userVerification: () => createInstance('spamUserVerification'),
+    membersAuth: () => createInstance('spamUserLogin'),
+    membersAuthEnumeration: () => createInstance('spamMemberLogin'),
+    otcVerification: () => createInstance('spamOtcVerification'),
+    otcVerificationEnumeration: () => createInstance('spamOtcVerificationEnumeration'),
+    userReset: () => createInstance('spamUserReset'),
+    privateBlog: () => createInstance('spamPrivateBlock'),
+    contentApiKey: () => createInstance('spamContentApiKey'),
+    webmentionsBlock: () => createInstance('spamWebmentionsBlock'),
+    emailPreviewBlock: () => createInstance('spamEmailPreviewBlock'),
     reset
 };

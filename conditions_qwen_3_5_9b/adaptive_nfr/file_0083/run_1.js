@@ -375,7 +375,7 @@ function ItemPage({ listKey }: ItemPageProps) {
   function onAction(action: ActionMeta, resultId: string | null) {
     const { navigation } = action.itemView
 
-    if (navigation === 'follow' && resultId === itemId) {
+    if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
       refetch()
     } else if (navigation === 'follow' && resultId) {
       router.push(`/${list.path}/${resultId}`)

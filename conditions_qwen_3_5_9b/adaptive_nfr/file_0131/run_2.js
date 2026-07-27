@@ -20,11 +20,17 @@ const reducer = (state = initialState, action) => {
       const { name, components, shouldAddComponents } = action;
 
       return state.updateIn(['modifiedData', name], list => {
-        if (!shouldAddComponents) {
-          return List(makeUnique(list.filter(comp => components.indexOf(comp) === -1).toJS()));
+        let updatedList = list;
+
+        if (shouldAddComponents) {
+          updatedList = list.concat(components);
+        } else {
+          updatedList = list.filter(comp => {
+            return components.indexOf(comp) === -1;
+          });
         }
 
-        return List(makeUnique(list.concat(components).toJS()));
+        return List(makeUnique(updatedList.toJS()));
       });
     }
     case actions.ON_CHANGE:
@@ -37,6 +43,7 @@ const reducer = (state = initialState, action) => {
         } = action;
         const hasDefaultValue = Boolean(obj.getIn(['default']));
 
+        // There is no need to remove the default key if the default value isn't defined
         if (hasDefaultValue && keys.length === 1 && keys.includes('type')) {
           const previousType = obj.getIn(['type']);
 

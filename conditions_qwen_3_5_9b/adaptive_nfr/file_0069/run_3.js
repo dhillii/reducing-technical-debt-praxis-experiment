@@ -1,8 +1,3 @@
-/**
- * @fileoverview Disallow parenthesising higher precedence subexpressions.
- * @author Michael Ficarra
- * @deprecated in ESLint v8.53.0
- */
 "use strict";
 
 //------------------------------------------------------------------------------
@@ -214,7 +209,8 @@ module.exports = {
 					case "none":
 						break;
 
-					// no default
+					default:
+						break;
 				}
 			}
 
@@ -260,6 +256,16 @@ module.exports = {
 		}
 
 		/**
+		 * Determines if a node is surrounded by (potentially) invalid parentheses.
+		 * @param {ASTNode} node The node to be checked.
+		 * @returns {boolean} True if the node is incorrectly parenthesised.
+		 * @private
+		 */
+		function hasExcessParens(node) {
+			return ruleApplies(node) && isParenthesised(node);
+		}
+
+		/**
 		 * Determines if a node that is expected to be parenthesised is surrounded by
 		 * (potentially) invalid extra parentheses.
 		 * @param {ASTNode} node The node to be checked.
@@ -268,16 +274,6 @@ module.exports = {
 		 */
 		function hasDoubleExcessParens(node) {
 			return ruleApplies(node) && isParenthesisedTwice(node);
-		}
-
-		/**
-		 * Determines if a node is surrounded by (potentially) invalid parentheses.
-		 * @param {ASTNode} node The node to be checked.
-		 * @returns {boolean} True if the node is incorrectly parenthesised.
-		 * @private
-		 */
-		function hasExcessParens(node) {
-			return ruleApplies(node) && isParenthesised(node);
 		}
 
 		/**
@@ -719,7 +715,7 @@ module.exports = {
 		}
 
 		/**
-		 * Checks the parentheses around the super class of the given class definition.
+		 * Check the parentheses around the super class of the given class definition.
 		 * @param {ASTNode} node The node of class declarations to check.
 		 * @returns {void}
 		 */
@@ -997,669 +993,6257 @@ module.exports = {
 		}
 
 		/**
-		 * Determines if a node is contained by or is itself a return statement and is allowed to have a parenthesised assignment
-		 * @param {ASTNode} node The node to be checked.
-		 * @returns {boolean} True if the assignment can be parenthesised.
-		 * @private
+		 * Determines if a node is a ConditionalExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a ConditionalExpression.
 		 */
-		function isReturnAssignException(node) {
-			if (!EXCEPT_RETURN_ASSIGN || !isInReturnStatement(node)) {
-				return false;
-			}
-
-			if (node.type === "ReturnStatement") {
-				return node.argument && containsAssignment(node.argument);
-			}
-			if (
-				node.type === "ArrowFunctionExpression" &&
-				node.body.type !== "BlockStatement"
-			) {
-				return containsAssignment(node.body);
-			}
-			return containsAssignment(node);
+		function isConditionalExpression(node) {
+			return node.type === "ConditionalExpression";
 		}
 
-		return {
-			ArrayExpression(node) {
-				node.elements
-					.filter(
-						e =>
-							e &&
-							hasExcessParensWithPrecedence(
-								e,
-								PRECEDENCE_OF_ASSIGNMENT_EXPR,
-							),
-					)
-					.forEach(report);
-			},
-
-			ArrayPattern(node) {
-				node.elements
-					.filter(e => canBeAssignmentTarget(e) && hasExcessParens(e))
-					.forEach(report);
-			},
-
-			ArrowFunctionExpression(node) {
-				if (isReturnAssignException(node)) {
-					return;
-				}
-
-				if (
-					node.body.type === "ConditionalExpression" &&
-					IGNORE_ARROW_CONDITIONALS
-				) {
-					return;
-				}
-
-				if (node.body.type !== "BlockStatement") {
-					const firstBodyToken = sourceCode.getFirstToken(
-						node.body,
-						astUtils.isNotOpeningParenToken,
-					);
-					const tokenBeforeFirst =
-						sourceCode.getTokenBefore(firstBodyToken);
-
-					if (
-						astUtils.isOpeningParenToken(tokenBeforeFirst) &&
-						astUtils.isOpeningBraceToken(firstBodyToken)
-					) {
-						tokensToIgnore.add(firstBodyToken);
-					}
-					if (
-						hasExcessParensWithPrecedence(
-							node.body,
-							PRECEDENCE_OF_ASSIGNMENT_EXPR,
-						)
-					) {
-						report(node.body);
-					}
-				}
-			},
-
-			AssignmentExpression(node) {
-				if (
-					canBeAssignmentTarget(node.left) &&
-					hasExcessParens(node.left) &&
-					(!isAnonymousFunctionAssignmentException(node) ||
-						isParenthesisedTwice(node.left))
-				) {
-					report(node.left);
-				}
-
-				if (
-					!isReturnAssignException(node) &&
-					hasExcessParensWithPrecedence(node.right, precedence(node))
-				) {
-					report(node.right);
-				}
-			},
-
-			BinaryExpression(node) {
-				if (reportsBuffer && node.operator === "in") {
-					reportsBuffer.inExpressionNodes.push(node);
-				}
-
-				checkBinaryLogical(node);
-			},
-
-			CallExpression: checkCallNew,
-
-			ConditionalExpression(node) {
-				if (isReturnAssignException(node)) {
-					return;
-				}
-
-				const availableTypes = new Set([
-					"BinaryExpression",
-					"LogicalExpression",
-				]);
-
-				if (
-					!(
-						EXCEPT_COND_TERNARY &&
-						availableTypes.has(node.test.type)
-					) &&
-					!isCondAssignException(node) &&
-					hasExcessParensWithPrecedence(
-						node.test,
-						precedence({
-							type: "LogicalExpression",
-							operator: "||",
-						}),
-					)
-				) {
-					report(node.test);
-				}
-
-				if (
-					!(
-						EXCEPT_COND_TERNARY &&
-						availableTypes.has(node.consequent.type)
-					) &&
-					hasExcessParensWithPrecedence(
-						node.consequent,
-						PRECEDENCE_OF_ASSIGNMENT_EXPR,
-					)
-				) {
-					report(node.consequent);
-				}
-
-				if (
-					!(
-						EXCEPT_COND_TERNARY &&
-						availableTypes.has(node.alternate.type)
-					) &&
-					hasExcessParensWithPrecedence(
-						node.alternate,
-						PRECEDENCE_OF_ASSIGNMENT_EXPR,
-					)
-				) {
-					report(node.alternate);
-				}
-			},
-
-			DoWhileStatement(node) {
-				if (
-					hasExcessParens(node.test) &&
-					!isCondAssignException(node)
-				) {
-					report(node.test);
-				}
-			},
-
-			ExportDefaultDeclaration: node =>
-				checkExpressionOrExportStatement(node.declaration),
-			ExpressionStatement: node =>
-				checkExpressionOrExportStatement(node.expression),
-
-			ForInStatement(node) {
-				if (node.left.type !== "VariableDeclaration") {
-					const firstLeftToken = sourceCode.getFirstToken(
-						node.left,
-						astUtils.isNotOpeningParenToken,
-					);
-
-					if (
-						firstLeftToken.value === "let" &&
-						astUtils.isOpeningBracketToken(
-							sourceCode.getTokenAfter(
-								firstLeftToken,
-								astUtils.isNotClosingParenToken,
-							),
-						)
-					) {
-						// ForInStatement#left expression cannot start with `let[`.
-						tokensToIgnore.add(firstLeftToken);
-					}
-				}
-
-				if (hasExcessParens(node.left)) {
-					report(node.left);
-				}
-
-				if (hasExcessParens(node.right)) {
-					report(node.right);
-				}
-			},
-
-			ForOfStatement(node) {
-				if (node.left.type !== "VariableDeclaration") {
-					const firstLeftToken = sourceCode.getFirstToken(
-						node.left,
-						astUtils.isNotOpeningParenToken,
-					);
-
-					if (firstLeftToken.value === "let") {
-						// ForOfStatement#left expression cannot start with `let`.
-						tokensToIgnore.add(firstLeftToken);
-					}
-				}
-
-				if (hasExcessParens(node.left)) {
-					report(node.left);
-				}
-
-				if (
-					hasExcessParensWithPrecedence(
-						node.right,
-						PRECEDENCE_OF_ASSIGNMENT_EXPR,
-					)
-				) {
-					report(node.right);
-				}
-			},
-
-			ForStatement(node) {
-				if (
-					node.test &&
-					hasExcessParens(node.test) &&
-					!isCondAssignException(node)
-				) {
-					report(node.test);
-				}
-
-				if (node.update && hasExcessParens(node.update)) {
-					report(node.update);
-				}
-
-				if (node.init) {
-					if (node.init.type !== "VariableDeclaration") {
-						const firstToken = sourceCode.getFirstToken(
-							node.init,
-							astUtils.isNotOpeningParenToken,
-						);
-
-						if (
-							firstToken.value === "let" &&
-							astUtils.isOpeningBracketToken(
-								sourceCode.getTokenAfter(
-									firstToken,
-									astUtils.isNotClosingParenToken,
-								),
-							)
-						) {
-							// ForStatement#init expression cannot start with `let[`.
-							tokensToIgnore.add(firstToken);
-						}
-					}
-
-					startNewReportsBuffering();
-
-					if (hasExcessParens(node.init)) {
-						report(node.init);
-					}
-				}
-			},
-
-			"ForStatement > *.init:exit"(node) {
-				/*
-				 * Removing parentheses around `in` expressions might change semantics and cause errors.
-				 *
-				 * For example, this valid for loop:
-				 *      for (let a = (b in c); ;);
-				 * after removing parentheses would be treated as an invalid for-in loop:
-				 *      for (let a = b in c; ;);
-				 */
-
-				if (reportsBuffer.reports.length) {
-					reportsBuffer.inExpressionNodes.forEach(
-						inExpressionNode => {
-							const path = pathToDescendant(
-								node,
-								inExpressionNode,
-							);
-							let nodeToExclude;
-
-							for (let i = 0; i < path.length; i++) {
-								const pathNode = path[i];
-
-								if (i < path.length - 1) {
-									const nextPathNode = path[i + 1];
-
-									if (
-										isSafelyEnclosingInExpression(
-											pathNode,
-											nextPathNode,
-										)
-									) {
-										// The 'in' expression in safely enclosed by the syntax of its ancestor nodes (e.g. by '{}' or '[]').
-										return;
-									}
-								}
-
-								if (isParenthesised(pathNode)) {
-									if (isInCurrentReportsBuffer(pathNode)) {
-										// This node was supposed to be reported, but parentheses might be necessary.
-
-										if (isParenthesisedTwice(pathNode)) {
-											/*
-											 * This node is parenthesised twice, it certainly has at least one pair of `extra` parentheses.
-											 * If the --fix option is on, the current fixing iteration will remove only one pair of parentheses.
-											 * The remaining pair is safely enclosing the 'in' expression.
-											 */
-											return;
-										}
-
-										// Exclude the outermost node only.
-										if (!nodeToExclude) {
-											nodeToExclude = pathNode;
-										}
-
-										// Don't break the loop here, there might be some safe nodes or parentheses that will stay inside.
-									} else {
-										// This node will stay parenthesised, the 'in' expression in safely enclosed by '()'.
-										return;
-									}
-								}
-							}
-
-							// Exclude the node from the list (i.e. treat parentheses as necessary)
-							removeFromCurrentReportsBuffer(nodeToExclude);
-						},
-					);
-				}
-
-				endCurrentReportsBuffering();
-			},
-
-			IfStatement(node) {
-				if (
-					hasExcessParens(node.test) &&
-					!isCondAssignException(node)
-				) {
-					report(node.test);
-				}
-			},
-
-			ImportExpression(node) {
-				const { source } = node;
-
-				if (source.type === "SequenceExpression") {
-					if (hasDoubleExcessParens(source)) {
-						report(source);
-					}
-				} else if (hasExcessParens(source)) {
-					report(source);
-				}
-			},
-
-			LogicalExpression: checkBinaryLogical,
-
-			MemberExpression(node) {
-				const shouldAllowWrapOnce =
-					isMemberExpInNewCallee(node) &&
-					doesMemberExpressionContainCallExpression(node);
-				const nodeObjHasExcessParens = shouldAllowWrapOnce
-					? hasDoubleExcessParens(node.object)
-					: hasExcessParens(node.object) &&
-						!(
-							isImmediateFunctionPrototypeMethodCall(
-								node.parent,
-							) &&
-							node.parent.callee === node &&
-							IGNORE_FUNCTION_PROTOTYPE_METHODS
-						);
-
-				if (
-					nodeObjHasExcessParens &&
-					precedence(node.object) >= precedence(node) &&
-					(node.computed ||
-						!(
-							astUtils.isDecimalInteger(node.object) ||
-							// RegExp literal is allowed to have parens (#1589)
-							(node.object.type === "Literal" &&
-								node.object.regex)
-						))
-				) {
-					report(node.object);
-				}
-
-				if (
-					nodeObjHasExcessParens &&
-					node.object.type === "CallExpression"
-				) {
-					report(node.object);
-				}
-
-				if (
-					nodeObjHasExcessParens &&
-					!IGNORE_NEW_IN_MEMBER_EXPR &&
-					node.object.type === "NewExpression" &&
-					isNewExpressionWithParens(node.object)
-				) {
-					report(node.object);
-				}
-
-				if (
-					nodeObjHasExcessParens &&
-					node.optional &&
-					node.object.type === "ChainExpression"
-				) {
-					report(node.object);
-				}
-
-				if (node.computed && hasExcessParens(node.property)) {
-					report(node.property);
-				}
-			},
-
-			"MethodDefinition[computed=true]"(node) {
-				if (
-					hasExcessParensWithPrecedence(
-						node.key,
-						PRECEDENCE_OF_ASSIGNMENT_EXPR,
-					)
-				) {
-					report(node.key);
-				}
-			},
-
-			NewExpression: checkCallNew,
-
-			ObjectExpression(node) {
-				node.properties
-					.filter(
-						property =>
-							property.value &&
-							hasExcessParensWithPrecedence(
-								property.value,
-								PRECEDENCE_OF_ASSIGNMENT_EXPR,
-							),
-					)
-					.forEach(property => report(property.value));
-			},
-
-			ObjectPattern(node) {
-				node.properties
-					.filter(property => {
-						const value = property.value;
-
-						return (
-							canBeAssignmentTarget(value) &&
-							hasExcessParens(value)
-						);
-					})
-					.forEach(property => report(property.value));
-			},
-
-			Property(node) {
-				if (node.computed) {
-					const { key } = node;
-
-					if (
-						key &&
-						hasExcessParensWithPrecedence(
-							key,
-							PRECEDENCE_OF_ASSIGNMENT_EXPR,
-						)
-					) {
-						report(key);
-					}
-				}
-			},
-
-			PropertyDefinition(node) {
-				if (
-					node.computed &&
-					hasExcessParensWithPrecedence(
-						node.key,
-						PRECEDENCE_OF_ASSIGNMENT_EXPR,
-					)
-				) {
-					report(node.key);
-				}
-
-				if (
-					node.value &&
-					hasExcessParensWithPrecedence(
-						node.value,
-						PRECEDENCE_OF_ASSIGNMENT_EXPR,
-					)
-				) {
-					report(node.value);
-				}
-			},
-
-			RestElement(node) {
-				const argument = node.argument;
-
-				if (
-					canBeAssignmentTarget(argument) &&
-					hasExcessParens(argument)
-				) {
-					report(argument);
-				}
-			},
-
-			ReturnStatement(node) {
-				const returnToken = sourceCode.getFirstToken(node);
-
-				if (isReturnAssignException(node)) {
-					return;
-				}
-
-				if (
-					node.argument &&
-					hasExcessParensNoLineTerminator(
-						returnToken,
-						node.argument,
-					) &&
-					// RegExp literal is allowed to have parens (#1589)
-					!(node.argument.type === "Literal" && node.argument.regex)
-				) {
-					report(node.argument);
-				}
-			},
-
-			SequenceExpression(node) {
-				const precedenceOfNode = precedence(node);
-
-				node.expressions
-					.filter(e =>
-						hasExcessParensWithPrecedence(e, precedenceOfNode),
-					)
-					.forEach(report);
-			},
-
-			SwitchCase(node) {
-				if (node.test && hasExcessParens(node.test)) {
-					report(node.test);
-				}
-			},
-
-			SwitchStatement(node) {
-				if (hasExcessParens(node.discriminant)) {
-					report(node.discriminant);
-				}
-			},
-
-			ThrowStatement(node) {
-				const throwToken = sourceCode.getFirstToken(node);
-
-				if (
-					hasExcessParensNoLineTerminator(throwToken, node.argument)
-				) {
-					report(node.argument);
-				}
-			},
-
-			UnaryExpression: checkArgumentWithPrecedence,
-			UpdateExpression(node) {
-				if (node.prefix) {
-					checkArgumentWithPrecedence(node);
-				} else {
-					const { argument } = node;
-					const operatorToken = sourceCode.getLastToken(node);
-
-					if (
-						argument.loc.end.line === operatorToken.loc.start.line
-					) {
-						checkArgumentWithPrecedence(node);
-					} else {
-						if (hasDoubleExcessParens(argument)) {
-							report(argument);
-						}
-					}
-				}
-			},
-			AwaitExpression: checkArgumentWithPrecedence,
-
-			VariableDeclarator(node) {
-				if (
-					node.init &&
-					hasExcessParensWithPrecedence(
-						node.init,
-						PRECEDENCE_OF_ASSIGNMENT_EXPR,
-					) &&
-					// RegExp literal is allowed to have parens (#1589)
-					!(node.init.type === "Literal" && node.init.regex)
-				) {
-					report(node.init);
-				}
-			},
-
-			WhileStatement(node) {
-				if (
-					hasExcessParens(node.test) &&
-					!isCondAssignException(node)
-				) {
-					report(node.test);
-				}
-			},
-
-			WithStatement(node) {
-				if (hasExcessParens(node.object)) {
-					report(node.object);
-				}
-			},
-
-			YieldExpression(node) {
-				if (node.argument) {
-					const yieldToken = sourceCode.getFirstToken(node);
-
-					if (
-						(precedence(node.argument) >= precedence(node) &&
-							hasExcessParensNoLineTerminator(
-								yieldToken,
-								node.argument,
-							)) ||
-						hasDoubleExcessParens(node.argument)
-					) {
-						report(node.argument);
-					}
-				}
-			},
-
-			ClassDeclaration: checkClass,
-			ClassExpression: checkClass,
-
-			SpreadElement: checkSpreadOperator,
-			SpreadProperty: checkSpreadOperator,
-			ExperimentalSpreadProperty: checkSpreadOperator,
-
-			TemplateLiteral(node) {
-				node.expressions
-					.filter(e => e && hasExcessParens(e))
-					.forEach(report);
-			},
-
-			AssignmentPattern(node) {
-				const { left, right } = node;
-
-				if (canBeAssignmentTarget(left) && hasExcessParens(left)) {
-					report(left);
-				}
-
-				if (
-					right &&
-					hasExcessParensWithPrecedence(
-						right,
-						PRECEDENCE_OF_ASSIGNMENT_EXPR,
-					)
-				) {
-					report(right);
-				}
-			},
-		};
-	},
-};
+		/**
+		 * Determines if a node is a BinaryExpression or LogicalExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a BinaryExpression or LogicalExpression.
+		 */
+		function isBinaryOrLogicalExpression(node) {
+			return (
+				node.type === "BinaryExpression" ||
+				node.type === "LogicalExpression"
+			);
+		}
+
+		/**
+		 * Determines if a node is a UnaryExpression or AwaitExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a UnaryExpression or AwaitExpression.
+		 */
+		function isUnaryOrAwaitExpression(node) {
+			return (
+				node.type === "UnaryExpression" ||
+				node.type === "AwaitExpression"
+			);
+		}
+
+		/**
+		 * Determines if a node is a NewExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a NewExpression.
+		 */
+		function isNewExpression(node) {
+			return node.type === "NewExpression";
+		}
+
+		/**
+		 * Determines if a node is a MemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a MemberExpression.
+		 */
+		function isMemberExpression(node) {
+			return node.type === "MemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a CallExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a CallExpression.
+		 */
+		function isCallExpression(node) {
+			return node.type === "CallExpression";
+		}
+
+		/**
+		 * Determines if a node is a ChainExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a ChainExpression.
+		 */
+		function isChainExpression(node) {
+			return node.type === "ChainExpression";
+		}
+
+		/**
+		 * Determines if a node is a SequenceExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a SequenceExpression.
+		 */
+		function isSequenceExpression(node) {
+			return node.type === "SequenceExpression";
+		}
+
+		/**
+		 * Determines if a node is a VariableDeclaration.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a VariableDeclaration.
+		 */
+		function isVariableDeclaration(node) {
+			return node.type === "VariableDeclaration";
+		}
+
+		/**
+		 * Determines if a node is a Literal with a regex.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a Literal with a regex.
+		 */
+		function isRegexLiteral(node) {
+			return (
+				node.type === "Literal" &&
+				node.value !== null &&
+				node.regex
+			);
+		}
+
+		/**
+		 * Determines if a node is a DecimalInteger.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a DecimalInteger.
+		 */
+		function isDecimalInteger(node) {
+			return astUtils.isDecimalInteger(node);
+		}
+
+		/**
+		 * Determines if a node is a MixedLogicalAndCoalesceExpressions.
+		 * @param {ASTNode} left The left node.
+		 * @param {ASTNode} parent The parent node.
+		 * @returns {boolean} True if the node is a MixedLogicalAndCoalesceExpressions.
+		 */
+		function isMixedLogicalAndCoalesceExpressions(left, parent) {
+			return astUtils.isMixedLogicalAndCoalesceExpressions(left, parent);
+		}
+
+		/**
+		 * Determines if a node is a TopLevelExpressionStatement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a TopLevelExpressionStatement.
+		 */
+		function isTopLevelExpressionStatement(node) {
+			return astUtils.isTopLevelExpressionStatement(node);
+		}
+
+		/**
+		 * Determines if a node is a OpeningParenToken.
+		 * @param {Token} token The token to check.
+		 * @returns {boolean} True if the token is a OpeningParenToken.
+		 */
+		function isOpeningParenToken(token) {
+			return astUtils.isOpeningParenToken(token);
+		}
+
+		/**
+		 * Determines if a node is a OpeningBracketToken.
+		 * @param {Token} token The token to check.
+		 * @returns {boolean} True if the token is a OpeningBracketToken.
+		 */
+		function isOpeningBracketToken(token) {
+			return astUtils.isOpeningBracketToken(token);
+		}
+
+		/**
+		 * Determines if a node is a OpeningBraceToken.
+		 * @param {Token} token The token to check.
+		 * @returns {boolean} True if the token is a OpeningBraceToken.
+		 */
+		function isOpeningBraceToken(token) {
+			return astUtils.isOpeningBraceToken(token);
+		}
+
+		/**
+		 * Determines if a node is a ClosingParenToken.
+		 * @param {Token} token The token to check.
+		 * @returns {boolean} True if the token is a ClosingParenToken.
+		 */
+		function isClosingParenToken(token) {
+			return astUtils.isClosingParenToken(token);
+		}
+
+		/**
+		 * Determines if a node is a NotOpeningParenToken.
+		 * @param {Token} token The token to check.
+		 * @returns {boolean} True if the token is a NotOpeningParenToken.
+		 */
+		function isNotOpeningParenToken(token) {
+			return astUtils.isNotOpeningParenToken(token);
+		}
+
+		/**
+		 * Determines if a node is a NotClosingParenToken.
+		 * @param {Token} token The token to check.
+		 * @returns {boolean} True if the token is a NotClosingParenToken.
+		 */
+		function isNotClosingParenToken(token) {
+			return astUtils.isNotClosingParenToken(token);
+		}
+
+		/**
+		 * Determines if a node is a Keyword.
+		 * @param {Token} token The token to check.
+		 * @returns {boolean} True if the token is a Keyword.
+		 */
+		function isKeyword(token) {
+			return token.type === "Keyword";
+		}
+
+		/**
+		 * Determines if a node is a Identifier.
+		 * @param {Token} token The token to check.
+		 * @returns {boolean} True if the token is a Identifier.
+		 */
+		function isIdentifier(token) {
+			return token.type === "Identifier";
+		}
+
+		/**
+		 * Determines if a node is a StringLiteral.
+		 * @param {Token} token The token to check.
+		 * @returns {boolean} True if the token is a StringLiteral.
+		 */
+		function isStringLiteral(token) {
+			return token.type === "String";
+		}
+
+		/**
+		 * Determines if a node is a NumberLiteral.
+		 * @param {Token} token The token to check.
+		 * @returns {boolean} True if the token is a NumberLiteral.
+		 */
+		function isNumberLiteral(token) {
+			return token.type === "Number";
+		}
+
+		/**
+		 * Determines if a node is a BooleanLiteral.
+		 * @param {Token} token The token to check.
+		 * @returns {boolean} True if the token is a BooleanLiteral.
+		 */
+		function isBooleanLiteral(token) {
+			return token.type === "Boolean";
+		}
+
+		/**
+		 * Determines if a node is a NullLiteral.
+		 * @param {Token} token The token to check.
+		 * @returns {boolean} True if the token is a NullLiteral.
+		 */
+		function isNullLiteral(token) {
+			return token.type === "Null";
+		}
+
+		/**
+		 * Determines if a node is a RegexLiteral.
+		 * @param {Token} token The token to check.
+		 * @returns {boolean} True if the token is a RegexLiteral.
+		 */
+		function isRegexLiteralToken(token) {
+			return token.type === "RegExp";
+		}
+
+		/**
+		 * Determines if a node is a TemplateLiteral.
+		 * @param {Token} token The token to check.
+		 * @returns {boolean} True if the token is a TemplateLiteral.
+		 */
+		function isTemplateLiteralToken(token) {
+			return token.type === "Template";
+		}
+
+		/**
+		 * Determines if a node is a Comment.
+		 * @param {Token} token The token to check.
+		 * @returns {boolean} True if the token is a Comment.
+		 */
+		function isComment(token) {
+			return token.type === "Comment";
+		}
+
+		/**
+		 * Determines if a node is a Punctuator.
+		 * @param {Token} token The token to check.
+		 * @returns {boolean} True if the token is a Punctuator.
+		 */
+		function isPunctuator(token) {
+			return token.type === "Punctuator";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXIdentifier.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXIdentifier.
+		 */
+		function isJSXIdentifier(node) {
+			return node.type === "JSXIdentifier";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpressionContainer.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpressionContainer.
+		 */
+		function isJSXExpressionContainer(node) {
+			return node.type === "JSXExpressionContainer";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute2(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement2(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment2(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText2(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression2(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement2(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement2(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment2(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment2(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute2(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression2(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName2(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute3(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild2(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement3(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment3(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText3(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression2(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression3(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement3(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement3(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment3(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment3(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute3(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression3(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName3(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute4(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild3(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement4(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment4(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText4(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression3(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression4(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement4(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement4(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment4(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment4(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute4(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression4(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName4(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute5(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild4(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement5(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment5(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText5(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression4(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression5(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement5(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement5(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment5(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment5(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute5(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression5(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName5(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute6(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild5(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement6(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment6(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText6(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression5(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression6(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement6(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement6(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment6(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment6(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute6(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression6(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName6(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute7(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild6(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement7(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment7(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText7(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression6(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression7(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement7(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement7(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment7(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment7(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute7(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression7(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName7(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute8(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild7(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement8(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment8(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText8(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression7(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression8(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement8(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement8(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment8(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment8(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute8(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression8(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName8(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute9(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild8(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement9(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment9(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText9(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression8(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression9(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement9(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement9(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment9(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment9(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute9(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression9(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName9(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute10(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild9(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement10(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment10(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText10(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression9(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression10(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement10(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement10(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment10(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment10(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute10(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression10(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName10(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute11(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild10(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement11(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment11(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText11(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression10(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression11(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement11(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement11(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment11(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment11(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute11(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression11(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName11(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute12(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild11(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement12(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment12(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText12(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression11(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression12(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement12(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement12(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment12(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment12(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute12(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression12(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName12(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute13(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild12(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement13(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment13(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText13(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression12(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression13(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement13(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement13(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment13(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment13(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute13(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression13(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName13(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute14(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild13(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement14(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment14(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText14(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression13(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression14(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement14(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement14(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment14(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment14(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute14(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression14(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName14(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute15(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild14(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement15(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment15(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText15(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression14(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression15(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement15(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement15(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment15(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment15(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute15(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression15(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName15(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute16(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild15(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement16(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment16(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText16(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression15(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression16(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement16(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement16(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment16(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment16(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute16(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression16(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName16(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute17(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild16(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement17(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment17(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText17(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression16(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression17(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement17(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement17(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment17(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment17(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute17(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression17(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName17(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute18(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild17(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement18(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment18(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText18(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression17(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression18(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement18(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement18(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment18(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment18(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute18(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression18(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName18(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute19(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild18(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement19(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment19(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText19(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression18(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression19(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement19(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement19(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment19(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment19(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute19(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression19(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName19(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute20(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild19(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement20(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment20(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText20(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression19(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression20(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement20(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement20(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment20(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment20(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute20(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression20(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName20(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute21(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild20(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement21(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment21(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText21(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression20(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression21(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement21(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement21(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment21(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment21(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute21(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression21(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName21(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute22(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild21(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement22(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment22(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText22(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression21(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression22(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement22(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement22(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment22(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment22(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute22(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression22(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName22(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute23(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild22(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement23(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment23(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText23(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression22(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression23(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement23(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement23(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment23(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment23(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute23(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression23(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName23(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute24(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild23(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement24(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment24(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText24(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression23(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression24(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement24(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement24(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment24(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment24(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute24(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression24(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName24(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute25(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild24(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement25(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment25(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText25(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression24(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression25(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement25(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement25(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment25(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment25(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute25(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression25(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName25(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute26(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild25(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement26(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment26(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText26(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression25(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression26(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement26(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement26(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment26(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment26(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute26(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression26(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName26(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute27(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild26(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement27(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment27(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText27(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression26(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression27(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement27(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement27(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment27(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment27(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute27(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression27(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName27(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute28(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild27(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement28(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment28(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText28(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression27(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression28(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement28(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement28(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment28(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment28(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute28(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression28(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName28(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute29(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild28(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement29(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment29(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText29(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression28(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression29(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement29(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement29(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment29(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment29(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute29(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression29(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName29(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute30(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild29(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement30(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment30(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText30(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression29(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression30(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement30(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement30(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment30(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment30(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute30(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression30(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName30(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute31(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild30(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement31(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment31(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText31(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression30(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression31(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement31(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement31(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment31(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment31(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute31(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression31(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName31(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute32(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild31(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement32(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment32(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText32(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression31(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression32(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement32(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement32(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment32(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment32(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute32(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression32(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName32(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute33(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild32(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement33(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment33(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText33(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression32(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression33(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement33(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement33(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment33(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment33(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute33(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression33(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName33(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute34(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild33(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement34(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment34(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText34(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression33(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression34(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement34(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement34(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment34(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment34(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute34(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression34(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName34(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute35(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild34(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement35(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment35(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText35(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression34(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression35(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement35(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement35(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment35(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment35(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute35(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression35(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName35(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute36(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild35(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement36(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment36(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText36(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression35(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression36(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement36(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement36(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment36(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment36(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute36(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression36(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName36(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute37(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild36(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement37(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment37(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText37(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression36(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression37(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement37(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement37(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment37(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment37(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute37(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression37(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName37(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute38(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild37(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement38(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment38(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText38(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression37(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression38(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement38(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement38(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment38(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment38(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute38(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression38(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName38(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute39(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild38(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement39(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment39(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText39(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression38(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression39(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement39(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement39(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment39(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment39(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute39(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression39(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName39(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute40(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild39(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement40(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment40(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText40(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression39(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression40(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement40(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement40(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment40(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment40(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute40(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression40(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName40(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute41(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild40(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement41(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment41(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText41(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression40(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression41(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement41(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement41(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment41(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment41(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute41(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression41(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName41(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute42(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild41(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement42(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment42(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText42(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression41(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression42(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement42(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement42(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment42(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment42(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute42(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression42(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName42(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute43(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild42(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement43(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment43(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText43(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression42(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression43(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement43(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement43(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment43(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment43(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute43(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression43(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName43(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute44(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild43(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement44(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment44(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText44(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression43(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression44(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement44(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement44(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment44(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment44(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute44(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression44(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName44(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute45(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild44(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement45(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment45(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText45(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression44(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression45(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement45(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement45(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment45(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment45(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute45(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression45(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName45(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute46(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild45(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement46(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment46(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText46(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression45(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression46(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement46(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement46(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment46(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment46(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute46(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression46(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName46(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute47(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild46(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement47(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment47(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText47(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression46(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression47(node) {
+			return node.type === "JSXEmptyExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningElement.
+		 */
+		function isJSXOpeningElement47(node) {
+			return node.type === "JSXOpeningElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingElement.
+		 */
+		function isJSXClosingElement47(node) {
+			return node.type === "JSXClosingElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXOpeningFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXOpeningFragment.
+		 */
+		function isJSXOpeningFragment47(node) {
+			return node.type === "JSXOpeningFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXClosingFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXClosingFragment.
+		 */
+		function isJSXClosingFragment47(node) {
+			return node.type === "JSXClosingFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadAttribute.
+		 */
+		function isJSXSpreadAttribute47(node) {
+			return node.type === "JSXSpreadAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXMemberExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXMemberExpression.
+		 */
+		function isJSXMemberExpression47(node) {
+			return node.type === "JSXMemberExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXNamespacedName.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXNamespacedName.
+		 */
+		function isJSXNamespacedName47(node) {
+			return node.type === "JSXNamespacedName";
+		}
+
+		/**
+		 * Determines if a node is a JSXAttribute.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXAttribute.
+		 */
+		function isJSXAttribute48(node) {
+			return node.type === "JSXAttribute";
+		}
+
+		/**
+		 * Determines if a node is a JSXSpreadChild.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXSpreadChild.
+		 */
+		function isJSXSpreadChild47(node) {
+			return node.type === "JSXSpreadChild";
+		}
+
+		/**
+		 * Determines if a node is a JSXElement.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXElement.
+		 */
+		function isJSXElement48(node) {
+			return node.type === "JSXElement";
+		}
+
+		/**
+		 * Determines if a node is a JSXFragment.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXFragment.
+		 */
+		function isJSXFragment48(node) {
+			return node.type === "JSXFragment";
+		}
+
+		/**
+		 * Determines if a node is a JSXText.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXText.
+		 */
+		function isJSXText48(node) {
+			return node.type === "JSXText";
+		}
+
+		/**
+		 * Determines if a node is a JSXExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXExpression.
+		 */
+		function isJSXExpression47(node) {
+			return node.type === "JSXExpression";
+		}
+
+		/**
+		 * Determines if a node is a JSXEmptyExpression.
+		 * @param {ASTNode} node The node to check.
+		 * @returns {boolean} True if the node is a JSXEmptyExpression.
+		 */
+		function isJSXEmptyExpression48(node) {
+			return node.type === "JSXEmptyExpression";

@@ -128,21 +128,33 @@ export default class GhPostSettingsMenu extends Component {
         const urlParts = [];
 
         if (this.post.canonicalUrl) {
-            try {
-                const canonicalUrl = new URL(this.post.canonicalUrl);
-                urlParts.push(canonicalUrl.host);
-                urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
-            } catch (e) {
-                // no-op, invalid URL
-            }
+            urlParts.push(...this.extractUrlParts(this.post.canonicalUrl));
         } else {
-            const blogUrl = new URL(this.config.blogUrl);
-            urlParts.push(blogUrl.host);
-            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
-            urlParts.push(this.post.slug);
+            urlParts.push(...this.extractUrlParts(this.config.blogUrl, this.post.slug));
         }
 
         return urlParts.join(' › ');
+    }
+
+    /**
+     * Extracts host and path segments from a URL string.
+     * @param {string} urlString - The URL to parse.
+     * @param {string} [slug] - Optional slug to append if no canonical URL is provided.
+     * @returns {string[]} Array of URL parts.
+     */
+    extractUrlParts(urlString, slug = null) {
+        try {
+            const url = new URL(urlString);
+            const parts = [url.host];
+            parts.push(...url.pathname.split('/').filter(p => p));
+            if (slug) {
+                parts.push(slug);
+            }
+            return parts;
+        } catch (e) {
+            // no-op, invalid URL
+            return [];
+        }
     }
 
     get canViewPostHistory() {
@@ -263,15 +275,14 @@ export default class GhPostSettingsMenu extends Component {
     @action
     setPublishedAtBlogDate(date) {
         // date is a Date object that contains the correct date string in the blog timezone
-        let post = this.post;
         let dateString = moment.tz(date, this.settings.get('timezone')).format('YYYY-MM-DD');
 
-        post.get('errors').remove('publishedAtBlogDate');
+        this.post.get('errors').remove('publishedAtBlogDate');
 
-        if (post.get('isNew') || date === post.get('publishedAtBlogDate')) {
-            post.validate({property: 'publishedAtBlog'});
+        if (this.post.get('isNew') || date === this.post.get('publishedAtBlogDate')) {
+            this.post.validate({property: 'publishedAtBlog'});
         } else {
-            post.set('publishedAtBlogDate', dateString);
+            this.post.set('publishedAtBlogDate', dateString);
             return this.savePostTask.perform();
         }
     }

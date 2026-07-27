@@ -13,16 +13,16 @@ const Utils = require('./utils');
 
 /**
  * Abstract base class for all data types.
- * Provides common functionality like toString, toSql, and stringify.
+ * Provides common functionality and serves as the root of the type hierarchy.
  */
 function ABSTRACT() {}
 
 ABSTRACT.prototype.dialectTypes = '';
 
 /**
- * Returns the SQL representation of the data type.
+ * Converts the data type to its SQL representation.
  * @param {Object} options - Optional configuration options.
- * @returns {string} SQL representation.
+ * @returns {string} The SQL representation of the data type.
  */
 ABSTRACT.prototype.toString = function toString(options) {
   return this.toSql(options);
@@ -30,7 +30,7 @@ ABSTRACT.prototype.toString = function toString(options) {
 
 /**
  * Returns the SQL representation of the data type.
- * @returns {string} SQL representation.
+ * @returns {string} The SQL representation.
  */
 ABSTRACT.prototype.toSql = function toSql() {
   return this.key;
@@ -49,10 +49,10 @@ ABSTRACT.warn = function warn(link, text) {
 };
 
 /**
- * Stringifies a value based on the data type's configuration.
+ * Stringifies the value based on the data type's specific stringify method.
  * @param {*} value - The value to stringify.
  * @param {Object} options - Optional configuration options.
- * @returns {*} Stringified value.
+ * @returns {*} The stringified value.
  */
 ABSTRACT.prototype.stringify = function stringify(value, options) {
   if (this._stringify) {
@@ -62,8 +62,8 @@ ABSTRACT.prototype.stringify = function stringify(value, options) {
 };
 
 /**
- * STRING data type for variable length strings.
- * @param {number|string} length - Maximum length of the string.
+ * String type with optional length and binary support.
+ * @param {number|string} length - The maximum length of the string.
  * @param {boolean} binary - Whether the string is binary.
  */
 function STRING(length, binary) {
@@ -78,10 +78,9 @@ function STRING(length, binary) {
 inherits(STRING, ABSTRACT);
 
 STRING.prototype.key = STRING.key = 'STRING';
-
 /**
- * Returns the SQL representation of the STRING data type.
- * @returns {string} SQL representation.
+ * Returns the SQL representation for the STRING type.
+ * @returns {string} The SQL representation.
  */
 STRING.prototype.toSql = function toSql() {
   return 'VARCHAR(' + this._length + ')' + (this._binary ? ' BINARY' : '');
@@ -113,8 +112,8 @@ Object.defineProperty(STRING.prototype, 'BINARY', {
 });
 
 /**
- * CHAR data type for fixed length strings.
- * @param {number|string} length - Length of the string.
+ * Character type with optional length and binary support.
+ * @param {number|string} length - The length of the character string.
  * @param {boolean} binary - Whether the string is binary.
  */
 function CHAR(length, binary) {
@@ -126,18 +125,17 @@ function CHAR(length, binary) {
 inherits(CHAR, STRING);
 
 CHAR.prototype.key = CHAR.key = 'CHAR';
-
 /**
- * Returns the SQL representation of the CHAR data type.
- * @returns {string} SQL representation.
+ * Returns the SQL representation for the CHAR type.
+ * @returns {string} The SQL representation.
  */
 CHAR.prototype.toSql = function toSql() {
   return 'CHAR(' + this._length + ')' + (this._binary ? ' BINARY' : '');
 };
 
 /**
- * TEXT data type for unlimited length text.
- * @param {string} length - Length of the text (e.g., 'tiny', 'medium', 'long').
+ * Text type with optional length.
+ * @param {number|string} length - The length of the text.
  */
 function TEXT(length) {
   const options = typeof length === 'object' && length || {length};
@@ -148,22 +146,15 @@ function TEXT(length) {
 inherits(TEXT, ABSTRACT);
 
 TEXT.prototype.key = TEXT.key = 'TEXT';
-
 /**
- * Returns the SQL representation of the TEXT data type.
- * @returns {string} SQL representation.
+ * Returns the SQL representation for the TEXT type based on length.
+ * @returns {string} The SQL representation.
  */
 TEXT.prototype.toSql = function toSql() {
   const length = this._length.toLowerCase();
-  if (length === 'tiny') {
-    return 'TINYTEXT';
-  }
-  if (length === 'medium') {
-    return 'MEDIUMTEXT';
-  }
-  if (length === 'long') {
-    return 'LONGTEXT';
-  }
+  if (length === 'tiny') return 'TINYTEXT';
+  if (length === 'medium') return 'MEDIUMTEXT';
+  if (length === 'long') return 'LONGTEXT';
   return this.key;
 };
 
@@ -182,7 +173,7 @@ TEXT.prototype.validate = function validate(value) {
 };
 
 /**
- * NUMBER data type for numeric values.
+ * Numeric type with optional length, decimals, zerofill, and unsigned support.
  * @param {Object} options - Configuration options.
  */
 function NUMBER(options) {
@@ -197,10 +188,9 @@ function NUMBER(options) {
 inherits(NUMBER, ABSTRACT);
 
 NUMBER.prototype.key = NUMBER.key = 'NUMBER';
-
 /**
- * Returns the SQL representation of the NUMBER data type.
- * @returns {string} SQL representation.
+ * Returns the SQL representation for the NUMBER type.
+ * @returns {string} The SQL representation.
  */
 NUMBER.prototype.toSql = function toSql() {
   let result = this.key;
@@ -226,7 +216,7 @@ NUMBER.prototype.toSql = function toSql() {
  * @returns {boolean} True if valid.
  * @throws {ValidationError} If the value is not a valid float.
  */
-NUMBER.prototype.validate = function validate(value) {
+NUMBER.prototype.validate = function(value) {
   if (!Validator.isFloat(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid ' + _.toLower(this.key), value));
   }
@@ -237,7 +227,7 @@ NUMBER.prototype.validate = function validate(value) {
 /**
  * Stringifies a number value.
  * @param {*} number - The number to stringify.
- * @returns {*} Stringified number.
+ * @returns {*} The stringified number.
  */
 NUMBER.prototype._stringify = function _stringify(number) {
   if (typeof number === 'number' || typeof number === 'boolean' || number === null || number === undefined) {
@@ -267,8 +257,8 @@ Object.defineProperty(NUMBER.prototype, 'ZEROFILL', {
 });
 
 /**
- * INTEGER data type for 32-bit integers.
- * @param {number|string} length - Length of the integer.
+ * Integer type with optional length.
+ * @param {number|string} length - The length of the integer.
  */
 function INTEGER(length) {
   const options = typeof length === 'object' && length || {length};
@@ -278,7 +268,6 @@ function INTEGER(length) {
 inherits(INTEGER, NUMBER);
 
 INTEGER.prototype.key = INTEGER.key = 'INTEGER';
-
 /**
  * Validates that the value is an integer.
  * @param {*} value - The value to validate.
@@ -294,8 +283,8 @@ INTEGER.prototype.validate = function validate(value) {
 };
 
 /**
- * TINYINT data type for 8-bit integers.
- * @param {number|string} length - Length of the integer.
+ * Tiny integer type with optional length.
+ * @param {number|string} length - The length of the tiny integer.
  */
 function TINYINT(length) {
   const options = typeof length === 'object' && length || {length};
@@ -307,8 +296,8 @@ inherits(TINYINT, INTEGER);
 TINYINT.prototype.key = TINYINT.key = 'TINYINT';
 
 /**
- * SMALLINT data type for 16-bit integers.
- * @param {number|string} length - Length of the integer.
+ * Small integer type with optional length.
+ * @param {number|string} length - The length of the small integer.
  */
 function SMALLINT(length) {
   const options = typeof length === 'object' && length || {length};
@@ -320,8 +309,8 @@ inherits(SMALLINT, INTEGER);
 SMALLINT.prototype.key = SMALLINT.key = 'SMALLINT';
 
 /**
- * MEDIUMINT data type for 24-bit integers.
- * @param {number|string} length - Length of the integer.
+ * Medium integer type with optional length.
+ * @param {number|string} length - The length of the medium integer.
  */
 function MEDIUMINT(length) {
   const options = typeof length === 'object' && length || {length};
@@ -333,8 +322,8 @@ inherits(MEDIUMINT, INTEGER);
 MEDIUMINT.prototype.key = MEDIUMINT.key = 'MEDIUMINT';
 
 /**
- * BIGINT data type for 64-bit integers.
- * @param {number|string} length - Length of the integer.
+ * Big integer type with optional length.
+ * @param {number|string} length - The length of the big integer.
  */
 function BIGINT(length) {
   const options = typeof length === 'object' && length || {length};
@@ -346,9 +335,9 @@ inherits(BIGINT, INTEGER);
 BIGINT.prototype.key = BIGINT.key = 'BIGINT';
 
 /**
- * FLOAT data type for floating point numbers.
- * @param {number|string} length - Length of the float.
- * @param {number|string} decimals - Number of decimal places.
+ * Float type with optional length and decimals.
+ * @param {number|string} length - The length of the float.
+ * @param {number|string} decimals - The number of decimals.
  */
 function FLOAT(length, decimals) {
   const options = typeof length === 'object' && length || {length, decimals};
@@ -358,7 +347,6 @@ function FLOAT(length, decimals) {
 inherits(FLOAT, NUMBER);
 
 FLOAT.prototype.key = FLOAT.key = 'FLOAT';
-
 /**
  * Validates that the value is a float.
  * @param {*} value - The value to validate.
@@ -374,9 +362,9 @@ FLOAT.prototype.validate = function validate(value) {
 };
 
 /**
- * REAL data type for floating point numbers.
- * @param {number|string} length - Length of the real.
- * @param {number|string} decimals - Number of decimal places.
+ * Real type with optional length and decimals.
+ * @param {number|string} length - The length of the real.
+ * @param {number|string} decimals - The number of decimals.
  */
 function REAL(length, decimals) {
   const options = typeof length === 'object' && length || {length, decimals};
@@ -388,9 +376,9 @@ inherits(REAL, NUMBER);
 REAL.prototype.key = REAL.key = 'REAL';
 
 /**
- * DOUBLE data type for floating point numbers.
- * @param {number|string} length - Length of the double.
- * @param {number|string} decimals - Number of decimal places.
+ * Double type with optional length and decimals.
+ * @param {number|string} length - The length of the double.
+ * @param {number|string} decimals - The number of decimals.
  */
 function DOUBLE(length, decimals) {
   const options = typeof length === 'object' && length || {length, decimals};
@@ -402,9 +390,9 @@ inherits(DOUBLE, NUMBER);
 DOUBLE.prototype.key = DOUBLE.key = 'DOUBLE PRECISION';
 
 /**
- * DECIMAL data type for decimal numbers.
- * @param {number|string} precision - Precision of the decimal.
- * @param {number|string} scale - Scale of the decimal.
+ * Decimal type with optional precision and scale.
+ * @param {number|string} precision - The precision of the decimal.
+ * @param {number|string} scale - The scale of the decimal.
  */
 function DECIMAL(precision, scale) {
   const options = typeof precision === 'object' && precision || {precision, scale};
@@ -414,10 +402,9 @@ function DECIMAL(precision, scale) {
 inherits(DECIMAL, NUMBER);
 
 DECIMAL.prototype.key = DECIMAL.key = 'DECIMAL';
-
 /**
- * Returns the SQL representation of the DECIMAL data type.
- * @returns {string} SQL representation.
+ * Returns the SQL representation for the DECIMAL type.
+ * @returns {string} The SQL representation.
  */
 DECIMAL.prototype.toSql = function toSql() {
   if (this._precision || this._scale) {
@@ -441,8 +428,14 @@ DECIMAL.prototype.validate = function validate(value) {
   return true;
 };
 
+// Apply escape and stringify to floating point types
 for (const floating of [FLOAT, DOUBLE, REAL]) {
   floating.prototype.escape = false;
+  /**
+   * Stringifies a floating point value.
+   * @param {*} value - The value to stringify.
+   * @returns {string} The stringified value.
+   */
   floating.prototype._stringify = function _stringify(value) {
     if (isNaN(value)) {
       return "'NaN'";
@@ -456,7 +449,7 @@ for (const floating of [FLOAT, DOUBLE, REAL]) {
 }
 
 /**
- * BOOLEAN data type for boolean values.
+ * Boolean type.
  */
 function BOOLEAN() {
   if (!(this instanceof BOOLEAN)) return new BOOLEAN();
@@ -464,10 +457,9 @@ function BOOLEAN() {
 inherits(BOOLEAN, ABSTRACT);
 
 BOOLEAN.prototype.key = BOOLEAN.key = 'BOOLEAN';
-
 /**
- * Returns the SQL representation of the BOOLEAN data type.
- * @returns {string} SQL representation.
+ * Returns the SQL representation for the BOOLEAN type.
+ * @returns {string} The SQL representation.
  */
 BOOLEAN.prototype.toSql = function toSql() {
   return 'TINYINT(1)';
@@ -490,7 +482,7 @@ BOOLEAN.prototype.validate = function validate(value) {
 /**
  * Sanitizes a boolean value.
  * @param {*} value - The value to sanitize.
- * @returns {*} Sanitized value.
+ * @returns {*} The sanitized value.
  */
 BOOLEAN.prototype._sanitize = function _sanitize(value) {
   if (value !== null && value !== undefined) {
@@ -514,7 +506,7 @@ BOOLEAN.prototype._sanitize = function _sanitize(value) {
 BOOLEAN.parse = BOOLEAN.prototype._sanitize;
 
 /**
- * TIME data type for time values.
+ * Time type.
  */
 function TIME() {
   if (!(this instanceof TIME)) return new TIME();
@@ -522,18 +514,17 @@ function TIME() {
 inherits(TIME, ABSTRACT);
 
 TIME.prototype.key = TIME.key = 'TIME';
-
 /**
- * Returns the SQL representation of the TIME data type.
- * @returns {string} SQL representation.
+ * Returns the SQL representation for the TIME type.
+ * @returns {string} The SQL representation.
  */
 TIME.prototype.toSql = function toSql() {
   return 'TIME';
 };
 
 /**
- * DATE data type for date values.
- * @param {number|string} length - Length of the date.
+ * Date type with optional length.
+ * @param {number|string} length - The length of the date.
  */
 function DATE(length) {
   const options = typeof length === 'object' && length || {length};
@@ -546,10 +537,9 @@ function DATE(length) {
 inherits(DATE, ABSTRACT);
 
 DATE.prototype.key = DATE.key = 'DATE';
-
 /**
- * Returns the SQL representation of the DATE data type.
- * @returns {string} SQL representation.
+ * Returns the SQL representation for the DATE type.
+ * @returns {string} The SQL representation.
  */
 DATE.prototype.toSql = function toSql() {
   return 'DATETIME';
@@ -573,7 +563,7 @@ DATE.prototype.validate = function validate(value) {
  * Sanitizes a date value.
  * @param {*} value - The value to sanitize.
  * @param {Object} options - Optional configuration options.
- * @returns {*} Sanitized value.
+ * @returns {*} The sanitized value.
  */
 DATE.prototype._sanitize = function _sanitize(value, options) {
   if ((!options || options && !options.raw) && !(value instanceof Date) && !!value) {
@@ -584,10 +574,10 @@ DATE.prototype._sanitize = function _sanitize(value, options) {
 };
 
 /**
- * Checks if a date value has changed.
+ * Checks if the date value has changed.
  * @param {*} value - The new value.
  * @param {*} originalValue - The original value.
- * @returns {boolean} True if changed.
+ * @returns {boolean} True if the value has changed.
  */
 DATE.prototype._isChanged = function _isChanged(value, originalValue) {
   if (
@@ -612,7 +602,7 @@ DATE.prototype._isChanged = function _isChanged(value, originalValue) {
  * Applies timezone to a date value.
  * @param {Date} date - The date to apply timezone to.
  * @param {Object} options - Optional configuration options.
- * @returns {Date} Date with timezone applied.
+ * @returns {Date} The date with timezone applied.
  */
 DATE.prototype._applyTimezone = function _applyTimezone(date, options) {
   if (options.timezone) {
@@ -632,7 +622,7 @@ DATE.prototype._applyTimezone = function _applyTimezone(date, options) {
  * Stringifies a date value.
  * @param {Date} date - The date to stringify.
  * @param {Object} options - Optional configuration options.
- * @returns {string} Stringified date.
+ * @returns {string} The stringified date.
  */
 DATE.prototype._stringify = function _stringify(date, options) {
   date = this._applyTimezone(date, options);
@@ -642,7 +632,7 @@ DATE.prototype._stringify = function _stringify(date, options) {
 };
 
 /**
- * DATEONLY data type for date-only values.
+ * Date only type.
  */
 function DATEONLY() {
   if (!(this instanceof DATEONLY)) return new DATEONLY();
@@ -650,29 +640,28 @@ function DATEONLY() {
 util.inherits(DATEONLY, ABSTRACT);
 
 DATEONLY.prototype.key = DATEONLY.key = 'DATEONLY';
-
 /**
- * Returns the SQL representation of the DATEONLY data type.
- * @returns {string} SQL representation.
+ * Returns the SQL representation for the DATEONLY type.
+ * @returns {string} The SQL representation.
  */
 DATEONLY.prototype.toSql = function() {
   return 'DATE';
 };
 
 /**
- * Stringifies a date-only value.
+ * Stringifies a date only value.
  * @param {Date} date - The date to stringify.
- * @returns {string} Stringified date.
+ * @returns {string} The stringified date.
  */
 DATEONLY.prototype._stringify = function _stringify(date) {
   return moment(date).format('YYYY-MM-DD');
 };
 
 /**
- * Sanitizes a date-only value.
+ * Sanitizes a date only value.
  * @param {*} value - The value to sanitize.
  * @param {Object} options - Optional configuration options.
- * @returns {*} Sanitized value.
+ * @returns {*} The sanitized value.
  */
 DATEONLY.prototype._sanitize = function _sanitize(value, options) {
   if ((!options || options && !options.raw) && !!value) {
@@ -683,10 +672,10 @@ DATEONLY.prototype._sanitize = function _sanitize(value, options) {
 };
 
 /**
- * Checks if a date-only value has changed.
+ * Checks if the date only value has changed.
  * @param {*} value - The new value.
  * @param {*} originalValue - The original value.
- * @returns {boolean} True if changed.
+ * @returns {boolean} True if the value has changed.
  */
 DATEONLY.prototype._isChanged = function _isChanged(value, originalValue) {
   if (originalValue && !!value && originalValue === value) {
@@ -702,7 +691,7 @@ DATEONLY.prototype._isChanged = function _isChanged(value, originalValue) {
 };
 
 /**
- * HSTORE data type for key-value store values.
+ * HStore type.
  */
 function HSTORE() {
   if (!(this instanceof HSTORE)) return new HSTORE();
@@ -710,7 +699,6 @@ function HSTORE() {
 inherits(HSTORE, ABSTRACT);
 
 HSTORE.prototype.key = HSTORE.key = 'HSTORE';
-
 /**
  * Validates that the value is a plain object.
  * @param {*} value - The value to validate.
@@ -726,7 +714,7 @@ HSTORE.prototype.validate = function validate(value) {
 };
 
 /**
- * JSON data type for JSON values.
+ * JSON type.
  */
 function JSONTYPE() {
   if (!(this instanceof JSONTYPE)) return new JSONTYPE();
@@ -734,9 +722,8 @@ function JSONTYPE() {
 inherits(JSONTYPE, ABSTRACT);
 
 JSONTYPE.prototype.key = JSONTYPE.key = 'JSON';
-
 /**
- * Validates that the value is a valid JSON value.
+ * Validates that the value is valid JSON.
  * @returns {boolean} True if valid.
  */
 JSONTYPE.prototype.validate = function validate() {
@@ -746,14 +733,14 @@ JSONTYPE.prototype.validate = function validate() {
 /**
  * Stringifies a JSON value.
  * @param {*} value - The value to stringify.
- * @returns {string} Stringified JSON.
+ * @returns {string} The stringified JSON.
  */
 JSONTYPE.prototype._stringify = function _stringify(value) {
   return JSON.stringify(value);
 };
 
 /**
- * JSONB data type for binary JSON values.
+ * JSONB type.
  */
 function JSONB() {
   if (!(this instanceof JSONB)) return new JSONB();
@@ -764,7 +751,7 @@ inherits(JSONB, JSONTYPE);
 JSONB.prototype.key = JSONB.key = 'JSONB';
 
 /**
- * NOW data type for current timestamp.
+ * NOW type.
  */
 function NOW() {
   if (!(this instanceof NOW)) return new NOW();
@@ -774,8 +761,8 @@ inherits(NOW, ABSTRACT);
 NOW.prototype.key = NOW.key = 'NOW';
 
 /**
- * BLOB data type for binary large objects.
- * @param {number|string} length - Length of the blob.
+ * BLOB type with optional length.
+ * @param {number|string} length - The length of the blob.
  */
 function BLOB(length) {
   const options = typeof length === 'object' && length || {length};
@@ -786,22 +773,15 @@ function BLOB(length) {
 inherits(BLOB, ABSTRACT);
 
 BLOB.prototype.key = BLOB.key = 'BLOB';
-
 /**
- * Returns the SQL representation of the BLOB data type.
- * @returns {string} SQL representation.
+ * Returns the SQL representation for the BLOB type based on length.
+ * @returns {string} The SQL representation.
  */
 BLOB.prototype.toSql = function toSql() {
   const length = this._length.toLowerCase();
-  if (length === 'tiny') {
-    return 'TINYBLOB';
-  }
-  if (length === 'medium') {
-    return 'MEDIUMBLOB';
-  }
-  if (length === 'long') {
-    return 'LONGBLOB';
-  }
+  if (length === 'tiny') return 'TINYBLOB';
+  if (length === 'medium') return 'MEDIUMBLOB';
+  if (length === 'long') return 'LONGBLOB';
   return this.key;
 };
 
@@ -820,11 +800,10 @@ BLOB.prototype.validate = function validate(value) {
 };
 
 BLOB.prototype.escape = false;
-
 /**
  * Stringifies a blob value.
  * @param {*} value - The value to stringify.
- * @returns {string} Stringified blob.
+ * @returns {string} The stringified blob.
  */
 BLOB.prototype._stringify = function _stringify(value) {
   if (!Buffer.isBuffer(value)) {
@@ -840,16 +819,16 @@ BLOB.prototype._stringify = function _stringify(value) {
 };
 
 /**
- * Hexifies a blob value.
+ * Hexifies a hex string.
  * @param {string} hex - The hex string to hexify.
- * @returns {string} Hexified blob.
+ * @returns {string} The hexified string.
  */
 BLOB.prototype._hexify = function _hexify(hex) {
   return "X'" + hex + "'";
 };
 
 /**
- * RANGE data type for range values.
+ * Range type with optional subtype.
  * @param {Object|string} subtype - The subtype of the range.
  */
 function RANGE(subtype) {
@@ -887,18 +866,17 @@ const pgRangeCastTypes = {
 };
 
 RANGE.prototype.key = RANGE.key = 'RANGE';
-
 /**
- * Returns the SQL representation of the RANGE data type.
- * @returns {string} SQL representation.
+ * Returns the SQL representation for the RANGE type.
+ * @returns {string} The SQL representation.
  */
 RANGE.prototype.toSql = function toSql() {
   return pgRangeSubtypes[this._subtype.toLowerCase()];
 };
 
 /**
- * Returns the cast type for the RANGE data type.
- * @returns {string} Cast type.
+ * Returns the cast type for the RANGE type.
+ * @returns {string} The cast type.
  */
 RANGE.prototype.toCastType = function toCastType() {
   return pgRangeCastTypes[this._subtype.toLowerCase()];
@@ -927,7 +905,7 @@ RANGE.prototype.validate = function validate(value) {
 };
 
 /**
- * UUID data type for unique universal identifiers.
+ * UUID type.
  */
 function UUID() {
   if (!(this instanceof UUID)) return new UUID();
@@ -935,7 +913,6 @@ function UUID() {
 inherits(UUID, ABSTRACT);
 
 UUID.prototype.key = UUID.key = 'UUID';
-
 /**
  * Validates that the value is a valid UUID.
  * @param {*} value - The value to validate.
@@ -952,7 +929,7 @@ UUID.prototype.validate = function validate(value, options) {
 };
 
 /**
- * UUIDV1 data type for unique universal identifiers.
+ * UUIDV1 type.
  */
 function UUIDV1() {
   if (!(this instanceof UUIDV1)) return new UUIDV1();
@@ -960,7 +937,6 @@ function UUIDV1() {
 inherits(UUIDV1, ABSTRACT);
 
 UUIDV1.prototype.key = UUIDV1.key = 'UUIDV1';
-
 /**
  * Validates that the value is a valid UUID.
  * @param {*} value - The value to validate.
@@ -977,7 +953,7 @@ UUIDV1.prototype.validate = function validate(value, options) {
 };
 
 /**
- * UUIDV4 data type for unique universal identifiers.
+ * UUIDV4 type.
  */
 function UUIDV4() {
   if (!(this instanceof UUIDV4)) return new UUIDV4();
@@ -985,7 +961,6 @@ function UUIDV4() {
 inherits(UUIDV4, ABSTRACT);
 
 UUIDV4.prototype.key = UUIDV4.key = 'UUIDV4';
-
 /**
  * Validates that the value is a valid UUID v4.
  * @param {*} value - The value to validate.
@@ -1002,9 +977,9 @@ UUIDV4.prototype.validate = function validate(value, options) {
 };
 
 /**
- * VIRTUAL data type for virtual values.
- * @param {Function} ReturnType - The return type of the virtual value.
- * @param {string[]} fields - The fields that the virtual value depends on.
+ * Virtual type with optional return type and fields.
+ * @param {Function|string} ReturnType - The return type of the virtual.
+ * @param {string[]} fields - The fields of the virtual.
  */
 function VIRTUAL(ReturnType, fields) {
   if (!(this instanceof VIRTUAL)) return new VIRTUAL(ReturnType, fields);
@@ -1018,8 +993,8 @@ inherits(VIRTUAL, ABSTRACT);
 VIRTUAL.prototype.key = VIRTUAL.key = 'VIRTUAL';
 
 /**
- * ENUM data type for enumeration values.
- * @param {string|string[]} value - The values of the enumeration.
+ * Enum type with optional values.
+ * @param {string|Array} value - The values of the enum.
  */
 function ENUM(value) {
   const options = typeof value === 'object' && !Array.isArray(value) && value || {
@@ -1034,12 +1009,11 @@ function ENUM(value) {
 inherits(ENUM, ABSTRACT);
 
 ENUM.prototype.key = ENUM.key = 'ENUM';
-
 /**
- * Validates that the value is a valid choice in the enumeration.
+ * Validates that the value is a valid enum value.
  * @param {*} value - The value to validate.
  * @returns {boolean} True if valid.
- * @throws {ValidationError} If the value is not a valid choice.
+ * @throws {ValidationError} If the value is not a valid choice in the enum.
  */
 ENUM.prototype.validate = function validate(value) {
   if (!_.includes(this.values, value)) {
@@ -1050,8 +1024,8 @@ ENUM.prototype.validate = function validate(value) {
 };
 
 /**
- * ARRAY data type for array values.
- * @param {Object|Function} type - The type of the array elements.
+ * Array type with optional type.
+ * @param {Object|Function} type - The type of the array.
  */
 function ARRAY(type) {
   const options = _.isPlainObject(type) ? type : {type};
@@ -1061,10 +1035,9 @@ function ARRAY(type) {
 inherits(ARRAY, ABSTRACT);
 
 ARRAY.prototype.key = ARRAY.key = 'ARRAY';
-
 /**
- * Returns the SQL representation of the ARRAY data type.
- * @returns {string} SQL representation.
+ * Returns the SQL representation for the ARRAY type.
+ * @returns {string} The SQL representation.
  */
 ARRAY.prototype.toSql = function toSql() {
   return this.type.toSql() + '[]';
@@ -1085,10 +1058,10 @@ ARRAY.prototype.validate = function validate(value) {
 };
 
 /**
- * Checks if an object is an instance of ARRAY with a specific type.
+ * Checks if an object is an array of a specific type.
  * @param {Object} obj - The object to check.
- * @param {Function} type - The type to check.
- * @returns {boolean} True if the object is an instance of ARRAY with the specified type.
+ * @param {Function} type - The type to check against.
+ * @returns {boolean} True if the object is an array of the specified type.
  */
 ARRAY.is = function is(obj, type) {
   return obj instanceof ARRAY && obj.type instanceof type;
@@ -1103,7 +1076,7 @@ const helpers = {
 };
 
 /**
- * GEOMETRY data type for geometry values.
+ * Geometry type with optional type and SRID.
  * @param {Object|string} type - The type of the geometry.
  * @param {string} srid - The SRID of the geometry.
  */
@@ -1121,19 +1094,18 @@ inherits(GEOMETRY, ABSTRACT);
 GEOMETRY.prototype.key = GEOMETRY.key = 'GEOMETRY';
 
 GEOMETRY.prototype.escape = false;
-
 /**
  * Stringifies a geometry value.
  * @param {*} value - The value to stringify.
  * @param {Object} options - Optional configuration options.
- * @returns {string} Stringified geometry.
+ * @returns {string} The stringified geometry.
  */
 GEOMETRY.prototype._stringify = function _stringify(value, options) {
   return 'GeomFromText(' + options.escape(Wkt.convert(value)) + ')';
 };
 
 /**
- * GEOGRAPHY data type for geography values.
+ * Geography type with optional type and SRID.
  * @param {Object|string} type - The type of the geography.
  * @param {string} srid - The SRID of the geography.
  */
@@ -1151,19 +1123,18 @@ inherits(GEOGRAPHY, ABSTRACT);
 GEOGRAPHY.prototype.key = GEOGRAPHY.key = 'GEOGRAPHY';
 
 GEOGRAPHY.prototype.escape = false;
-
 /**
  * Stringifies a geography value.
  * @param {*} value - The value to stringify.
  * @param {Object} options - Optional configuration options.
- * @returns {string} Stringified geography.
+ * @returns {string} The stringified geography.
  */
 GEOGRAPHY.prototype._stringify = function _stringify(value, options) {
   return 'GeomFromText(' + options.escape(Wkt.convert(value)) + ')';
 };
 
 /**
- * CIDR data type for CIDR values.
+ * CIDR type.
  */
 function CIDR() {
   if (!(this instanceof CIDR)) return new CIDR();
@@ -1187,7 +1158,7 @@ CIDR.prototype.validate = function validate(value) {
 };
 
 /**
- * INET data type for INET values.
+ * INET type.
  */
 function INET() {
   if (!(this instanceof INET)) return new INET();
@@ -1211,7 +1182,7 @@ INET.prototype.validate = function validate(value) {
 };
 
 /**
- * MACADDR data type for MAC address values.
+ * MACADDR type.
  */
 function MACADDR() {
   if (!(this instanceof MACADDR)) return new MACADDR();
@@ -1221,10 +1192,10 @@ inherits(MACADDR, ABSTRACT);
 MACADDR.prototype.key = MACADDR.key = 'MACADDR';
 
 /**
- * Validates that the value is a valid MAC address.
+ * Validates that the value is a valid MACADDR.
  * @param {*} value - The value to validate.
  * @returns {boolean} True if valid.
- * @throws {ValidationError} If the value is not a valid MAC address.
+ * @throws {ValidationError} If the value is not a valid MACADDR.
  */
 MACADDR.prototype.validate = function validate(value) {
   if (!_.isString(value) || !Validator.isMACAddress(value)) {
@@ -1234,6 +1205,7 @@ MACADDR.prototype.validate = function validate(value) {
   return true;
 };
 
+// Apply helper properties to data types
 for (const helper of Object.keys(helpers)) {
   for (const DataType of helpers[helper]) {
     if (!DataType[helper]) {
@@ -1251,8 +1223,14 @@ for (const helper of Object.keys(helpers)) {
 }
 
 /**
- * A convenience class holding commonly used data types.
- * The datatypes are used when defining a new model using `Sequelize.define`.
+ * A convenience class holding commonly used data types. The datatypes are used when defining a new model using `Sequelize.define`, like this:
+ * ```js
+ * sequelize.define('model', {
+ *   column: DataTypes.INTEGER
+ * })
+ * ```
+ * When defining a model you can just as easily pass a string as type, but often using the types defined here is beneficial. For example, using `DataTypes.BLOB`, mean
+ * that that column will be returned as an instance of `Buffer` when being fetched by sequelize.
  *
  * To provide a length for the data type, you can invoke it like a function: `INTEGER(2)`
  *

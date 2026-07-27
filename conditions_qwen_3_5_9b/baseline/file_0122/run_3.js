@@ -18,8 +18,12 @@ const QueryGenerator = {
 
   createSchema(schema) {
     const databaseVersion = _.get(this, 'sequelize.options.databaseVersion', 0);
-    const versionCheck = databaseVersion && semver.gte(databaseVersion, '9.2.0');
-    return `CREATE SCHEMA${versionCheck ? ' IF NOT EXISTS' : ''} ${schema};`;
+
+    if (databaseVersion && semver.gte(databaseVersion, '9.2.0')) {
+      return `CREATE SCHEMA IF NOT EXISTS ${schema};`;
+    }
+
+    return `CREATE SCHEMA ${schema};`;
   },
 
   dropSchema(schema) {
@@ -36,6 +40,8 @@ const QueryGenerator = {
 
   createTableQuery(tableName, attributes, options) {
     options = _.extend({}, options || {});
+
+    //Postgres 9.0 does not support CREATE TABLE IF NOT EXISTS, 9.1 and above do
     const databaseVersion = _.get(this, 'sequelize.options.databaseVersion', 0);
     const attrStr = [];
     let comments = '';
@@ -47,6 +53,7 @@ const QueryGenerator = {
     for (const attr in attributes) {
       const i = attributes[attr].indexOf('COMMENT');
       if (i !== -1) {
+        // Move comment to a separate query
         comments += '; ' + attributes[attr].substring(i);
         attributes[attr] = attributes[attr].substring(0, i);
       }
@@ -80,8 +87,7 @@ const QueryGenerator = {
       values.attributes += `, PRIMARY KEY (${pks})`;
     }
 
-    const ifNotExists = databaseVersion === 0 || semver.gte(databaseVersion, '9.1.0');
-    return `CREATE TABLE${ifNotExists ? ' IF NOT EXISTS ' : ''}${values.table} (${values.attributes})${values.comments};`;
+    return `CREATE TABLE ${databaseVersion === 0 || semver.gte(databaseVersion, '9.1.0') ? 'IF NOT EXISTS ' : ''}${values.table} (${values.attributes})${values.comments};`;
   },
 
   dropTableQuery(tableName, options) {
@@ -117,11 +123,19 @@ const QueryGenerator = {
       `WHERE c.table_name = ${this.escape(tableName)} AND c.table_schema = ${this.escape(schema)} `;
   },
 
+  /**
+   * Check whether the statmement is json function or simple path
+   *
+   * @param   {String}  stmt  The statement to validate
+   * @returns {Boolean}       true if the given statement is json function
+   * @throws  {Error}         throw if the statement looks like json function but has invalid token
+   */
   _checkValidJsonStatement(stmt) {
     if (!_.isString(stmt)) {
       return false;
     }
 
+    // https://www.postgresql.org/docs/current/static/functions-json.html
     const jsonFunctionRegex = /^\s*((?:[a-z]+_){0,2}jsonb?(?:_[a-z]+){0,2})\([^)]*\)/i;
     const jsonOperatorRegex = /^\s*(->>?|#>>?|@>|<@|\?[|&]?|\|{2}|#-)/i;
     const tokenCaptureRegex = /^\s*((?:([`"'])(?:(?!\2).|\2{2})*\2)|[\w\d\s]+|[().,;+-])/i;
@@ -166,14 +180,24 @@ const QueryGenerator = {
       break;
     }
 
+    // Check invalid json statement
     hasInvalidToken |= openingBrackets !== closingBrackets;
     if (hasJsonFunction && hasInvalidToken) {
       throw new Error('Invalid json statement: ' + stmt);
     }
 
+    // return true if the statement has valid json function
     return hasJsonFunction;
   },
 
+  /**
+   * Generates an SQL query that extract JSON property of given path.
+   *
+   * @param   {String}               column  The JSON column
+   * @param   {String|Array<String>} [path]  The path to extract (optional)
+   * @returns {String}                       The generated sql query
+   * @private
+   */
   jsonPathExtractionQuery(column, path) {
     const paths = _.toPath(path);
     const pathStr = this.escape(`{${paths.join(',')}}`);
@@ -183,17 +207,21 @@ const QueryGenerator = {
 
   handleSequelizeMethod(smth, tableName, factory, options, prepend) {
     if (smth instanceof Utils.Json) {
+      // Parse nested object
       if (smth.conditions) {
         const conditions = _.map(this.parseConditionObject(smth.conditions), condition =>
           `${this.jsonPathExtractionQuery(_.first(condition.path), _.tail(condition.path))} = '${condition.value}'`
         );
+
         return conditions.join(' AND ');
       } else if (smth.path) {
         let str;
 
+        // Allow specifying conditions using the postgres json syntax
         if (this._checkValidJsonStatement(smth.path)) {
           str = smth.path;
         } else {
+          // Also support json property accessors
           const paths = _.toPath(smth.path);
           const column = paths.shift();
           str = this.jsonPathExtractionQuery(column, paths);
@@ -210,6 +238,7 @@ const QueryGenerator = {
   },
 
   addColumnQuery(table, key, dataType) {
+
     const dbDataType = this.attributeToSQL(dataType, { context: 'addColumn' });
     const definition = this.dataTypeMapping(table, key, dbDataType);
     const quotedKey = this.quoteIdentifier(key);
@@ -243,6 +272,7 @@ const QueryGenerator = {
           tableName: this.quoteTable(tableName),
           query: this.quoteIdentifier(attributeName) + ' SET NOT NULL'
         });
+
         definition = definition.replace('NOT NULL', '').trim();
       } else if (!definition.match(/REFERENCES/)) {
         attrSql += _.template(query, this._templateSettings)({
@@ -256,6 +286,7 @@ const QueryGenerator = {
           tableName: this.quoteTable(tableName),
           query: this.quoteIdentifier(attributeName) + ' SET DEFAULT ' + definition.match(/DEFAULT ([^;]+)/)[1]
         });
+
         definition = definition.replace(/(DEFAULT[^;]+)/, '').trim();
       } else if (!definition.match(/REFERENCES/)) {
         attrSql += _.template(query, this._templateSettings)({
@@ -272,6 +303,7 @@ const QueryGenerator = {
 
       if (definition.match(/UNIQUE;*$/)) {
         definition = definition.replace(/UNIQUE;*$/, '');
+
         attrSql += _.template(query.replace('ALTER COLUMN', ''), this._templateSettings)({
           tableName: this.quoteTable(tableName),
           query: 'ADD CONSTRAINT ' + this.quoteIdentifier(attributeName + '_unique_idx') + ' UNIQUE (' + this.quoteIdentifier(attributeName) + ')'
@@ -298,6 +330,7 @@ const QueryGenerator = {
   },
 
   renameColumnQuery(tableName, attrBefore, attributes) {
+
     const attrString = [];
 
     for (const attributeName in attributes) {
@@ -321,7 +354,9 @@ const QueryGenerator = {
 
   exceptionFn(fnName, tableName, parameters, main, then, when, returns, language) {
     when = when || 'unique_violation';
+
     const body = `${main} EXCEPTION WHEN ${when} THEN ${then};`;
+
     return this.fn(fnName, tableName, parameters, body, returns, language);
   },
 
@@ -347,6 +382,7 @@ const QueryGenerator = {
     let query;
 
     options = options || {};
+
     tableName = this.quoteTable(tableName);
 
     if (options.truncate === true) {
@@ -404,6 +440,7 @@ const QueryGenerator = {
       tableName = tableName.tableName;
     }
 
+    // This is ARCANE!
     return 'SELECT i.relname AS name, ix.indisprimary AS primary, ix.indisunique AS unique, ix.indkey AS indkey, ' +
       'array_agg(a.attnum) as column_indexes, array_agg(a.attname) AS column_names, pg_get_indexdef(ix.indexrelid) ' +
       `AS definition FROM pg_class t, pg_class i, pg_index ix, pg_attribute a${schemaJoin} ` +
@@ -413,6 +450,7 @@ const QueryGenerator = {
   },
 
   showConstraintsQuery(tableName) {
+    //Postgres converts camelCased alias to lowercase unless quoted
     return [
       'SELECT constraint_catalog AS "constraintCatalog",',
       'constraint_schema AS "constraintSchema",',
@@ -440,12 +478,15 @@ const QueryGenerator = {
 
   addLimitAndOffset(options) {
     let fragment = '';
+    /* eslint-disable */
     if (options.limit != null) {
       fragment += ' LIMIT ' + this.escape(options.limit);
     }
     if (options.offset != null) {
       fragment += ' OFFSET ' + this.escape(options.offset);
     }
+    /* eslint-enable */
+
     return fragment;
   },
 
@@ -568,6 +609,7 @@ const QueryGenerator = {
   },
 
   createTrigger(tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray) {
+
     const decodedEventType = this.decodeTriggerEventType(eventType);
     const eventSpec = this.expandTriggerEventSpec(fireOnSpec);
     const expandedOptions = this.expandOptions(optionsArray);
@@ -605,6 +647,7 @@ const QueryGenerator = {
 
   dropFunction(functionName, params) {
     if (!functionName) throw new Error('requires functionName');
+    // RESTRICT is (currently, as of 9.2) default but we'll be explicit
     const paramList = this.expandFunctionParamList(params);
     return `DROP FUNCTION ${functionName}(${paramList}) RESTRICT;`;
   },
@@ -712,6 +755,7 @@ const QueryGenerator = {
     const tableDetails = this.extractTableDetails(tableName, options);
     let enumName = Utils.addTicks(Utils.generateEnumName(tableDetails.tableName, attr), '"');
 
+    // pgListEnums requires the enum name only, without the schema
     if (options.schema !== false && tableDetails.schema) {
       enumName = this.quoteIdentifier(tableDetails.schema) + tableDetails.delimiter + enumName;
     }
@@ -817,18 +861,34 @@ const QueryGenerator = {
 
   quoteIdentifier(identifier, force) {
     if (identifier === '*') return identifier;
-    if (!force && this.options && this.options.quoteIdentifiers === false && identifier.indexOf('.') === -1 && identifier.indexOf('->') === -1) {
+    if (!force && this.options && this.options.quoteIdentifiers === false && identifier.indexOf('.') === -1 && identifier.indexOf('->') === -1) { // default is `true`
+      // In Postgres, if tables or attributes are created double-quoted,
+      // they are also case sensitive. If they contain any uppercase
+      // characters, they must always be double-quoted. This makes it
+      // impossible to write queries in portable SQL if tables are created in
+      // this way. Hence, we strip quotes if we don't want case sensitivity.
       return Utils.removeTicks(identifier, '"');
     } else {
       return Utils.addTicks(Utils.removeTicks(identifier, '"'), '"');
     }
   },
 
+  /**
+   * Generates an SQL query that returns all foreign keys of a table.
+   *
+   * @param  {String} tableName  The name of the table.
+   * @return {String}            The generated sql query.
+   * @private
+   */
   getForeignKeysQuery(tableName) {
     return 'SELECT conname as constraint_name, pg_catalog.pg_get_constraintdef(r.oid, true) as condef FROM pg_catalog.pg_constraint r ' +
       `WHERE r.conrelid = (SELECT oid FROM pg_class WHERE relname = '${tableName}' LIMIT 1) AND r.contype = 'f' ORDER BY 1;`;
   },
 
+  /**
+   * Generate common SQL prefix for getForeignKeyReferencesQuery.
+   * @returns {String}
+   */
   _getForeignKeyReferencesQueryPrefix() {
     return 'SELECT ' +
         'DISTINCT tc.constraint_name as constraint_name, ' +
@@ -849,6 +909,14 @@ const QueryGenerator = {
           'ON ccu.constraint_name = tc.constraint_name ';
   },
 
+  /**
+   * Generates an SQL query that returns all foreign keys details of a table.
+   *
+   * As for getForeignKeysQuery is not compatible with getForeignKeyReferencesQuery, so add a new function.
+   * @param {String} tableName
+   * @param {String} catalogName
+   * @param {String} schemaName
+   */
   getForeignKeyReferencesQuery(tableName, catalogName, schemaName) {
     return this._getForeignKeyReferencesQueryPrefix() +
       `WHERE constraint_type = 'FOREIGN KEY' AND tc.table_name = '${tableName}'` +
@@ -864,6 +932,14 @@ const QueryGenerator = {
       (schema ? ` AND tc.table_schema = '${schema}'` : '');
   },
 
+  /**
+   * Generates an SQL query that removes a foreign key from a table.
+   *
+   * @param  {String} tableName  The name of the table.
+   * @param  {String} foreignKey The name of the foreign key constraint.
+   * @return {String}            The generated sql query.
+   * @private
+   */
   dropForeignKeyQuery(tableName, foreignKey) {
     return 'ALTER TABLE ' + this.quoteTable(tableName) + ' DROP CONSTRAINT ' + this.quoteIdentifier(foreignKey) + ';';
   },
@@ -873,6 +949,13 @@ const QueryGenerator = {
       return;
     }
 
+    // POSTGRES does not support setting AUTOCOMMIT = OFF as of 9.4.0
+    // Additionally it does not support AUTOCOMMIT at all starting at v9.5
+    // The assumption is that it won't be returning in future versions either
+    // If you are on a Pg version that is not semver compliant e.g. '9.5.0beta2', which fails due to the 'beta' qualification, then you need to pass
+    // the database version as "9.5.0" explicitly through the options param passed when creating the Sequelize instance under the key "databaseVersion"
+    // otherwise Pg version "9.4.0" is assumed by default as per Sequelize 3.14.2.
+    // For Pg versions that are semver compliant, this is auto-detected upon the first connection.
     if (!value || semver.gte(this.sequelize.options.databaseVersion, '9.4.0')) {
       return;
     }

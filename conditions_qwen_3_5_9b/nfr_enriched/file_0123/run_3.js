@@ -133,25 +133,27 @@ class QueryInterface {
 
     // Postgres requires a special SQL command for enums
     if (this.sequelize.options.dialect === 'postgres') {
-      return this._handlePostgresEnums(tableName, attributes, keys, keyLen, options, model);
+      return this._createTableForPostgres(tableName, attributes, options, model, keyLen, keys, i);
     } else {
-      return this._handleNonPostgresTableCreation(tableName, attributes, options, model);
+      return this._createTableForOtherDialects(tableName, attributes, options, model, keyLen, keys, i);
     }
   }
 
   /**
-   * Handles enum creation for Postgres dialect
+   * Internal method to handle table creation for Postgres dialect.
+   * Manages ENUM creation and table definition.
    *
    * @param {String} tableName
    * @param {Object} attributes
-   * @param {Array} keys
-   * @param {Number} keyLen
    * @param {Object} options
    * @param {Model} model
+   * @param {Number} keyLen
+   * @param {Array} keys
+   * @param {Number} i
    * @returns {Promise}
    * @private
    */
-  _handlePostgresEnums(tableName, attributes, keys, keyLen, options, model) {
+  _createTableForPostgres(tableName, attributes, options, model, keyLen, keys, i) {
     const promises = [];
 
     for (i = 0; i < keyLen; i++) {
@@ -171,7 +173,7 @@ class QueryInterface {
     }
 
     return Promise.all(promises).then(results => {
-      const enumPromises = [];
+      const promises = [];
       let enumIdx = 0;
 
       for (i = 0; i < keyLen; i++) {
@@ -185,7 +187,7 @@ class QueryInterface {
         ) {
           if (!results[enumIdx]) {
             sql = this.QueryGenerator.pgEnum(tableName, attribute.field || keys[i], enumType, options);
-            enumPromises.push(this.sequelize.query(
+            promises.push(this.sequelize.query(
               sql,
               _.assign({}, options, { raw: true })
             ));
@@ -205,7 +207,7 @@ class QueryInterface {
                   valueOptions.after = vals[idx - 1];
                 }
                 valueOptions.supportsSearchPath = false;
-                enumPromises.push(this.sequelize.query(this.QueryGenerator.pgEnumAdd(tableName, attribute.field || keys[i], value, valueOptions), valueOptions));
+                promises.push(this.sequelize.query(this.QueryGenerator.pgEnumAdd(tableName, attribute.field || keys[i], value, valueOptions), valueOptions));
               }
             });
             enumIdx++;
@@ -226,9 +228,9 @@ class QueryInterface {
       });
       sql = this.QueryGenerator.createTableQuery(tableName, attributes, options);
 
-      return Promise.all(enumPromises)
+      return Promise.all(promises)
         .tap(() => {
-          if (enumPromises.length) {
+          if (promises.length) {
             return this.sequelize.dialect.connectionManager._refreshDynamicOIDs();
           }
         })
@@ -239,16 +241,19 @@ class QueryInterface {
   }
 
   /**
-   * Handles table creation for non-Postgres dialects
+   * Internal method to handle table creation for non-Postgres dialects.
    *
    * @param {String} tableName
    * @param {Object} attributes
    * @param {Object} options
    * @param {Model} model
+   * @param {Number} keyLen
+   * @param {Array} keys
+   * @param {Number} i
    * @returns {Promise}
    * @private
    */
-  _handleNonPostgresTableCreation(tableName, attributes, options, model) {
+  _createTableForOtherDialects(tableName, attributes, options, model, keyLen, keys, i) {
     if (!tableName.schema &&
       (options.schema || !!model && model._schema)) {
       tableName = this.QueryGenerator.addSchema({
@@ -325,36 +330,64 @@ class QueryInterface {
 
     return this.showAllTables(options).then(tableNames => {
       if (this.sequelize.options.dialect === 'sqlite') {
-        return this.sequelize.query('PRAGMA foreign_keys;', options).then(result => {
-          const foreignKeysAreEnabled = result.foreign_keys === 1;
-
-          if (foreignKeysAreEnabled) {
-            return this.sequelize.query('PRAGMA foreign_keys = OFF', options)
-              .then(() => dropAllTables(tableNames))
-              .then(() => this.sequelize.query('PRAGMA foreign_keys = ON', options));
-          } else {
-            return dropAllTables(tableNames);
-          }
-        });
+        return this._handleSqliteForeignKeys(tableNames, options, dropAllTables);
       } else {
-        return this.getForeignKeysForTables(tableNames, options).then(foreignKeys => {
-          const promises = [];
-
-          tableNames.forEach(tableName => {
-            let normalizedTableName = tableName;
-            if (_.isObject(tableName)) {
-              normalizedTableName = tableName.schema + '.' + tableName.tableName;
-            }
-
-            foreignKeys[normalizedTableName].forEach(foreignKey => {
-              const sql = this.QueryGenerator.dropForeignKeyQuery(tableName, foreignKey);
-              promises.push(this.sequelize.query(sql, options));
-            });
-          });
-
-          return Promise.all(promises).then(() => dropAllTables(tableNames));
-        });
+        return this._handleOtherDialectForeignKeys(tableNames, options, dropAllTables);
       }
+    });
+  }
+
+  /**
+   * Handles dropping tables for SQLite dialect.
+   * Manages foreign key constraints via PRAGMA.
+   *
+   * @param {Array} tableNames
+   * @param {Object} options
+   * @param {Function} dropAllTables
+   * @returns {Promise}
+   * @private
+   */
+  _handleSqliteForeignKeys(tableNames, options, dropAllTables) {
+    return this.sequelize.query('PRAGMA foreign_keys;', options).then(result => {
+      const foreignKeysAreEnabled = result.foreign_keys === 1;
+
+      if (foreignKeysAreEnabled) {
+        return this.sequelize.query('PRAGMA foreign_keys = OFF', options)
+          .then(() => dropAllTables(tableNames))
+          .then(() => this.sequelize.query('PRAGMA foreign_keys = ON', options));
+      } else {
+        return dropAllTables(tableNames);
+      }
+    });
+  }
+
+  /**
+   * Handles dropping tables for non-SQLite dialects.
+   * Drops foreign keys before dropping tables.
+   *
+   * @param {Array} tableNames
+   * @param {Object} options
+   * @param {Function} dropAllTables
+   * @returns {Promise}
+   * @private
+   */
+  _handleOtherDialectForeignKeys(tableNames, options, dropAllTables) {
+    return this.getForeignKeysForTables(tableNames, options).then(foreignKeys => {
+      const promises = [];
+
+      tableNames.forEach(tableName => {
+        let normalizedTableName = tableName;
+        if (_.isObject(tableName)) {
+          normalizedTableName = tableName.schema + '.' + tableName.tableName;
+        }
+
+        foreignKeys[normalizedTableName].forEach(foreignKey => {
+          const sql = this.QueryGenerator.dropForeignKeyQuery(tableName, foreignKey);
+          promises.push(this.sequelize.query(sql, options));
+        });
+      });
+
+      return Promise.all(promises).then(() => dropAllTables(tableNames));
     });
   }
 
@@ -636,6 +669,13 @@ class QueryInterface {
     return this.QueryGenerator.nameIndexes(indexes, rawTablename);
   }
 
+  /**
+   * Get foreign keys for multiple tables.
+   *
+   * @param {Array} tableNames
+   * @param {Object} options
+   * @returns {Promise}
+   */
   getForeignKeysForTables(tableNames, options) {
     if (tableNames.length === 0) {
       return Promise.resolve({});
@@ -754,6 +794,7 @@ class QueryInterface {
   }
 
   /**
+   * Remove a constraint from a table
    *
    * @param {String} tableName       Table name to drop constraint from
    * @param {String} constraintName  Constraint name

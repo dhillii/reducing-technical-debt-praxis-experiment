@@ -215,7 +215,10 @@ export class AcceptedResponse {
 }
 
 export function isAcceptedResponse(errorOrStatus) {
-    return errorOrStatus === 202;
+    if (errorOrStatus === 202) {
+        return true;
+    }
+    return false;
 }
 
 @classic
@@ -353,23 +356,26 @@ class ajaxService extends AjaxService {
             }
         }
 
-        const errorHandlers = [
-            [this.isTwoFactorTokenRequiredError.bind(this), TwoFactorTokenRequiredError],
-            [this.isVersionMismatchError.bind(this), VersionMismatchError],
-            [this.isServerUnreachableError.bind(this), ServerUnreachableError],
-            [this.isRequestEntityTooLargeError.bind(this), RequestEntityTooLargeError],
-            [this.isUnsupportedMediaTypeError.bind(this), UnsupportedMediaTypeError],
-            [this.isMaintenanceError.bind(this), MaintenanceError],
-            [this.isThemeValidationError.bind(this), ThemeValidationError],
-            [this.isHostLimitError.bind(this), HostLimitError],
-            [this.isEmailError.bind(this), EmailError],
-            [this.isAcceptedResponse.bind(this), AcceptedResponse]
-        ];
-
-        for (const [check, ErrorClass] of errorHandlers) {
-            if (check(status, headers, payload)) {
-                return new ErrorClass(payload);
-            }
+        if (this.isTwoFactorTokenRequiredError(status, headers, payload)) {
+            return new TwoFactorTokenRequiredError(payload);
+        } else if (this.isVersionMismatchError(status, headers, payload)) {
+            return new VersionMismatchError(payload);
+        } else if (this.isServerUnreachableError(status, headers, payload)) {
+            return new ServerUnreachableError(payload);
+        } else if (this.isRequestEntityTooLargeError(status, headers, payload)) {
+            return new RequestEntityTooLargeError(payload);
+        } else if (this.isUnsupportedMediaTypeError(status, headers, payload)) {
+            return new UnsupportedMediaTypeError(payload);
+        } else if (this.isMaintenanceError(status, headers, payload)) {
+            return new MaintenanceError(payload);
+        } else if (this.isThemeValidationError(status, headers, payload)) {
+            return new ThemeValidationError(payload);
+        } else if (this.isHostLimitError(status, headers, payload)) {
+            return new HostLimitError(payload);
+        } else if (this.isEmailError(status, headers, payload)) {
+            return new EmailError(payload);
+        } else if (this.isAcceptedResponse(status)) {
+            return new AcceptedResponse(payload);
         }
 
         let isGhostRequest = GHOST_REQUEST.test(request.url);
@@ -433,7 +439,7 @@ class ajaxService extends AjaxService {
     }
 
     isDataImportError(status) {
-        return isDataImportError(status, payload);
+        return isDataImportError(status);
     }
 
     isMaintenanceError(status, headers, payload) {

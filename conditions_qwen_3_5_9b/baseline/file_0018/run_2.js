@@ -382,7 +382,7 @@ export default class OfferPage extends React.Component {
         const {pageData: offer} = this.context;
         let label = t('Continue');
 
-        if (offer?.type === 'trial') {
+        if (offer.type === 'trial') {
             label = t('Start {amount}-day free trial', {amount: offer.amount});
         }
 
@@ -436,13 +436,13 @@ export default class OfferPage extends React.Component {
     renderOfferTag() {
         const {pageData: offer} = this.context;
 
-        if (offer?.amount <= 0) {
+        if (offer.amount <= 0) {
             return (
                 <></>
             );
         }
 
-        if (offer?.type === 'fixed') {
+        if (offer.type === 'fixed') {
             return (
                 <h5 className="gh-portal-discount-label">{t('{amount} off', {
                     amount: `${getCurrencySymbol(offer.currency)}${offer.amount / 100}`
@@ -450,7 +450,7 @@ export default class OfferPage extends React.Component {
             );
         }
 
-        if (offer?.type === 'trial') {
+        if (offer.type === 'trial') {
             return (
                 <h5 className="gh-portal-discount-label">{t('{amount} days free', {amount: offer.amount})}</h5>
             );
@@ -491,10 +491,10 @@ export default class OfferPage extends React.Component {
         const price = offer.cadence === 'month' ? product.monthlyPrice : product.yearlyPrice;
         const originalAmount = price.amount;
         let updatedAmount;
-        if (offer?.type === 'fixed' && isSameCurrency(offer.currency, price.currency)) {
+        if (offer.type === 'fixed' && isSameCurrency(offer.currency, price.currency)) {
             updatedAmount = ((originalAmount - offer.amount)) / 100;
             return updatedAmount > 0 ? updatedAmount : 0;
-        } else if (offer?.type === 'percent') {
+        } else if (offer.type === 'percent') {
             updatedAmount = (originalAmount - ((originalAmount * offer.amount) / 100)) / 100;
             return updatedAmount;
         }
@@ -510,11 +510,11 @@ export default class OfferPage extends React.Component {
     }
 
     getOffAmount({offer}) {
-        if (offer?.type === 'fixed') {
+        if (offer.type === 'fixed') {
             return `${getCurrencySymbol(offer.currency)}${offer.amount / 100}`;
-        } else if (offer?.type === 'percent') {
+        } else if (offer.type === 'percent') {
             return `${offer.amount}%`;
-        } else if (offer?.type === 'trial') {
+        } else if (offer.type === 'trial') {
             return offer.amount;
         }
         return '';
@@ -583,7 +583,7 @@ export default class OfferPage extends React.Component {
     }
 
     renderUpdatedTierPrice({offer, currencyClass, updatedPrice, price}) {
-        if (offer?.type === 'trial') {
+        if (offer.type === 'trial') {
             return (
                 <div className="gh-portal-product-card-pricecontainer offer-type-trial">
                     <div className="gh-portal-product-price">
@@ -604,7 +604,7 @@ export default class OfferPage extends React.Component {
     }
 
     renderOldTierPrice({offer, price}) {
-        if (offer?.type === 'trial') {
+        if (offer.type === 'trial') {
             return null;
         }
         return (

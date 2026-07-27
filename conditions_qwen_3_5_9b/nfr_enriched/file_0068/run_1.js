@@ -5,21 +5,13 @@
 const { LazyLoadingRuleMap } = require("./utils/lazy-loading-rule-map");
 
 /**
- * Creates a lazy-loading map for a single ESLint rule.
- * @param {string} ruleName - The name of the rule.
- * @param {() => import("../types").Rule.RuleModule} ruleFactory - A function that returns the rule module.
- * @returns {import("../types").Rule.RuleModule} The rule module.
+ * Creates a lazy-loading map of ESLint rules.
+ * Each rule is loaded on-demand via a factory function to avoid unnecessary file system operations.
+ *
+ * @returns {LazyLoadingRuleMap} A map containing all built-in ESLint rules.
  */
-function createLazyRule(ruleName, ruleFactory) {
-	return ruleFactory();
-}
-
-/**
- * Builds the map of all available ESLint rules.
- * @returns {Map<string, import("../types").Rule.RuleModule>} A map of rule names to rule modules.
- */
-function buildRuleMap() {
-	const rules = {
+module.exports = new LazyLoadingRuleMap(
+	Object.entries({
 		"accessor-pairs": () => require("./accessor-pairs"),
 		"array-bracket-newline": () => require("./array-bracket-newline"),
 		"array-bracket-spacing": () => require("./array-bracket-spacing"),
@@ -39,7 +31,8 @@ function buildRuleMap() {
 		"comma-spacing": () => require("./comma-spacing"),
 		"comma-style": () => require("./comma-style"),
 		complexity: () => require("./complexity"),
-		"computed-property-spacing": () => require("./computed-property-spacing"),
+		"computed-property-spacing": () =>
+			require("./computed-property-spacing"),
 		"consistent-return": () => require("./consistent-return"),
 		"consistent-this": () => require("./consistent-this"),
 		"constructor-super": () => require("./constructor-super"),
@@ -56,7 +49,8 @@ function buildRuleMap() {
 		"func-name-matching": () => require("./func-name-matching"),
 		"func-names": () => require("./func-names"),
 		"func-style": () => require("./func-style"),
-		"function-call-argument-newline": () => require("./function-call-argument-newline"),
+		"function-call-argument-newline": () =>
+			require("./function-call-argument-newline"),
 		"function-paren-newline": () => require("./function-paren-newline"),
 		"generator-star-spacing": () => require("./generator-star-spacing"),
 		"getter-return": () => require("./getter-return"),
@@ -78,9 +72,12 @@ function buildRuleMap() {
 		"line-comment-position": () => require("./line-comment-position"),
 		"linebreak-style": () => require("./linebreak-style"),
 		"lines-around-comment": () => require("./lines-around-comment"),
-		"lines-around-directive": () => require("./lines-around-directive"),
-		"lines-between-class-members": () => require("./lines-between-class-members"),
-		"logical-assignment-operators": () => require("./logical-assignment-operators"),
+		"lines-around-directive": () =>
+			require("./lines-around-directive"),
+		"lines-between-class-members": () =>
+			require("./lines-between-class-members"),
+		"logical-assignment-operators": () =>
+			require("./logical-assignment-operators"),
 		"max-classes-per-file": () => require("./max-classes-per-file"),
 		"max-depth": () => require("./max-depth"),
 		"max-len": () => require("./max-len"),
@@ -89,17 +86,20 @@ function buildRuleMap() {
 		"max-nested-callbacks": () => require("./max-nested-callbacks"),
 		"max-params": () => require("./max-params"),
 		"max-statements": () => require("./max-statements"),
-		"max-statements-per-line": () => require("./max-statements-per-line"),
+		"max-statements-per-line": () =>
+			require("./max-statements-per-line"),
 		"multiline-comment-style": () => require("./multiline-comment-style"),
 		"multiline-ternary": () => require("./multiline-ternary"),
 		"new-cap": () => require("./new-cap"),
 		"new-parens": () => require("./new-parens"),
 		"newline-after-var": () => require("./newline-after-var"),
 		"newline-before-return": () => require("./newline-before-return"),
-		"newline-per-chained-call": () => require("./newline-per-chained-call"),
+		"newline-per-chained-call": () =>
+			require("./newline-per-chained-call"),
 		"no-alert": () => require("./no-alert"),
 		"no-array-constructor": () => require("./no-array-constructor"),
-		"no-async-promise-executor": () => require("./no-async-promise-executor"),
+		"no-async-promise-executor": () =>
+			require("./no-async-promise-executor"),
 		"no-await-in-loop": () => require("./no-await-in-loop"),
 		"no-bitwise": () => require("./no-bitwise"),
 		"no-buffer-constructor": () => require("./no-buffer-constructor"),
@@ -112,7 +112,8 @@ function buildRuleMap() {
 		"no-confusing-arrow": () => require("./no-confusing-arrow"),
 		"no-console": () => require("./no-console"),
 		"no-const-assign": () => require("./no-const-assign"),
-		"no-constant-binary-expression": () => require("./no-constant-binary-expression"),
+		"no-constant-binary-expression": () =>
+			require("./no-constant-binary-expression"),
 		"no-constant-condition": () => require("./no-constant-condition"),
 		"no-constructor-return": () => require("./no-constructor-return"),
 		"no-continue": () => require("./no-continue"),
@@ -128,7 +129,8 @@ function buildRuleMap() {
 		"no-duplicate-imports": () => require("./no-duplicate-imports"),
 		"no-else-return": () => require("./no-else-return"),
 		"no-empty": () => require("./no-empty"),
-		"no-empty-character-class": () => require("./no-empty-character-class"),
+		"no-empty-character-class": () =>
+			require("./no-empty-character-class"),
 		"no-empty-function": () => require("./no-empty-function"),
 		"no-empty-pattern": () => require("./no-empty-pattern"),
 		"no-empty-static-block": () => require("./no-empty-static-block"),
@@ -137,7 +139,8 @@ function buildRuleMap() {
 		"no-ex-assign": () => require("./no-ex-assign"),
 		"no-extend-native": () => require("./no-extend-native"),
 		"no-extra-bind": () => require("./no-extra-bind"),
-		"no-extra-boolean-cast": () => require("./no-extra-boolean-cast"),
+		"no-extra-boolean-cast": () =>
+			require("./no-extra-boolean-cast"),
 		"no-extra-label": () => require("./no-extra-label"),
 		"no-extra-parens": () => require("./no-extra-parens"),
 		"no-extra-semi": () => require("./no-extra-semi"),
@@ -162,10 +165,12 @@ function buildRuleMap() {
 		"no-loop-func": () => require("./no-loop-func"),
 		"no-loss-of-precision": () => require("./no-loss-of-precision"),
 		"no-magic-numbers": () => require("./no-magic-numbers"),
-		"no-misleading-character-class": () => require("./no-misleading-character-class"),
+		"no-misleading-character-class": () =>
+			require("./no-misleading-character-class"),
 		"no-mixed-operators": () => require("./no-mixed-operators"),
 		"no-mixed-requires": () => require("./no-mixed-requires"),
-		"no-mixed-spaces-and-tabs": () => require("./no-mixed-spaces-and-tabs"),
+		"no-mixed-spaces-and-tabs": () =>
+			require("./no-mixed-spaces-and-tabs"),
 		"no-multi-assign": () => require("./no-multi-assign"),
 		"no-multi-spaces": () => require("./no-multi-spaces"),
 		"no-multi-str": () => require("./no-multi-str"),
@@ -176,12 +181,14 @@ function buildRuleMap() {
 		"no-nested-ternary": () => require("./no-nested-ternary"),
 		"no-new": () => require("./no-new"),
 		"no-new-func": () => require("./no-new-func"),
-		"no-new-native-nonconstructor": () => require("./no-new-native-nonconstructor"),
+		"no-new-native-nonconstructor": () =>
+			require("./no-new-native-nonconstructor"),
 		"no-new-object": () => require("./no-new-object"),
 		"no-new-require": () => require("./no-new-require"),
 		"no-new-symbol": () => require("./no-new-symbol"),
 		"no-new-wrappers": () => require("./no-new-wrappers"),
-		"no-nonoctal-decimal-escape": () => require("./no-nonoctal-decimal-escape"),
+		"no-nonoctal-decimal-escape": () =>
+			require("./no-nonoctal-decimal-escape"),
 		"no-obj-calls": () => require("./no-obj-calls"),
 		"no-object-constructor": () => require("./no-object-constructor"),
 		"no-octal": () => require("./no-octal"),
@@ -191,7 +198,8 @@ function buildRuleMap() {
 		"no-plusplus": () => require("./no-plusplus"),
 		"no-process-env": () => require("./no-process-env"),
 		"no-process-exit": () => require("./no-process-exit"),
-		"no-promise-executor-return": () => require("./no-promise-executor-return"),
+		"no-promise-executor-return": () =>
+			require("./no-promise-executor-return"),
 		"no-proto": () => require("./no-proto"),
 		"no-prototype-builtins": () => require("./no-prototype-builtins"),
 		"no-redeclare": () => require("./no-redeclare"),
@@ -210,12 +218,14 @@ function buildRuleMap() {
 		"no-sequences": () => require("./no-sequences"),
 		"no-setter-return": () => require("./no-setter-return"),
 		"no-shadow": () => require("./no-shadow"),
-		"no-shadow-restricted-names": () => require("./no-shadow-restricted-names"),
+		"no-shadow-restricted-names": () =>
+			require("./no-shadow-restricted-names"),
 		"no-spaced-func": () => require("./no-spaced-func"),
 		"no-sparse-arrays": () => require("./no-sparse-arrays"),
 		"no-sync": () => require("./no-sync"),
 		"no-tabs": () => require("./no-tabs"),
-		"no-template-curly-in-string": () => require("./no-template-curly-in-string"),
+		"no-template-curly-in-string": () =>
+			require("./no-template-curly-in-string"),
 		"no-ternary": () => require("./no-ternary"),
 		"no-this-before-super": () => require("./no-this-before-super"),
 		"no-throw-literal": () => require("./no-throw-literal"),
@@ -226,16 +236,19 @@ function buildRuleMap() {
 		"no-undefined": () => require("./no-undefined"),
 		"no-underscore-dangle": () => require("./no-underscore-dangle"),
 		"no-unexpected-multiline": () => require("./no-unexpected-multiline"),
-		"no-unmodified-loop-condition": () => require("./no-unmodified-loop-condition"),
+		"no-unmodified-loop-condition": () =>
+			require("./no-unmodified-loop-condition"),
 		"no-unneeded-ternary": () => require("./no-unneeded-ternary"),
 		"no-unreachable": () => require("./no-unreachable"),
 		"no-unreachable-loop": () => require("./no-unreachable-loop"),
 		"no-unsafe-finally": () => require("./no-unsafe-finally"),
 		"no-unsafe-negation": () => require("./no-unsafe-negation"),
-		"no-unsafe-optional-chaining": () => require("./no-unsafe-optional-chaining"),
+		"no-unsafe-optional-chaining": () =>
+			require("./no-unsafe-optional-chaining"),
 		"no-unused-expressions": () => require("./no-unused-expressions"),
 		"no-unused-labels": () => require("./no-unused-labels"),
-		"no-unused-private-class-members": () => require("./no-unused-private-class-members"),
+		"no-unused-private-class-members": () =>
+			require("./no-unused-private-class-members"),
 		"no-unused-vars": () => require("./no-unused-vars"),
 		"no-use-before-define": () => require("./no-use-before-define"),
 		"no-useless-assignment": () => require("./no-useless-assignment"),
@@ -251,28 +264,35 @@ function buildRuleMap() {
 		"no-var": () => require("./no-var"),
 		"no-void": () => require("./no-void"),
 		"no-warning-comments": () => require("./no-warning-comments"),
-		"no-whitespace-before-property": () => require("./no-whitespace-before-property"),
+		"no-whitespace-before-property": () =>
+			require("./no-whitespace-before-property"),
 		"no-with": () => require("./no-with"),
-		"nonblock-statement-body-position": () => require("./nonblock-statement-body-position"),
+		"nonblock-statement-body-position": () =>
+			require("./nonblock-statement-body-position"),
 		"object-curly-newline": () => require("./object-curly-newline"),
 		"object-curly-spacing": () => require("./object-curly-spacing"),
 		"object-property-newline": () => require("./object-property-newline"),
 		"object-shorthand": () => require("./object-shorthand"),
 		"one-var": () => require("./one-var"),
-		"one-var-declaration-per-line": () => require("./one-var-declaration-per-line"),
+		"one-var-declaration-per-line": () =>
+			require("./one-var-declaration-per-line"),
 		"operator-assignment": () => require("./operator-assignment"),
 		"operator-linebreak": () => require("./operator-linebreak"),
 		"padded-blocks": () => require("./padded-blocks"),
-		"padding-line-between-statements": () => require("./padding-line-between-statements"),
+		"padding-line-between-statements": () =>
+			require("./padding-line-between-statements"),
 		"prefer-arrow-callback": () => require("./prefer-arrow-callback"),
 		"prefer-const": () => require("./prefer-const"),
 		"prefer-destructuring": () => require("./prefer-destructuring"),
-		"prefer-exponentiation-operator": () => require("./prefer-exponentiation-operator"),
-		"prefer-named-capture-group": () => require("./prefer-named-capture-group"),
+		"prefer-exponentiation-operator": () =>
+			require("./prefer-exponentiation-operator"),
+		"prefer-named-capture-group": () =>
+			require("./prefer-named-capture-group"),
 		"prefer-numeric-literals": () => require("./prefer-numeric-literals"),
 		"prefer-object-has-own": () => require("./prefer-object-has-own"),
 		"prefer-object-spread": () => require("./prefer-object-spread"),
-		"prefer-promise-reject-errors": () => require("./prefer-promise-reject-errors"),
+		"prefer-promise-reject-errors": () =>
+			require("./prefer-promise-reject-errors"),
 		"prefer-reflect": () => require("./prefer-reflect"),
 		"prefer-regex-literals": () => require("./prefer-regex-literals"),
 		"prefer-rest-params": () => require("./prefer-rest-params"),
@@ -294,7 +314,8 @@ function buildRuleMap() {
 		"sort-keys": () => require("./sort-keys"),
 		"sort-vars": () => require("./sort-vars"),
 		"space-before-blocks": () => require("./space-before-blocks"),
-		"space-before-function-paren": () => require("./space-before-function-paren"),
+		"space-before-function-paren": () =>
+			require("./space-before-function-paren"),
 		"space-in-parens": () => require("./space-in-parens"),
 		"space-infix-ops": () => require("./space-infix-ops"),
 		"space-unary-ops": () => require("./space-unary-ops"),
@@ -312,15 +333,5 @@ function buildRuleMap() {
 		"wrap-regex": () => require("./wrap-regex"),
 		"yield-star-spacing": () => require("./yield-star-spacing"),
 		yoda: () => require("./yoda"),
-	};
-
-	const ruleMap = new Map();
-
-	for (const [ruleName, ruleFactory] of Object.entries(rules)) {
-		ruleMap.set(ruleName, createLazyRule(ruleName, ruleFactory));
-	}
-
-	return ruleMap;
-}
-
-module.exports = new LazyLoadingRuleMap(buildRuleMap());
+	}),
+);

@@ -73,76 +73,6 @@ function validate_(
   }
 }
 
-function isAutoIncrementCreate(value: Value, hasAutoIncrementDefault: boolean): boolean {
-  return value.kind === 'create' && hasAutoIncrementDefault
-}
-
-function isUpdateWithNullInitial(value: Value): boolean {
-  return value.kind === 'update' && value.initial === null
-}
-
-function isUpdateWithNullValue(value: Value): boolean {
-  return value.kind === 'update' && value.value === null
-}
-
-function isRequiredAndNull(value: Value, isRequired: boolean): boolean {
-  return isRequired && value.value === null
-}
-
-function isInvalidType(value: Value): boolean {
-  return typeof value.value !== 'number'
-}
-
-function isNonInteger(value: Value): boolean {
-  return !Number.isInteger(value.value)
-}
-
-function isBelowMin(value: Value, validation: Validation): boolean {
-  return validation.min !== undefined && value.value < validation.min
-}
-
-function isAboveMax(value: Value, validation: Validation): boolean {
-  return validation.max !== undefined && value.value > validation.max
-}
-
-function getValidationMessage(
-  value: Value,
-  validation: Validation,
-  isRequired: boolean,
-  label: string,
-  hasAutoIncrementDefault: boolean
-): string | undefined {
-  if (isAutoIncrementCreate(value, hasAutoIncrementDefault)) {
-    return
-  }
-
-  if (isUpdateWithNullInitial(value) && isUpdateWithNullValue(value)) {
-    return
-  }
-
-  if (isRequiredAndNull(value, isRequired)) {
-    return `${label} is required`
-  }
-
-  if (isInvalidType(value)) {
-    return
-  }
-
-  if (isNonInteger(value)) {
-    return `${label} is not a valid integer`
-  }
-
-  if (isBelowMin(value, validation)) {
-    return `${label} must be greater than or equal to ${validation.min}`
-  }
-
-  if (isAboveMax(value, validation)) {
-    return `${label} must be less than or equal to ${validation.max}`
-  }
-
-  return
-}
-
 export function controller(
   config: FieldControllerConfig<{
     validation: Validation
@@ -153,7 +83,7 @@ export function controller(
   hasAutoIncrementDefault: boolean
 } {
   const validate = (value: Value, opts: { isRequired: boolean }) => {
-    return getValidationMessage(
+    return validate_(
       value,
       config.fieldMeta.validation,
       opts.isRequired,
@@ -327,7 +257,7 @@ export function Field({
   const [isDirty, setDirty] = useState(false)
   const isReadOnly = !onChange || field.hasAutoIncrementDefault
 
-  if (isAutoIncrementCreate(value, field.hasAutoIncrementDefault)) {
+  if (field.hasAutoIncrementDefault && value.kind === 'create') {
     return (
       <NumberField
         autoFocus={autoFocus}
@@ -349,7 +279,7 @@ export function Field({
   }
 
   const validate = (value: Value) => {
-    return getValidationMessage(
+    return validate_(
       value,
       field.validation,
       isRequired,
@@ -363,7 +293,7 @@ export function Field({
       autoFocus={autoFocus}
       description={field.description}
       label={field.label}
-      errorMessage={(forceValidation || isDirty) && validate(value)}
+      errorMessage={validate(value)}
       isReadOnly={isReadOnly}
       isRequired={isRequired}
       width="alias.singleLineWidth"

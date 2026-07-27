@@ -13,7 +13,7 @@ export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
     trial_days: string;
 };
 
-type TierType = 'free' | 'paid';
+type TierStatus = 'active' | 'archived';
 
 const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
     const isFreeTier = tier?.type === 'free';
@@ -181,6 +181,18 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         return {};
     };
 
+    const getModalTitle = (): string => {
+        if (!tier) {
+            return 'New tier';
+        }
+
+        if (tier.active) {
+            return 'Edit tier';
+        }
+
+        return 'Edit archived tier';
+    };
+
     return <Modal
         afterClose={() => {
             updateRoute('tiers');
@@ -193,7 +205,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         okLabel={okProps.label || 'Save'}
         size='lg'
         testId='tier-detail-modal'
-        title={(tier ? (tier.active ? 'Edit tier' : 'Edit archived tier') : 'New tier')}
+        title={getModalTitle()}
         stickyFooter
         onOk={async () => {
             await handleSave({fakeWhenUnchanged: true});

@@ -75,7 +75,7 @@ const Sidebar: React.FC<{
     const {data: {newsletters: apiNewsletters} = {}} = useBrowseNewsletters();
     const commentsEnabled = ['all', 'paid'].includes(getSettingValue(settings, 'comments_enabled') || '');
 
-    const newsletterAddress = renderSenderEmail(newsletter, config, defaultEmailAddress);
+    let newsletterAddress = renderSenderEmail(newsletter, config, defaultEmailAddress);
     const [newsletters, setNewsletters] = useState<Newsletter[]>(apiNewsletters || []);
     const activeNewsletters = newsletters.filter(n => n.status === 'active');
 
@@ -109,37 +109,76 @@ const Sidebar: React.FC<{
         }
     };
 
-    const isBackgroundDark = () => {
+    const backgroundColorIsDark = () => {
         if (newsletter.background_color === 'light') {
             return false;
         }
         return textColorForBackgroundColor(newsletter.background_color).hex().toLowerCase() === '#ffffff';
     };
 
-    const getSelectedFontWeightOption = () => {
-        const category = newsletter.title_font_category || 'sans_serif';
-        const fontWeight = newsletter.title_font_weight;
-        const weightMap = fontWeightOptions[category].map;
-        const mappedWeight = weightMap ? (weightMap[fontWeight] || fontWeight) : fontWeight;
-        const option = headingFontWeightOptions.find(o => o.value === mappedWeight);
-        return option || headingFontWeightOptions[0];
+    const confirmStatusChange = async () => {
+        if (newsletter.status === 'active') {
+            await handleArchiveNewsletter();
+        } else {
+            await handleReactivateNewsletter();
+        }
     };
 
-    const changeSelectedTitleFont = (option: SelectOption | null) => {
-        const categoryValue = option?.value || 'sans_serif';
-        const currentWeight = newsletter.title_font_weight;
-        let newWeight = currentWeight;
-        if (!fontWeightOptions[categoryValue].options.find(o => o.value === currentWeight)) {
-            newWeight = fontWeightOptions[categoryValue].map?.[currentWeight] || 'bold';
-        }
-
-        return updateNewsletter({
-            title_font_category: categoryValue,
-            title_font_weight: newWeight
+    const handleArchiveNewsletter = async () => {
+        NiceModal.show(ConfirmationModal, {
+            title: 'Archive newsletter',
+            prompt: <>
+                <div className="mb-6">Your newsletter <strong>{newsletter.name}</strong> will no longer be visible to members or available as an option when publishing new posts.</div>
+                <div>Existing posts previously sent as this newsletter will remain unchanged.</div>
+            </>,
+            okLabel: 'Archive',
+            okColor: 'red',
+            onOk: async (modal) => {
+                try {
+                    await editNewsletter({...newsletter, status: 'archived'});
+                    modal?.remove();
+                    showToast({
+                        type: 'success',
+                        message: 'Newsletter archived'
+                    });
+                } catch (e) {
+                    handleError(e);
+                }
+            }
         });
     };
 
-    const headingFontWeightOptions = fontWeightOptions[newsletter.title_font_category || 'sans_serif'].options;
+    const handleReactivateNewsletter = async () => {
+        try {
+            await limiter?.errorIfWouldGoOverLimit('newsletters');
+        } catch (error) {
+            if (error instanceof HostLimitError) {
+                NiceModal.show(LimitModal, {
+                    prompt: error.message || `Your current plan doesn't support more newsletters.`,
+                    onOk: () => updateRoute({route: '/pro', isExternal: true})
+                });
+                return;
+            } else {
+                throw error;
+            }
+        }
+
+        NiceModal.show(ConfirmationModal, {
+            title: 'Reactivate newsletter',
+            prompt: <>
+                Reactivating <strong>{newsletter.name}</strong> will immediately make it visible to members and re-enable it as an option when publishing new posts.
+            </>,
+            okLabel: 'Reactivate',
+            onOk: async (modal) => {
+                await editNewsletter({...newsletter, status: 'active'});
+                modal?.remove();
+                showToast({
+                    type: 'success',
+                    message: 'Newsletter reactivated'
+                });
+            }
+        });
+    };
 
     const renderSenderEmailField = () => {
         if (!isManagedEmail(config)) {
@@ -174,60 +213,30 @@ const Sidebar: React.FC<{
         }
     };
 
-    const confirmStatusChange = async () => {
-        if (newsletter.status === 'active') {
-            NiceModal.show(ConfirmationModal, {
-                title: 'Archive newsletter',
-                prompt: <>
-                    <div className="mb-6">Your newsletter <strong>{newsletter.name}</strong> will no longer be visible to members or available as an option when publishing new posts.</div>
-                    <div>Existing posts previously sent as this newsletter will remain unchanged.</div>
-                </>,
-                okLabel: 'Archive',
-                okColor: 'red',
-                onOk: async (modal) => {
-                    try {
-                        await editNewsletter({...newsletter, status: 'archived'});
-                        modal?.remove();
-                        showToast({
-                            type: 'success',
-                            message: 'Newsletter archived'
-                        });
-                    } catch (e) {
-                        handleError(e);
-                    }
-                }
-            });
-        } else {
-            try {
-                await limiter?.errorIfWouldGoOverLimit('newsletters');
-            } catch (error) {
-                if (error instanceof HostLimitError) {
-                    NiceModal.show(LimitModal, {
-                        prompt: error.message || `Your current plan doesn't support more newsletters.`,
-                        onOk: () => updateRoute({route: '/pro', isExternal: true})
-                    });
-                    return;
-                } else {
-                    throw error;
-                }
-            }
+    const headingFontWeightOptions = fontWeightOptions[newsletter.title_font_category || 'sans_serif'].options;
 
-            NiceModal.show(ConfirmationModal, {
-                title: 'Reactivate newsletter',
-                prompt: <>
-                        Reactivating <strong>{newsletter.name}</strong> will immediately make it visible to members and re-enable it as an option when publishing new posts.
-                </>,
-                okLabel: 'Reactivate',
-                onOk: async (modal) => {
-                    await editNewsletter({...newsletter, status: 'active'});
-                    modal?.remove();
-                    showToast({
-                        type: 'success',
-                        message: 'Newsletter reactivated'
-                    });
-                }
-            });
+    const getSelectedFontWeightOption = () => {
+        const category = newsletter.title_font_category || 'sans_serif';
+        const fontWeight = newsletter.title_font_weight;
+        const weightMap = fontWeightOptions[category].map;
+        const mappedWeight = weightMap ? (weightMap[fontWeight] || fontWeight) : fontWeight;
+        const option = headingFontWeightOptions.find(o => o.value === mappedWeight);
+        return option || headingFontWeightOptions[0];
+    };
+
+    const changeSelectedTitleFont = (option: SelectOption | null) => {
+        const categoryValue = option?.value || 'sans_serif';
+
+        const currentWeight = newsletter.title_font_weight;
+        let newWeight = currentWeight;
+        if (!fontWeightOptions[categoryValue].options.find(o => o.value === currentWeight)) {
+            newWeight = fontWeightOptions[categoryValue].map?.[currentWeight] || 'bold';
         }
+
+        return updateNewsletter({
+            title_font_category: categoryValue,
+            title_font_weight: newWeight
+        });
     };
 
     const tabs: Tab[] = [
@@ -480,7 +489,7 @@ const Sidebar: React.FC<{
                                 {
                                     value: null,
                                     title: 'Auto',
-                                    hex: isBackgroundDark() ? '#ffffff' : '#000000'
+                                    hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
                                 },
                                 {
                                     value: 'accent',
@@ -533,7 +542,7 @@ const Sidebar: React.FC<{
                                 {
                                     value: null,
                                     title: 'Auto',
-                                    hex: isBackgroundDark() ? '#ffffff' : '#000000'
+                                    hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
                                 },
                                 {
                                     value: 'accent',
@@ -559,7 +568,7 @@ const Sidebar: React.FC<{
                                 {
                                     value: null,
                                     title: 'Auto',
-                                    hex: isBackgroundDark() ? '#ffffff' : '#000000'
+                                    hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
                                 }
                             ]}
                             title='Button color'
@@ -645,7 +654,7 @@ const Sidebar: React.FC<{
                                 {
                                     value: null,
                                     title: 'Auto',
-                                    hex: isBackgroundDark() ? '#ffffff' : '#000000'
+                                    hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
                                 }
                             ]}
                             title='Link color'
@@ -767,15 +776,8 @@ const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: b
         initialState: newsletter,
         savingDelay: 500,
         onSave: async () => {
-            // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-            const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState); ``;
-            let toastMessage;
-
-            if (emailToVerify && emailToVerify === 'sender_email') {
-                toastMessage = <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
-            } else if (emailToVerify && emailToVerify === 'sender_reply_to') {
-                toastMessage = <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
-            }
+            const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState);
+            const toastMessage = getToastMessage(emailToVerify);
 
             if (toastMessage) {
                 showToast({
@@ -837,6 +839,18 @@ const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: b
             await handleSave({fakeWhenUnchanged: true});
         }}
     />;
+};
+
+const getToastMessage = (emailToVerify?: string): React.ReactNode | null => {
+    if (!emailToVerify) {
+        return null;
+    }
+
+    if (emailToVerify === 'sender_email' || emailToVerify === 'sender_reply_to') {
+        return <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
+    }
+
+    return null;
 };
 
 const NewsletterDetailModal: React.FC<RoutingModalProps> = ({params}) => {

@@ -31,7 +31,9 @@ class QueryInterface {
    * @return {Promise}
    */
   createSchema(schema, options) {
-    return this._executeSchemaCommand('create', schema, options);
+    options = options || {};
+    const sql = this.QueryGenerator.createSchema(schema);
+    return this.sequelize.query(sql, options);
   }
 
   /**
@@ -43,7 +45,9 @@ class QueryInterface {
    * @return {Promise}
    */
   dropSchema(schema, options) {
-    return this._executeSchemaCommand('drop', schema, options);
+    options = options || {};
+    const sql = this.QueryGenerator.dropSchema(schema);
+    return this.sequelize.query(sql, options);
   }
 
   /**
@@ -102,6 +106,47 @@ class QueryInterface {
   /**
    * Create a table with given set of attributes
    *
+   * ```js
+   * queryInterface.createTable(
+   *   'nameOfTheNewTable',
+   *   {
+   *     id: {
+   *       type: Sequelize.INTEGER,
+   *       primaryKey: true,
+   *       autoIncrement: true
+   *     },
+   *     createdAt: {
+   *       type: Sequelize.DATE
+   *     },
+   *     updatedAt: {
+   *       type: Sequelize.DATE
+   *     },
+   *     attr1: Sequelize.STRING,
+   *     attr2: Sequelize.INTEGER,
+   *     attr3: {
+   *       type: Sequelize.BOOLEAN,
+   *       defaultValue: false,
+   *       allowNull: false
+   *     },
+   *     //foreign key usage
+   *     attr4: {
+   *       type: Sequelize.INTEGER,
+   *       references: {
+   *         model: 'another_table_name',
+   *         key: 'id'
+   *       },
+   *       onUpdate: 'cascade',
+   *       onDelete: 'cascade'
+   *     }
+   *   },
+   *   {
+   *     engine: 'MYISAM',    // default: 'InnoDB'
+   *     charset: 'latin1',   // default: null
+   *     schema: 'public'     // default: public, PostgreSQL only.
+   *   }
+   * )
+   * ```
+   *
    * @param {String} tableName  Name of table to create
    * @param {Object} attributes Object representing a list of table attributes to create
    * @param {Object} [options]
@@ -110,18 +155,6 @@ class QueryInterface {
    * @return {Promise}
    */
   createTable(tableName, attributes, options, model) {
-    const createTableOptions = {
-      tableName,
-      attributes,
-      options,
-      model
-    };
-
-    return this._createTableInternal(createTableOptions);
-  }
-
-  _createTableInternal(createTableOptions) {
-    const { tableName, attributes, options, model } = createTableOptions;
     const keys = Object.keys(attributes);
     const keyLen = keys.length;
     let sql = '';

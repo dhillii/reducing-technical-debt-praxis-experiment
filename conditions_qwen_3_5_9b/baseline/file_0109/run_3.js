@@ -176,7 +176,7 @@ Connection.prototype.set = function(key, val) {
 
   this.options = this.options || {};
   this.options[key] = val;
-  return val;
+  return this.options[key];
 };
 
 /**

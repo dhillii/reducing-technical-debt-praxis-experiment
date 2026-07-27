@@ -23,7 +23,7 @@ const assert = require("../../shared/assert"),
 /**
  * Checks whether or not a given node is a `case` node (not `default` node).
  * @param {ASTNode} node A `SwitchCase` node to check.
- * @returns {boolean} `true` if the node is a `case` node (not `default` node).
+ * @returns {boolean} `true` if the node is a case node (not default node).
  */
 function isCaseNode(node) {
 	return Boolean(node.test);
@@ -31,7 +31,7 @@ function isCaseNode(node) {
 
 /**
  * Checks if a given node appears as the value of a PropertyDefinition node.
- * @param {ASTNode} node The node to check.
+ * @param {ASTNode} node THe node to check.
  * @returns {boolean} `true` if the node is a PropertyDefinition value,
  *      false if not.
  */
@@ -260,71 +260,84 @@ function preprocess(analyzer, node) {
 	const state = CodePath.getState(codePath);
 	const parent = node.parent;
 
+	const isOptionalRight = (node, parent) =>
+		parent.optional === true && parent.arguments.length >= 1 && parent.arguments[0] === node;
+
+	const isOptionalProperty = (node, parent) =>
+		parent.optional === true && parent.property === node;
+
+	const isLogicalRight = (node, parent) =>
+		parent.right === node && isHandledLogicalOperator(parent.operator);
+
+	const isLogicalAssignmentRight = (node, parent) =>
+		parent.right === node && isLogicalAssignmentOperator(parent.operator);
+
+	const isIfConsequent = (node, parent) => parent.consequent === node;
+	const isIfAlternate = (node, parent) => parent.alternate === node;
+	const isSwitchCaseBody = (node, parent) => parent.consequent[0] === node;
+	const isCatchBlock = (node, parent) => parent.handler === node;
+	const isFinallyBlock = (node, parent) => parent.finalizer === node;
+	const isWhileTest = (node, parent) => parent.test === node;
+	const isWhileBody = (node, parent) => parent.body === node;
+	const isDoWhileBody = (node, parent) => parent.body === node;
+	const isDoWhileTest = (node, parent) => parent.test === node;
+	const isForTest = (node, parent) => parent.test === node;
+	const isForUpdate = (node, parent) => parent.update === node;
+	const isForBody = (node, parent) => parent.body === node;
+	const isForInOfLeft = (node, parent) => parent.left === node;
+	const isForInOfRight = (node, parent) => parent.right === node;
+	const isForInOfBody = (node, parent) => parent.body === node;
+	const isAssignmentPatternRight = (node, parent) => parent.right === node;
+
 	switch (parent.type) {
-		// The `arguments.length == 0` case is in `postprocess` function.
 		case "CallExpression":
-			if (
-				parent.optional === true &&
-				parent.arguments.length >= 1 &&
-				parent.arguments[0] === node
-			) {
+			if (isOptionalRight(node, parent)) {
 				state.makeOptionalRight();
 			}
 			break;
 		case "MemberExpression":
-			if (parent.optional === true && parent.property === node) {
+			if (isOptionalProperty(node, parent)) {
 				state.makeOptionalRight();
 			}
 			break;
 
 		case "LogicalExpression":
-			if (
-				parent.right === node &&
-				isHandledLogicalOperator(parent.operator)
-			) {
+			if (isLogicalRight(node, parent)) {
 				state.makeLogicalRight();
 			}
 			break;
 
 		case "AssignmentExpression":
-			if (
-				parent.right === node &&
-				isLogicalAssignmentOperator(parent.operator)
-			) {
+			if (isLogicalAssignmentRight(node, parent)) {
 				state.makeLogicalRight();
 			}
 			break;
 
 		case "ConditionalExpression":
 		case "IfStatement":
-			/*
-			 * Fork if this node is at `consequent`/`alternate`.
-			 * `popForkContext()` exists at `IfStatement:exit` and
-			 * `ConditionalExpression:exit`.
-			 */
-			if (parent.consequent === node) {
+			if (isIfConsequent(node, parent)) {
 				state.makeIfConsequent();
-			} else if (parent.alternate === node) {
+			} else if (isIfAlternate(node, parent)) {
 				state.makeIfAlternate();
 			}
 			break;
 
 		case "SwitchCase":
-			if (parent.consequent[0] === node) {
+			if (isSwitchCaseBody(node, parent)) {
 				state.makeSwitchCaseBody(false, !parent.test);
 			}
 			break;
 
 		case "TryStatement":
-			if (parent.handler === node) {
+			if (isCatchBlock(node, parent)) {
 				state.makeCatchBlock();
-			} else if (parent.finalizer === node) {
+			} else if (isFinallyBlock(node, parent)) {
 				state.makeFinallyBlock();
 			}
 			break;
 
 		case "WhileStatement":
-			if (parent.test === node) {
+			if (isWhileTest(node, parent)) {
 				state.makeWhileTest(getBooleanValueIfSimpleConstant(node));
 			} else {
 				assert(parent.body === node);
@@ -333,7 +346,7 @@ function preprocess(analyzer, node) {
 			break;
 
 		case "DoWhileStatement":
-			if (parent.body === node) {
+			if (isDoWhileBody(node, parent)) {
 				state.makeDoWhileBody();
 			} else {
 				assert(parent.test === node);
@@ -342,20 +355,20 @@ function preprocess(analyzer, node) {
 			break;
 
 		case "ForStatement":
-			if (parent.test === node) {
+			if (isForTest(node, parent)) {
 				state.makeForTest(getBooleanValueIfSimpleConstant(node));
-			} else if (parent.update === node) {
+			} else if (isForUpdate(node, parent)) {
 				state.makeForUpdate();
-			} else if (parent.body === node) {
+			} else if (isForBody(node, parent)) {
 				state.makeForBody();
 			}
 			break;
 
 		case "ForInStatement":
 		case "ForOfStatement":
-			if (parent.left === node) {
+			if (isForInOfLeft(node, parent)) {
 				state.makeForInOfLeft();
-			} else if (parent.right === node) {
+			} else if (isForInOfRight(node, parent)) {
 				state.makeForInOfRight();
 			} else {
 				assert(parent.body === node);
@@ -364,12 +377,7 @@ function preprocess(analyzer, node) {
 			break;
 
 		case "AssignmentPattern":
-			/*
-			 * Fork if this node is at `right`.
-			 * `left` is executed always, so it uses the current path.
-			 * `popForkContext()` exists at `AssignmentPattern:exit`.
-			 */
-			if (parent.right === node) {
+			if (isAssignmentPatternRight(node, parent)) {
 				state.pushForkContext();
 				state.forkBypassPath();
 				state.forkPath();

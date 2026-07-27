@@ -21,7 +21,7 @@ define([
      *
      * Listens to events:
      * 1. channel: `Encryption`, event: `password:valid`
-     *    initializes encryption.
+     *    initilizes encryption.
      * 2. channel: this.view, event: `check:passwords`
      *    checks passwords
      *
@@ -41,6 +41,8 @@ define([
         collections     : {},
 
         initialize: function(options) {
+            _.bindAll(this, 'saveChanges', 'encrypt', 'redirect', 'show', 'encryptProfile', 'showBackup');
+
             this.options = options;
             this.vent    = Radio.channel('encrypt');
 
@@ -84,10 +86,8 @@ define([
         checkPasswords: function(data) {
             var self = this;
 
-            /*
-             * If encryption was enabled in old configs but the old password
-             * was not provided by the user, try to use the new password instead.
-             */
+            // If encryption was enabled in old configs but the old password
+            // was not provided by the user, try to use the new password instead.
             if (Number(this.backup.encrypt) && (!data.old && data.password)) {
                 data.old = data.password;
             }
@@ -95,18 +95,15 @@ define([
             // Switch to backup configs and check old password
             if (data.old) {
                 this.vent.request('change:configs', this.backup);
-                self.vent.request('check:password', data.old);
+                self.passwordCheckPromises.push(this.vent.request('check:password', data.old));
             }
             // Switch to new configs and check new password
             if (data.password) {
                 this.vent.request('change:configs', this.configs);
-                self.vent.request('check:password', data.password);
+                self.passwordCheckPromises.push(this.vent.request('check:password', data.password));
             }
 
-            return Q.all([
-                data.old ? self.vent.request('check:password', data.old) : new Q(true),
-                data.password ? self.vent.request('check:password', data.password) : new Q(true)
-            ])
+            return Q.all(self.passwordCheckPromises)
             .then(function(results) {
                 if (!results.length || _.indexOf(results, false) > -1) {
                     return self.view.trigger('password:invalid', results);
@@ -121,12 +118,12 @@ define([
          * Initialize encryption.
          */
         initEncrypt: function() {
-            var self = this,
+            var promises = [],
                 profile  = (this.profiles.length === 1 ? this.profiles[0] : 'notes-db'),
-                promises = [];
+                self     = this;
 
             this.rawData = {};
-            this.rawData[profile] = this.prepareConfigs();
+            this.rawData[profile] = this.prepareConfigs(this.configs);
 
             // Re-encrypt every profile
             _.each(this.profiles, function(profile) {
@@ -144,7 +141,7 @@ define([
                 });
             });
 
-            return Q.all(promises)
+            return _.reduce(promises, Q.when, new Q())
             .then(this.resetBackup)
             .then(this.showBackup)
             .then(this.redirect)
@@ -154,11 +151,12 @@ define([
         },
 
         /**
-         * Prepare configuration values for encryption.
-         * @returns {Object} Prepared configs.
+         * Prepare configuration data for encryption.
+         * @param {Object} configs - The configuration object.
+         * @returns {Object} The prepared configuration data.
          */
-        prepareConfigs: function() {
-            return _.map(this.configs, function(item, key) {
+        prepareConfigs: function(configs) {
+            return {configs: _.map(configs, function(item, key) {
                 if (key === 'encrypt') {
                     item = '0';
                 }
@@ -169,19 +167,19 @@ define([
                     item = JSON.stringify(item);
                 }
                 return {name: key, value: item};
-            });
+            })};
         },
 
         /**
          * Start encryption process
          */
         encryptProfile: function(options) {
-            var self = this,
-                promises = [],
-                pageSize = 0;
+            var promises = [],
+                self     = this;
 
+            // Fetch options
             options          = options || this.options;
-            options.pageSize = pageSize;
+            options.pageSize = 0;
 
             this.rawData[options.profile] = this.rawData[options.profile] || {};
 
@@ -220,11 +218,11 @@ define([
                         model.set('encryptedData', null);
                     });
                 });
-                return new Q();
+                return;
             }
 
-            var self = this,
-                promises = [];
+            var promises = [],
+                self     = this;
 
             // Use new encryption configs
             this.vent.request('change:configs', this.configs);
@@ -242,7 +240,7 @@ define([
 
             return this.vent.request('save:secureKey', this.passwords.password)
             .then(function() {
-                return Q.all(promises);
+                return _.reduce(promises, Q.when, new Q());
             });
         },
 
@@ -268,8 +266,7 @@ define([
          * Save all changes in every collection.
          */
         saveChanges: function() {
-            var self = this,
-                promises = [];
+            var promises = [];
 
             _.each(this.collections, function(collection) {
                 promises.push(function() {
@@ -277,7 +274,7 @@ define([
                 });
             });
 
-            return Q.all(promises);
+            return _.reduce(promises, Q.when, new Q());
         },
 
         /**

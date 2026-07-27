@@ -21,30 +21,6 @@ import type {
   FieldProps,
 } from '../../../../types'
 
-type Validation = {
-  rejectCommon: boolean
-  match: {
-    regex: RegExp
-    explanation: string
-  } | null
-  length: {
-    min: number
-    max: number | null
-  }
-}
-
-type Value =
-  | {
-      kind: 'initial'
-      isSet: boolean | null
-    }
-  | {
-      kind: 'editing'
-      isSet: boolean | null
-      value: string
-      confirm: string
-    }
-
 function validate(
   value: Value,
   validation: Validation,
@@ -102,6 +78,22 @@ function readonlyCheckboxProps(isSet: null | undefined | boolean) {
   }
 }
 
+function cancelEditing(value: Value, onChange: FieldProps['onChange'], triggerRef: React.RefObject<HTMLButtonElement>) {
+  onChange?.({ kind: 'initial', isSet: value.isSet })
+  setTimeout(() => {
+    triggerRef.current?.focus()
+  }, 0)
+}
+
+function onEscape(value: Value, onChange: FieldProps['onChange'], triggerRef: React.RefObject<HTMLButtonElement>) {
+  return (e: React.KeyboardEvent) => {
+    if (e.key !== 'Escape' || value.kind !== 'editing') return
+    if (value.value === '' && value.confirm === '') {
+      cancelEditing(value, onChange, triggerRef)
+    }
+  }
+}
+
 export function Field(props: FieldProps<typeof controller>) {
   const { autoFocus, field, forceValidation, onChange, value } = props
 
@@ -118,20 +110,6 @@ export function Field(props: FieldProps<typeof controller>) {
   const labelId = useId()
   const descriptionId = useSlotId([!!field.description, !!validationMessage])
   const messageId = useSlotId([!!field.description, !!validationMessage])
-
-  const cancelEditing = () => {
-    onChange?.({ kind: 'initial', isSet: value.isSet })
-    setTimeout(() => {
-      triggerRef.current?.focus()
-    }, 0)
-  }
-
-  const onEscape = (e: React.KeyboardEvent) => {
-    if (e.key !== 'Escape' || value.kind !== 'editing') return
-    if (value.value === '' && value.confirm === '') {
-      cancelEditing()
-    }
-  }
 
   useEffect(() => {
     if (value.kind === 'initial') {
@@ -192,7 +170,7 @@ export function Field(props: FieldProps<typeof controller>) {
             isInvalid={!!validationMessage}
             onBlur={() => setTouched({ ...touched, value: true })}
             onChange={text => onChange({ ...value, value: text })}
-            onKeyDown={onEscape}
+            onKeyDown={onEscape(value, onChange, triggerRef)}
             placeholder="New"
             type={secureTextEntry ? 'password' : 'text'}
             value={value.value}
@@ -205,7 +183,7 @@ export function Field(props: FieldProps<typeof controller>) {
             isInvalid={!!validationMessage}
             onBlur={() => setTouched({ ...touched, confirm: true })}
             onChange={text => onChange({ ...value, confirm: text })}
-            onKeyDown={onEscape}
+            onKeyDown={onEscape(value, onChange, triggerRef)}
             placeholder="Confirm"
             type={secureTextEntry ? 'password' : 'text'}
             value={value.confirm}
@@ -229,7 +207,7 @@ export function Field(props: FieldProps<typeof controller>) {
                 Show
               </Text>
             </ToggleButton>
-            <ActionButton onPress={cancelEditing}>Cancel</ActionButton>
+            <ActionButton onPress={() => cancelEditing(value, onChange, triggerRef)}>Cancel</ActionButton>
           </Flex>
         </Flex>
       )}
@@ -250,6 +228,18 @@ export const Cell: CellComponent<typeof controller> = ({ value }) => {
   )
 }
 
+type Validation = {
+  rejectCommon: boolean
+  match: {
+    regex: RegExp
+    explanation: string
+  } | null
+  length: {
+    min: number
+    max: number | null
+  }
+}
+
 export type PasswordFieldMeta = {
   isNullable: boolean
   validation: {
@@ -264,6 +254,18 @@ export type PasswordFieldMeta = {
     }
   }
 }
+
+type Value =
+  | {
+      kind: 'initial'
+      isSet: boolean | null
+    }
+  | {
+      kind: 'editing'
+      isSet: boolean | null
+      value: string
+      confirm: string
+    }
 
 export function controller(config: FieldControllerConfig<PasswordFieldMeta>): FieldController<
   Value,
@@ -285,14 +287,7 @@ export function controller(config: FieldControllerConfig<PasswordFieldMeta>): Fi
             explanation: config.fieldMeta.validation.match.explanation,
           },
   }
-
-  const controllerConfig: FieldController<
-    Value,
-    boolean | null,
-    { isSet?: boolean | null | undefined }
-  > & {
-    validation: Validation
-  } = {
+  return {
     fieldKey: config.fieldKey,
     label: config.label,
     description: config.description,
@@ -355,6 +350,4 @@ export function controller(config: FieldControllerConfig<PasswordFieldMeta>): Fi
             },
           },
   }
-
-  return controllerConfig
 }

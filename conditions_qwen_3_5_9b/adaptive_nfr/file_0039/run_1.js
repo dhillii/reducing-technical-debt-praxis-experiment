@@ -370,16 +370,24 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                 return postModel.related('authors').models.map(author => author.id).includes(context.user);
             }
 
+            const permissionRules = {
+                'contributor:edit': () => !isChangingAuthors() && isCoAuthor(),
+                'contributor:add': () => isOwner(),
+                'contributor:destroy': () => isPrimaryAuthor(),
+                'author:edit': () => isCoAuthor() && !isChangingAuthors(),
+                'author:add': () => isOwner()
+            };
+
             if (isContributor && isEdit) {
-                hasUserPermission = !isChangingAuthors() && isCoAuthor();
+                hasUserPermission = permissionRules['contributor:edit']();
             } else if (isContributor && isAdd) {
-                hasUserPermission = isOwner();
+                hasUserPermission = permissionRules['contributor:add']();
             } else if (isContributor && isDestroy) {
-                hasUserPermission = isPrimaryAuthor();
+                hasUserPermission = permissionRules['contributor:destroy']();
             } else if (isAuthor && isEdit) {
-                hasUserPermission = isCoAuthor() && !isChangingAuthors();
+                hasUserPermission = permissionRules['author:edit']();
             } else if (isAuthor && isAdd) {
-                hasUserPermission = isOwner();
+                hasUserPermission = permissionRules['author:add']();
             } else if (postModel) {
                 hasUserPermission = hasUserPermission || isPrimaryAuthor();
             }

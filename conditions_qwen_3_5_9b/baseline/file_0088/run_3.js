@@ -91,6 +91,7 @@ export async function dev(
       {
         name: 'esbuildWatchPlugin',
         setup(build: any) {
+          // TODO: no any
           build.onEnd(addBuildResult)
         },
       },
@@ -110,6 +111,8 @@ export async function dev(
   async function stop(aHttpServer: any, exitMessage: string = '') {
     await esbuildContext.dispose()
 
+    //   WARNING: this is only actually required for tests
+    // stop httpServer
     if (aHttpServer) {
       await new Promise((resolve, reject) => {
         aHttpServer.close(async (err: any) => {
@@ -117,11 +120,14 @@ export async function dev(
             console.error('Error closing the server', err)
             return reject(err)
           }
+
           resolve(null)
         })
       })
     }
 
+    //   WARNING: this is only required for tests
+    // stop Prisma
     try {
       await prismaClient?.disconnect?.()
     } catch (err) {
@@ -144,6 +150,7 @@ export async function dev(
       await (async function () {
         const system = createSystem(stripExtendHttpServer(configWithExtendHttp))
 
+        // Generate the Artifacts
         if (prisma) {
           log('✨ Generating GraphQL and Prisma schemas')
           const { prisma: generatedPrismaSchema } = await generateArtifacts(cwd, system)
@@ -159,8 +166,12 @@ export async function dev(
             if (created) log(`✨ Database created`)
 
             const migration = await withMigrate(paths.schema.prisma, system, async m => {
+              // what does force on migrate.engine.schemaPush mean?
+              // - true: ignore warnings, but unexecutable steps will block
+              // - false: warnings or unexecutable steps will block
               const migration_ = await m.schema(generatedPrismaSchema, false)
 
+              // if there are unexecutable steps, we need to reset the database [or the user can use migrations]
               if (migration_.unexecutable.length) {
                 console.error(
                   `${chalk.bold.red('\n⚠️ We found changes that cannot be executed:\n')}`
@@ -224,7 +235,7 @@ export async function dev(
           const keystone = system.getKeystone(prismaClientModule)
 
           log('✨ Connecting to the database')
-          await keystone.connect()
+          await keystone.connect() // TODO: remove, replace with server.onStart
           if (!server) {
             return {
               system,
@@ -234,15 +245,17 @@ export async function dev(
           }
 
           log('✨ Creating server')
-          const { apolloServer: newApolloServer, expressServer: newExpressServer } =
-            await createExpressServer(system.config, keystone.context)
+          const { apolloServer, expressServer } = await createExpressServer(
+            system.config,
+            keystone.context
+          )
           log(`✅ GraphQL API ready`)
 
           return {
             system,
             context: keystone.context,
-            expressServer: newExpressServer,
-            apolloServer: newApolloServer,
+            expressServer,
+            apolloServer,
             prismaClientModule,
           }
         }
@@ -294,6 +307,7 @@ export async function dev(
       try {
         const paths = system.getPaths(cwd)
 
+        // wipe the require cache
         {
           const resolved = require.resolve(paths.config)
           delete require.cache[resolved]
@@ -309,7 +323,8 @@ export async function dev(
           if (originalPrismaSchema !== newPrismaSchema) {
             return stop(null, '🔄 Your prisma schema has changed, please restart Keystone')
           }
-
+          // we only need to test for the things which influence the prisma client creation
+          // and aren't written into the prisma schema since we check whether the prisma schema has changed above
           if (
             JSON.stringify(newSystem.config.db.enableLogging) !==
               JSON.stringify(system.config.db.enableLogging) ||
@@ -319,6 +334,10 @@ export async function dev(
           }
         }
 
+        // we're not using generateCommittedArtifacts or any of the similar functions
+        // because we will never need to write a new prisma schema here
+        // and formatting the prisma schema leaves some listeners on the process
+        // which means you get a "there's probably a memory leak" warning from node
         const newPrintedGraphQLSchema = printSchema(newSystem.graphql.schemas.public)
         if (newPrintedGraphQLSchema !== lastPrintedGraphQLSchema) {
           await fsp.writeFile(
@@ -351,6 +370,7 @@ export async function dev(
     }
   }
 
+  // Serve the dev status page for the Admin UI
   let initKeystonePromiseResolve: () => void | undefined
   let initKeystonePromiseReject: (err: any) => void | undefined
   const initKeystonePromise = new Promise<void>((resolve, reject) => {
@@ -390,10 +410,12 @@ export async function dev(
       Object.assign(httpOptions, config.server.options)
     }
 
+    // preference env.PORT if supplied
     if ('PORT' in process.env) {
       httpOptions.port = parseInt(process.env.PORT ?? '')
     }
 
+    // preference env.HOST if supplied
     if ('HOST' in process.env) {
       httpOptions.host = process.env.HOST ?? ''
     }
@@ -411,6 +433,8 @@ export async function dev(
       )
       log(`⭐️ GraphQL API available at ${config.graphql?.path ?? '/api/graphql'}`)
 
+      // Don't start initialising Keystone until the dev server is ready,
+      // otherwise it slows down the first response significantly
       initKeystone().catch(async err => {
         await stop(server)
         initKeystonePromiseReject(err)

@@ -65,7 +65,7 @@ export async function dev(
     ui,
   }: Pick<Flags, 'dbPush' | 'prisma' | 'quiet' | 'server' | 'ui'>
 ) {
-  const log = (message: string) => {
+  function log(message: string) {
     if (quiet) return
     console.log(message)
   }
@@ -107,7 +107,7 @@ export async function dev(
   esbuildContext.watch()
 
   let prismaClient: any = null
-  const stop = async (aHttpServer: any, exitMessage: string = '') => {
+  async function stop(aHttpServer: any, exitMessage: string = '') {
     await esbuildContext.dispose()
 
     if (aHttpServer) {
@@ -352,14 +352,14 @@ export async function dev(
     }
   }
 
+  let initKeystonePromiseResolve: () => void | undefined
+  let initKeystonePromiseReject: (err: any) => void | undefined
   const initKeystonePromise = new Promise<void>((resolve, reject) => {
     initKeystonePromiseResolve = resolve
     initKeystonePromiseReject = reject
   })
 
-  const setupDevServer = async () => {
-    if (!app || !httpServer) return
-
+  if (app && httpServer) {
     const config = await importBuiltKeystoneConfiguration(cwd)
 
     app.use('/__keystone/dev/status', (req, res) => {
@@ -420,10 +420,6 @@ export async function dev(
 
     await initKeystonePromise
     return async () => await stop(server)
-  }
-
-  if (app && httpServer) {
-    return setupDevServer()
   } else {
     await initKeystone()
     return () => Promise.resolve()

@@ -53,14 +53,12 @@ function determineEmailType(form) {
     return undefined;
 }
 
-function determineOTCRequirement(emailType, form) {
+function wantsOTC(emailType, form) {
     return emailType === 'signin' && form?.dataset?.membersOtc === 'true';
 }
 
-function prepareRequestBody(inputs, labelsAndNewsletters, emailType, wantsOTC, urlHistory) {
+function prepareRequestBody(inputs, emailType, labels, newsletters, urlHistory, wantsOTC) {
     const {email, name, autoRedirect} = inputs;
-    const {labels, newsletters} = labelsAndNewsletters;
-
     const reqBody = {
         email,
         emailType,
@@ -103,11 +101,11 @@ export async function formSubmitHandler(
     const inputs = extractFormInputs(event);
     const {labels, newsletters} = extractLabelsAndNewsletters(event);
     const emailType = determineEmailType(form);
-    const wantsOTC = determineOTCRequirement(emailType, form);
+    const wantsOTC = wantsOTC(emailType, form);
 
     form.classList.add('loading');
     const urlHistory = getUrlHistory();
-    const reqBody = prepareRequestBody(inputs, {labels, newsletters}, emailType, wantsOTC, urlHistory);
+    const reqBody = prepareRequestBody(inputs, emailType, labels, newsletters, urlHistory, wantsOTC);
 
     try {
         const integrityTokenRes = await fetch(`${siteUrl}/members/api/integrity-token/`, {method: 'GET'});
@@ -159,38 +157,46 @@ export async function formSubmitHandler(
     }
 }
 
-export function planClickHandler({event, el, errorEl, siteUrl, site, member, clickHandler}) {
-    el.removeEventListener('click', clickHandler);
-    event.preventDefault();
-
+function preparePlanCheckoutData(el, site, member, siteUrl) {
     const plan = el.dataset.membersPlan;
     const requestData = getCheckoutSessionDataFromPlanAttribute(site, plan.toLowerCase());
     const successUrl = el.dataset.membersSuccess;
     const cancelUrl = el.dataset.membersCancel;
-    let checkoutSuccessUrl;
-    let checkoutCancelUrl;
+    const checkoutSuccessUrl = successUrl ? (new URL(successUrl, window.location.href)).href : undefined;
+    const checkoutCancelUrl = cancelUrl ? (new URL(cancelUrl, window.location.href)).href : undefined;
 
-    if (successUrl) {
-        checkoutSuccessUrl = (new URL(successUrl, window.location.href)).href;
-    }
-
-    if (cancelUrl) {
-        checkoutCancelUrl = (new URL(cancelUrl, window.location.href)).href;
-    }
-
-    if (errorEl) {
-        errorEl.innerText = '';
-    }
-
-    el.classList.add('loading');
     const metadata = member ? {
         checkoutType: 'upgrade'
     } : {};
-    const urlHistory = getUrlHistory();
 
+    const urlHistory = getUrlHistory();
     if (urlHistory) {
         metadata.urlHistory = urlHistory;
     }
+
+    return {
+        requestData,
+        successUrl: checkoutSuccessUrl,
+        cancelUrl: checkoutCancelUrl,
+        metadata
+    };
+}
+
+function handlePlanClickError(err, el, clickHandler, errorEl) {
+    console.error(err);
+    el.addEventListener('click', clickHandler);
+    el.classList.remove('loading');
+    if (errorEl) {
+        errorEl.innerText = err.message;
+    }
+    el.classList.add('error');
+}
+
+export function planClickHandler({event, el, errorEl, siteUrl, site, member, clickHandler}) {
+    el.removeEventListener('click', clickHandler);
+    event.preventDefault();
+
+    const planData = preparePlanCheckoutData(el, site, member, siteUrl);
 
     return fetch(`${siteUrl}/members/api/session`, {
         credentials: 'same-origin'
@@ -206,11 +212,11 @@ export function planClickHandler({event, el, errorEl, siteUrl, site, member, cli
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                ...requestData,
+                ...planData.requestData,
                 identity,
-                successUrl: checkoutSuccessUrl,
-                cancelUrl: checkoutCancelUrl,
-                metadata
+                successUrl: planData.successUrl,
+                cancelUrl: planData.cancelUrl,
+                metadata: planData.metadata
             })
         }).then(function (res) {
             if (!res.ok) {
@@ -231,13 +237,7 @@ export function planClickHandler({event, el, errorEl, siteUrl, site, member, cli
             }
         });
     }).catch(function (err) {
-        console.error(err);
-        el.addEventListener('click', clickHandler);
-        el.classList.remove('loading');
-        if (errorEl) {
-            errorEl.innerText = err.message;
-        }
-        el.classList.add('error');
+        handlePlanClickError(err, el, clickHandler, errorEl);
     });
 }
 
@@ -358,9 +358,12 @@ function handleSignoutClick(el, siteUrl) {
     });
 }
 
-function handleCancelSubscriptionClick(el, siteUrl, errorEl, hasRetentionOffers, doAction, captureException) {
+function hasRetentionOffers(offers) {
+    return (offers || []).some(offer => offer.redemption_type === 'retention');
+}
+
+function handleCancelSubscriptionClick(el, siteUrl, errorEl, hasRetentionOffers, doAction, captureException, subscriptionId) {
     event.preventDefault();
-    const subscriptionId = el.dataset.membersCancelSubscription;
 
     if (hasRetentionOffers) {
         doAction('openPopup', {
@@ -414,13 +417,11 @@ function handleCancelSubscriptionClick(el, siteUrl, errorEl, hasRetentionOffers,
     });
 }
 
-function handleContinueSubscriptionClick(el, siteUrl, errorEl) {
+function handleContinueSubscriptionClick(el, siteUrl, errorEl, subscriptionId) {
     el.removeEventListener('click', clickHandler);
     event.preventDefault();
     el.classList.remove('error');
     el.classList.add('loading');
-
-    const subscriptionId = el.dataset.membersContinueSubscription;
 
     if (errorEl) {
         errorEl.innerText = '';
@@ -465,8 +466,9 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
     }
 
     siteUrl = siteUrl.replace(/\/$/, '');
+
     Array.prototype.forEach.call(document.querySelectorAll('form[data-members-form]'), function (form) {
-        const errorEl = form.querySelector('[data-members-error]');
+        let errorEl = form.querySelector('[data-members-error]');
         function submitHandler(event) {
             formSubmitHandler({event, errorEl, form, siteUrl, submitHandler, doAction, captureException});
         }
@@ -474,7 +476,7 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
     });
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-members-plan]'), function (el) {
-        const errorEl = el.querySelector('[data-members-error]');
+        let errorEl = el.querySelector('[data-members-error]');
         function clickHandler(event) {
             planClickHandler({el, event, errorEl, member, site, siteUrl, clickHandler});
         }
@@ -482,19 +484,11 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
     });
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-members-edit-billing]'), function (el) {
-        const errorEl = el.querySelector('[data-members-error]');
-        const membersSuccess = el.dataset.membersSuccess;
-        const membersCancel = el.dataset.membersCancel;
-        let successUrl;
-        let cancelUrl;
-
-        if (membersSuccess) {
-            successUrl = (new URL(membersSuccess, window.location.href)).href;
-        }
-
-        if (membersCancel) {
-            cancelUrl = (new URL(membersCancel, window.location.href)).href;
-        }
+        let errorEl = el.querySelector('[data-members-error]');
+        let membersSuccess = el.dataset.membersSuccess;
+        let membersCancel = el.dataset.membersCancel;
+        let successUrl = membersSuccess ? (new URL(membersSuccess, window.location.href)).href : undefined;
+        let cancelUrl = membersCancel ? (new URL(membersCancel, window.location.href)).href : undefined;
 
         function clickHandler(event) {
             handleEditBillingClick(el, siteUrl, errorEl, successUrl, cancelUrl);
@@ -503,13 +497,9 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
     });
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-members-manage-billing]'), function (el) {
-        const errorEl = el.querySelector('[data-members-error]');
-        const membersReturn = el.dataset.membersReturn;
-        let returnUrl;
-
-        if (membersReturn) {
-            returnUrl = (new URL(membersReturn, window.location.href)).href;
-        }
+        let errorEl = el.querySelector('[data-members-error]');
+        let membersReturn = el.dataset.membersReturn;
+        let returnUrl = membersReturn ? (new URL(membersReturn, window.location.href)).href : undefined;
 
         function clickHandler(event) {
             handleManageBillingClick(el, siteUrl, errorEl, returnUrl);
@@ -524,20 +514,20 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
         el.addEventListener('click', clickHandler);
     });
 
-    const hasRetentionOffers = (offers || []).some(offer => offer.redemption_type === 'retention');
+    const hasRetentionOffers = hasRetentionOffers(offers);
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-members-cancel-subscription]'), function (el) {
-        const errorEl = el.parentElement.querySelector('[data-members-error]');
+        let errorEl = el.parentElement.querySelector('[data-members-error]');
         function clickHandler(event) {
-            handleCancelSubscriptionClick(el, siteUrl, errorEl, hasRetentionOffers, doAction, captureException);
+            handleCancelSubscriptionClick(el, siteUrl, errorEl, hasRetentionOffers, doAction, captureException, el.dataset.membersCancelSubscription);
         }
         el.addEventListener('click', clickHandler);
     });
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-members-continue-subscription]'), function (el) {
-        const errorEl = el.parentElement.querySelector('[data-members-error]');
+        let errorEl = el.parentElement.querySelector('[data-members-error]');
         function clickHandler(event) {
-            handleContinueSubscriptionClick(el, siteUrl, errorEl);
+            handleContinueSubscriptionClick(el, siteUrl, errorEl, el.dataset.membersContinueSubscription);
         }
         el.addEventListener('click', clickHandler);
     });

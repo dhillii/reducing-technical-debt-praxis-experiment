@@ -423,6 +423,75 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         setSelectedTab(newTabId);
     };
 
+    const updateImageField = (image: string, imageUrl: string) => {
+        updateForm((_user) => {
+            return {..._user, [image]: imageUrl};
+        });
+    };
+
+    const clearImageField = (image: string) => {
+        updateForm((_user) => {
+            return {..._user, [image]: ''};
+        });
+    };
+
+    const imageUploadConfig = {
+        'cover_image': {
+            buttonContainerClassName: 'flex items-end gap-4 justify-end flex-nowrap',
+            deleteButtonClassName: coverButtonClasses,
+            deleteButtonContent: 'Delete cover image',
+            editButtonClassName: coverButtonClasses,
+            fileUploadClassName: noCoverButtonClasses,
+            id: 'cover-image',
+            imageClassName: 'hidden',
+            imageURL: formState.cover_image || '',
+            pintura: {
+                isEnabled: editor.isEnabled,
+                openEditor: async () => editor.openEditor({
+                    image: formState.cover_image || '',
+                    handleSave: async (file:File) => {
+                        handleImageUpload('cover_image', file);
+                    }
+                })
+            },
+            unstyled: true,
+            onDelete: () => {
+                clearImageField('cover_image');
+            },
+            onUpload: (file: File) => {
+                handleImageUpload('cover_image', file);
+            }
+        },
+        'profile_image': {
+            deleteButtonClassName: 'md:invisible absolute pr-3 -right-2 -top-2 flex h-8 w-10 cursor-pointer items-center justify-end rounded-full bg-[rgba(0,0,0,0.75)] text-white group-hover:!visible',
+            deleteButtonContent: <Icon colorClass='text-white' name='trash' size='sm' />,
+            editButtonClassName: 'md:invisible absolute right-[22px] -top-2 flex h-8 w-8 cursor-pointer items-center justify-center text-white group-hover:!visible z-20',
+            fileUploadClassName: 'rounded-full bg-black flex items-center justify-center opacity-80 transition hover:opacity-100 -ml-2 cursor-pointer h-[80px] w-[80px]',
+            fileUploadProps: {dragIndicatorClassName: 'rounded-full'},
+            id: 'avatar',
+            imageClassName: 'w-full h-full object-cover rounded-full shrink-0',
+            imageContainerClassName: 'relative group bg-cover bg-center -ml-1 h-16 w-16 md:h-18 md:w-18 shrink-0',
+            imageURL: formState.profile_image ?? undefined,
+            pintura: {
+                isEnabled: editor.isEnabled,
+                openEditor: async () => editor.openEditor({
+                    image: formState.profile_image || '',
+                    handleSave: async (file:File) => {
+                        handleImageUpload('profile_image', file);
+                    }
+                })
+            },
+            unstyled: true,
+            width: '80px',
+            onDelete: () => {
+                clearImageField('profile_image');
+            },
+            onUpload: (file: File) => {
+                handleImageUpload('profile_image', file);
+            }
+        }
+    };
+
     return (
         <Modal
             afterClose={navigateOnClose}
@@ -451,66 +520,14 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                             <div className='flex flex-nowrap items-start justify-between gap-3'>
                                 <div>
                                     <ImageUpload
-                                        deleteButtonClassName='md:invisible absolute pr-3 -right-2 -top-2 flex h-8 w-10 cursor-pointer items-center justify-end rounded-full bg-[rgba(0,0,0,0.75)] text-white group-hover:!visible'
-                                        deleteButtonContent={<Icon colorClass='text-white' name='trash' size='sm' />}
-                                        editButtonClassName='md:invisible absolute right-[22px] -top-2 flex h-8 w-8 cursor-pointer items-center justify-center text-white group-hover:!visible z-20'
-                                        fileUploadClassName='rounded-full bg-black flex items-center justify-center opacity-80 transition hover:opacity-100 -ml-2 cursor-pointer h-[80px] w-[80px]'
-                                        fileUploadProps={{dragIndicatorClassName: 'rounded-full'}}
-                                        id='avatar'
-                                        imageClassName='w-full h-full object-cover rounded-full shrink-0'
-                                        imageContainerClassName='relative group bg-cover bg-center -ml-1 h-16 w-16 md:h-18 md:w-18 shrink-0'
-                                        imageURL={formState.profile_image ?? undefined}
-                                        pintura={
-                                            {
-                                                isEnabled: editor.isEnabled,
-                                                openEditor: async () => editor.openEditor({
-                                                    image: formState.profile_image || '',
-                                                    handleSave: async (file:File) => {
-                                                        handleImageUpload('profile_image', file);
-                                                    }
-                                                })
-                                            }
-                                        }
-                                        unstyled={true}
-                                        width='80px'
-                                        onDelete={() => {
-                                            handleImageDelete('profile_image');
-                                        }}
-                                        onUpload={(file: File) => {
-                                            handleImageUpload('profile_image', file);
-                                        }}
+                                        {...imageUploadConfig['profile_image']}
                                     >
                                         <Icon colorClass='black' name='user-add' size='lg' />
                                     </ImageUpload>
                                 </div>
                                 <div className='flex flex-nowrap items-start gap-3'>
                                     <ImageUpload
-                                        buttonContainerClassName='flex items-end gap-4 justify-end flex-nowrap'
-                                        deleteButtonClassName={coverButtonClasses}
-                                        deleteButtonContent='Delete cover image'
-                                        editButtonClassName={coverButtonClasses}
-                                        fileUploadClassName={noCoverButtonClasses}
-                                        id='cover-image'
-                                        imageClassName='hidden'
-                                        imageURL={formState.cover_image || ''}
-                                        pintura={
-                                            {
-                                                isEnabled: editor.isEnabled,
-                                                openEditor: async () => editor.openEditor({
-                                                    image: formState.cover_image || '',
-                                                    handleSave: async (file:File) => {
-                                                        handleImageUpload('cover_image', file);
-                                                    }
-                                                })
-                                            }
-                                        }
-                                        unstyled
-                                        onDelete={() => {
-                                            handleImageDelete('cover_image');
-                                        }}
-                                        onUpload={(file: File) => {
-                                            handleImageUpload('cover_image', file);
-                                        }}
+                                        {...imageUploadConfig['cover_image']}
                                     >Upload cover image</ImageUpload>
                                     {showMenu && <div className="z-10">
                                         <Menu

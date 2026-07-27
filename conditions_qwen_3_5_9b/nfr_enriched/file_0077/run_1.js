@@ -1,33 +1,49 @@
 /**
- * @fileoverview Tests for ast utils.
- * @author Gyandeep Singh
+ * Asserts that a given function is called at least once during a test
+ * @param {Function} func The function that must be called at least once
+ * @returns {Function} A wrapper around the same function
  */
+function mustCall(func) {
+	callCounts.set(func, 0);
+	return function Wrapper(...args) {
+		callCounts.set(func, callCounts.get(func) + 1);
+		return func.call(this, ...args);
+	};
+}
 
-"use strict";
+/**
+ * Asserts that the unique node of the given type in the code is either
+ * in a loop or not in a loop.
+ * @param {string} code the code to check.
+ * @param {string} nodeType the type of the node to consider. The code
+ *      must have exactly one node of this type.
+ * @param {boolean} expectedInLoop the expected result for whether the
+ *      node is in a loop.
+ * @returns {void}
+ */
+function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
+	const results = [];
 
-//------------------------------------------------------------------------------
-// Requirements
-//------------------------------------------------------------------------------
+	linter.verify(code, {
+		plugins: {
+			test: {
+				rules: {
+					checker: {
+						create: mustCall(() => ({
+							[nodeType]: mustCall(node => {
+								results.push(astUtils.isInLoop(node));
+							}),
+						})),
+					},
+				},
+			},
+		},
+		rules: { "test/checker": "error" },
+	});
 
-const assert = require("chai").assert,
-	util = require("node:util"),
-	espree = require("espree"),
-	astUtils = require("../../../../lib/rules/utils/ast-utils"),
-	{ Linter } = require("../../../../lib/linter"),
-	{ SourceCode } = require("../../../../lib/languages/js/source-code");
-
-//------------------------------------------------------------------------------
-// Tests
-//------------------------------------------------------------------------------
-
-const ESPREE_CONFIG = {
-	ecmaVersion: 6,
-	comment: true,
-	tokens: true,
-	range: true,
-	loc: true,
-};
-const linter = new Linter();
+	assert.lengthOf(results, 1);
+	assert.strictEqual(results[0], expectedInLoop);
+}
 
 describe("ast-utils", () => {
 	let callCounts;
@@ -35,20 +51,6 @@ describe("ast-utils", () => {
 	beforeEach(() => {
 		callCounts = new Map();
 	});
-
-	/**
-	 * Asserts that a given function is called at least once during a test
-	 * @param {Function} func The function that must be called at least once
-	 * @returns {Function} A wrapper around the same function
-	 */
-	function mustCall(func) {
-		callCounts.set(func, 0);
-		return function Wrapper(...args) {
-			callCounts.set(func, callCounts.get(func) + 1);
-
-			return func.call(this, ...args);
-		};
-	}
 
 	afterEach(() => {
 		callCounts.forEach((callCount, func) => {
@@ -58,40 +60,6 @@ describe("ast-utils", () => {
 			);
 		});
 	});
-
-	/**
-	 * Asserts that the unique node of the given type in the code is either
-	 * in a loop or not in a loop.
-	 * @param {string} code the code to check.
-	 * @param {string} nodeType the type of the node to consider. The code
-	 *      must have exactly one node of this type.
-	 * @param {boolean} expectedInLoop the expected result for whether the
-	 *      node is in a loop.
-	 * @returns {void}
-	 */
-	function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
-		const results = [];
-
-		linter.verify(code, {
-			plugins: {
-				test: {
-					rules: {
-						checker: {
-							create: mustCall(() => ({
-								[nodeType]: mustCall(node => {
-									results.push(astUtils.isInLoop(node));
-								}),
-							})),
-						},
-					},
-				},
-			},
-			rules: { "test/checker": "error" },
-		});
-
-		assert.lengthOf(results, 1);
-		assert.strictEqual(results[0], expectedInLoop);
-	}
 
 	describe("ECMASCRIPT_GLOBALS", () => {
 		it("should contain es3 globals", () => {

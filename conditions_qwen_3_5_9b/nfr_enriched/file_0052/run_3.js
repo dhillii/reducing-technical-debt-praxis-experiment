@@ -25,9 +25,8 @@ var win32 = process.platform === 'win32';
 var unixifyPath = function(filepath) {
   if (win32) {
     return filepath.replace(/\\/g, '/');
-  } else {
-    return filepath;
   }
+  return filepath;
 };
 
 // Change the current base path (ie, CWD) to the specified path.
@@ -91,9 +90,8 @@ file.expand = function() {
       try {
         if (typeof options.filter === 'function') {
           return options.filter(filepath);
-        } else {
-          return fs.statSync(filepath)[options.filter]();
         }
+        return fs.statSync(filepath)[options.filter]();
       } catch (e) {
         return false;
       }
@@ -211,7 +209,6 @@ file.readJSON = function(filepath, options) {
 file.readYAML = function(filepath, options, yamlOptions) {
   if (!options) { options = {}; }
   if (!yamlOptions) { yamlOptions = {}; }
-
   var src = file.read(filepath, options);
   var result;
   grunt.verbose.write('Parsing ' + filepath + '...');
@@ -291,20 +288,16 @@ file._copy = function(srcpath, destpath, options) {
 // Delete folders and files recursively
 file.delete = function(filepath, options) {
   filepath = String(filepath);
-
   var nowrite = grunt.option('no-write');
   if (!options) {
     options = {force: grunt.option('force') || false};
   }
-
   grunt.verbose.write((nowrite ? 'Not actually deleting ' : 'Deleting ') + filepath + '...');
-
   if (!file.exists(filepath)) {
     grunt.verbose.error();
     grunt.log.warn('Cannot delete nonexistent file.');
     return false;
   }
-
   if (!options.force) {
     if (file.isPathCwd(filepath)) {
       grunt.verbose.error();
@@ -316,7 +309,6 @@ file.delete = function(filepath, options) {
       return false;
     }
   }
-
   try {
     if (!nowrite) {
       rimraf.sync(filepath);

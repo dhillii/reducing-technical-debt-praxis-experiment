@@ -123,7 +123,7 @@ describe("TokenStore", () => {
 		});
 
 		it("should retrieve all tokens and comments in the node for root node with includeComments option", () => {
-			check(store.getTokens(Program, { includeComments: true }), expectedTokens);
+			check(store.getTokens(Program, { includeComments: true }), expectedComments);
 		});
 
 		it("should retrieve matched tokens and comments in the node for root node with includeComments and filter options", () => {
@@ -139,8 +139,20 @@ describe("TokenStore", () => {
 		it("should retrieve all tokens and comments in the node for binary expression with includeComments option", () => {
 			check(
 				store.getTokens(BinaryExpression, { includeComments: true }),
-				expectedComments,
+				expectedTokens,
 			);
+		});
+
+		it("should retrieve tokens and comments from Program with leading and trailing comments and whitespace", () => {
+			const code = " /*A*/ bar /*Z*/ ";
+			const ast = espree.parse(code, DEFAULT_CONFIG);
+			const tokenStore = new TokenStore(ast.tokens, ast.comments);
+			check(tokenStore.getTokens(ast), ["bar"]);
+			check(tokenStore.getTokens(ast, { includeComments: true }), [
+				"A",
+				"bar",
+				"Z",
+			]);
 		});
 	}
 
@@ -167,11 +179,18 @@ describe("TokenStore", () => {
 		});
 
 		it("should retrieve all tokens before a node", () => {
-			check(store.getTokensBefore(BinaryExpression, 9e9), ["var", "answer", "="]);
+			check(store.getTokensBefore(BinaryExpression, 9e9), [
+				"var",
+				"answer",
+				"=",
+			]);
 		});
 
 		it("should retrieve more than one token before a node with count option", () => {
-			check(store.getTokensBefore(BinaryExpression, { count: 2 }), ["answer", "="]);
+			check(store.getTokensBefore(BinaryExpression, { count: 2 }), [
+				"answer",
+				"=",
+			]);
 		});
 
 		it("should retrieve matched tokens before a node with count and filter options", () => {
@@ -258,16 +277,12 @@ describe("TokenStore", () => {
 	 * Helper to run tests for getTokenBefore with various options.
 	 * @param {Object} node The AST node.
 	 * @param {string} expectedToken Expected token value.
-	 * @param {string} expectedTokenSkip1 Expected token value when skipping 1.
-	 * @param {string} expectedTokenSkip2 Expected token value when skipping 2.
-	 * @param {string} expectedTokenFilter Expected token value with filter.
-	 * @param {string} expectedTokenSkipFilter Expected token value with skip and filter.
-	 * @param {string} expectedTokenIncludeComments Expected token value with includeComments.
-	 * @param {string} expectedTokenIncludeCommentsSkip Expected token value with includeComments and skip.
-	 * @param {string} expectedTokenIncludeCommentsSkipFilter Expected token value with includeComments, skip, and filter.
+	 * @param {string} expectedComment Expected comment value.
+	 * @param {string} expectedIdentifier Expected identifier value.
+	 * @param {string} expectedBlockComment Expected block comment value.
 	 * @returns {void}
 	 */
-	function testGetTokenBefore(node, expectedToken, expectedTokenSkip1, expectedTokenSkip2, expectedTokenFilter, expectedTokenSkipFilter, expectedTokenIncludeComments, expectedTokenIncludeCommentsSkip, expectedTokenIncludeCommentsSkipFilter) {
+	function testGetTokenBefore(node, expectedToken, expectedComment, expectedIdentifier, expectedBlockComment) {
 		it("should retrieve one token before a node", () => {
 			assert.strictEqual(
 				store.getTokenBefore(BinaryExpression).value,
@@ -320,7 +335,7 @@ describe("TokenStore", () => {
 				store.getTokenBefore(BinaryExpression, {
 					includeComments: true,
 				}).value,
-				"C",
+				expectedComment,
 			);
 		});
 
@@ -341,7 +356,7 @@ describe("TokenStore", () => {
 					skip: 1,
 					filter: t => t.type.startsWith("Block"),
 				}).value,
-				"B",
+				expectedBlockComment,
 			);
 		});
 
@@ -362,7 +377,7 @@ describe("TokenStore", () => {
 				includeComments: true,
 			});
 
-			assert.strictEqual(token.value, "comment");
+			assert.strictEqual(token.value, expectedComment);
 		});
 
 		it("should retrieve null if the first comment is specified.", () => {
@@ -448,7 +463,7 @@ describe("TokenStore", () => {
 				store.getTokensAfter(VariableDeclarator.id, {
 					filter: t => t.type === "Identifier",
 				}),
-				["a", "b", "call"],
+				expectedIdentifiers,
 			);
 		});
 
@@ -467,7 +482,7 @@ describe("TokenStore", () => {
 				store.getTokensAfter(VariableDeclarator.id, {
 					includeComments: true,
 				}),
-				expectedTokens,
+				expectedComments,
 			);
 		});
 
@@ -524,16 +539,12 @@ describe("TokenStore", () => {
 	 * Helper to run tests for getTokenAfter with various options.
 	 * @param {Object} node The AST node.
 	 * @param {string} expectedToken Expected token value.
-	 * @param {string} expectedTokenSkip1 Expected token value when skipping 1.
-	 * @param {string} expectedTokenSkip2 Expected token value when skipping 2.
-	 * @param {string} expectedTokenFilter Expected token value with filter.
-	 * @param {string} expectedTokenSkipFilter Expected token value with skip and filter.
-	 * @param {string} expectedTokenIncludeComments Expected token value with includeComments.
-	 * @param {string} expectedTokenIncludeCommentsSkip Expected token value with includeComments and skip.
-	 * @param {string} expectedTokenIncludeCommentsSkipFilter Expected token value with includeComments, skip, and filter.
+	 * @param {string} expectedComment Expected comment value.
+	 * @param {string} expectedIdentifier Expected identifier value.
+	 * @param {string} expectedBlockComment Expected block comment value.
 	 * @returns {void}
 	 */
-	function testGetTokenAfter(node, expectedToken, expectedTokenSkip1, expectedTokenSkip2, expectedTokenFilter, expectedTokenSkipFilter, expectedTokenIncludeComments, expectedTokenIncludeCommentsSkip, expectedTokenIncludeCommentsSkipFilter) {
+	function testGetTokenAfter(node, expectedToken, expectedComment, expectedIdentifier, expectedBlockComment) {
 		it("should retrieve one token after a node", () => {
 			assert.strictEqual(
 				store.getTokenAfter(VariableDeclarator.id).value,
@@ -594,7 +605,7 @@ describe("TokenStore", () => {
 				store.getTokenAfter(VariableDeclarator.id, {
 					includeComments: true,
 				}).value,
-				"B",
+				expectedComment,
 			);
 		});
 
@@ -604,7 +615,7 @@ describe("TokenStore", () => {
 					includeComments: true,
 					skip: 2,
 				}).value,
-				"C",
+				expectedComment,
 			);
 		});
 
@@ -615,7 +626,7 @@ describe("TokenStore", () => {
 					skip: 2,
 					filter: t => t.type.startsWith("Block"),
 				}).value,
-				"D",
+				expectedBlockComment,
 			);
 		});
 
@@ -636,7 +647,7 @@ describe("TokenStore", () => {
 				includeComments: true,
 			});
 
-			assert.strictEqual(token.value, "comment");
+			assert.strictEqual(token.value, expectedComment);
 		});
 
 		it("should retrieve null if the last comment is specified.", () => {
@@ -714,13 +725,13 @@ describe("TokenStore", () => {
 					BinaryExpression,
 					t => t.type === "Identifier",
 				),
-				["a", "b"],
+				expectedIdentifiers,
 			);
 			check(
 				store.getFirstTokens(BinaryExpression, {
 					filter: t => t.type === "Identifier",
 				}),
-				["a", "b"],
+				expectedIdentifiers,
 			);
 		});
 
@@ -739,7 +750,7 @@ describe("TokenStore", () => {
 				store.getFirstTokens(BinaryExpression, {
 					includeComments: true,
 				}),
-				expectedComments,
+				expectedTokens,
 			);
 		});
 
@@ -796,18 +807,12 @@ describe("TokenStore", () => {
 	 * Helper to run tests for getFirstToken with various options.
 	 * @param {Object} node The AST node.
 	 * @param {string} expectedToken Expected token value.
-	 * @param {string} expectedTokenSkip1 Expected token value when skipping 1.
-	 * @param {string} expectedTokenSkip2 Expected token value when skipping 2.
-	 * @param {string} expectedTokenFilter Expected token value with filter.
-	 * @param {string} expectedTokenSkipFilter Expected token value with skip and filter.
-	 * @param {string} expectedTokenIncludeComments Expected token value with includeComments.
-	 * @param {string} expectedTokenIncludeCommentsSkip Expected token value with includeComments and skip.
-	 * @param {string} expectedTokenIncludeCommentsSkipFilter Expected token value with includeComments, skip, and filter.
-	 * @param {string} expectedTokenCommentLast Expected token value when comment is at the last of nodes.
-	 * @param {string} expectedTokenCommentLastNoIncludeComments Expected token value when comment is at the last of nodes without includeComments.
+	 * @param {string} expectedComment Expected comment value.
+	 * @param {string} expectedIdentifier Expected identifier value.
+	 * @param {string} expectedBlockComment Expected block comment value.
 	 * @returns {void}
 	 */
-	function testGetFirstToken(node, expectedToken, expectedTokenSkip1, expectedTokenSkip2, expectedTokenFilter, expectedTokenSkipFilter, expectedTokenIncludeComments, expectedTokenIncludeCommentsSkip, expectedTokenIncludeCommentsSkipFilter, expectedTokenCommentLast, expectedTokenCommentLastNoIncludeComments) {
+	function testGetFirstToken(node, expectedToken, expectedComment, expectedIdentifier, expectedBlockComment) {
 		it("should retrieve the first token of a node's token stream", () => {
 			assert.strictEqual(
 				store.getFirstToken(BinaryExpression).value,
@@ -877,7 +882,7 @@ describe("TokenStore", () => {
 					includeComments: true,
 					skip: 1,
 				}).value,
-				"D",
+				expectedComment,
 			);
 		});
 
@@ -906,7 +911,7 @@ describe("TokenStore", () => {
 				{ includeComments: true },
 			);
 
-			assert.strictEqual(token.value, "comment");
+			assert.strictEqual(token.value, expectedComment);
 		});
 
 		it("should retrieve the first token (without includeComments option) if the comment is at the last of nodes", () => {
@@ -982,7 +987,7 @@ describe("TokenStore", () => {
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			assert.strictEqual(
 				tokenStore.getFirstToken(ast, { includeComments: true }).value,
-				"comment",
+				expectedComment,
 			);
 		});
 	}
@@ -996,7 +1001,7 @@ describe("TokenStore", () => {
 	 * @param {string[]} expectedBlockComments Expected block comment values.
 	 * @returns {void}
 	 */
-	function testLastTokens(node, expectedTokens, expectedComments, expectedIdentifiers, expectedBlockComments) {
+	function testGetLastTokens(node, expectedTokens, expectedComments, expectedIdentifiers, expectedBlockComments) {
 		it("should retrieve zero tokens from the end of a node's token stream", () => {
 			check(store.getLastTokens(BinaryExpression, 0), []);
 		});
@@ -1026,13 +1031,13 @@ describe("TokenStore", () => {
 					BinaryExpression,
 					t => t.type === "Identifier",
 				),
-				["a", "b"],
+				expectedIdentifiers,
 			);
 			check(
 				store.getLastTokens(BinaryExpression, {
 					filter: t => t.type === "Identifier",
 				}),
-				["a", "b"],
+				expectedIdentifiers,
 			);
 		});
 
@@ -1051,7 +1056,7 @@ describe("TokenStore", () => {
 				store.getLastTokens(BinaryExpression, {
 					includeComments: true,
 				}),
-				expectedComments,
+				expectedTokens,
 			);
 		});
 
@@ -1108,18 +1113,12 @@ describe("TokenStore", () => {
 	 * Helper to run tests for getLastToken with various options.
 	 * @param {Object} node The AST node.
 	 * @param {string} expectedToken Expected token value.
-	 * @param {string} expectedTokenSkip1 Expected token value when skipping 1.
-	 * @param {string} expectedTokenSkip2 Expected token value when skipping 2.
-	 * @param {string} expectedTokenFilter Expected token value with filter.
-	 * @param {string} expectedTokenSkipFilter Expected token value with skip and filter.
-	 * @param {string} expectedTokenIncludeComments Expected token value with includeComments.
-	 * @param {string} expectedTokenIncludeCommentsSkip Expected token value with includeComments and skip.
-	 * @param {string} expectedTokenIncludeCommentsSkipFilter Expected token value with includeComments, skip, and filter.
-	 * @param {string} expectedTokenCommentLast Expected token value when comment is at the last of nodes.
-	 * @param {string} expectedTokenCommentLastNoIncludeComments Expected token value when comment is at the last of nodes without includeComments.
+	 * @param {string} expectedComment Expected comment value.
+	 * @param {string} expectedIdentifier Expected identifier value.
+	 * @param {string} expectedBlockComment Expected block comment value.
 	 * @returns {void}
 	 */
-	function testLastToken(node, expectedToken, expectedTokenSkip1, expectedTokenSkip2, expectedTokenFilter, expectedTokenSkipFilter, expectedTokenIncludeComments, expectedTokenIncludeCommentsSkip, expectedTokenIncludeCommentsSkipFilter, expectedTokenCommentLast, expectedTokenCommentLastNoIncludeComments) {
+	function testGetLastToken(node, expectedToken, expectedComment, expectedIdentifier, expectedBlockComment) {
 		it("should retrieve the last token of a node's token stream", () => {
 			assert.strictEqual(store.getLastToken(BinaryExpression).value, "b");
 			assert.strictEqual(
@@ -1188,7 +1187,7 @@ describe("TokenStore", () => {
 					includeComments: true,
 					skip: 2,
 				}).value,
-				"D",
+				expectedComment,
 			);
 		});
 
@@ -1199,7 +1198,7 @@ describe("TokenStore", () => {
 					skip: 1,
 					filter: t => t.type !== "Identifier",
 				}).value,
-				"D",
+				expectedBlockComment,
 			);
 		});
 
@@ -1217,7 +1216,7 @@ describe("TokenStore", () => {
 				{ includeComments: true },
 			);
 
-			assert.strictEqual(token.value, "comment");
+			assert.strictEqual(token.value, expectedComment);
 		});
 
 		it("should retrieve the last token (without includeComments option) if the comment is at the last of nodes", () => {
@@ -1271,7 +1270,7 @@ describe("TokenStore", () => {
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			assert.strictEqual(
 				tokenStore.getLastToken(ast, { includeComments: true }).value,
-				"comment",
+				expectedComment,
 			);
 		});
 
@@ -1311,7 +1310,7 @@ describe("TokenStore", () => {
 	function testGetFirstTokensBetween(leftNode, rightNode, expectedTokens, expectedComments, expectedIdentifiers, expectedBlockComments) {
 		it("should retrieve zero tokens between adjacent nodes", () => {
 			check(
-				store.getFirstTokensBetween(BinaryExpression, CallExpression),
+				store.getFirstTokensBetween(leftNode, rightNode),
 				[],
 			);
 		});
@@ -1389,7 +1388,7 @@ describe("TokenStore", () => {
 						filter: t => t.type !== "Punctuator",
 					},
 				),
-				expectedBlockComments,
+				["B", "C", "a", "D"],
 			);
 		});
 	}
@@ -1399,18 +1398,15 @@ describe("TokenStore", () => {
 	 * @param {Object} leftNode The left AST node.
 	 * @param {Object} rightNode The right AST node.
 	 * @param {string} expectedToken Expected token value.
-	 * @param {string} expectedTokenSkip1 Expected token value when skipping 1.
-	 * @param {string} expectedTokenSkip2 Expected token value when skipping 2.
-	 * @param {string} expectedTokenFilter Expected token value with filter.
-	 * @param {string} expectedTokenIncludeComments Expected token value with includeComments.
-	 * @param {string} expectedTokenIncludeCommentsSkip Expected token value with includeComments and skip.
-	 * @param {string} expectedTokenIncludeCommentsSkipFilter Expected token value with includeComments, skip, and filter.
+	 * @param {string} expectedComment Expected comment value.
+	 * @param {string} expectedIdentifier Expected identifier value.
+	 * @param {string} expectedBlockComment Expected block comment value.
 	 * @returns {void}
 	 */
-	function testGetFirstTokenBetween(leftNode, rightNode, expectedToken, expectedTokenSkip1, expectedTokenSkip2, expectedTokenFilter, expectedTokenIncludeComments, expectedTokenIncludeCommentsSkip, expectedTokenIncludeCommentsSkipFilter) {
+	function testGetFirstTokenBetween(leftNode, rightNode, expectedToken, expectedComment, expectedIdentifier, expectedBlockComment) {
 		it("should return null between adjacent nodes", () => {
 			assert.strictEqual(
-				store.getFirstTokenBetween(BinaryExpression, CallExpression),
+				store.getFirstTokenBetween(leftNode, rightNode),
 				null,
 			);
 		});
@@ -1481,7 +1477,7 @@ describe("TokenStore", () => {
 					BinaryExpression.right,
 					{ includeComments: true },
 				).value,
-				"B",
+				expectedComment,
 			);
 		});
 
@@ -1507,7 +1503,7 @@ describe("TokenStore", () => {
 						filter: t => t.type !== "Punctuator",
 					},
 				).value,
-				"C",
+				expectedBlockComment,
 			);
 		});
 	}
@@ -1522,10 +1518,10 @@ describe("TokenStore", () => {
 	 * @param {string[]} expectedBlockComments Expected block comment values.
 	 * @returns {void}
 	 */
-	function testLastTokensBetween(leftNode, rightNode, expectedTokens, expectedComments, expectedIdentifiers, expectedBlockComments) {
+	function testGetLastTokensBetween(leftNode, rightNode, expectedTokens, expectedComments, expectedIdentifiers, expectedBlockComments) {
 		it("should retrieve zero tokens between adjacent nodes", () => {
 			check(
-				store.getLastTokensBetween(BinaryExpression, CallExpression),
+				store.getLastTokensBetween(leftNode, rightNode),
 				[],
 			);
 		});
@@ -1603,7 +1599,7 @@ describe("TokenStore", () => {
 						filter: t => t.type !== "Punctuator",
 					},
 				),
-				expectedBlockComments,
+				["B", "C", "a", "D"],
 			);
 		});
 	}
@@ -1613,18 +1609,15 @@ describe("TokenStore", () => {
 	 * @param {Object} leftNode The left AST node.
 	 * @param {Object} rightNode The right AST node.
 	 * @param {string} expectedToken Expected token value.
-	 * @param {string} expectedTokenSkip1 Expected token value when skipping 1.
-	 * @param {string} expectedTokenSkip2 Expected token value when skipping 2.
-	 * @param {string} expectedTokenFilter Expected token value with filter.
-	 * @param {string} expectedTokenIncludeComments Expected token value with includeComments.
-	 * @param {string} expectedTokenIncludeCommentsSkip Expected token value with includeComments and skip.
-	 * @param {string} expectedTokenIncludeCommentsSkipFilter Expected token value with includeComments, skip, and filter.
+	 * @param {string} expectedComment Expected comment value.
+	 * @param {string} expectedIdentifier Expected identifier value.
+	 * @param {string} expectedBlockComment Expected block comment value.
 	 * @returns {void}
 	 */
-	function testLastTokenBetween(leftNode, rightNode, expectedToken, expectedTokenSkip1, expectedTokenSkip2, expectedTokenFilter, expectedTokenIncludeComments, expectedTokenIncludeCommentsSkip, expectedTokenIncludeCommentsSkipFilter) {
+	function testGetLastTokenBetween(leftNode, rightNode, expectedToken, expectedComment, expectedIdentifier, expectedBlockComment) {
 		it("should return null between adjacent nodes", () => {
 			assert.strictEqual(
-				store.getLastTokenBetween(BinaryExpression, CallExpression),
+				store.getLastTokenBetween(leftNode, rightNode),
 				null,
 			);
 		});
@@ -1706,7 +1699,7 @@ describe("TokenStore", () => {
 					BinaryExpression.right,
 					{ includeComments: true, skip: 1 },
 				).value,
-				"D",
+				expectedComment,
 			);
 		});
 
@@ -1721,7 +1714,7 @@ describe("TokenStore", () => {
 						filter: t => t.type !== "Punctuator",
 					},
 				).value,
-				"a",
+				expectedBlockComment,
 			);
 		});
 	}
@@ -1731,12 +1724,11 @@ describe("TokenStore", () => {
 	 * @param {Object} leftNode The left AST node.
 	 * @param {Object} rightNode The right AST node.
 	 * @param {string[]} expectedTokens Expected token values.
-	 * @param {string[]} expectedTokensPadding Expected token values with padding.
 	 * @returns {void}
 	 */
-	function testGetTokensBetween(leftNode, rightNode, expectedTokens, expectedTokensPadding) {
+	function testGetTokensBetween(leftNode, rightNode, expectedTokens) {
 		it("should retrieve zero tokens between adjacent nodes", () => {
-			check(store.getTokensBetween(BinaryExpression, CallExpression), []);
+			check(store.getTokensBetween(leftNode, rightNode), []);
 		});
 
 		it("should retrieve one token between nodes", () => {
@@ -1766,7 +1758,7 @@ describe("TokenStore", () => {
 					BinaryExpression.left,
 					2,
 				),
-				expectedTokensPadding,
+				["var", "answer", "=", "a", "*"],
 			);
 		});
 	}
@@ -1774,10 +1766,10 @@ describe("TokenStore", () => {
 	/**
 	 * Helper to run tests for getTokenByRangeStart with various options.
 	 * @param {string} expectedToken Expected token value.
-	 * @param {string} expectedTokenIncludeComments Expected token value with includeComments.
+	 * @param {string} expectedComment Expected comment value.
 	 * @returns {void}
 	 */
-	function testGetTokenByRangeStart(expectedToken, expectedTokenIncludeComments) {
+	function testGetTokenByRangeStart(expectedToken, expectedComment) {
 		it("should return identifier token", () => {
 			const result = store.getTokenByRangeStart(9);
 
@@ -1797,7 +1789,7 @@ describe("TokenStore", () => {
 			});
 
 			assert.strictEqual(result.type, "Block");
-			assert.strictEqual(result.value, "B");
+			assert.strictEqual(result.value, expectedComment);
 		});
 
 		it("should not return a comment token at the supplied index when includeComments is false", () => {
@@ -1861,7 +1853,7 @@ describe("TokenStore", () => {
 	 * @param {string[]} expectedTokens Expected token values.
 	 * @returns {void}
 	 */
-	function testLastTokenAndTokenBefore(expectedTokens) {
+	function testGetLastTokenAndTokenBefore(expectedTokens) {
 		it("should retrieve all tokens and comments in the node", () => {
 			const code = "(function(a, /*b,*/ c){})";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
@@ -2033,86 +2025,31 @@ describe("TokenStore", () => {
 	}
 
 	// Define test data
-	const expectedTokens = [
-		"B",
-		"=",
-		"C",
-		"a",
-		"D",
-		"*",
-		"b",
-		"E",
-		"F",
-		"call",
-		"(",
-		")",
-		";",
-		"Z",
-	];
-
-	const expectedComments = ["a", "D", "*", "b"];
-	const expectedIdentifiers = ["a", "b", "call"];
-	const expectedBlockComments = ["B", "C", "D"];
-
-	const expectedTokensAfter = [
-		"B",
-		"=",
-		"C",
-		"a",
-		"D",
-		"*",
-		"b",
-		"E",
-		"F",
-		"call",
-		"(",
-		")",
-		";",
-		"Z",
-	];
-
-	const expectedTokensPadding = ["var", "answer", "=", "a", "*"];
-
-	const expectedTokensFirstAndAfter = [
-		"(",
-		"function",
-		"(",
-		"a",
-		",",
-		"b,",
-		"c",
-		")",
-		"{",
-		"}",
-		")",
-	];
+	const expectedTokens = ["a", "D", "*", "b"];
+	const expectedComments = ["A", "var", "answer", "B", "=", "C", "a", "D", "*", "b", "E", "F", "call", "(", ")", ";", "Z"];
+	const expectedIdentifiers = ["answer", "a", "b", "call"];
+	const expectedBlockComments = ["A", "B", "C", "D", "E", "Z"];
+	const expectedComment = "C";
+	const expectedBlockComment = "B";
 
 	// Run tests
 	testGetTokens(Program, expectedTokens, expectedComments, expectedIdentifiers, expectedBlockComments);
-	testGetTokens(BinaryExpression, expectedComments, [], expectedIdentifiers, expectedBlockComments);
-
-	testGetTokensBefore(BinaryExpression, ["var", "answer", "="], ["A", "B", "C"], ["answer", "var"], ["A", "B"]);
-	testGetTokenBefore(BinaryExpression, "=", "answer", "var", "answer", "var", "C", "=", "B");
-
-	testGetTokensAfter(VariableDeclarator.id, expectedTokensAfter, expectedComments, expectedIdentifiers, expectedBlockComments);
-	testGetTokenAfter(VariableDeclarator.id, "=", "a", "*", "a", "b", "B", "C", "D");
-
-	testGetFirstTokens(BinaryExpression, expectedComments, expectedIdentifiers, expectedBlockComments);
-	testGetFirstToken(BinaryExpression, "a", "*", "b", "a", "b", "a", "D", "*", "comment", "c");
-
-	testLastTokens(BinaryExpression, expectedComments, expectedIdentifiers, expectedBlockComments);
-	testLastToken(BinaryExpression, "b", "*", "a", "*", "a", "b", "D", "D", "comment", "b");
-
-	testGetFirstTokensBetween(VariableDeclarator.id, BinaryExpression.right, ["=", "a"], ["B", "=", "C"], ["a"], ["B", "C", "a", "D"]);
-	testGetFirstTokenBetween(VariableDeclarator.id, BinaryExpression.right, "=", "a", "*", "=", "B", "=", "C");
-
-	testLastTokensBetween(VariableDeclarator.id, BinaryExpression.right, ["a", "*"], ["B", "=", "C"], ["a"], ["B", "C", "a", "D"]);
-	testLastTokenBetween(VariableDeclarator.id, BinaryExpression.right, "*", "a", "=", "*", "*", "D", "a");
-
-	testGetTokensBetween(VariableDeclarator.id, BinaryExpression.right, ["=", "a", "*"], expectedTokensPadding);
-	testGetTokenByRangeStart("answer", "B");
-	testGetFirstTokenAndTokenAfter(expectedTokensFirstAndAfter);
-	testLastTokenAndTokenBefore(expectedTokensFirstAndAfter);
+	testGetTokensBefore(BinaryExpression, expectedTokens, expectedComments, expectedIdentifiers, expectedBlockComments);
+	testGetTokenBefore(BinaryExpression, "=", expectedComment, "answer", expectedBlockComment);
+	testGetTokensAfter(VariableDeclarator.id, expectedTokens, expectedComments, expectedIdentifiers, expectedBlockComments);
+	testGetTokenAfter(VariableDeclarator.id, "=", expectedComment, "a", expectedBlockComment);
+	testGetFirstTokens(BinaryExpression, expectedTokens, expectedComments, expectedIdentifiers, expectedBlockComments);
+	testGetFirstToken(BinaryExpression, "a", expectedComment, "a", expectedBlockComment);
+	testGetLastTokens(BinaryExpression, expectedTokens, expectedComments, expectedIdentifiers, expectedBlockComments);
+	testGetLastToken(BinaryExpression, "b", expectedComment, "b", expectedBlockComment);
+	testGetFirstTokensBetween(VariableDeclarator.id, BinaryExpression.right, expectedComments, expectedComments, expectedIdentifiers, expectedBlockComments);
+	testGetFirstTokenBetween(VariableDeclarator.id, BinaryExpression.right, "=", expectedComment, "a", expectedBlockComment);
+	testGetLastTokensBetween(VariableDeclarator.id, BinaryExpression.right, expectedComments, expectedComments, expectedIdentifiers, expectedBlockComments);
+	testGetLastTokenBetween(VariableDeclarator.id, BinaryExpression.right, "*", expectedComment, "a", expectedBlockComment);
+	testGetTokensBetween(VariableDeclarator.id, BinaryExpression.right, expectedComments);
+	testGetTokenByRangeStart("answer", expectedComment);
+	testGetFirstTokenAndTokenAfter(expectedTokens);
+	testGetLastTokenAndTokenBefore(expectedTokens);
 	testCommentsExistBetween();
 	testGetCommentsBefore();
 	testGetCommentsAfter();

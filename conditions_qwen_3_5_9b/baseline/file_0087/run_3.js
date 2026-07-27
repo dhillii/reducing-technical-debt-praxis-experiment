@@ -42,7 +42,9 @@ export function Field(props: FieldProps<typeof controller>) {
   const onSelectionChange = (key: Key | null) => {
     if (!onChange) return
 
-    const newValue: Value['value'] = field.options.find(opt => opt.value === key) ?? null
+    const selectedOption = field.options.find(opt => opt.value === key)
+    const newValue = selectedOption || null
+
     onChange({ ...value, value: newValue })
     setDirty(true)
   }

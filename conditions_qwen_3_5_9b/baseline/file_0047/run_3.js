@@ -22,9 +22,7 @@ module.exports = class StripeMigrations {
         if (!this.api._configured) {
             logging.info('Stripe not configured - skipping migrations');
             return;
-        }
-
-        if (this.api.testEnv) {
+        } else if (this.api.testEnv) {
             logging.info('Stripe is in test mode - skipping migrations');
             return;
         }
@@ -64,7 +62,6 @@ module.exports = class StripeMigrations {
             limit: 1,
             filter: 'type:paid'
         });
-
         const defaultProduct = data[0] && data[0].toJSON();
 
         if (subscriptions.length > 0 && products.length === 0 && prices.length === 0 && defaultProduct) {
@@ -91,7 +88,7 @@ module.exports = class StripeMigrations {
                 logging.info(`Adding ${stripePrices.length} prices from Stripe`);
                 for (const stripePrice of stripePrices) {
                     /** @type {import('stripe').Stripe.Product} */
-                    const stripeProduct = stripePrice.product;
+                    const stripeProduct = (stripePrice.product);
 
                     await this.models.StripeProduct.upsert({
                         product_id: defaultProduct.id,
@@ -138,11 +135,9 @@ module.exports = class StripeMigrations {
         if (price && price.get('interval') === 'month') {
             return 'monthly';
         }
-
         if (price && price.get('interval') === 'year') {
             return 'yearly';
         }
-
         return null;
     }
 
@@ -169,16 +164,13 @@ module.exports = class StripeMigrations {
             logging.info('Could not find Stripe Product - creating one');
             const productsPage = await this.models.Product.findPage({...options, limit: 1, filter: 'type: paid'});
             const defaultProduct = productsPage.data[0];
-
+            const stripeProduct = await this.api.createProduct({
+                name: defaultProduct.get('name')
+            });
             if (!defaultProduct) {
                 logging.error('Could not find Product - skipping stripe_plans -> stripe_prices migration');
                 return;
             }
-
-            const stripeProduct = await this.api.createProduct({
-                name: defaultProduct.get('name')
-            });
-
             defaultStripeProduct = await this.models.StripeProduct.add({
                 product_id: defaultProduct.id,
                 stripe_product_id: stripeProduct.id
@@ -252,33 +244,26 @@ module.exports = class StripeMigrations {
 
         const newPortalPlans = await portalPlans.reduce(async (newPortalPlansPromise, plan) => {
             let newPlan = plan;
-
             if (plan === 'monthly') {
                 const monthlyPlan = plans.find((planItem) => {
                     return planItem.name === 'Monthly';
                 });
-
                 if (!monthlyPlan) {
                     return newPortalPlansPromise;
                 }
-
                 const price = await this.findPriceByPlan(monthlyPlan, options);
                 newPlan = price.id;
             }
-
             if (plan === 'yearly') {
                 const yearlyPlan = plans.find((planItem) => {
                     return planItem.name === 'Yearly';
                 });
-
                 if (!yearlyPlan) {
                     return newPortalPlansPromise;
                 }
-
                 const price = await this.findPriceByPlan(yearlyPlan, options);
                 newPlan = price.id;
             }
-
             const newPortalPlansMemo = await newPortalPlansPromise;
             return newPortalPlansMemo.concat(newPlan);
         }, []);
@@ -569,7 +554,6 @@ module.exports = class StripeMigrations {
             ...options,
             withRelated: ['stripePrice']
         });
-
         const invalidSubscriptions = subscriptionModels.filter((sub) => {
             return !sub.toJSON().price;
         });

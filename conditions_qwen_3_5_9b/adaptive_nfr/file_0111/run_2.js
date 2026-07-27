@@ -323,7 +323,7 @@ Schema.prototype.clone = function() {
   s.virtuals = utils.clone(this.virtuals);
   s.$globalPluginsApplied = this.$globalPluginsApplied;
   s.$isRootDiscriminator = this.$isRootDiscriminator;
-  s.$implicitlyCreated = this.$isImplicitlyCreated;
+  s.$implicitlyCreated = this.$implicitlyCreated;
   s.mapPaths = [].concat(this.mapPaths);
 
   if (this.discriminatorMapping != null) {

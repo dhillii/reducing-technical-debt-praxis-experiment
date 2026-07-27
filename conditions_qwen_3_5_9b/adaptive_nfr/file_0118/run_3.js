@@ -50,38 +50,31 @@ JSON5.parse = (function () {
         return text.charAt(at);
     };
 
-    var isIdentifierStart = function () {
-        return (ch === '_' || ch === '$') ||
-            (ch >= 'a' && ch <= 'z') ||
-            (ch >= 'A' && ch <= 'Z');
+    var isIdentifierStart = function (char) {
+        return char === '_' || char === '$' || (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z');
     };
 
-    var isIdentifierPart = function () {
-        return ch === '_' || ch === '$' ||
-            (ch >= 'a' && ch <= 'z') ||
-            (ch >= 'A' && ch <= 'Z') ||
-            (ch >= '0' && ch <= '9');
+    var isIdentifierPart = function (char) {
+        return char === '_' || char === '$' || (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9');
     };
 
     var identifier = function () {
         var key = ch;
-        if (!isIdentifierStart()) {
+        if (!isIdentifierStart(ch)) {
             error("Bad identifier");
         }
-        while (next() && isIdentifierPart()) {
+        while (next() && isIdentifierPart(ch)) {
             key += ch;
         }
         return key;
     };
 
-    var isDigit = function () {
-        return ch >= '0' && ch <= '9';
+    var isDigit = function (char) {
+        return char >= '0' && char <= '9';
     };
 
-    var isHexDigit = function () {
-        return isDigit() ||
-            (ch >= 'A' && ch <= 'F') ||
-            (ch >= 'a' && ch <= 'f');
+    var isHexDigit = function (char) {
+        return isDigit(char) || (char >= 'A' && char <= 'F') || (char >= 'a' && char <= 'f');
     };
 
     var number = function () {
@@ -118,20 +111,20 @@ JSON5.parse = (function () {
                 string += ch;
                 next();
                 base = 16;
-            } else if (isDigit()) {
+            } else if (isDigit(ch)) {
                 error('Octal literal');
             }
         }
 
         switch (base) {
         case 10:
-            while (isDigit()) {
+            while (isDigit(ch)) {
                 string += ch;
                 next();
             }
             if (ch === '.') {
                 string += '.';
-                while (next() && isDigit()) {
+                while (next() && isDigit(ch)) {
                     string += ch;
                 }
             }
@@ -142,14 +135,14 @@ JSON5.parse = (function () {
                     string += ch;
                     next();
                 }
-                while (isDigit()) {
+                while (isDigit(ch)) {
                     string += ch;
                     next();
                 }
             }
             break;
         case 16:
-            while (isHexDigit()) {
+            while (isHexDigit(ch)) {
                 string += ch;
                 next();
             }
@@ -311,37 +304,35 @@ JSON5.parse = (function () {
 
     var value;
 
-    var isArray = function () {
-        return ch === '[';
-    };
-
-    var isObject = function () {
+    var isObjectStart = function () {
         return ch === '{';
     };
 
-    var isString = function () {
+    var isArrayStart = function () {
+        return ch === '[';
+    };
+
+    var isStringStart = function () {
         return ch === '"' || ch === "'";
     };
 
     var isNumberStart = function () {
-        return ch === '-' || ch === '+' || ch === '.' || (ch >= '0' && ch <= '9');
+        return ch === '-' || ch === '+' || ch === '.';
     };
 
     var isDigitStart = function () {
         return ch >= '0' && ch <= '9';
     };
 
-    var isWord = function () {
-        return ch >= 'a' && ch <= 'z' ||
-            ch >= 'A' && ch <= 'Z' ||
-            ch >= '0' && ch <= '9';
+    var isWord = function (char) {
+        return isIdentifierStart(char);
     };
 
     var array = function () {
         var array = [];
 
-        if (isArray()) {
-            next('[');
+        if (isObjectStart()) {
+            next('{');
             white();
             while (ch) {
                 if (ch === ']') {
@@ -369,7 +360,7 @@ JSON5.parse = (function () {
         var key,
             object = {};
 
-        if (isObject()) {
+        if (isObjectStart()) {
             next('{');
             white();
             while (ch) {
@@ -378,7 +369,7 @@ JSON5.parse = (function () {
                     return object;
                 }
 
-                if (isString()) {
+                if (isStringStart()) {
                     key = string();
                 } else {
                     key = identifier();
@@ -401,16 +392,19 @@ JSON5.parse = (function () {
 
     value = function () {
         white();
-        if (isArray()) {
-            return array();
-        }
-        if (isObject()) {
+        if (isObjectStart()) {
             return object();
         }
-        if (isString()) {
+        if (isArrayStart()) {
+            return array();
+        }
+        if (isStringStart()) {
             return string();
         }
         if (isNumberStart()) {
+            return number();
+        }
+        if (isDigitStart()) {
             return number();
         }
         return word();
@@ -498,6 +492,8 @@ JSON5.stringify = function (obj, replacer, space) {
         }
         return true;
     }
+
+    JSON5.isWord = isWord;
 
     function isArray(obj) {
         if (Array.isArray) {

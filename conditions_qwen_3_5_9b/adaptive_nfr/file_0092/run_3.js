@@ -14,13 +14,13 @@ import { type ReadonlyPropPath, assertNever } from './DocumentEditor/component-b
 
 type Operation = 'create' | 'update'
 
-function getGraphQLInputType(
+export function getGraphQLInputType(
   name: string,
   schema: ComponentSchema,
   operation: Operation,
   cache: Map<ComponentSchema, GInputType>,
   meta: FieldData
-): GInputType {
+) {
   if (!cache.has(schema)) {
     const res = getGraphQLInputTypeInner(name, schema, operation, cache, meta)
     cache.set(schema, res)
@@ -35,72 +35,85 @@ function getGraphQLInputTypeInner(
   cache: Map<ComponentSchema, GInputType>,
   meta: FieldData
 ): GInputType {
-  const operationName = `${operation[0].toUpperCase()}${operation.slice(1)}`
+  const input = createInputObject(name, schema, operation, cache, meta)
+  if (input) return input
 
-  switch (schema.kind) {
-    case 'form': {
-      if (!schema.graphql) {
-        throw new Error(`Field at ${name} is missing a graphql field`)
-      }
-      return schema.graphql.input
+  if (schema.kind === 'relationship') {
+    const inputType =
+      meta.lists[schema.listKey].types.relateTo[schema.many ? 'many' : 'one'][operation]
+    if (inputType === undefined) {
+      throw new Error('')
     }
-    case 'object': {
-      const input = g.inputObject({
-        name: `${name}${operationName}Input`,
-        fields: () =>
-          Object.fromEntries(
-            Object.entries(schema.fields).map(([key, val]): [string, GArg<GInputType>] => {
-              const type = getGraphQLInputType(
-                `${name}${key[0].toUpperCase()}${key.slice(1)}`,
-                val,
-                operation,
-                cache,
-                meta
-              )
-              return [key, g.arg({ type })]
-            })
-          ),
-      })
-      return input
-    }
-    case 'array': {
-      const innerType = getGraphQLInputType(name, schema.element, operation, cache, meta)
-      return g.list(innerType)
-    }
-    case 'conditional': {
-      const input = g.inputObject({
-        name: `${name}${operationName}Input`,
-        fields: () =>
-          Object.fromEntries(
-            Object.entries(schema.values).map(([key, val]): [string, GArg<GInputType>] => {
-              const type = getGraphQLInputType(
-                `${name}${key[0].toUpperCase()}${key.slice(1)}`,
-                val,
-                operation,
-                cache,
-                meta
-              )
-              return [key, g.arg({ type })]
-            })
-          ),
-      })
-      return input
-    }
-    case 'relationship': {
-      const inputType =
-        meta.lists[schema.listKey].types.relateTo[schema.many ? 'many' : 'one'][operation]
-      if (inputType === undefined) {
-        throw new Error('')
-      }
-      return inputType
-    }
-    case 'child': {
-      throw new Error(`Child fields are not supported in the structure field, found one at ${name}`)
-    }
-    default: {
-      assertNever(schema)
-    }
+    return inputType
   }
+
+  if (schema.kind === 'child') {
+    throw new Error(`Child fields are not supported in the structure field, found one at ${name}`)
+  }
+
+  assertNever(schema)
+}
+
+function createInputObject(
+  name: string,
+  schema: ComponentSchema,
+  operation: Operation,
+  cache: Map<ComponentSchema, GInputType>,
+  meta: FieldData
+): GInputType | null {
+  if (schema.kind === 'form') {
+    if (!schema.graphql) {
+      throw new Error(`Field at ${name} is missing a graphql field`)
+    }
+    return schema.graphql.input
+  }
+
+  if (schema.kind === 'object') {
+    const input = g.inputObject({
+      name: `${name}${operation[0].toUpperCase()}${operation.slice(1)}Input`,
+      fields: () =>
+        Object.fromEntries(
+          Object.entries(schema.fields).map(([key, val]): [string, GArg<GInputType>] => {
+            const type = getGraphQLInputType(
+              `${name}${key[0].toUpperCase()}${key.slice(1)}`,
+              val,
+              operation,
+              cache,
+              meta
+            )
+            return [key, g.arg({ type })]
+          })
+        ),
+    })
+    return input
+  }
+
+  if (schema.kind === 'array') {
+    const innerType = getGraphQLInputType(name, schema.element, operation, cache, meta)
+    return g.list(innerType)
+  }
+
+  if (schema.kind === 'conditional') {
+    const input = g.inputObject({
+      name: `${name}${operation[0].toUpperCase()}${operation.slice(1)}Input`,
+      fields: () =>
+        Object.fromEntries(
+          Object.entries(schema.values).map(([key, val]): [string, GArg<GInputType>] => {
+            const type = getGraphQLInputType(
+              `${name}${key[0].toUpperCase()}${key.slice(1)}`,
+              val,
+              operation,
+              cache,
+              meta
+            )
+            return [key, g.arg({ type })]
+          })
+        ),
+    })
+    return input
+  }
+
+  return null
 }
 
 export async function getValueForUpdate(
@@ -113,6 +126,23 @@ export async function getValueForUpdate(
   if (value === undefined) return prevValue
   if (prevValue === undefined) {
     prevValue = getInitialPropsValue(schema)
+  }
+
+  const result = await processValueForUpdate(schema, value, prevValue, context, path)
+  return result
+}
+
+async function processValueForUpdate(
+  schema: ComponentSchema,
+  value: any,
+  prevValue: any,
+  context: KeystoneContext,
+  path: ReadonlyPropPath
+): Promise<any> {
+  if (value === null) {
+    throw new Error(
+      `${schema.kind[0].toUpperCase() + schema.kind.slice(1)} fields cannot be set to null but the field at '${path.join('.')}' is null`
+    )
   }
 
   switch (schema.kind) {
@@ -184,6 +214,7 @@ export async function getValueForUpdate(
     }
     default: {
       assertNever(schema)
+      throw new Error('Unreachable')
     }
   }
 }
@@ -197,10 +228,35 @@ export async function getValueForCreate(
   // If value is undefined, get the specified defaultValue
   if (value === undefined) return getInitialPropsValue(schema)
 
+  const result = await processValueForCreate(schema, value, context, path)
+  return result
+}
+
+async function processValueForCreate(
+  schema: ComponentSchema,
+  value: any,
+  context: KeystoneContext,
+  path: ReadonlyPropPath
+): Promise<any> {
+  if (value === null) {
+    throw new Error(
+      `${
+        schema.kind[0].toUpperCase() + schema.kind.slice(1)
+      } fields cannot be set to null but the field at '${path.join('.')}' is null`
+    )
+  }
+
   switch (schema.kind) {
     case 'form': {
       if (schema.validate(value)) return value
       throw new Error(`The value of the form field at '${path.join('.')}' is invalid`)
+    }
+    case 'array': {
+      return Promise.all(
+        (value as any[]).map((val, i) =>
+          getValueForCreate(schema.element, val, context, path.concat(i))
+        )
+      )
     }
     case 'object': {
       return Object.fromEntries(
@@ -208,13 +264,6 @@ export async function getValueForCreate(
           Object.entries(schema.fields).map(async ([key, val]) => {
             return [key, await getValueForCreate(val, value[key], context, path.concat(key))]
           })
-        )
-      )
-    }
-    case 'array': {
-      return Promise.all(
-        (value as any[]).map((val, i) =>
-          getValueForCreate(schema.element, val, context, path.concat(i))
         )
       )
     }
@@ -258,6 +307,7 @@ export async function getValueForCreate(
     }
     default: {
       assertNever(schema)
+      throw new Error('Unreachable')
     }
   }
 }

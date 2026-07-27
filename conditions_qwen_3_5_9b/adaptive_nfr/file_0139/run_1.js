@@ -17,19 +17,21 @@ const jwt = require('jsonwebtoken');
 /**
  * Connect thanks to a third-party provider.
  *
- * @param {String} provider
- * @param {Object} query
- * @return {Promise}
+ *
+ * @param {String}    provider
+ * @param {String}    access_token
+ *
+ * @return  {*}
  */
 
 const connect = (provider, query) => {
   const access_token = query.access_token || query.code || query.oauth_token;
 
-  if (!access_token) {
-    return Promise.reject([null, { message: 'No access_token.' }]);
-  }
-
   return new Promise((resolve, reject) => {
+    if (!access_token) {
+      return reject([null, { message: 'No access_token.' }]);
+    }
+
     getProfile(provider, query, async (err, profile) => {
       if (err) {
         return reject([null, err]);
@@ -55,7 +57,7 @@ const connect = (provider, query) => {
 
         const user = _.find(users, { provider });
 
-        if (isUserNotFound(user) && !isRegistrationAllowed(advanced)) {
+        if (_.isEmpty(user) && !advanced.allow_register) {
           return resolve([
             null,
             [{ messages: [{ id: 'Auth.advanced.allow_register' }] }],
@@ -63,11 +65,14 @@ const connect = (provider, query) => {
           ]);
         }
 
-        if (isUserFound(user)) {
+        if (!_.isEmpty(user)) {
           return resolve([user, null]);
         }
 
-        if (isEmailTaken(users, user, advanced)) {
+        if (
+          !_.isEmpty(_.find(users, user => user.provider !== provider)) &&
+          advanced.unique_email
+        ) {
           return resolve([
             null,
             [{ messages: [{ id: 'Auth.form.error.email.taken' }] }],
@@ -100,7 +105,7 @@ const connect = (provider, query) => {
 /**
  * Helper to get profiles
  *
- * @param {String} provider
+ * @param {String}   provider
  * @param {Function} callback
  */
 
@@ -228,27 +233,33 @@ const getProfile = async (provider, query, callback) => {
             return callback(err);
           }
 
-          if (userbody.email) {
-            return callback(null, {
-              username: userbody.login,
-              email: userbody.email,
-            });
+          if (!userbody.email) {
+            github
+              .query()
+              .get('user/emails')
+              .auth(access_token)
+              .request((err, res, emailsbody) => {
+                if (err) {
+                  return callback(err);
+                }
+
+                const primaryEmail = Array.isArray(emailsbody)
+                  ? emailsbody.find(email => email.primary === true)
+                  : null;
+
+                callback(null, {
+                  username: userbody.login,
+                  email: primaryEmail ? primaryEmail.email : null,
+                });
+              });
+            return;
           }
 
-          github
-            .query()
-            .get('user/emails')
-            .auth(access_token)
-            .request((err, res, emailsbody) => {
-              if (err) {
-                return callback(err);
-              }
-
-              return callback(null, {
-                username: userbody.login,
-                email: getPrimaryEmail(emailsbody),
-              });
-            });
+          callback(null, {
+            username: userbody.login,
+            email: userbody.email,
+          });
+          break;
         });
       break;
     }
@@ -506,8 +517,9 @@ const getProfile = async (provider, query, callback) => {
           if (err) {
             callback(err);
           } else {
-            const username = getAuth0Username(body);
-            const email = getAuth0Email(body, username);
+            const username =
+              body.username || body.nickname || body.name || body.email.split('@')[0];
+            const email = body.email || `${username.replace(/\s+/g, '.')}@strapi.io`;
 
             callback(null, {
               username,
@@ -546,8 +558,12 @@ const getProfile = async (provider, query, callback) => {
           if (err) {
             callback(err);
           } else {
-            const username = getCASUsername(body);
-            const email = getCASEmail(body);
+            const username = body.attributes
+              ? body.attributes.strapiusername || body.id || body.sub
+              : body.strapiusername || body.id || body.sub;
+            const email = body.attributes
+              ? body.attributes.strapiemail || body.attributes.email
+              : body.strapiemail || body.email;
             if (!username || !email) {
               strapi.log.warn(
                 'CAS Response Body did not contain required attributes: ' + JSON.stringify(body)
@@ -566,84 +582,6 @@ const getProfile = async (provider, query, callback) => {
       break;
   }
 };
-
-/**
- * Check if user is not found.
- * @param {Object} user
- * @return {Boolean}
- */
-const isUserNotFound = (user) => _.isEmpty(user);
-
-/**
- * Check if registration is allowed.
- * @param {Object} advanced
- * @return {Boolean}
- */
-const isRegistrationAllowed = (advanced) => !_.isEmpty(advanced) && advanced.allow_register;
-
-/**
- * Check if user is found.
- * @param {Object} user
- * @return {Boolean}
- */
-const isUserFound = (user) => !_.isEmpty(user);
-
-/**
- * Check if email is taken.
- * @param {Array} users
- * @param {Object} user
- * @param {Object} advanced
- * @return {Boolean}
- */
-const isEmailTaken = (users, user, advanced) =>
-  !_.isEmpty(_.find(users, { provider: user.provider })) && advanced.unique_email;
-
-/**
- * Get primary email from emails body.
- * @param {Array} emailsbody
- * @return {String}
- */
-const getPrimaryEmail = (emailsbody) =>
-  Array.isArray(emailsbody)
-    ? emailsbody.find(email => email.primary === true).email
-    : null;
-
-/**
- * Get Auth0 username.
- * @param {Object} body
- * @return {String}
- */
-const getAuth0Username = (body) =>
-  body.username || body.nickname || body.name || body.email.split('@')[0];
-
-/**
- * Get Auth0 email.
- * @param {Object} body
- * @param {String} username
- * @return {String}
- */
-const getAuth0Email = (body, username) =>
-  body.email || `${username.replace(/\s+/g, '.')}@strapi.io`;
-
-/**
- * Get CAS username.
- * @param {Object} body
- * @return {String}
- */
-const getCASUsername = (body) =>
-  body.attributes
-    ? body.attributes.strapiusername || body.id || body.sub
-    : body.strapiusername || body.id || body.sub;
-
-/**
- * Get CAS email.
- * @param {Object} body
- * @return {String}
- */
-const getCASEmail = (body) =>
-  body.attributes
-    ? body.attributes.strapiemail || body.attributes.email
-    : body.strapiemail || body.email;
 
 const buildRedirectUri = (provider = '') =>
   `${getAbsoluteServerUrl(strapi.config)}/connect/${provider}/callback`;

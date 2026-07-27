@@ -417,16 +417,14 @@ function ItemPage({ listKey }: ItemPageProps) {
                 ) : (
                   <ItemNotFound>
                     <Text>
-                      An item with ID{' '}
-                      <strong>“{itemId}”</strong> does not exist.
+                      An item with ID <strong>“{itemId}”</strong> does not exist.
                     </Text>
                   </ItemNotFound>
                 )
               ) : (
                 <ItemNotFound>
                   <Text>
-                    The item with ID{' '}
-                    <strong>“{itemId}”</strong> doesn’t exist, or you don’t have
+                    The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have
                     access to it.
                   </Text>
                 </ItemNotFound>

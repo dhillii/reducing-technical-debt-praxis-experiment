@@ -57,158 +57,15 @@ yup.addMethod(yup.string, 'isSuperior', function(message, min) {
 
 const getAttributes = data => get(data, ['attributes'], {});
 
-const getRelationSchema = (attribute) => {
-  const relationTypes = [
-    'oneWay',
-    'oneToOne',
-    'manyToOne',
-    'oneToManyMorph',
-    'oneToOneMorph',
-  ];
-
-  if (relationTypes.includes(attribute.relationType)) {
-    return yup.object().nullable();
-  }
-
-  return yup.array().nullable();
-};
-
-const getComponentSchema = (attribute, components, options) => {
-  const componentSchema = createYupSchema(
-    components[attribute.component],
-    { components },
-    { ...options, isFromComponent: true }
-  );
-
-  if (attribute.repeatable === true) {
-    const { min, max, required } = attribute;
-    let componentSchema = yup.lazy(value => {
-      let baseSchema = yup.array().of(componentSchema);
-
-      if (min && !options.isDraft) {
-        if (required) {
-          baseSchema = baseSchema.min(min, errorsTrads.min);
-        } else if (required !== true && isEmpty(value)) {
-          baseSchema = baseSchema.nullable();
-        } else {
-          baseSchema = baseSchema.min(min, errorsTrads.min);
-        }
-      }
-
-      if (max) {
-        baseSchema = baseSchema.max(max, errorsTrads.max);
-      }
-
-      return baseSchema;
-    });
-
-    return componentSchema;
-  }
-
-  return yup.lazy(obj => {
-    if (obj !== undefined) {
-      return attribute.required === true && !options.isDraft
-        ? componentSchema.defined()
-        : componentSchema.nullable();
-    }
-
-    return attribute.required === true ? yup.object().defined() : yup.object().nullable();
-  });
-};
-
-const getDynamicZoneSchema = (attribute, components, options) => {
-  let dynamicZoneSchema = yup.array().of(
-    yup.lazy(({ __component }) => {
-      return createYupSchema(
-        components[__component],
-        { components },
-        { ...options, isFromComponent: true }
-      );
-    })
-  );
-
-  const { max, min } = attribute;
-
-  if (attribute.required && !options.isDraft) {
-    dynamicZoneSchema = dynamicZoneSchema.test('required', errorsTrads.required, value => {
-      if (options.isCreatingEntry) {
-        return value !== null || value !== undefined;
-      }
-
-      if (value === undefined) {
-        return true;
-      }
-
-      return value !== null;
-    });
-
-    if (min) {
-      dynamicZoneSchema = dynamicZoneSchema
-        .test('min', errorsTrads.min, value => {
-          if (options.isCreatingEntry) {
-            return value && value.length > 0;
-          }
-
-          if (value === undefined) {
-            return true;
-          }
-
-          return value !== null && value.length > 0;
-        })
-        .test('required', errorsTrads.required, value => {
-          if (options.isCreatingEntry) {
-            return value !== null || value !== undefined;
-          }
-
-          if (value === undefined) {
-            return true;
-          }
-
-          return value !== null;
-        });
-    }
-  } else if (min) {
-    dynamicZoneSchema = dynamicZoneSchema.notEmptyMin(min);
-  }
-
-  if (max) {
-    dynamicZoneSchema = dynamicZoneSchema.max(max, errorsTrads.max);
-  }
-
-  return dynamicZoneSchema;
-};
-
-const createYupSchema = (
-  model,
-  { components },
-  options = { isCreatingEntry: true, isDraft: true, isFromComponent: false }
-) => {
-  const attributes = getAttributes(model);
-
-  return yup.object().shape(
-    Object.keys(attributes).reduce((acc, current) => {
-      const attribute = attributes[current];
-
-      if (attribute.type === 'relation') {
-        acc[current] = getRelationSchema(attribute);
-      } else if (attribute.type === 'component') {
-        acc[current] = getComponentSchema(attribute, components, options);
-      } else if (attribute.type === 'dynamiczone') {
-        acc[current] = getDynamicZoneSchema(attribute, components, options);
-      } else {
-        const formatted = createYupSchemaAttribute(attribute.type, attribute, options);
-        acc[current] = formatted;
-      }
-
-      return acc;
-    }, {})
-  );
-};
-
 const createYupSchemaAttribute = (type, validations, options) => {
   let schema = yup.mixed();
 
   const stringTypes = ['string', 'uid', 'text', 'richtext', 'email', 'password', 'enumeration'];
+  const numberTypes = ['number', 'integer', 'biginteger', 'float', 'decimal'];
+  const dateTypes = ['date', 'datetime'];
+  const textTypes = ['text', 'textarea', 'email', 'string'];
+  const numericTypes = ['number', 'integer', 'bigint', 'float', 'decimal'];
+
   if (stringTypes.includes(type)) {
     schema = yup.string();
   }
@@ -227,6 +84,7 @@ const createYupSchemaAttribute = (type, validations, options) => {
 
         try {
           JSON.parse(value);
+
           return true;
         } catch (err) {
           return false;
@@ -239,7 +97,6 @@ const createYupSchemaAttribute = (type, validations, options) => {
     schema = schema.email(errorsTrads.email);
   }
 
-  const numberTypes = ['number', 'integer', 'biginteger', 'float', 'decimal'];
   if (numberTypes.includes(type)) {
     schema = yup
       .number()
@@ -247,7 +104,7 @@ const createYupSchemaAttribute = (type, validations, options) => {
       .typeError();
   }
 
-  if (['date', 'datetime'].includes(type)) {
+  if (dateTypes.includes(type)) {
     schema = yup.date();
   }
 
@@ -255,7 +112,9 @@ const createYupSchemaAttribute = (type, validations, options) => {
     schema = yup.string().matches(/^\d*$/);
   }
 
-  const applyValidation = (validation, validationValue) => {
+  Object.keys(validations).forEach(validation => {
+    const validationValue = validations[validation];
+
     if (
       !!validationValue ||
       (!isBoolean(validationValue) && Number.isInteger(Math.floor(validationValue))) ||
@@ -285,7 +144,7 @@ const createYupSchemaAttribute = (type, validations, options) => {
                     return !!value;
                   }
 
-                  if (['date', 'datetime'].includes(type)) {
+                  if (dateTypes.includes(type)) {
                     return moment(value)._isValid === true;
                   }
 
@@ -331,22 +190,22 @@ const createYupSchemaAttribute = (type, validations, options) => {
           schema = schema.matches(new RegExp(validationValue), errorsTrads.regex);
           break;
         case 'lowercase':
-          if (stringTypes.includes(type)) {
+          if (textTypes.includes(type)) {
             schema = schema.strict().lowercase();
           }
           break;
         case 'uppercase':
-          if (stringTypes.includes(type)) {
+          if (textTypes.includes(type)) {
             schema = schema.strict().uppercase();
           }
           break;
         case 'positive':
-          if (numberTypes.includes(type)) {
+          if (numericTypes.includes(type)) {
             schema = schema.positive();
           }
           break;
         case 'negative':
-          if (numberTypes.includes(type)) {
+          if (numericTypes.includes(type)) {
             schema = schema.negative();
           }
           break;
@@ -354,14 +213,160 @@ const createYupSchemaAttribute = (type, validations, options) => {
           schema = schema.nullable();
       }
     }
-  };
-
-  Object.keys(validations).forEach(validation => {
-    const validationValue = validations[validation];
-    applyValidation(validation, validationValue);
   });
 
   return schema;
+};
+
+const buildComponentSchema = (component, options) => {
+  const { min, max, required } = component;
+  let baseSchema = yup.array().of(component.schema);
+
+  if (min && !options.isDraft) {
+    if (required) {
+      baseSchema = baseSchema.min(min, errorsTrads.min);
+    } else if (required !== true && isEmpty(baseSchema)) {
+      baseSchema = baseSchema.nullable();
+    } else {
+      baseSchema = baseSchema.min(min, errorsTrads.min);
+    }
+  }
+
+  if (max) {
+    baseSchema = baseSchema.max(max, errorsTrads.max);
+  }
+
+  return baseSchema;
+};
+
+const buildDynamicZoneSchema = (component, options) => {
+  const { max, min } = component;
+  let dynamicZoneSchema = yup.array().of(
+    yup.lazy(({ __component }) => {
+      return createYupSchema(
+        component,
+        { components },
+        { ...options, isFromComponent: true }
+      );
+    })
+  );
+
+  if (component.required && !options.isDraft) {
+    dynamicZoneSchema = dynamicZoneSchema.test('required', errorsTrads.required, value => {
+      if (options.isCreatingEntry) {
+        return value !== null || value !== undefined;
+      }
+
+      if (value === undefined) {
+        return true;
+      }
+
+      return value !== null;
+    });
+
+    if (min) {
+      dynamicZoneSchema = dynamicZoneSchema
+        .test('min', errorsTrads.min, value => {
+          if (options.isCreatingEntry) {
+            return value && value.length > 0;
+          }
+
+          if (value === undefined) {
+            return true;
+          }
+
+          return value !== null && value.length > 0;
+        })
+        .test('required', errorsTrads.required, value => {
+          if (options.isCreatingEntry) {
+            return value !== null || value !== undefined;
+          }
+
+          if (value === undefined) {
+            return true;
+          }
+
+          return value !== null;
+        });
+    }
+  } else {
+    if (min) {
+      dynamicZoneSchema = dynamicZoneSchema.notEmptyMin(min);
+    }
+  }
+
+  if (max) {
+    dynamicZoneSchema = dynamicZoneSchema.max(max, errorsTrads.max);
+  }
+
+  return dynamicZoneSchema;
+};
+
+const createYupSchema = (
+  model,
+  { components },
+  options = { isCreatingEntry: true, isDraft: true, isFromComponent: false }
+) => {
+  const attributes = getAttributes(model);
+
+  return yup.object().shape(
+    Object.keys(attributes).reduce((acc, current) => {
+      const attribute = attributes[current];
+
+      if (
+        attribute.type !== 'relation' &&
+        attribute.type !== 'component' &&
+        attribute.type !== 'dynamiczone'
+      ) {
+        acc[current] = createYupSchemaAttribute(attribute.type, attribute, options);
+      }
+
+      if (attribute.type === 'relation') {
+        acc[current] = [
+          'oneWay',
+          'oneToOne',
+          'manyToOne',
+          'oneToManyMorph',
+          'oneToOneMorph',
+        ].includes(attribute.relationType)
+          ? yup.object().nullable()
+          : yup.array().nullable();
+      }
+
+      if (attribute.type === 'component') {
+        const componentSchema = createYupSchema(
+          components[attribute.component],
+          {
+            components,
+          },
+          { ...options, isFromComponent: true }
+        );
+
+        if (attribute.repeatable === true) {
+          acc[current] = yup.lazy(value => buildComponentSchema(attribute, options));
+          return acc;
+        }
+
+        acc[current] = yup.lazy(obj => {
+          if (obj !== undefined) {
+            return attribute.required === true && !options.isDraft
+              ? componentSchema.defined()
+              : componentSchema.nullable();
+          }
+
+          return attribute.required === true ? yup.object().defined() : yup.object().nullable();
+        });
+
+        return acc;
+      }
+
+      if (attribute.type === 'dynamiczone') {
+        acc[current] = buildDynamicZoneSchema(attribute, options);
+      }
+
+      return acc;
+    }, {})
+  );
 };
 
 export default createYupSchema;

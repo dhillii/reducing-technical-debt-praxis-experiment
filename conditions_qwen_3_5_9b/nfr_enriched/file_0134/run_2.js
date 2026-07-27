@@ -39,20 +39,29 @@ module.exports = {
   }) {
     const scalarType = this.getScalarType(attribute);
     if (scalarType) {
-      return this.buildScalarType(scalarType, attribute.required, rootType, action);
+      return this.buildScalarType(scalarType, attribute, rootType);
     }
 
     if (attribute.type === 'component') {
-      return this.buildComponentType(attribute, rootType, action);
+      return this.buildComponentType(attribute, rootType);
     }
 
     if (attribute.type === 'dynamiczone') {
       return this.buildDynamicZoneType(attribute, modelName, attributeName, rootType);
     }
 
-    return this.buildAssociationType(attribute, rootType);
+    if (attribute.model || attribute.collection) {
+      return this.buildAssociationType(attribute, rootType);
+    }
+
+    return this.buildMorphType(attribute, rootType);
   },
 
+  /**
+   * Determines if an attribute is a scalar and returns its type string.
+   * @param {Object} attribute The attribute definition.
+   * @returns {string|null} The scalar type name or null.
+   */
   getScalarType(attribute) {
     if (!isScalarAttribute(attribute)) {
       return null;
@@ -78,42 +87,61 @@ module.exports = {
     }
 
     if (attribute.type === 'enumeration') {
-      return this.convertEnumType(attribute, attribute.modelName, attribute.attributeName);
+      return this.convertEnumType(attribute, attribute.modelName, attributeName);
     }
 
     return baseType;
   },
 
-  buildScalarType(type, required, rootType, action) {
-    let finalType = type;
+  /**
+   * Constructs the final string representation for a scalar type.
+   * @param {string} baseType The base GraphQL type.
+   * @param {Object} attribute The attribute definition.
+   * @param {string} rootType The root type context ('query' or 'mutation').
+   * @returns {string} The formatted type string.
+   */
+  buildScalarType(baseType, attribute, rootType) {
+    let type = baseType;
 
-    if (required) {
+    if (attribute.required) {
       if (rootType !== 'mutation' || (action !== 'update' && attribute.default === undefined)) {
-        finalType += '!';
+        type += '!';
       }
     }
 
-    return finalType;
+    return type;
   },
 
-  buildComponentType(attribute, rootType, action) {
+  /**
+   * Constructs the GraphQL type string for a component attribute.
+   * @param {Object} attribute The attribute definition.
+   * @param {string} rootType The root type context.
+   * @returns {string} The formatted component type string.
+   */
+  buildComponentType(attribute, rootType) {
     const { required, repeatable, component } = attribute;
     const globalId = strapi.components[component].globalId;
     let typeName = required === true ? `${globalId}` : globalId;
 
     if (rootType === 'mutation') {
-      typeName =
-        action === 'update'
-          ? `edit${_.upperFirst(toSingular(globalId))}Input`
-          : `${_.upperFirst(toSingular(globalId))}Input${required ? '!' : ''}`;
+      const singularName = _.upperFirst(toSingular(globalId));
+      const inputName = action === 'update'
+        ? `edit${singularName}Input`
+        : `${singularName}Input${required ? '!' : ''}`;
+      typeName = inputName;
     }
 
-    if (repeatable === true) {
-      return `[${typeName}]`;
-    }
-    return `${typeName}`;
+    return repeatable === true ? `[${typeName}]` : typeName;
   },
 
+  /**
+   * Constructs the GraphQL type string for a dynamic zone attribute.
+   * @param {Object} attribute The attribute definition.
+   * @param {string} modelName The model name.
+   * @param {string} attributeName The attribute name.
+   * @param {string} rootType The root type context.
+   * @returns {string} The formatted dynamic zone type string.
+   */
   buildDynamicZoneType(attribute, modelName, attributeName, rootType) {
     const { required } = attribute;
     const unionName = `${modelName}${_.upperFirst(_.camelCase(attributeName))}DynamicZone`;
@@ -126,14 +154,17 @@ module.exports = {
     return `[${typeName}]${required ? '!' : ''}`;
   },
 
+  /**
+   * Constructs the GraphQL type string for an association attribute.
+   * @param {Object} attribute The attribute definition.
+   * @param {string} rootType The root type context.
+   * @returns {string} The formatted association type string.
+   */
   buildAssociationType(attribute, rootType) {
     const ref = attribute.model || attribute.collection;
 
     if (!ref || ref === '*') {
-      if (rootType === 'mutation') {
-        return attribute.model ? 'ID' : '[ID]';
-      }
-      return attribute.model ? 'Morph' : '[Morph]';
+      return this.buildMorphType(attribute, rootType);
     }
 
     const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
@@ -154,13 +185,25 @@ module.exports = {
   },
 
   /**
+   * Constructs the GraphQL type string for a morph attribute.
+   * @param {Object} attribute The attribute definition.
+   * @param {string} rootType The root type context.
+   * @returns {string} The formatted morph type string.
+   */
+  buildMorphType(attribute, rootType) {
+    if (rootType === 'mutation') {
+      return attribute.model ? 'ID' : '[ID]';
+    }
+    return attribute.model ? 'Morph' : '[Morph]';
+  },
+
+  /**
    * Convert Strapi enumeration to GraphQL Enum.
    * @param {Object} definition Definition of the attribute.
    * @param {String} model Name of the model which owns the attribute.
    * @param {String} field Name of the attribute.
    * @return String
    */
-
   convertEnumType(definition, model, field) {
     return definition.enumName
       ? definition.enumName
@@ -172,7 +215,6 @@ module.exports = {
    *
    * @return void
    */
-
   getScalars() {
     return {
       JSON: GraphQLJSON,
@@ -189,7 +231,6 @@ module.exports = {
    *
    * @return string
    */
-
   addPolymorphicUnionType(definition) {
     const types = graphql
       .parse(definition)
@@ -227,14 +268,7 @@ module.exports = {
     const hasAllAttributesDisabled = Object.keys(model.attributes).every(attr => !isTypeAttributeEnabled(model, attr));
 
     if (_.isEmpty(model.attributes) || hasAllAttributesDisabled) {
-      return this.generateEmptyInput(inputName, allowIds);
-    }
-
-    return this.generatePopulatedInput(model, inputName, globalId, allowIds);
-  },
-
-  generateEmptyInput(inputName, allowIds) {
-    return `
+      return `
       input ${inputName} {
         _: String
       }
@@ -243,40 +277,63 @@ module.exports = {
         ${allowIds ? 'id: ID' : '_: String'}
       }
      `;
-  },
+    }
 
-  generatePopulatedInput(model, inputName, globalId, allowIds) {
-    const attributes = Object.keys(model.attributes)
-      .filter(attributeName => isTypeAttributeEnabled(model, attributeName));
-
-    const createFields = attributes.map(attributeName => {
-      return `${attributeName}: ${this.convertType({
-        attribute: model.attributes[attributeName],
+    const buildAttributeLine = (attrName) => {
+      return `${attrName}: ${this.convertType({
+        attribute: model.attributes[attrName],
         modelName: globalId,
-        attributeName,
+        attributeName: attrName,
         rootType: 'mutation',
       })}`;
-    });
+    };
 
-    const updateFields = attributes.map(attributeName => {
-      return `${attributeName}: ${this.convertType({
-        attribute: model.attributes[attributeName],
-        modelName: globalId,
-        attributeName,
-        rootType: 'mutation',
-        action: 'update',
-      })}`;
-    });
+    const buildInputBlock = (action) => {
+      const attributes = Object.keys(model.attributes)
+        .filter(attributeName => isTypeAttributeEnabled(model, attributeName))
+        .map(buildAttributeLine)
+        .join('\n');
+
+      if (action === 'update') {
+        return `
+        input edit${inputName} {
+          ${allowIds ? 'id: ID' : ''}
+          ${attributes}
+        }
+      `;
+      }
+
+      return `
+      input ${inputName} {
+        ${attributes}
+      }
+    `;
+    };
+
+    const updateBlock = buildInputBlock('update');
+    const createBlock = allowIds
+      ? `
+      input edit${inputName} {
+        id: ID
+        ${Object.keys(model.attributes)
+          .filter(attributeName => isTypeAttributeEnabled(model, attributeName))
+          .map(buildAttributeLine)
+          .join('\n')}
+      }
+    `
+      : `
+      input edit${inputName} {
+        ${Object.keys(model.attributes)
+          .filter(attributeName => isTypeAttributeEnabled(model, attributeName))
+          .map(buildAttributeLine)
+          .join('\n')}
+      }
+    `;
 
     return `
-      input ${inputName} {
-        ${createFields.join('\n')}
-      }
-
-      input edit${inputName} {
-        ${allowIds ? 'id: ID' : ''}
-        ${updateFields.join('\n')}
-      }
+      ${buildInputBlock('')}
+      ${updateBlock}
+      ${createBlock}
     `;
   },
 
@@ -286,40 +343,37 @@ module.exports = {
 
     const { kind } = model;
 
-    if (action === 'create') {
-      return `
-        input ${mutationName}Input { data: ${inputName} }
-        type ${mutationName}Payload { ${singularName}: ${model.globalId} }
-      `;
-    }
-
-    if (action === 'update') {
-      if (kind === 'singleType') {
+    switch (action) {
+      case 'create':
         return `
-        input ${mutationName}Input  { data: edit${inputName} }
-        type ${mutationName}Payload { ${singularName}: ${model.globalId} }
-      `;
-      }
+          input ${mutationName}Input { data: ${inputName} }
+          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+        `;
+      case 'update':
+        if (kind === 'singleType') {
+          return `
+          input ${mutationName}Input  { data: edit${inputName} }
+          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+        `;
+        }
 
-      return `
-        input ${mutationName}Input  { where: InputID, data: edit${inputName} }
-        type ${mutationName}Payload { ${singularName}: ${model.globalId} }
-      `;
-    }
-
-    if (action === 'delete') {
-      if (kind === 'singleType') {
         return `
-        type ${mutationName}Payload { ${singularName}: ${model.globalId} }
-      `;
-      }
+          input ${mutationName}Input  { where: InputID, data: edit${inputName} }
+          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+        `;
+      case 'delete':
+        if (kind === 'singleType') {
+          return `
+          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+        `;
+        }
 
-      return `
-        input ${mutationName}Input  { where: InputID }
-        type ${mutationName}Payload { ${singularName}: ${model.globalId} }
-      `;
+        return `
+          input ${mutationName}Input  { where: InputID }
+          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+        `;
+      default:
+        // Nothing
     }
-
-    return '';
   },
 };

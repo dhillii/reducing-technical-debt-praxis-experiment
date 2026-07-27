@@ -77,52 +77,41 @@ export type DocumentFeaturesForChildField =
       documentFeatures: DocumentFeaturesForNormalization
     }
 
-function getInlineMarks(
+export function getDocumentFeaturesForChildField(
   editorDocumentFeatures: DocumentFeatures,
   options: ChildField['options']
-): 'inherit' | Record<Mark, boolean> {
+): DocumentFeaturesForChildField {
+  // an important note for this: normalization based on document features
+  // is done based on the document features returned here
+  // and the editor document features
+  // so the result for any given child prop will be the things that are
+  // allowed by both these document features
+  // AND the editor document features
   const inlineMarksFromOptions = options.formatting?.inlineMarks
 
-  if (inlineMarksFromOptions === 'inherit') {
-    return 'inherit'
+  const inlineMarks =
+    inlineMarksFromOptions === 'inherit'
+      ? 'inherit'
+      : (Object.fromEntries(
+          Object.keys(editorDocumentFeatures.formatting.inlineMarks).map(mark => {
+            return [mark as Mark, !!(inlineMarksFromOptions || {})[mark as Mark]]
+          })
+        ) as Record<Mark, boolean>)
+  if (options.kind === 'inline') {
+    return {
+      kind: 'inline',
+      inlineMarks,
+      documentFeatures: {
+        links: options.links === 'inherit',
+        relationships: options.relationships === 'inherit',
+      },
+      softBreaks: options.formatting?.softBreaks === 'inherit',
+    }
   }
-
-  return Object.fromEntries(
-    Object.keys(editorDocumentFeatures.formatting.inlineMarks).map(mark => {
-      return [mark as Mark, !!(inlineMarksFromOptions || {})[mark as Mark]]
-    })
-  ) as Record<Mark, boolean>
-}
-
-function getDocumentFeaturesForChildFieldInline(
-  editorDocumentFeatures: DocumentFeatures,
-  options: ChildField['options']
-): DocumentFeaturesForChildField {
-  const inlineMarks = getInlineMarks(editorDocumentFeatures, options)
-
-  return {
-    kind: 'inline',
-    inlineMarks,
-    documentFeatures: {
-      links: options.links === 'inherit',
-      relationships: options.relationships === 'inherit',
-    },
-    softBreaks: options.formatting?.softBreaks === 'inherit',
-  }
-}
-
-function getDocumentFeaturesForChildFieldBlock(
-  editorDocumentFeatures: DocumentFeatures,
-  options: ChildField['options']
-): DocumentFeaturesForChildField {
-  const inlineMarks = getInlineMarks(editorDocumentFeatures, options)
-  const softBreaks = options.formatting?.softBreaks === 'inherit'
-
   return {
     kind: 'block',
     inlineMarks,
-    softBreaks,
-    componentBlocks: options.componentBlocks === 'inherit',
+    softBreaks: options.formatting?.softBreaks === 'inherit',
     documentFeatures: {
       layouts: [],
       dividers: options.dividers === 'inherit' ? editorDocumentFeatures.dividers : false,
@@ -156,17 +145,8 @@ function getDocumentFeaturesForChildFieldBlock(
       links: options.links === 'inherit',
       relationships: options.relationships === 'inherit',
     },
+    componentBlocks: options.componentBlocks === 'inherit',
   }
-}
-
-export function getDocumentFeaturesForChildField(
-  editorDocumentFeatures: DocumentFeatures,
-  options: ChildField['options']
-): DocumentFeaturesForChildField {
-  if (options.kind === 'inline') {
-    return getDocumentFeaturesForChildFieldInline(editorDocumentFeatures, options)
-  }
-  return getDocumentFeaturesForChildFieldBlock(editorDocumentFeatures, options)
 }
 
 function getSchemaAtPropPathInner(
@@ -174,6 +154,8 @@ function getSchemaAtPropPathInner(
   value: unknown,
   schema: ComponentSchema
 ): undefined | ComponentSchema {
+  // because we're checking the length here
+  // the non-null asserts on shift below are fine
   if (path.length === 0) return schema
   if (schema.kind === 'child' || schema.kind === 'form' || schema.kind === 'relationship') return
   if (schema.kind === 'conditional') {
@@ -218,7 +200,10 @@ export function clientSideValidateProp(schema: ComponentSchema, value: unknown):
       if (!('discriminant' in value) || !('value' in value)) return false
       if (!schema.discriminant.validate(value.discriminant)) return false
       return clientSideValidateProp(
-        schema.values[value.discriminant as string],
+        schema.values[
+          // not actually gonna always be a string but just let property access do the coercion
+          value.discriminant as string
+        ],
         value.value
       )
     }
@@ -249,7 +234,7 @@ export function getAncestorSchemas(
   let currentValue = value
   while (currentPath.length) {
     ancestors.push(currentProp)
-    const key = currentPath.shift()!
+    const key = currentPath.shift()! // this code only runs when path.length is truthy so this non-null assertion is fine
     if (currentProp.kind === 'array') {
       currentProp = currentProp.element
       currentValue = (currentValue as any)[key]
@@ -340,6 +325,8 @@ export function replaceValueAtPropPath(
 
   if (schema.kind === 'conditional') {
     const conditionalValue = value as { discriminant: string | boolean; value: unknown }
+    // replaceValueAtPropPath should not be used to only update the discriminant of a conditional field
+    // if you want to update the discriminant of a conditional field, replace the value of the whole conditional field
     assert(key === 'value')
     return {
       discriminant: conditionalValue.discriminant,
@@ -360,7 +347,10 @@ export function replaceValueAtPropPath(
     return newVal
   }
 
+  // we should never reach here since form, relationship or child fields don't contain other fields
+  // so the only thing that can happen to them is to be replaced which happens at the start of this function when path.length === 0
   assert(schema.kind !== 'form' && schema.kind !== 'relationship' && schema.kind !== 'child')
+
   assertNever(schema)
 }
 

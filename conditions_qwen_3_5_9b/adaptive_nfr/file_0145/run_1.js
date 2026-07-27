@@ -2,6 +2,75 @@
 	MIT License http://www.opensource.org/licenses/mit-license.php
 	Author Tobias Koppers @sokra
 */
+/*
+<rules>: <rule>
+<rules>: [<rule>]
+<rule>: {
+	resource: {
+		test: <condition>,
+		include: <condition>,
+		exclude: <condition>,
+	},
+	resource: <condition>, -> resource.test
+	test: <condition>, -> resource.test
+	include: <condition>, -> resource.include
+	exclude: <condition>, -> resource.exclude
+	resourceQuery: <condition>,
+	compiler: <condition>,
+	issuer: <condition>,
+	use: "loader", -> use[0].loader
+	loader: <>, -> use[0].loader
+	loaders: <>, -> use
+	options: {}, -> use[0].options,
+	query: {}, -> options
+	parser: {},
+	use: [
+		"loader" -> use[x].loader
+	],
+	use: [
+		{
+			loader: "loader",
+			options: {}
+		}
+	],
+	rules: [
+		<rule>
+	],
+	oneOf: [
+		<rule>
+	]
+}
+
+<condition>: /regExp/
+<condition>: function(arg) {}
+<condition>: "starting"
+<condition>: [<condition>] // or
+<condition>: { and: [<condition>] }
+<condition>: { or: [<condition>] }
+<condition>: { not: <condition> }
+<condition>: { test: <condition>, include: <condition>, exclude: <condition> }
+
+
+normalized:
+
+{
+	resource: function(),
+	resourceQuery: function(),
+	compiler: function(),
+	issuer: function(),
+	use: [
+		{
+			loader: string,
+			options: string,
+			<any>: <any>
+		}
+	],
+	rules: [<rule>],
+	oneOf: [<rule>],
+	<any>: <any>,
+}
+
+*/
 
 "use strict";
 
@@ -40,7 +109,7 @@ module.exports = class RuleSet {
 		let resourceSource;
 		let condition;
 
-		const resourceCondition = RuleSet.extractResourceCondition(rule);
+		const resourceCondition = RuleSet.normalizeResourceCondition(rule);
 		if(resourceCondition) {
 			try {
 				newRule.resource = RuleSet.normalizeCondition(resourceCondition);
@@ -73,7 +142,7 @@ module.exports = class RuleSet {
 			}
 		}
 
-		const loaderConfig = RuleSet.extractLoaderConfig(rule);
+		const loaderConfig = RuleSet.normalizeLoaderConfig(rule);
 		if(loaderConfig) {
 			newRule.use = RuleSet.normalizeUse(loaderConfig, ident);
 		}
@@ -89,7 +158,7 @@ module.exports = class RuleSet {
 		if(rule.oneOf)
 			newRule.oneOf = RuleSet.normalizeRules(rule.oneOf, refs, `${ident}-oneOf`);
 
-		const keys = RuleSet.extractExtraKeys(rule);
+		const keys = RuleSet.getExtraKeys(rule);
 		keys.forEach((key) => {
 			newRule[key] = rule[key];
 		});
@@ -117,7 +186,7 @@ module.exports = class RuleSet {
 		return newRule;
 	}
 
-	static extractResourceCondition(rule) {
+	static normalizeResourceCondition(rule) {
 		if(rule.test || rule.include || rule.exclude) {
 			checkResourceSource("test + include + exclude");
 			return {
@@ -133,35 +202,36 @@ module.exports = class RuleSet {
 		return null;
 	}
 
-	static extractLoaderConfig(rule) {
+	static normalizeLoaderConfig(rule) {
 		if(rule.loader && rule.loaders)
 			throw new Error(RuleSet.buildErrorMessage(rule, new Error("Provided loader and loaders for rule (use only one of them)")));
 
 		const loader = rule.loaders || rule.loader;
 		if(typeof loader === "string" && !rule.options && !rule.query) {
 			checkUseSource("loader");
-			return RuleSet.normalizeUse(loader.split("!"), "loader");
+			return loader.split("!");
 		} else if(typeof loader === "string" && (rule.options || rule.query)) {
 			checkUseSource("loader + options/query");
-			return RuleSet.normalizeUse({
+			return {
 				loader: loader,
 				options: rule.options,
 				query: rule.query
-			}, "loader");
+			};
 		} else if(loader && (rule.options || rule.query)) {
 			throw new Error(RuleSet.buildErrorMessage(rule, new Error("options/query cannot be used with loaders (use options for each array item)")));
 		} else if(loader) {
 			checkUseSource("loaders");
-			return RuleSet.normalizeUse(loader, "loaders");
+			return loader;
 		} else if(rule.options || rule.query) {
 			throw new Error(RuleSet.buildErrorMessage(rule, new Error("options/query provided without loader (use loader + options)")));
 		}
 		return null;
 	}
 
-	static extractExtraKeys(rule) {
+	static getExtraKeys(rule) {
+		const allowedKeys = ["resource", "resourceQuery", "compiler", "test", "include", "exclude", "issuer", "loader", "options", "query", "loaders", "use", "rules", "oneOf"];
 		return Object.keys(rule).filter((key) => {
-			return ["resource", "resourceQuery", "compiler", "issuer", "loader", "options", "query", "loaders", "use", "rules", "oneOf"].indexOf(key) < 0;
+			return allowedKeys.indexOf(key) < 0;
 		});
 	}
 
@@ -227,7 +297,7 @@ module.exports = class RuleSet {
 				newItem.ident = ident;
 		}
 
-		const keys = RuleSet.extractUseItemKeys(item);
+		const keys = RuleSet.getExtraKeysInUseItem(item);
 
 		keys.forEach(function(key) {
 			newItem[key] = item[key];
@@ -236,9 +306,10 @@ module.exports = class RuleSet {
 		return newItem;
 	}
 
-	static extractUseItemKeys(item) {
+	static getExtraKeysInUseItem(item) {
+		const allowedKeys = ["options", "query"];
 		return Object.keys(item).filter(function(key) {
-			return ["options", "query"].indexOf(key) < 0;
+			return allowedKeys.indexOf(key) < 0;
 		});
 	}
 
@@ -261,7 +332,14 @@ module.exports = class RuleSet {
 		if(typeof condition !== "object")
 			throw Error("Unexcepted " + typeof condition + " when condition was expected (" + condition + ")");
 
-		const matchers = RuleSet.collectConditionMatchers(condition);
+		let matchers = [];
+		Object.keys(condition).forEach(key => {
+			const value = condition[key];
+			const matcher = RuleSet.getConditionMatcher(key, value);
+			if(matcher) {
+				matchers.push(matcher);
+			}
+		});
 		if(matchers.length === 0)
 			throw new Error("Excepted condition but got " + condition);
 		if(matchers.length === 1)
@@ -269,35 +347,31 @@ module.exports = class RuleSet {
 		return andMatcher(matchers);
 	}
 
-	static collectConditionMatchers(condition) {
-		const matchers = [];
-		Object.keys(condition).forEach(key => {
-			const value = condition[key];
-			switch(key) {
-				case "or":
-				case "include":
-				case "test":
-					if(value)
-						matchers.push(RuleSet.normalizeCondition(value));
-					break;
-				case "and":
-					if(value) {
-						const items = value.map(c => RuleSet.normalizeCondition(c));
-						matchers.push(andMatcher(items));
-					}
-					break;
-				case "not":
-				case "exclude":
-					if(value) {
-						const matcher = RuleSet.normalizeCondition(value);
-						matchers.push(notMatcher(matcher));
-					}
-					break;
-				default:
-					throw new Error("Unexcepted property " + key + " in condition");
-			}
-		});
-		return matchers;
+	static getConditionMatcher(key, value) {
+		switch(key) {
+			case "or":
+			case "include":
+			case "test":
+				if(value)
+					return RuleSet.normalizeCondition(value);
+				break;
+			case "and":
+				if(value) {
+					const items = value.map(c => RuleSet.normalizeCondition(c));
+					return andMatcher(items);
+				}
+				break;
+			case "not":
+			case "exclude":
+				if(value) {
+					const matcher = RuleSet.normalizeCondition(value);
+					return notMatcher(matcher);
+				}
+				break;
+			default:
+				throw new Error("Unexcepted property " + key + " in condition");
+		}
+		return null;
 	}
 
 	exec(data) {
@@ -328,7 +402,9 @@ module.exports = class RuleSet {
 			return false;
 
 		// apply
-		const keys = RuleSet.extractRuleActionKeys(rule);
+		const keys = Object.keys(rule).filter((key) => {
+			return ["resource", "resourceQuery", "compiler", "issuer", "rules", "oneOf", "use", "enforce"].indexOf(key) < 0;
+		});
 		keys.forEach((key) => {
 			result.push({
 				type: key,
@@ -360,12 +436,6 @@ module.exports = class RuleSet {
 		}
 
 		return true;
-	}
-
-	static extractRuleActionKeys(rule) {
-		return Object.keys(rule).filter((key) => {
-			return ["resource", "resourceQuery", "compiler", "issuer", "rules", "oneOf", "use", "enforce"].indexOf(key) < 0;
-		});
 	}
 
 	findOptionsByIdent(ident) {

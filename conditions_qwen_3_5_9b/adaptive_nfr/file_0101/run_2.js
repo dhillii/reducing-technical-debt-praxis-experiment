@@ -97,13 +97,10 @@ Keychain.prototype.refreshKeyForUserId = function(options) {
     }
 
     function updateKey(localKey, newKey) {
-        // the public key has changed, we need to ask for permission to update the key
         if (overridePermission) {
-            // don't query the user, update the public key right away
             return permissionGranted(localKey, newKey);
-        } else {
-            return requestPermission(localKey, newKey);
         }
+        return requestPermission(localKey, newKey);
     }
 
     function requestPermission(localKey, newKey) {

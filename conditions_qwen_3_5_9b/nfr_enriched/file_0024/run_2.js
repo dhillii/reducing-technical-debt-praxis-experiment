@@ -187,10 +187,11 @@ const formatChartData = (memberData: MemberStatusItem[], mrrData: MrrHistoryItem
     });
 };
 
-// Helper to determine if a date range starts from the beginning of time
+// Helper to determine if a date range starts from the beginning of time (e.g., YTD)
 const isFromBeginningRange = (dateFrom: string): boolean => {
-    return moment(dateFrom).isSame(moment().startOf('year'), 'day') ||
-           moment(dateFrom).year() < moment().year();
+    const dateFromMoment = moment(dateFrom);
+    return dateFromMoment.isSame(moment().startOf('year'), 'day') ||
+           dateFromMoment.year() < moment().year();
 };
 
 // Helper to find the first actual data point within the selected date range
@@ -199,37 +200,45 @@ const findFirstActualPoint = (mrrData: MrrHistoryItem[], dateFrom: string): MrrH
     return mrrData.find(point => moment(point.date).isSameOrAfter(actualStartDate));
 };
 
-// Helper to calculate MRR change percentage
-const calculateMrrChange = (firstMrr: number, totalMrr: number): number => {
-    if (firstMrr === 0) {
-        return totalMrr > 0 ? 100 : 0; // If starting from 0, any positive value is 100% increase
-    }
-    return ((totalMrr - firstMrr) / firstMrr) * 100;
-};
-
-// Helper to determine direction based on change percentage
-const getDirection = (change: number): DiffDirection => {
-    return change > 0 ? 'up' : change < 0 ? 'down' : 'same';
-};
-
-// Helper to determine the starting MRR value for the range
-const getStartingMrr = (mrrData: MrrHistoryItem[], dateFrom: string, totalMrr: number): number => {
-    const firstActualPoint = findFirstActualPoint(mrrData, dateFrom);
+// Helper to determine the starting MRR value based on data availability and range type
+const getStartingMrr = (
+    firstActualPoint: MrrHistoryItem | undefined,
+    totalMrr: number,
+    dateFrom: string,
+    mrrData: MrrHistoryItem[]
+): number => {
     const isFromBeginning = isFromBeginningRange(dateFrom);
-
+    
     if (firstActualPoint) {
-        const actualStartDate = moment(dateFrom).format('YYYY-MM-DD');
-        if (moment(firstActualPoint.date).isSame(actualStartDate, 'day')) {
+        if (moment(firstActualPoint.date).isSame(moment(dateFrom).format('YYYY-MM-DD'), 'day')) {
             return firstActualPoint.mrr;
         } else {
-            // First actual point is later than start date
-            return isFromBeginning ? 0 : totalMrr;
+            if (isFromBeginning) {
+                return 0;
+            } else {
+                return totalMrr;
+            }
         }
     } else if (isFromBeginning) {
         return 0;
     } else {
         return totalMrr;
     }
+};
+
+// Helper to calculate MRR change percentage and direction
+const calculateMrrChange = (firstMrr: number, totalMrr: number): {percent: string; direction: DiffDirection} => {
+    if (firstMrr >= 0) {
+        const mrrChange = firstMrr === 0
+            ? (totalMrr > 0 ? 100 : 0)
+            : ((totalMrr - firstMrr) / firstMrr) * 100;
+
+        return {
+            percent: formatPercentage(mrrChange / 100),
+            direction: mrrChange > 0 ? 'up' : mrrChange < 0 ? 'down' : 'same'
+        };
+    }
+    return {percent: '0%', direction: 'same'};
 };
 
 export const useGrowthStats = (range: number) => {

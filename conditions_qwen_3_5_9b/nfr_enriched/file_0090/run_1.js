@@ -23,23 +23,21 @@ export function findChildPropPathsForProp(
         schema.values[value.discriminant],
         path.concat('value')
       )
-    case 'object':
-      return flattenPaths(
-        Object.keys(schema.fields).map(key =>
-          findChildPropPathsForProp(value[key], schema.fields[key], path.concat(key))
-        )
-      )
-    case 'array':
-      return flattenPaths(
-        (value as any[]).map((val, i) =>
-          findChildPropPathsForProp(val, schema.element, path.concat(i))
-        )
-      )
+    case 'object': {
+      const paths: PathToChildFieldWithOption[] = []
+      Object.keys(schema.fields).forEach(key => {
+        paths.push(...findChildPropPathsForProp(value[key], schema.fields[key], path.concat(key)))
+      })
+      return paths
+    }
+    case 'array': {
+      const paths: PathToChildFieldWithOption[] = []
+      ;(value as any[]).forEach((val, i) => {
+        paths.push(...findChildPropPathsForProp(val, schema.element, path.concat(i)))
+      })
+      return paths
+    }
   }
-}
-
-function flattenPaths<T>(paths: T[][]): T[] {
-  return paths.flat()
 }
 
 export function findChildPropPaths(
@@ -47,7 +45,14 @@ export function findChildPropPaths(
   props: Record<string, ComponentSchema>
 ): { path: ReadonlyPropPath | undefined; options: ChildField['options'] }[] {
   const propPaths = findChildPropPathsForProp(value, { kind: 'object', fields: props }, [])
-  return propPaths.length ? propPaths : [{ path: undefined, options: { kind: 'inline', placeholder: '' } }]
+  if (propPaths.length) return propPaths
+
+  return [
+    {
+      path: undefined,
+      options: { kind: 'inline', placeholder: '' },
+    },
+  ]
 }
 
 export function assertNever(arg: never): never {
@@ -72,24 +77,27 @@ export type DocumentFeaturesForChildField =
       documentFeatures: DocumentFeaturesForNormalization
     }
 
-function computeInlineMarks(
-  editorDocumentFeatures: DocumentFeatures,
-  options: ChildField['options']
-): 'inherit' | Record<Mark, boolean> {
-  const inlineMarksFromOptions = options.formatting?.inlineMarks
-  if (inlineMarksFromOptions === 'inherit') {
-    return 'inherit'
+function mergeInlineMarks(
+  editorInlineMarks: DocumentFeatures['formatting']['inlineMarks'],
+  optionsInlineMarks: ChildField['options']['formatting']['inlineMarks']
+): Record<Mark, boolean> {
+  if (optionsInlineMarks === 'inherit') {
+    return 'inherit' as const
   }
   return Object.fromEntries(
-    Object.keys(editorDocumentFeatures.formatting.inlineMarks).map(mark => {
-      return [mark as Mark, !!(inlineMarksFromOptions || {})[mark as Mark]]
+    Object.keys(editorInlineMarks).map(mark => {
+      return [mark as Mark, !!(optionsInlineMarks || {})[mark as Mark]]
     })
   ) as Record<Mark, boolean>
 }
 
-function computeInlineFeatures(
+function getInlineDocumentFeatures(
   options: ChildField['options']
-): { links: boolean; relationships: boolean; softBreaks: boolean } {
+): {
+  links: boolean
+  relationships: boolean
+  softBreaks: boolean
+} {
   return {
     links: options.links === 'inherit',
     relationships: options.relationships === 'inherit',
@@ -97,34 +105,47 @@ function computeInlineFeatures(
   }
 }
 
-function computeBlockFeatures(
+function getBlockDocumentFeatures(
   editorDocumentFeatures: DocumentFeatures,
   options: ChildField['options']
 ): DocumentFeaturesForNormalization {
-  const softBreaks = options.formatting?.softBreaks === 'inherit'
-  const componentBlocks = options.componentBlocks === 'inherit'
-  const inlineMarks = computeInlineMarks(editorDocumentFeatures, options)
+  const alignment =
+    options.formatting?.alignment === 'inherit'
+      ? editorDocumentFeatures.formatting.alignment
+      : {
+          center: false,
+          end: false,
+        }
+
+  const blockTypes =
+    options.formatting?.blockTypes === 'inherit'
+      ? editorDocumentFeatures.formatting.blockTypes
+      : {
+          blockquote: false,
+          code: false,
+        }
+
+  const headingLevels =
+    options.formatting?.headingLevels === 'inherit'
+      ? editorDocumentFeatures.formatting.headingLevels
+      : options.formatting?.headingLevels || []
+
+  const listTypes =
+    options.formatting?.listTypes === 'inherit'
+      ? editorDocumentFeatures.formatting.listTypes
+      : {
+          ordered: false,
+          unordered: false,
+        }
 
   return {
     layouts: [],
     dividers: options.dividers === 'inherit' ? editorDocumentFeatures.dividers : false,
     formatting: {
-      alignment:
-        options.formatting?.alignment === 'inherit'
-          ? editorDocumentFeatures.formatting.alignment
-          : { center: false, end: false },
-      blockTypes:
-        options.formatting?.blockTypes === 'inherit'
-          ? editorDocumentFeatures.formatting.blockTypes
-          : { blockquote: false, code: false },
-      headingLevels:
-        options.formatting?.headingLevels === 'inherit'
-          ? editorDocumentFeatures.formatting.headingLevels
-          : options.formatting?.headingLevels || [],
-      listTypes:
-        options.formatting?.listTypes === 'inherit'
-          ? editorDocumentFeatures.formatting.listTypes
-          : { ordered: false, unordered: false },
+      alignment,
+      blockTypes,
+      headingLevels,
+      listTypes,
     },
     links: options.links === 'inherit',
     relationships: options.relationships === 'inherit',
@@ -135,8 +156,12 @@ export function getDocumentFeaturesForChildField(
   editorDocumentFeatures: DocumentFeatures,
   options: ChildField['options']
 ): DocumentFeaturesForChildField {
-  const inlineFeatures = computeInlineFeatures(options)
-  const inlineMarks = computeInlineMarks(editorDocumentFeatures, options)
+  const inlineMarks = mergeInlineMarks(
+    editorDocumentFeatures.formatting.inlineMarks,
+    options.formatting?.inlineMarks
+  )
+  const inlineFeatures = getInlineDocumentFeatures(options)
+  const blockFeatures = getBlockDocumentFeatures(editorDocumentFeatures, options)
 
   if (options.kind === 'inline') {
     return {
@@ -150,13 +175,9 @@ export function getDocumentFeaturesForChildField(
     kind: 'block',
     inlineMarks,
     softBreaks: inlineFeatures.softBreaks,
-    documentFeatures: computeBlockFeatures(editorDocumentFeatures, options),
-    componentBlocks: componentBlocks(options),
+    documentFeatures: blockFeatures,
+    componentBlocks: options.componentBlocks === 'inherit',
   }
-}
-
-function componentBlocks(options: ChildField['options']): boolean {
-  return options.componentBlocks === 'inherit'
 }
 
 function getSchemaAtPropPathInner(
@@ -212,14 +233,19 @@ export function clientSideValidateProp(schema: ComponentSchema, value: unknown):
         value.value
       )
     }
-    case 'object':
-      return Object.entries(schema.fields).every(([key, childProp]) =>
-        clientSideValidateProp(childProp, (value as any)[key])
-      )
-    case 'array':
-      return Array.isArray(value) && value.every(innerVal =>
-        clientSideValidateProp(schema.element, innerVal)
-      )
+    case 'object': {
+      for (const [key, childProp] of Object.entries(schema.fields)) {
+        if (!clientSideValidateProp(childProp, (value as any)[key])) return false
+      }
+      return true
+    }
+    case 'array': {
+      if (!Array.isArray(value)) return false
+      for (const innerVal of value) {
+        if (!clientSideValidateProp(schema.element, innerVal)) return false
+      }
+      return true
+    }
   }
 }
 
@@ -227,12 +253,11 @@ export function getAncestorSchemas(
   rootSchema: ComponentSchema,
   path: ReadonlyPropPath,
   value: unknown
-): ComponentSchema[] {
+) {
   const ancestors: ComponentSchema[] = []
   const currentPath = [...path]
   let currentProp = rootSchema
   let currentValue = value
-
   while (currentPath.length) {
     ancestors.push(currentProp)
     const key = currentPath.shift()!
@@ -260,7 +285,7 @@ export function getAncestorSchemas(
 
 export type ReadonlyPropPath = readonly (string | number)[]
 
-export function getValueAtPropPath(value: unknown, inputPath: ReadonlyPropPath): unknown {
+export function getValueAtPropPath(value: unknown, inputPath: ReadonlyPropPath) {
   const path = [...inputPath]
   while (path.length) {
     const key = path.shift()!
@@ -274,7 +299,7 @@ export function traverseProps(
   value: unknown,
   visitor: (schema: ComponentSchema, value: unknown, path: ReadonlyPropPath) => void,
   path: ReadonlyPropPath = []
-): void {
+) {
   if (schema.kind === 'form' || schema.kind === 'relationship' || schema.kind === 'child') {
     visitor(schema, value, path)
     return
@@ -290,8 +315,7 @@ export function traverseProps(
     for (const [idx, val] of (value as unknown[]).entries()) {
       traverseProps(schema.element, val, visitor, path.concat(idx))
     }
-    visitor(schema, value, path)
-    return
+    return visitor(schema, value, path)
   }
   if (schema.kind === 'conditional') {
     const discriminant: string | boolean = (value as any).discriminant
@@ -357,5 +381,6 @@ export function getPlaceholderTextForPropPath(
   formProps: Record<string, any>
 ): string {
   const field = getSchemaAtPropPath(propPath, formProps, fields)
-  return field?.kind === 'child' ? field.options.placeholder : ''
+  if (field?.kind === 'child') return field.options.placeholder
+  return ''
 }

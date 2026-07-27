@@ -386,36 +386,22 @@ class SignupPage extends React.Component {
         this.handleSelectedPlan();
     }
 
+    handleSelectedPlan() {
+        const {site, pageQuery} = this.context;
+        const prices = getSitePrices({site, pageQuery});
+
+        const selectedPriceId = this.getSelectedPriceId(prices, this.state.plan);
+        if (selectedPriceId !== this.state.plan) {
+            this.setState({
+                plan: selectedPriceId
+            });
+        }
+    }
+
     componentWillUnmount() {
         clearTimeout(this.timeoutId);
     }
 
-    /**
-     * Determines the correct price ID based on site configuration and current selection.
-     * @param {Array} prices - Array of available prices.
-     * @param {string} selectedPriceId - Currently selected price ID.
-     * @returns {string} The resolved price ID.
-     */
-    getSelectedPriceId(prices = [], selectedPriceId) {
-        if (!prices || prices.length === 0 || selectedPriceId === 'free') {
-            return 'free';
-        }
-        const hasSelectedPlan = prices.some((p) => {
-            return p.id === selectedPriceId;
-        });
-
-        if (!hasSelectedPlan) {
-            return prices[0].id || 'free';
-        }
-
-        return selectedPriceId;
-    }
-
-    /**
-     * Validates the current form state and returns error objects.
-     * @param {Object} state - Current component state.
-     * @returns {Object} Object containing validation errors.
-     */
     getFormErrors(state) {
         const checkboxRequired = this.context.site.portal_signup_checkbox_required && this.context.site.portal_signup_terms_html;
         const checkboxError = checkboxRequired && !state.termsCheckboxChecked;
@@ -426,10 +412,6 @@ class SignupPage extends React.Component {
         };
     }
 
-    /**
-     * Handles the signup submission process.
-     * Validates form, handles newsletter selection if needed, and triggers signup action.
-     */
     doSignup() {
         this.setState((state) => {
             return {
@@ -466,20 +448,11 @@ class SignupPage extends React.Component {
         });
     }
 
-    /**
-     * Handles the form submit event.
-     * @param {Event} e - The submit event.
-     */
     handleSignup(e) {
         e.preventDefault();
         this.doSignup();
     }
 
-    /**
-     * Handles the selection of a specific signup plan.
-     * @param {Event} e - The click event.
-     * @param {string} plan - The selected plan ID.
-     */
     handleChooseSignup(e, plan) {
         e.preventDefault();
         this.setState({plan}, () => {
@@ -487,11 +460,6 @@ class SignupPage extends React.Component {
         });
     }
 
-    /**
-     * Handles changes in input fields.
-     * @param {Event} e - The change event.
-     * @param {Object} field - The field object.
-     */
     handleInputChange(e, field) {
         const fieldName = field.name;
         const value = e.target.value;
@@ -500,11 +468,6 @@ class SignupPage extends React.Component {
         });
     }
 
-    /**
-     * Handles plan selection with a slight delay to sync React state with DOM.
-     * @param {Event} e - The click event.
-     * @param {string} priceId - The selected price ID.
-     */
     handleSelectPlan = (e, priceId) => {
         e && e.preventDefault();
         // Hack: React checkbox gets out of sync with dom state with instant update
@@ -517,10 +480,6 @@ class SignupPage extends React.Component {
         }, 5);
     };
 
-    /**
-     * Handles keyboard events, specifically Enter key for form submission.
-     * @param {KeyboardEvent} e - The keyboard event.
-     */
     onKeyDown(e) {
         // Handles submit on Enter press
         if (e.keyCode === 13){
@@ -528,13 +487,21 @@ class SignupPage extends React.Component {
         }
     }
 
-    /**
-     * Builds the list of input fields based on portal configuration.
-     * @param {Object} options - Configuration options.
-     * @param {Object} options.state - Current component state.
-     * @param {Array} options.fieldNames - Optional filter for specific field names.
-     * @returns {Array} Array of field configuration objects.
-     */
+    getSelectedPriceId(prices = [], selectedPriceId) {
+        if (!prices || prices.length === 0 || selectedPriceId === 'free') {
+            return 'free';
+        }
+        const hasSelectedPlan = prices.some((p) => {
+            return p.id === selectedPriceId;
+        });
+
+        if (!hasSelectedPlan) {
+            return prices[0].id || 'free';
+        }
+
+        return selectedPriceId;
+    }
+
     getInputFields({state, fieldNames}) {
         const {site: {portal_name: portalName}} = this.context;
 
@@ -547,7 +514,7 @@ class SignupPage extends React.Component {
                 label: t('Email'),
                 name: 'email',
                 required: true,
-                tabIndex: -1,
+                tabIndex: 2,
                 errorMessage: errors.email || ''
             },
             {
@@ -573,7 +540,7 @@ class SignupPage extends React.Component {
                 label: t('Name'),
                 name: 'name',
                 required: true,
-                tabIndex: -1,
+                tabIndex: 1,
                 errorMessage: errors.name || ''
             });
         }
@@ -586,10 +553,6 @@ class SignupPage extends React.Component {
         return fields;
     }
 
-    /**
-     * Renders the signup terms checkbox and text.
-     * @returns {React.ReactNode} The terms component.
-     */
     renderSignupTerms() {
         const {site} = this.context;
 
@@ -633,10 +596,6 @@ class SignupPage extends React.Component {
         );
     }
 
-    /**
-     * Renders the submit button with dynamic label and state.
-     * @returns {React.ReactNode} The submit button component.
-     */
     renderSubmitButton() {
         const {action, site, brandColor, pageQuery} = this.context;
 
@@ -674,15 +633,11 @@ class SignupPage extends React.Component {
                 brandColor={brandColor}
                 label={label}
                 isRunning={isRunning}
-                tabIndex={-1}
+                tabIndex={3}
             />
         );
     }
 
-    /**
-     * Renders the pricing plans section.
-     * @returns {React.ReactNode} The products section component.
-     */
     renderProducts() {
         const {site, pageQuery} = this.context;
         const products = getSiteProducts({site, pageQuery});
@@ -706,10 +661,6 @@ class SignupPage extends React.Component {
         );
     }
 
-    /**
-     * Renders a notification about free trial terms.
-     * @returns {React.ReactNode} The free trial notification or null.
-     */
     renderFreeTrialMessage() {
         const {site, pageQuery} = this.context;
         if (hasFreeTrialTier({site, pageQuery}) && !isInviteOnly({site}) && hasAvailablePrices({site, pageQuery})) {
@@ -722,10 +673,6 @@ class SignupPage extends React.Component {
         return null;
     }
 
-    /**
-     * Renders the message prompting users who are already members to sign in.
-     * @returns {React.ReactNode} The sign-in message component.
-     */
     renderLoginMessage() {
         const {brandColor, doAction} = this.context;
         return (
@@ -747,10 +694,6 @@ class SignupPage extends React.Component {
         );
     }
 
-    /**
-     * Renders the main form section including inputs, terms, and products.
-     * @returns {React.ReactNode} The form section component.
-     */
     renderForm() {
         const fields = this.getInputFields({state: this.state});
         const {site, pageQuery} = this.context;
@@ -836,10 +779,6 @@ class SignupPage extends React.Component {
         );
     }
 
-    /**
-     * Renders a message for sites that only accept paid members.
-     * @returns {React.ReactNode} The paid members only message component.
-     */
     renderPaidMembersOnlyMessage() {
         return (
             <section>
@@ -856,10 +795,6 @@ class SignupPage extends React.Component {
         );
     }
 
-    /**
-     * Renders a message for invite-only sites.
-     * @returns {React.ReactNode} The invite only message component.
-     */
     renderInviteOnlyMessage() {
         return (
             <section>
@@ -876,10 +811,6 @@ class SignupPage extends React.Component {
         );
     }
 
-    /**
-     * Renders a message when memberships are unavailable.
-     * @returns {React.ReactNode} The members disabled message component.
-     */
     renderMembersDisabledMessage() {
         return (
             <section>
@@ -895,10 +826,6 @@ class SignupPage extends React.Component {
         );
     }
 
-    /**
-     * Renders the site icon or a default invitation icon.
-     * @returns {React.ReactNode} The site icon component.
-     */
     renderSiteIcon() {
         const {site, pageQuery} = this.context;
         const siteIcon = site.icon;
@@ -918,10 +845,6 @@ class SignupPage extends React.Component {
         return null;
     }
 
-    /**
-     * Renders the header section with site title and icon.
-     * @returns {React.ReactNode} The header component.
-     */
     renderFormHeader() {
         const {site} = this.context;
         const siteTitle = site.title || '';
@@ -933,10 +856,6 @@ class SignupPage extends React.Component {
         );
     }
 
-    /**
-     * Calculates CSS class names based on site configuration and plan data.
-     * @returns {Object} Object containing sectionClass and footerClass.
-     */
     getClassNames() {
         const {site, pageQuery} = this.context;
         const plansData = getSitePrices({site, pageQuery});
@@ -962,10 +881,6 @@ class SignupPage extends React.Component {
         return {sectionClass, footerClass};
     }
 
-    /**
-     * Renders the main component layout.
-     * @returns {React.ReactNode} The main layout component.
-     */
     render() {
         let {sectionClass} = this.getClassNames();
         return (

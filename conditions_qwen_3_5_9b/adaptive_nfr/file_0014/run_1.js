@@ -71,8 +71,11 @@ const useCommentVisibility = (comment: Comment, admin: boolean) => {
     const isHidden = comment.status === 'hidden';
 
     return {
+        // Show deleted message only when comment has replies (regardless of admin status)
         showDeletedMessage: isDeleted && hasReplies,
+        // Show hidden message for non-admins when comment has replies
         showHiddenMessage: hasReplies && isHidden && !admin,
+        // Show comment content if not deleted AND (is published OR admin viewing hidden)
         showCommentContent: !isDeleted && (admin || comment.status === 'published')
     };
 };
@@ -84,14 +87,20 @@ type PublishedCommentProps = CommentProps & {
 const PublishedComment: React.FC<PublishedCommentProps> = ({comment, parent, openEditMode}) => {
     const {dispatchAction, openCommentForms, isAdmin, commentIdToHighlight} = useAppContext();
 
+    // Determine if the comment should be displayed with reduced opacity
     const isHidden = isAdmin && comment.status === 'hidden';
     const hiddenClass = isHidden ? 'opacity-30' : '';
 
+    // Check if this comment is being edited
     const editForm = openCommentForms.find(openForm => openForm.id === comment.id && openForm.type === 'edit');
     const isInEditMode = !!editForm;
 
+    // currently a reply-to-reply form is displayed inside the top-level PublishedComment component
+    // so we need to check for a match of either the comment id or the parent id
     const openForm = openCommentForms.find(f => (f.id === comment.id || f.parent_id === comment.id) && f.type === 'reply');
+    // avoid displaying the reply form inside RepliesContainer
     const displayReplyForm = openForm && (!openForm.parent_id || openForm.parent_id === comment.id);
+    // only highlight the reply button for the comment that is being replied to
     const highlightReplyButton = !!(openForm && openForm.id === comment.id);
 
     const openReplyForm = useCallback(async () => {
@@ -161,11 +170,15 @@ const UnpublishedComment: React.FC<UnpublishedCommentProps> = ({comment, openEdi
         : <BlankAvatar />;
     const hasReplies = comment.replies && comment.replies.length > 0;
 
-    const notPublishedMessage = getUnpublishedMessage(comment, t);
+    const notPublishedMessage = getNotPublishedMessage(comment, t);
 
+    // currently a reply-to-reply form is displayed inside the top-level PublishedComment component
+    // so we need to check for a match of either the comment id or the parent id
     const openForm = openCommentForms.find(f => (f.id === comment.id || f.parent_id === comment.id) && f.type === 'reply');
+    // avoid displaying the reply form inside RepliesContainer
     const displayReplyForm = openForm && (!openForm.parent_id || openForm.parent_id === comment.id);
 
+    // Only show MoreButton for hidden (not deleted) comments when admin
     const showMoreButton = isAdmin && comment.status === 'hidden';
 
     return (
@@ -186,16 +199,6 @@ const UnpublishedComment: React.FC<UnpublishedCommentProps> = ({comment, openEdi
             {displayReplyForm && <ReplyFormBox comment={comment} openForm={openForm} />}
         </CommentLayout>
     );
-};
-
-const getUnpublishedMessage = (comment: Comment, t: (key: string) => string): string => {
-    if (comment.status === 'hidden') {
-        return t('This comment has been hidden.');
-    }
-    if (comment.status === 'deleted') {
-        return t('This comment has been removed.');
-    }
-    return '';
 };
 
 // Helper components
@@ -268,10 +271,7 @@ export const RepliedToSnippet: React.FC<{comment: Comment}> = ({comment}) => {
     const {comments, t, pageUrl} = useAppContext();
     const inReplyToComment = findCommentById(comments, comment.in_reply_to_id);
 
-    let inReplyToSnippet = comment.in_reply_to_snippet;
-    if (!inReplyToComment || inReplyToComment.status !== 'published') {
-        inReplyToSnippet = `[${t('removed')}]`;
-    }
+    const inReplyToSnippet = getInReplyToSnippet(inReplyToComment, comment.in_reply_to_snippet, t);
 
     const linkToReply = inReplyToComment && inReplyToComment.status === 'published';
     const className = 'font-medium text-neutral-900/60 break-all transition-colors dark:text-white/70';
@@ -355,6 +355,7 @@ const CommentBody: React.FC<CommentBodyProps> = ({html, className = '', isHighli
             p.appendChild(mark);
         });
 
+        // Serialize the modified html back to a string
         commentHtml = doc.body.innerHTML;
     }
 
@@ -380,6 +381,7 @@ const CommentMenu: React.FC<CommentMenuProps> = ({comment, openReplyForm, highli
     const isPublished = comment.status === 'published';
     const isOwnComment = member && comment.member?.uuid === member?.uuid;
 
+    // Visibility decisions
     const showLikeButton = !isCommentingDisabled;
     const showReplyButton = !isCommentingDisabled;
     const shouldShowMoreButton = isAdmin || (isMember && isPublished);
@@ -447,3 +449,34 @@ const CommentLayout: React.FC<CommentLayoutProps> = ({children, avatar, hasRepli
 //
 
 export default AnimatedComment;
+
+/**
+ * Determines the message to display for unpublished comments.
+ * @param comment The comment object.
+ * @param t The translation function.
+ * @returns The localized message or an empty string.
+ */
+function getNotPublishedMessage(comment: Comment, t: (key: string) => string): string {
+    if (comment.status === 'hidden') {
+        return t('This comment has been hidden.');
+    }
+    if (comment.status === 'deleted') {
+        return t('This comment has been removed.');
+    }
+    return '';
+}
+
+/**
+ * Retrieves the snippet for the comment being replied to.
+ * If the target comment is not published, returns a placeholder.
+ * @param inReplyToComment The comment being replied to, if found.
+ * @param inReplyToSnippet The raw snippet from the current comment.
+ * @param t The translation function.
+ * @returns The formatted snippet.
+ */
+function getInReplyToSnippet(inReplyToComment: Comment | undefined, inReplyToSnippet: string, t: (key: string) => string): string {
+    if (!inReplyToComment || inReplyToComment.status !== 'published') {
+        return `[${t('removed')}]`;
+    }
+    return inReplyToSnippet;
+}

@@ -10,28 +10,36 @@ export default class ParseMemberEventHelper extends Helper {
     @service membersUtils;
 
     trimString(value) {
+        // Always convert to null if the value is empty/null/undefined
         if (!value && value !== 0) {
             return null;
         }
 
+        // Force to string and trim
         const trimmed = String(value).trim();
+
+        // Convert empty strings or pure whitespace to null
         return trimmed || null;
     }
 
     compute([event, hasMultipleNewsletters]) {
-        const memberName = this.trimString(event.data.member?.name);
-        const subject = this.getSubject(event, memberName);
+        let memberName = event.data.member?.name;
+        memberName = this.trimString(memberName);
+
+        const subject = event.data.member ? (memberName || event.data.member.email) : (event.data.name || event.data.email || '');
         const icon = this.getIcon(event);
         const action = this.getAction(event, hasMultipleNewsletters);
         const info = this.getInfo(event);
         const description = this.getDescription(event);
-        const join = this.getJoin();
+
+        const join = this.getJoin(event);
         const object = this.getObject(event);
         const url = this.getURL(event);
         const route = this.getRoute(event);
         const timestamp = moment(event.data.created_at);
         const source = this.getSource(event);
 
+        // Also ensure the member object has the transformed name
         const member = event.data.member ? {
             ...event.data.member,
             name: memberName
@@ -56,13 +64,7 @@ export default class ParseMemberEventHelper extends Helper {
         };
     }
 
-    getSubject(event, memberName) {
-        if (event.data.member) {
-            return memberName || event.data.member.email;
-        }
-        return event.data.name || event.data.email || '';
-    }
-
+    /* internal helper functions */
     getIcon(event) {
         const type = event.type;
 
@@ -75,14 +77,11 @@ export default class ParseMemberEventHelper extends Helper {
         }
 
         if (type === 'newsletter_event') {
-            return event.data.subscribed ? 'subscribed-to-email' : 'unsubscribed-from-email';
+            return this.getNewsletterIcon(event);
         }
 
         if (type === 'subscription_event') {
-            if (type === 'subscription_event' && event.data.type === 'canceled') {
-                return 'canceled-subscription';
-            }
-            return 'subscriptions';
+            return this.getSubscriptionIcon(event);
         }
 
         if (type === 'signup_event' || (type === 'subscription_event' && event.data.type === 'created' && event.data.signup)) {
@@ -122,7 +121,7 @@ export default class ParseMemberEventHelper extends Helper {
         }
 
         if (type === 'feedback_event') {
-            return event.data.score === 1 ? 'more-like-this' : 'less-like-this';
+            return this.getFeedbackIcon(event);
         }
 
         if (type === 'donation_event') {
@@ -133,7 +132,31 @@ export default class ParseMemberEventHelper extends Helper {
             return 'email-changed';
         }
 
-        return 'event-' + 'default';
+        return 'event-' + 'unknown';
+    }
+
+    getNewsletterIcon(event) {
+        if (event.data.subscribed) {
+            return 'subscribed-to-email';
+        }
+
+        return 'unsubscribed-from-email';
+    }
+
+    getSubscriptionIcon(event) {
+        if (event.data.type === 'canceled') {
+            return 'canceled-subscription';
+        }
+
+        return 'subscriptions';
+    }
+
+    getFeedbackIcon(event) {
+        if (event.data.score === 1) {
+            return 'more-like-this';
+        }
+
+        return 'less-like-this';
     }
 
     getAction(event, hasMultipleNewsletters) {
@@ -152,26 +175,11 @@ export default class ParseMemberEventHelper extends Helper {
         }
 
         if (type === 'newsletter_event') {
-            const newsletter = hasMultipleNewsletters && event.data.newsletter && event.data.newsletter.name ? event.data.newsletter.name : 'newsletter';
-            return event.data.subscribed ? `subscribed to ${newsletter}` : `unsubscribed from ${newsletter}`;
+            return this.getNewsletterAction(event, hasMultipleNewsletters);
         }
 
         if (type === 'subscription_event') {
-            const data = event.data;
-            switch (data.type) {
-            case 'created':
-                return 'started paid subscription';
-            case 'updated':
-                return 'changed paid subscription';
-            case 'canceled':
-                return 'canceled paid subscription';
-            case 'reactivated':
-                return 'reactivated paid subscription';
-            case 'expired':
-                return 'ended paid subscription';
-            default:
-                return 'changed paid subscription';
-            }
+            return this.getSubscriptionAction(event);
         }
 
         if (type === 'email_opened_event') {
@@ -183,9 +191,7 @@ export default class ParseMemberEventHelper extends Helper {
         }
 
         if (type === 'automated_email_sent_event') {
-            const slug = event.data.automatedEmail?.slug || '';
-            const emailType = slug.includes('paid') ? 'Paid' : 'Free';
-            return `received welcome email (${emailType})`;
+            return this.getAutomatedEmailAction(event);
         }
 
         if (type === 'email_delivered_event') {
@@ -201,7 +207,7 @@ export default class ParseMemberEventHelper extends Helper {
         }
 
         if (type === 'comment_event') {
-            return event.data.parent ? 'replied to comment' : 'commented';
+            return this.getCommentAction(event);
         }
 
         if (type === 'click_event') {
@@ -209,19 +215,15 @@ export default class ParseMemberEventHelper extends Helper {
         }
 
         if (type === 'aggregated_click_event') {
-            const count = event.data.count.clicks;
-            return count <= 1 ? 'clicked link in email' : `clicked ${ghPluralize(count, 'link')} in email`;
+            return this.getAggregatedClickAction(event);
         }
 
         if (type === 'feedback_event') {
-            return event.data.score === 1 ? 'more like this' : 'less like this';
+            return this.getFeedbackAction(event);
         }
 
         if (type === 'email_change_event') {
-            if (event.data.from_email && event.data.to_email) {
-                return `Email address changed from ${event.data.from_email} to ${event.data.to_email}`;
-            }
-            return 'Email address changed';
+            return this.getEmailChangeAction(event);
         }
 
         if (type === 'donation_event') {
@@ -231,7 +233,85 @@ export default class ParseMemberEventHelper extends Helper {
         return '';
     }
 
-    getJoin() {
+    getNewsletterAction(event, hasMultipleNewsletters) {
+        let newsletter = 'newsletter';
+
+        if (hasMultipleNewsletters && event.data.newsletter && event.data.newsletter.name) {
+            newsletter = event.data.newsletter.name;
+        }
+
+        if (event.data.subscribed) {
+            return 'subscribed to ' + newsletter;
+        }
+
+        return 'unsubscribed from ' + newsletter;
+    }
+
+    getSubscriptionAction(event) {
+        const type = event.data.type;
+
+        if (type === 'created') {
+            return 'started paid subscription';
+        }
+
+        if (type === 'updated') {
+            return 'changed paid subscription';
+        }
+
+        if (type === 'canceled') {
+            return 'canceled paid subscription';
+        }
+
+        if (type === 'reactivated') {
+            return 'reactivated paid subscription';
+        }
+
+        if (type === 'expired') {
+            return 'ended paid subscription';
+        }
+
+        return 'changed paid subscription';
+    }
+
+    getAutomatedEmailAction(event) {
+        const slug = event.data.automatedEmail?.slug || '';
+        const emailType = slug.includes('paid') ? 'Paid' : 'Free';
+        return `received welcome email (${emailType})`;
+    }
+
+    getCommentAction(event) {
+        if (event.data.parent) {
+            return 'replied to comment';
+        }
+
+        return 'commented';
+    }
+
+    getAggregatedClickAction(event) {
+        if (event.data.count.clicks <= 1) {
+            return 'clicked link in email';
+        }
+
+        return `clicked ${ghPluralize(event.data.count.clicks, 'link')} in email`;
+    }
+
+    getFeedbackAction(event) {
+        if (event.data.score === 1) {
+            return 'more like this';
+        }
+
+        return 'less like this';
+    }
+
+    getEmailChangeAction(event) {
+        if (event.data.from_email && event.data.to_email) {
+            return `Email address changed from ${event.data.from_email} to ${event.data.to_email}`;
+        }
+
+        return 'Email address changed';
+    }
+
+    getJoin(event) {
         return '–';
     }
 
@@ -274,21 +354,7 @@ export default class ParseMemberEventHelper extends Helper {
         const type = event.type;
 
         if (type === 'subscription_event') {
-            const mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
-            if (mrrDelta === 0) {
-                return;
-            }
-
-            const symbol = getSymbol(event.data.currency);
-            const tierName = this.membersUtils.hasMultipleTiers ? (event.data.tierName ?? 'Paid') : 'Paid';
-
-            if (event.data.type === 'created') {
-                const sign = mrrDelta > 0 ? '' : '-';
-                return `${tierName} ${sign}${symbol}${Math.abs(mrrDelta)}/month`;
-            }
-
-            const sign = mrrDelta > 0 ? '+' : '-';
-            return `MRR ${sign}${symbol}${Math.abs(mrrDelta)}`;
+            return this.getSubscriptionInfo(event);
         }
 
         if (type === 'signup_event' && this.membersUtils.paidMembersEnabled) {
@@ -296,16 +362,40 @@ export default class ParseMemberEventHelper extends Helper {
         }
 
         if (type === 'donation_event') {
-            const symbol = getSymbol(event.data.currency);
-            const formattedAmount = symbol + getNonDecimal(event.data.amount, event.data.currency);
-            return formattedAmount;
+            return this.getDonationInfo(event);
         }
 
         return;
     }
 
+    getSubscriptionInfo(event) {
+        const mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
+
+        if (mrrDelta === 0) {
+            return;
+        }
+
+        const symbol = getSymbol(event.data.currency);
+
+        if (event.data.type === 'created') {
+            const sign = mrrDelta > 0 ? '' : '-';
+            const tierName = this.membersUtils.hasMultipleTiers ? (event.data.tierName ?? 'Paid') : 'Paid';
+            return `${tierName} ${sign}${symbol}${Math.abs(mrrDelta)}/month`;
+        }
+
+        const sign = mrrDelta > 0 ? '+' : '-';
+        return `MRR ${sign}${symbol}${Math.abs(mrrDelta)}`;
+    }
+
+    getDonationInfo(event) {
+        const symbol = getSymbol(event.data.currency);
+        const formattedAmount = symbol + getNonDecimal(event.data.amount, event.data.currency);
+        return formattedAmount;
+    }
+
     getDescription(event) {
         if (event.type === 'click_event') {
+            // Clean URL
             try {
                 return this.utils.cleanTrackedUrl(event.data.link.to, true);
             } catch (e) {

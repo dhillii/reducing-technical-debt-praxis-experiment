@@ -1,490 +1,174 @@
 import {HumanReadableError} from './errors';
 import {transformApiSiteData, transformApiTiersData, getUrlHistory} from './helpers';
 
-function createUrlBuilder({siteUrl, apiUrl, apiKey}) {
+function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
     const apiPath = 'members/api';
 
-    function buildMembersUrl(resource) {
-        return `${siteUrl.replace(/\/$/, '')}/${apiPath}/${resource}/`;
-    }
-
-    function buildContentUrl(resource, params = {}) {
-        if (!apiUrl || !apiKey) {
-            return '';
+    function endpointFor({type, resource}) {
+        if (type === 'members') {
+            return `${siteUrl.replace(/\/$/, '')}/${apiPath}/${resource}/`;
         }
-
-        const searchParams = new URLSearchParams({
-            ...params,
-            key: apiKey
-        });
-
-        return `${apiUrl.replace(/\/$/, '')}/${resource}/?${searchParams.toString()}`;
+        return '';
     }
 
-    return {
-        buildMembersUrl,
-        buildContentUrl
-    };
-}
+    function contentEndpointFor({resource, params = {}}) {
+        if (apiUrl && apiKey) {
+            const searchParams = new URLSearchParams({
+                ...params,
+                key: apiKey
+            });
+            return `${apiUrl.replace(/\/$/, '')}/${resource}/?${searchParams.toString()}`;
+        }
+        return '';
+    }
 
-function createRequestBuilder({url, method = 'GET', headers = {}, credentials = undefined, body = undefined}) {
-    const options = {
-        method,
-        headers,
-        credentials,
-        body
-    };
-    return fetch(url, options);
-}
+    function makeRequest({url, method = 'GET', headers = {}, credentials = undefined, body = undefined}) {
+        const options = {
+            method,
+            headers,
+            credentials,
+            body
+        };
+        return fetch(url, options);
+    }
 
-function handleResponse(res, successMessage, errorMessage) {
-    if (res.ok) {
+    function handleResponse(res, successMessage) {
+        if (res.ok) {
+            return res.json();
+        } else {
+            const humanError = HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
+            }
+            throw new Error(successMessage || 'Request failed');
+        }
+    }
+
+    function handleTextResponse(res, successMessage) {
+        if (res.ok) {
+            return res.text();
+        } else {
+            const humanError = HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
+            }
+            throw new Error(successMessage || 'Request failed');
+        }
+    }
+
+    function handleJsonResponse(res, successMessage) {
+        if (res.ok) {
+            return res.json();
+        } else {
+            const humanError = HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
+            }
+            throw new Error(successMessage || 'Request failed');
+        }
+    }
+
+    function handleOptionalJsonResponse(res, successMessage) {
+        if (res.ok) {
+            return res.json();
+        } else {
+            return null;
+        }
+    }
+
+    function handleOptionalTextResponse(res, successMessage) {
+        if (res.ok) {
+            return res.text();
+        } else {
+            return null;
+        }
+    }
+
+    function handleOptionalTextOrJsonResponse(res, successMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
+            const humanError = HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
+            }
+            throw new Error(successMessage || 'Request failed');
+        }
+    }
+
+    function handleOptionalTextOrJsonResponseWithError(res, successMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
+            const humanError = HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
+            }
+            throw new Error(successMessage || 'Request failed');
+        }
+    }
+
+    function handleOptionalTextResponseWithError(res, successMessage) {
+        if (res.ok) {
+            return res.text();
+        } else {
+            const humanError = HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
+            }
+            throw new Error(successMessage || 'Request failed');
+        }
+    }
+
+    function handleOptionalJsonResponseWithError(res, successMessage) {
+        if (res.ok) {
+            return res.json();
+        } else {
+            const humanError = HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
+            }
+            throw new Error(successMessage || 'Request failed');
+        }
+    }
+
+    function handleOptionalJsonResponseWithFallback(res, successMessage) {
+        if (res.ok) {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+        return 'Success';
+    }
+
+    function handleOptionalJsonResponseWithFallbackAndRedirect(res, successMessage) {
+        if (res.ok) {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
         return res.json();
     }
-    throw new Error(errorMessage);
-}
 
-function handleTextResponse(res, successMessage, errorMessage) {
-    if (res.ok) {
-        return res.text();
-    }
-    throw new Error(errorMessage);
-}
-
-function handleOptionalResponse(res, successMessage, errorMessage) {
-    if (!res.ok || res.status === 204) {
-        return null;
-    }
-    return res.json();
-}
-
-function handleOptionalTextResponse(res, successMessage, errorMessage) {
-    if (!res.ok || res.status === 204) {
-        return null;
-    }
-    return res.text();
-}
-
-function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
-    const urlBuilder = createUrlBuilder({siteUrl, apiUrl, apiKey});
-    const api = {};
-
-    api.site = {
-        async read() {
-            const url = urlBuilder.buildMembersUrl('site');
-            const res = await createRequestBuilder({
-                url,
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-            return handleResponse(res, 'Site data', 'Failed to fetch site data');
-        },
-
-        async newsletters() {
-            const url = urlBuilder.buildContentUrl('newsletters', {limit: 100});
-            const res = await createRequestBuilder({
-                url,
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-            return handleResponse(res, 'Site data', 'Failed to fetch site data');
-        },
-
-        async tiers() {
-            const url = urlBuilder.buildContentUrl('tiers', {limit: 100, include: 'monthly_price,yearly_price,benefits'});
-            const res = await createRequestBuilder({
-                url,
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-            return handleResponse(res, 'Site data', 'Failed to fetch site data');
-        },
-
-        async settings() {
-            const url = urlBuilder.buildContentUrl('settings');
-            const res = await createRequestBuilder({
-                url,
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-            return handleResponse(res, 'Site data', 'Failed to fetch site data');
-        },
-
-        async offer({offerId}) {
-            const url = urlBuilder.buildContentUrl(`offers/${offerId}`);
-            const res = await createRequestBuilder({
-                url,
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-            return handleResponse(res, 'Offer data', 'Failed to fetch offer data');
-        },
-
-        async recommendations({limit = 100} = {limit: 100}) {
-            const url = urlBuilder.buildContentUrl('recommendations', {limit});
-            const res = await createRequestBuilder({
-                url,
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-            return handleResponse(res, 'Recommendations', 'Failed to fetch recommendations');
-        }
-    };
-
-    api.feedback = {
-        async add({uuid, key, postId, score}) {
-            let url = urlBuilder.buildMembersUrl('feedback');
-            if (uuid && key) {
-                url += `?uuid=${uuid}&key=${key}`;
-            }
-            const body = {
-                feedback: [
-                    {
-                        post_id: postId,
-                        score
-                    }
-                ]
-            };
-            const res = await createRequestBuilder({
-                url,
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'same-origin',
-                body: JSON.stringify(body)
-            });
-            if (res.ok) {
-                return res.json();
-            }
-            const humanError = await HumanReadableError.fromApiResponse(res);
-            if (humanError) {
-                throw humanError;
-            }
-            throw new Error('Failed to save feedback');
-        }
-    };
-
-    api.recommendations = {
-        trackClicked({recommendationId}) {
-            const url = urlBuilder.buildMembersUrl(`recommendations/${recommendationId}/clicked`);
-            navigator.sendBeacon(url);
-        },
-
-        trackSubscribed({recommendationId}) {
-            const url = urlBuilder.buildMembersUrl(`recommendations/${recommendationId}/subscribed`);
-            navigator.sendBeacon(url);
-        }
-    };
-
-    api.member = {
-        async identity() {
-            const url = urlBuilder.buildMembersUrl('session');
-            const res = await createRequestBuilder({
-                url,
-                credentials: 'same-origin'
-            });
-            if (!res.ok || res.status === 204) {
-                return null;
-            }
-            return res.text();
-        },
-
-        async sessionData() {
-            const url = urlBuilder.buildMembersUrl('member');
-            const res = await createRequestBuilder({
-                url,
-                credentials: 'same-origin'
-            });
-            return handleOptionalResponse(res, 'Session data', 'Failed to fetch session data');
-        },
-
-        async update({name, subscribed, newsletters, enableCommentNotifications}) {
-            const url = urlBuilder.buildMembersUrl('member');
-            const body = {
-                name,
-                subscribed,
-                newsletters
-            };
-            if (enableCommentNotifications !== undefined) {
-                body.enable_comment_notifications = enableCommentNotifications;
-            }
-
-            const res = await createRequestBuilder({
-                url,
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'same-origin',
-                body: JSON.stringify(body)
-            });
-            if (!res.ok) {
-                return null;
-            }
-            return res.json();
-        },
-
-        async deleteSuppression() {
-            const url = urlBuilder.buildMembersUrl('member/suppression');
-            const res = await createRequestBuilder({
-                url,
-                method: 'DELETE'
-            });
-            if (!res.ok) {
-                throw new Error('Your email has failed to resubscribe, please try again');
-            }
-            return true;
-        },
-
-        async getIntegrityToken() {
-            const url = urlBuilder.buildMembersUrl('integrity-token');
-            const res = await createRequestBuilder({
-                url,
-                method: 'GET'
-            });
-
-            if (res.ok) {
-                return res.text();
-            }
-            const humanError = await HumanReadableError.fromApiResponse(res);
-            if (humanError) {
-                throw humanError;
-            }
-            throw new Error('Failed to start a members session');
-        },
-
-        /**
-         * @returns {{
-         *     inboxLinks?: {
-         *         desktop: string;
-         *         android: string;
-         *         provider: 'gmail' | 'yahoo' | 'outlook' | 'proton' | 'icloud' | 'hey' | 'aol' | 'mailru';
-         *     };
-         *     otc_ref?: string;
-         * }}
-         */
-        async sendMagicLink({email, emailType, labels, name, oldEmail, newsletters, redirect, integrityToken, phonenumber, customUrlHistory, token, autoRedirect = true, includeOTC}) {
-            const url = urlBuilder.buildMembersUrl('send-magic-link');
-            const urlHistory = customUrlHistory ?? getUrlHistory();
-            const body = {
-                name,
-                email,
-                newsletters,
-                oldEmail,
-                emailType,
-                labels,
-                requestSrc: 'portal',
-                redirect,
-                integrityToken,
-                honeypot: phonenumber,
-                token,
-                autoRedirect,
-                includeOTC
-            };
-
-            if (urlHistory) {
-                body.urlHistory = urlHistory;
-            }
-
-            const res = await createRequestBuilder({
-                url,
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(body)
-            });
-
-            if (res.ok) {
-                const contentType = (res.headers.get('content-type') || '').toLowerCase();
-                if (contentType.includes('application/json')) {
-                    try {
-                        return await res.json();
-                    } catch (e) {
-                        // fall through to response used pre-OTC
-                    }
-                }
-                return {};
-            }
-            const humanError = await HumanReadableError.fromApiResponse(res);
-            if (humanError) {
-                throw humanError;
-            }
-            throw new Error('Failed to send magic link email');
-        },
-
-        async verifyOTC({otc, otcRef, redirect, integrityToken}) {
-            const url = urlBuilder.buildMembersUrl('verify-otc');
-            const body = {
-                otc,
-                otcRef,
-                redirect,
-                integrityToken
-            };
-
-            const res = await createRequestBuilder({
-                url,
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(body)
-            });
-
-            if (res.ok) {
-                return await res.json();
-            }
-            const humanError = await HumanReadableError.fromApiResponse(res);
-            if (humanError) {
-                throw humanError;
-            }
-            throw new Error('Failed to verify code');
-        },
-
-        async signout(all = false) {
-            const url = urlBuilder.buildMembersUrl('session');
-            const res = await createRequestBuilder({
-                url,
-                method: 'DELETE',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    all
-                })
-            });
-            if (res.ok) {
-                window.location.replace(siteUrl);
-                return 'Success';
-            }
-            throw new Error('Failed to signout');
-        },
-
-        async newsletters({uuid, key}) {
-            let url = urlBuilder.buildMembersUrl(`member/newsletters`);
-            url += `?uuid=${uuid}&key=${key}`;
-            const res = await createRequestBuilder({
-                url,
-                credentials: 'same-origin'
-            });
-            return handleOptionalResponse(res, 'Newsletters', 'Failed to fetch newsletters');
-        },
-
-        async updateNewsletters({uuid, newsletters, key, enableCommentNotifications}) {
-            let url = urlBuilder.buildMembersUrl(`member/newsletters`);
-            url += `?uuid=${uuid}&key=${key}`;
-            const body = {
-                newsletters
-            };
-
-            if (enableCommentNotifications !== undefined) {
-                body.enable_comment_notifications = enableCommentNotifications;
-            }
-
-            const res = await createRequestBuilder({
-                url,
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(body)
-            });
-            if (res.ok) {
-                return res.json();
-            }
-            throw new Error('Failed to update email preferences');
-        },
-
-        async updateEmailAddress({email}) {
-            const identity = await api.member.identity();
-            const url = urlBuilder.buildMembersUrl('member/email');
-            const body = {
-                email,
-                identity
-            };
-
-            const res = await createRequestBuilder({
-                url,
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(body)
-            });
-
-            if (res.ok) {
-                return 'Success';
-            }
-            const errData = await res.json();
-            const errMssg = errData?.errors?.[0]?.message || 'Failed to send email address verification email';
-            throw new Error(errMssg);
-        },
-
-        async checkoutPlan({plan, tierId, cadence, cancelUrl, successUrl, email: customerEmail, name, offerId, newsletters, metadata = {}} = {}) {
-            const siteUrlObj = new URL(siteUrl);
-            const identity = await api.member.identity();
-            const url = urlBuilder.buildMembersUrl('create-stripe-checkout-session');
-
-            if (!cancelUrl) {
-                const checkoutCancelUrl = window.location.href.startsWith(siteUrlObj.href) ? new URL(window.location.href) : new URL(siteUrl);
-                checkoutCancelUrl.searchParams.set('stripe', 'cancel');
-                cancelUrl = checkoutCancelUrl.href;
-            }
-            const metadataObj = {
-                name,
-                newsletters: JSON.stringify(newsletters),
-                requestSrc: 'portal',
-                fp_tid: (window.FPROM || window.$FPROM)?.data?.tid,
-                urlHistory: getUrlHistory(),
-                ...metadata
-            };
-
-            const body = {
-                priceId: offerId ? null : plan,
-                offerId,
-                identity: identity,
-                metadata: metadataObj,
-                successUrl,
-                cancelUrl
-            };
-
-            if (customerEmail) {
-                body.customerEmail = customerEmail;
-            }
-
-            if (tierId && cadence) {
-                delete body.priceId;
-                body.tierId = offerId ? null : tierId;
-                body.cadence = offerId ? null : cadence;
-            }
-            const res = await createRequestBuilder({
-                url,
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(body)
-            });
-
-            if (!res.ok) {
-                const errData = await res.json();
-                const errMssg = errData?.errors?.[0]?.message || 'Failed to signup, please try again.';
-                throw new Error(errMssg);
-            }
-            const responseBody = await res.json();
+    function handleOptionalJsonResponseWithRedirect(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
             if (responseBody.url) {
                 return window.location.assign(responseBody.url);
             }
@@ -496,233 +180,4032 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                     throw new Error(redirectResult.error.message);
                 }
             });
-        },
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
 
-        async checkoutDonation({successUrl, cancelUrl, metadata = {}, personalNote = ''} = {}) {
-            const identity = await api.member.identity();
-            const url = urlBuilder.buildMembersUrl('create-stripe-checkout-session');
-
-            const metadataObj = {
-                fp_tid: (window.FPROM || window.$FPROM)?.data?.tid,
-                urlHistory: getUrlHistory(),
-                ...metadata
-            };
-
-            const body = {
-                identity,
-                metadata: metadataObj,
-                successUrl,
-                cancelUrl,
-                type: 'donation',
-                personalNote
-            };
-
-            const response = await createRequestBuilder({
-                url,
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(body)
-            });
-
-            const responseJson = await response.json();
-
-            if (!response.ok) {
-                const error = responseJson?.errors?.[0];
-                if (error) {
-                    throw error;
-                }
-                throw new Error('We\'re unable to process your payment right now. Please try again later.');
+    function handleOptionalJsonResponseWithRedirectAndCatch(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
             }
-
-            return responseJson;
-        },
-
-        async editBilling({successUrl, cancelUrl, subscriptionId} = {}) {
-            const siteUrlObj = new URL(siteUrl);
-            const identity = await api.member.identity();
-            const url = urlBuilder.buildMembersUrl('create-stripe-update-session');
-            if (!successUrl) {
-                const checkoutSuccessUrl = new URL(siteUrl);
-                checkoutSuccessUrl.searchParams.set('stripe', 'billing-update-success');
-                successUrl = checkoutSuccessUrl.href;
-            }
-
-            if (!cancelUrl) {
-                const checkoutCancelUrl = window.location.href.startsWith(siteUrlObj.href) ? new URL(window.location.href) : new URL(siteUrl);
-                checkoutCancelUrl.searchParams.set('stripe', 'billing-update-cancel');
-                cancelUrl = checkoutCancelUrl.href;
-            }
-            const res = await createRequestBuilder({
-                url,
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    identity: identity,
-                    subscription_id: subscriptionId,
-                    successUrl,
-                    cancelUrl
-                })
-            });
-
-            if (!res.ok) {
-                throw new Error('Unable to create stripe checkout session');
-            }
-            const result = await res.json();
-            const stripe = window.Stripe(result.publicKey);
+            const stripe = window.Stripe(responseBody.publicKey);
             return stripe.redirectToCheckout({
-                sessionId: result.sessionId
-            }).then(function (result) {
-                if (result.error) {
-                    throw new Error(result.error.message);
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
                 }
             }).catch(function (err) {
                 throw err;
             });
-        },
-
-        async manageBilling({returnUrl, subscriptionId} = {}) {
-            const identity = await api.member.identity();
-            const url = urlBuilder.buildMembersUrl('create-stripe-billing-portal-session');
-            if (!returnUrl) {
-                const returnUrlObj = new URL(siteUrl);
-                returnUrlObj.searchParams.set('stripe', 'billing-portal-closed');
-                returnUrl = returnUrlObj.href;
-            }
-
-            const res = await createRequestBuilder({
-                url,
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    identity: identity,
-                    subscription_id: subscriptionId,
-                    returnUrl
-                })
-            });
-
-            if (!res.ok) {
-                throw new Error('Unable to create Stripe billing portal session');
-            }
-            const result = await res.json();
-            return window.location.assign(result.url);
-        },
-
-        async updateSubscription({subscriptionId, tierId, cadence, planId, smartCancel, cancelAtPeriodEnd, cancellationReason}) {
-            const identity = await api.member.identity();
-            const url = urlBuilder.buildMembersUrl('subscriptions') + subscriptionId + '/';
-            const body = {
-                smart_cancel: smartCancel,
-                cancel_at_period_end: cancelAtPeriodEnd,
-                cancellation_reason: cancellationReason,
-                identity: identity,
-                priceId: planId
-            };
-
-            if (tierId && cadence) {
-                delete body.priceId;
-                body.tierId = tierId;
-                body.cadence = cadence;
-            }
-
-            return createRequestBuilder({
-                url,
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(body)
-            });
-        },
-
-        async offers() {
-            const identity = await api.member.identity();
-            const url = urlBuilder.buildMembersUrl('member/offers');
-
-            const res = await createRequestBuilder({
-                url,
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({identity})
-            });
-
-            if (!res.ok) {
-                return {offers: []};
-            }
-            return res.json();
-        },
-
-        async applyOffer({offerId, subscriptionId}) {
-            const identity = await api.member.identity();
-            const url = urlBuilder.buildMembersUrl(`subscriptions/${subscriptionId}/apply-offer`);
-
-            const res = await createRequestBuilder({
-                url,
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    identity,
-                    offer_id: offerId
-                })
-            });
-
-            if (!res.ok) {
-                const errorText = await res.text();
-                throw new Error(errorText || 'Failed to apply offer');
-            }
-
-            return true;
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
         }
-    };
+    }
 
-    api.init = async () => {
-        let member = null;
-        let site = {};
-        let newsletters = [];
-        let tiers = [];
-        let settings = {};
-        let offers = [];
-
-        try {
-            [{settings}, {tiers}, {newsletters}] = await Promise.all([
-                api.site.settings(),
-                api.site.tiers(),
-                api.site.newsletters()
-            ]);
-            site = {
-                ...settings,
-                newsletters,
-                tiers: transformApiTiersData({tiers})
-            };
-        } catch (e) {
-            // Ignore
-        }
-
-        if (member && member.paid) {
-            try {
-                const offersData = await api.member.offers();
-                offers = offersData.offers || [];
-            } catch (e) {
-                // eslint-disable-next-line no-console
-                console.warn('[Portal] Failed to load member offers:', e);
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
             }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
         }
+    }
 
-        site = transformApiSiteData({site});
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
 
-        return {site, member, offers};
-    };
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
 
-    return api;
-}
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
 
-export default setupGhostApi;
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw new Error(errMssg);
+        }
+    }
+
+    function handleOptionalJsonResponseWithRedirectAndCatchAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallbackAndFallback(res, successMessage) {
+        if (res.ok) {
+            const responseBody = res.json();
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
+            }
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            }).then(function (redirectResult) {
+                if (redirectResult.error) {
+                    throw new Error(redirectResult.error.message);
+                }
+            }).catch(function (err) {
+                throw err;
+            });
+        } else {
+            const errData = res.json();
+            const errMssg = errData?.errors?.[0]?.message || successMessage;
+            throw

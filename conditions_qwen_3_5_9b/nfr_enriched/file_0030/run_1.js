@@ -285,9 +285,14 @@ export default class MembersController extends Controller {
             filters.push(filterParam);
         }
 
-        let searchQuery = searchParam ? {search: searchParam} : {};
+        return this.buildQueryObject(filters, searchParam);
+    }
 
-        return {...{filter: filters.join('+')}, ...searchQuery};
+    buildQueryObject(filters, searchParam) {
+        const filterString = filters.join('+');
+        const searchQuery = searchParam ? {search: searchParam} : {};
+
+        return {filter: filterString, ...searchQuery};
     }
 
     // Actions -----------------------------------------------------------------
@@ -470,7 +475,7 @@ export default class MembersController extends Controller {
             onComplete: () => {
                 // reset, clear filters, and reload list and counts
                 this.store.unloadAll('member');
-                this.router.transitionTo('members.index', {queryParams: {...resetQueryParams('members.index')}});
+                this.router.transitionTo('members.index', {queryParams: Object.assign(resetQueryParams('members.index'))});
                 this.membersStats.invalidate();
                 this.membersStats.fetchCounts();
             }
@@ -532,12 +537,12 @@ export default class MembersController extends Controller {
             const order = orderParam ? `${orderParam} desc` : `created_at desc`;
             const includes = ['labels', 'tiers'];
 
-            query = {...{
+            query = Object.assign({
                 include: includes.join(','),
                 order,
                 limit: range.length,
                 page: range.page
-            }, ...searchQuery, ...query};
+            }, searchQuery, query);
 
             return this.store.query('member', query).then((result) => {
                 return {

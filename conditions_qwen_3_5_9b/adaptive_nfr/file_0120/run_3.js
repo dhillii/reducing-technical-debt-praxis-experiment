@@ -70,6 +70,10 @@ const QueryGenerator = {
     return `ALTER TABLE ${this.quoteTable(before)} RENAME TO ${this.quoteTable(after)};`;
   },
 
+  /*
+    Returns an insert into command. Parameters: table name + hash of attribute-value-pairs.
+   @private
+  */
   insertQuery(table, valueHash, modelAttributes, options) {
     options = options || {};
     _.defaults(options, this.options);
@@ -82,7 +86,7 @@ const QueryGenerator = {
     let emptyQuery = '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %><%= output %><%= onConflictDoNothing %>';
     let outputFragment;
     let identityWrapperRequired = false;
-    let tmpTable = '';
+    let tmpTable = '';         //tmpTable declaration for trigger
 
     if (modelAttributes) {
       _.each(modelAttributes, (attribute, key) => {
@@ -109,10 +113,11 @@ const QueryGenerator = {
         if (modelAttributes && options.hasTrigger && this._dialect.supports.tmpTableTrigger) {
           const tmpColumns = [];
           const outputColumns = [];
+          tmpTable = 'declare @tmp table (<%= columns %>); ';
 
           for (const modelKey in modelAttributes) {
             const attribute = modelAttributes[modelKey];
-            if (!(attribute.type instanceof DataTypes.VIRTUAL)) {
+            if (!isVirtualType(attribute)) {
               if (tmpColumns.length > 0) {
                 tmpColumns.push(',');
                 outputColumns.push(',');
@@ -202,6 +207,11 @@ const QueryGenerator = {
     return _.template(query, this._templateSettings)(replacements);
   },
 
+  /*
+    Returns an insert into command for multiple values.
+    Parameters: table name + list of hashes of attribute-value-pairs.
+   @private
+  */
   bulkInsertQuery(tableName, fieldValueHashes, options, fieldMappedAttributes) {
     options = options || {};
     fieldMappedAttributes = fieldMappedAttributes || {};
@@ -261,6 +271,17 @@ const QueryGenerator = {
     return _.template(query, this._templateSettings)(replacements);
   },
 
+  /*
+    Returns an update query.
+    Parameters:
+      - tableName -> Name of the table
+      - values -> A hash with attribute-value-pairs
+      - where -> A hash with conditions (e.g. {name: 'foo'})
+                 OR an ID as integer
+                 OR a string with conditions (e.g. 'name="foo"').
+                 If you use a string, you have to escape it on your own.
+   @private
+  */
   updateQuery(tableName, attrValueHash, where, options, attributes) {
     options = options || {};
     _.defaults(options, this.options);
@@ -271,8 +292,8 @@ const QueryGenerator = {
     const modelAttributeMap = {};
     let query = '<%= tmpTable %>UPDATE <%= table %> SET <%= values %><%= output %> <%= where %>';
     let outputFragment;
-    let tmpTable = '';
-    let selectFromTmp = '';
+    let tmpTable = '';        // tmpTable declaration for trigger
+    let selectFromTmp = '';   // Select statement for trigger
 
     if (this._dialect.supports['LIMIT ON UPDATE'] && options.limit) {
       if (this.dialect !== 'mssql') {
@@ -291,7 +312,7 @@ const QueryGenerator = {
 
           for (const modelKey in attributes) {
             const attribute = attributes[modelKey];
-            if (!(attribute.type instanceof DataTypes.VIRTUAL)) {
+            if (!isVirtualType(attribute)) {
               if (tmpColumns.length > 0) {
                 tmpColumns += ',';
                 outputColumns += ',';
@@ -302,7 +323,7 @@ const QueryGenerator = {
             }
           }
 
-          const replacement = {
+          const replacement ={
             columns: tmpColumns
           };
 
@@ -353,6 +374,18 @@ const QueryGenerator = {
     return _.template(query, this._templateSettings)(replacements).trim();
   },
 
+  /*
+    Returns an update query.
+    Parameters:
+      - operator -> String with the arithmetic operator (e.g. '+' or '-')
+      - tableName -> Name of the table
+      - values -> A hash with attribute-value-pairs
+      - where -> A hash with conditions (e.g. {name: 'foo'})
+                 OR an ID as integer
+                 OR a string with conditions (e.g. 'name="foo"').
+                 If you use a string, you have to escape it on your own.
+   @private
+  */
   arithmeticQuery(operator, tableName, attrValueHash, where, options, attributes) {
     options = options || {};
     _.defaults(options, { returning: true });
@@ -408,6 +441,22 @@ const QueryGenerator = {
     });
   },
 
+  /*
+    Returns an add index query.
+    Parameters:
+      - tableName -> Name of an existing table, possibly with schema.
+      - options:
+        - type: UNIQUE|FULLTEXT|SPATIAL
+        - name: The name of the index. Default is <table>_<attr1>_<attr2>
+        - fields: An array of attributes as string or as hash.
+                  If the attribute is a hash, it must have the following content:
+                  - name: The name of the attribute/column
+                  - length: An integer. Optional
+                  - order: 'ASC' or 'DESC'. Optional
+        - parser
+      - rawTablename, the name of the table, without schema. Used to create the name of the index
+   @private
+  */
   addIndexQuery(tableName, attributes, options, rawTablename) {
     options = options || {};
 
@@ -642,6 +691,29 @@ const QueryGenerator = {
     return table;
   },
 
+  /*
+    Quote an object based on its type. This is a more general version of quoteIdentifiers
+    Strings: should proxy to quoteIdentifiers
+    Arrays:
+      * Expects array in the form: [<model> (optional), <model> (optional),... String, String (optional)]
+        Each <model> can be a model, or an object {model: Model, as: String}, matching include, or an
+        association object, or the name of an association.
+      * Zero or more models can be included in the array and are used to trace a path through the tree of
+        included nested associations. This produces the correct table name for the ORDER BY/GROUP BY SQL
+        and quotes it.
+      * If a single string is appended to end of array, it is quoted.
+        If two strings appended, the 1st string is quoted, the 2nd string unquoted.
+    Objects:
+      * If raw is set, that value should be returned verbatim, without quoting
+      * If fn is set, the string should start with the value of fn, starting paren, followed by
+        the values of cols (which is assumed to be an array), quoted and joined with ', ',
+        unless they are themselves objects
+      * If direction is set, should be prepended
+
+    Currently this function is only used for ordering / grouping columns and Sequelize.col(), but it could
+    potentially also be used for other places where we want to be able to call SQL functions (e.g. as default values)
+   @private
+  */
   quote(collection, parent, connector) {
     const validOrderOptions = [
       'ASC',
@@ -771,6 +843,10 @@ const QueryGenerator = {
     }
   },
 
+  /*
+    Split an identifier into .-separated tokens and quote each part
+   @private
+  */
   quoteIdentifiers(identifiers) {
     if (identifiers.indexOf('.') !== -1) {
       identifiers = identifiers.split('.');
@@ -780,6 +856,10 @@ const QueryGenerator = {
     }
   },
 
+  /*
+    Escape a value (e.g. a string, number or date)
+   @private
+  */
   escape(value, field, options) {
     options = options || {};
 
@@ -814,6 +894,20 @@ const QueryGenerator = {
     return SqlString.escape(value, this.options.timezone, this.dialect);
   },
 
+  /*
+    Returns a query for selecting elements in the table <tableName>.
+    Options:
+      - attributes -> An array of attributes (e.g. ['name', 'birthday']). Default: *
+      - where -> A hash with conditions (e.g. {name: 'foo'})
+                 OR an ID as integer
+                 OR a string with conditions (e.g. 'name="foo"').
+                 If you use a string, you have to escape it on your own.
+      - order -> e.g. 'id DESC'
+      - group
+      - limit -> The maximum count you want to get.
+      - offset -> An offset value to start from. Only useable with limit!
+   @private
+  */
   selectQuery(tableName, options, model) {
     options = options || {};
     const limit = options.limit;
@@ -1611,7 +1705,6 @@ const QueryGenerator = {
   },
 
   deferConstraintsQuery() {},
-
   setConstraintQuery() {},
   setDeferredQuery() {},
   setImmediateQuery() {},
@@ -2264,5 +2357,9 @@ const QueryGenerator = {
     return value;
   }
 };
+
+function isVirtualType(attribute) {
+  return attribute.type instanceof DataTypes.VIRTUAL;
+}
 
 module.exports = QueryGenerator;

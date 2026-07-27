@@ -1,12 +1,13 @@
 'use strict';
 
-const util = require('crypto-lib').util;
+var util = require('crypto-lib').util;
 
 //
 // Controller
 //
 
-function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp, email, outbox, dialog, axe, status, invitation) {
+var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain, pgp, email, outbox, dialog, axe, status, invitation) {
+
     const str = appConfig.string;
     const cfg = appConfig.config;
 
@@ -56,36 +57,36 @@ function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp,
     }
 
     function reportBug() {
-        const dump = [];
+        let dump = '';
         const appender = {
             log: function(level, date, component, log) {
                 // add a tag for the log level
                 if (level === axe.DEBUG) {
-                    dump.push('[DEBUG]');
+                    dump += '[DEBUG]';
                 } else if (level === axe.INFO) {
-                    dump.push('[INFO]');
+                    dump += '[INFO]';
                 } else if (level === axe.WARN) {
-                    dump.push('[WARN]');
+                    dump += '[WARN]';
                 } else if (level === axe.ERROR) {
-                    dump.push('[ERROR]');
+                    dump += '[ERROR]';
                 }
 
-                dump.push('[' + date.toISOString() + ']');
+                dump += '[' + date.toISOString() + ']';
 
                 // component is optional
                 if (component) {
-                    dump.push('[' + component + ']');
+                    dump += '[' + component + ']';
                 }
 
                 // log may be an error or a string
-                dump.push(' ' + (log || '').toString());
+                dump += ' ' + (log || '').toString();
 
                 // if an error it is, a stack trace it has. print it, we should.
                 if (log.stack) {
-                    dump.push(' . Stack: ' + log.stack);
+                    dump += ' . Stack: ' + log.stack;
                 }
 
-                dump.push('\n');
+                dump += '\n';
             }
         };
         axe.dump(appender);
@@ -95,7 +96,7 @@ function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp,
         }];
         $scope.writerTitle = str.bugReportTitle;
         $scope.subject = str.bugReportSubject;
-        $scope.body = str.bugReportBody.replace('{0}', navigator.userAgent).replace('{1}', cfg.appVersion) + dump.join('');
+        $scope.body = str.bugReportBody.replace('{0}', navigator.userAgent).replace('{1}', cfg.appVersion) + dump;
     }
 
     function fillFields(re, replyAll, forward) {
@@ -336,9 +337,9 @@ function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp,
      * Invite all users without a public key
      */
     $scope.invite = function() {
-        const sender = auth.emailAddress;
-        const sendJobs = [];
-        const invitees = [];
+        const sender = auth.emailAddress,
+            sendJobs = [],
+            invitees = [];
 
         $scope.showInvite = false;
 

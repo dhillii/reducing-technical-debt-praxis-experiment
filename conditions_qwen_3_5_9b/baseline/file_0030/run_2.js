@@ -470,7 +470,7 @@ export default class MembersController extends Controller {
             onComplete: () => {
                 // reset, clear filters, and reload list and counts
                 this.store.unloadAll('member');
-                this.router.transitionTo('members.index', {queryParams: {...resetQueryParams('members.index')}});
+                this.router.transitionTo('members.index', {queryParams: Object.assign(resetQueryParams('members.index'))});
                 this.membersStats.invalidate();
                 this.membersStats.fetchCounts();
             }

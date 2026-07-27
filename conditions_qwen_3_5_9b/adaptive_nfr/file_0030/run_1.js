@@ -56,7 +56,6 @@ export default class MembersController extends Controller {
     @tracked softFilterParam = null;
     @tracked paidParam = null;
     @tracked label = null;
-    @tracked orderParam = null;
     @tracked modalLabel = null;
     @tracked showLabelModal = false;
     @tracked filters = A([]);
@@ -285,9 +284,19 @@ export default class MembersController extends Controller {
             filters.push(filterParam);
         }
 
-        let searchQuery = searchParam ? {search: searchParam} : {};
+        return {
+            filter: filters.join('+'),
+            ...this.buildSearchQuery(searchParam)
+        };
+    }
 
-        return {...{filter: filters.join('+')}, ...searchQuery};
+    /**
+     * Constructs the search query object from the search parameter.
+     * @param {string} searchParam - The search query string.
+     * @returns {Object} An object containing the search property if a searchParam exists.
+     */
+    buildSearchQuery(searchParam) {
+        return searchParam ? {search: searchParam} : {};
     }
 
     // Actions -----------------------------------------------------------------
@@ -470,7 +479,7 @@ export default class MembersController extends Controller {
             onComplete: () => {
                 // reset, clear filters, and reload list and counts
                 this.store.unloadAll('member');
-                this.router.transitionTo('members.index', {queryParams: {...resetQueryParams('members.index')}});
+                this.router.transitionTo('members.index', {queryParams: Object.assign(resetQueryParams('members.index'))});
                 this.membersStats.invalidate();
                 this.membersStats.fetchCounts();
             }
@@ -532,12 +541,12 @@ export default class MembersController extends Controller {
             const order = orderParam ? `${orderParam} desc` : `created_at desc`;
             const includes = ['labels', 'tiers'];
 
-            query = {...{
+            query = Object.assign({
                 include: includes.join(','),
                 order,
                 limit: range.length,
                 page: range.page
-            }, ...searchQuery, ...query};
+            }, searchQuery, query);
 
             return this.store.query('member', query).then((result) => {
                 return {

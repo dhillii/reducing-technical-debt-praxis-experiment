@@ -7,6 +7,17 @@ class PostsExporter {
     #settingsCache;
     #settingsHelpers;
 
+    /**
+     * @param {Object} dependencies
+     * @param {Object} dependencies.models
+     * @param {Object} dependencies.models.Post
+     * @param {Object} dependencies.models.Newsletter
+     * @param {Object} dependencies.models.Label
+     * @param {Object} dependencies.models.Product
+     * @param {Object} dependencies.getPostUrl
+     * @param {Object} dependencies.settingsCache
+     * @param {Object} dependencies.settingsHelpers
+     */
     constructor({models, getPostUrl, settingsCache, settingsHelpers}) {
         this.#models = models;
         this.#getPostUrl = getPostUrl;
@@ -14,6 +25,13 @@ class PostsExporter {
         this.#settingsHelpers = settingsHelpers;
     }
 
+    /**
+     *
+     * @param {object} options
+     * @param {string} [options.filter]
+     * @param {string} [options.order]
+     * @param {string|number} [options.limit]
+     */
     async export({filter, order, limit}) {
         const posts = await this.#models.Post.findPage({
             filter: filter ?? 'status:published,status:sent',
@@ -46,12 +64,14 @@ class PostsExporter {
         const mapped = posts.data.map((post) => {
             let email = post.related('email');
 
+            // Weird bookshelf thing fix
             if (!email.id) {
                 email = null;
             }
 
             let published = true;
             if (post.get('status') === 'draft' || post.get('status') === 'scheduled') {
+                // Manually clear it to avoid including information for a post that was reverted to draft
                 email = null;
                 published = false;
             }
@@ -110,11 +130,11 @@ class PostsExporter {
                 removeableColumns.push('paid_conversions');
             }
 
-            for (const columnToRemove of removeableColumns) {
-                for (const row of mapped) {
+            mapped.forEach(row => {
+                removeableColumns.forEach(columnToRemove => {
                     delete row[columnToRemove];
-                }
-            }
+                });
+            });
         }
 
         return mapped;
@@ -168,7 +188,15 @@ class PostsExporter {
         return visibility;
     }
 
+    /**
+     * @private Convert an email filter to a human readable string
+     * @param {string} recipientFilter
+     * @param {*} allLabels
+     * @param {*} allTiers
+     * @returns
+     */
     humanReadableEmailRecipientFilter(recipientFilter, allLabels, allTiers) {
+        // Examples: "label:test"; "label:test,label:batch1"; "status:-free,label:test", "all"
         if (recipientFilter === 'all') {
             return 'All subscribers';
         }
@@ -183,6 +211,12 @@ class PostsExporter {
         }
     }
 
+    /**
+     * @private Convert an email filter to a human readable string
+     * @param {*} filter Parsed NQL filter
+     * @param {*} allLabels All available member labels
+     * @returns
+     */
     filterToString(filter, allLabels, allTiers) {
         const strings = [];
         if (filter.$and) {

@@ -184,6 +184,15 @@ module.exports = {
 		 * @returns {VariableType} a simple name for the types of variables that this rule supports
 		 */
 		function defToVariableType(def) {
+			/*
+			 * This `destructuredArrayIgnorePattern` error report works differently from the catch
+			 * clause and parameter error reports. _Both_ the `varsIgnorePattern` and the
+			 * `destructuredArrayIgnorePattern` will be checked for array destructuring. However,
+			 * for the purposes of the report, the currently defined behavior is to only inform the
+			 * user of the `destructuredArrayIgnorePattern` if it's present (regardless of the fact
+			 * that the `varsIgnorePattern` would also apply). If it's not present, the user will be
+			 * informed of the `varsIgnorePattern`, assuming that's present.
+			 */
 			if (
 				config.destructuredArrayIgnorePattern &&
 				def.name.parent.type === "ArrayPattern"
@@ -739,6 +748,151 @@ module.exports = {
 		}
 
 		/**
+		 * Checks if a variable should be reported as unused based on configuration.
+		 * @param {Variable} variable The variable to check.
+		 * @param {Object} def The variable definition.
+		 * @returns {boolean} True if the variable should be reported.
+		 * @private
+		 */
+		function shouldReportUnusedVariable(variable, def) {
+			const type = def.type;
+
+			// skip elements of array destructuring patterns
+			if (
+				(def.name.parent.type === "ArrayPattern" ||
+					variable.references.some(
+						ref =>
+							ref.identifier.parent.type === "ArrayPattern",
+					)) &&
+				config.destructuredArrayIgnorePattern &&
+				config.destructuredArrayIgnorePattern.test(def.name.name)
+			) {
+				if (
+					config.reportUsedIgnorePattern &&
+					isUsedVariable(variable)
+				) {
+					context.report({
+						node: def.name,
+						messageId: "usedIgnoredVar",
+						data: getUsedIgnoredMessageData(
+							variable,
+							"array-destructure",
+						),
+					});
+				}
+				return false;
+			}
+
+			if (type === "ClassName") {
+				const hasStaticBlock = def.node.body.body.some(
+					node => node.type === "StaticBlock",
+				);
+
+				if (
+					config.ignoreClassWithStaticInitBlock &&
+					hasStaticBlock
+				) {
+					return false;
+				}
+			}
+
+			// skip catch variables
+			if (type === "CatchClause") {
+				if (config.caughtErrors === "none") {
+					return false;
+				}
+
+				// skip ignored parameters
+				if (
+					config.caughtErrorsIgnorePattern &&
+					config.caughtErrorsIgnorePattern.test(def.name.name)
+				) {
+					if (
+						config.reportUsedIgnorePattern &&
+						isUsedVariable(variable)
+					) {
+						context.report({
+							node: def.name,
+							messageId: "usedIgnoredVar",
+							data: getUsedIgnoredMessageData(
+								variable,
+								"catch-clause",
+							),
+						});
+					}
+					return false;
+				}
+			} else if (type === "Parameter") {
+				// skip any setter argument
+				if (
+					(def.node.parent.type === "Property" ||
+						def.node.parent.type === "MethodDefinition") &&
+					def.node.parent.kind === "set"
+				) {
+					return false;
+				}
+
+				// if "args" option is "none", skip any parameter
+				if (config.args === "none") {
+					return false;
+				}
+
+				// skip ignored parameters
+				if (
+					config.argsIgnorePattern &&
+					config.argsIgnorePattern.test(def.name.name)
+				) {
+					if (
+						config.reportUsedIgnorePattern &&
+						isUsedVariable(variable)
+					) {
+						context.report({
+							node: def.name,
+							messageId: "usedIgnoredVar",
+							data: getUsedIgnoredMessageData(
+								variable,
+								"parameter",
+							),
+						});
+					}
+					return false;
+				}
+
+				// if "args" option is "after-used", skip used variables
+				if (
+					config.args === "after-used" &&
+					astUtils.isFunction(def.name.parent) &&
+					!isAfterLastUsedArg(variable)
+				) {
+					return false;
+				}
+			} else {
+				// skip ignored variables
+				if (
+					config.varsIgnorePattern &&
+					config.varsIgnorePattern.test(def.name.name)
+				) {
+					if (
+						config.reportUsedIgnorePattern &&
+						isUsedVariable(variable)
+					) {
+						context.report({
+							node: def.name,
+							messageId: "usedIgnoredVar",
+							data: getUsedIgnoredMessageData(
+								variable,
+								"variable",
+							),
+						});
+					}
+					return false;
+				}
+			}
+
+			return true;
+		}
+
+		/**
 		 * Gets an array of variables without read references.
 		 * @param {Scope} scope an eslint-scope Scope object.
 		 * @param {Variable[]} unusedVars an array that saving result.
@@ -787,162 +941,18 @@ module.exports = {
 					// explicit global variables don't have definitions.
 					const def = variable.defs[0];
 
-					if (def) {
-						const type = def.type;
-						const refUsedInArrayPatterns = variable.references.some(
-							ref =>
-								ref.identifier.parent.type === "ArrayPattern",
-						);
-
-						// skip elements of array destructuring patterns
+					if (def && shouldReportUnusedVariable(variable, def)) {
 						if (
-							(def.name.parent.type === "ArrayPattern" ||
-								refUsedInArrayPatterns) &&
-							config.destructuredArrayIgnorePattern &&
-							config.destructuredArrayIgnorePattern.test(
-								def.name.name,
-							)
+							!isUsedVariable(variable) &&
+							!isExported(variable) &&
+							!(
+								config.ignoreUsingDeclarations &&
+								usesExplicitResourceManagement(variable)
+							) &&
+							!hasRestSpreadSibling(variable)
 						) {
-							if (
-								config.reportUsedIgnorePattern &&
-								isUsedVariable(variable)
-							) {
-								context.report({
-									node: def.name,
-									messageId: "usedIgnoredVar",
-									data: getUsedIgnoredMessageData(
-										variable,
-										"array-destructure",
-									),
-								});
-							}
-
-							continue;
+							unusedVars.push(variable);
 						}
-
-						if (type === "ClassName") {
-							const hasStaticBlock = def.node.body.body.some(
-								node => node.type === "StaticBlock",
-							);
-
-							if (
-								config.ignoreClassWithStaticInitBlock &&
-								hasStaticBlock
-							) {
-								continue;
-							}
-						}
-
-						// skip catch variables
-						if (type === "CatchClause") {
-							if (config.caughtErrors === "none") {
-								continue;
-							}
-
-							// skip ignored parameters
-							if (
-								config.caughtErrorsIgnorePattern &&
-								config.caughtErrorsIgnorePattern.test(
-									def.name.name,
-								)
-							) {
-								if (
-									config.reportUsedIgnorePattern &&
-									isUsedVariable(variable)
-								) {
-									context.report({
-										node: def.name,
-										messageId: "usedIgnoredVar",
-										data: getUsedIgnoredMessageData(
-											variable,
-											"catch-clause",
-										),
-									});
-								}
-
-								continue;
-							}
-						} else if (type === "Parameter") {
-							// skip any setter argument
-							if (
-								(def.node.parent.type === "Property" ||
-									def.node.parent.type ===
-										"MethodDefinition") &&
-								def.node.parent.kind === "set"
-							) {
-								continue;
-							}
-
-							// if "args" option is "none", skip any parameter
-							if (config.args === "none") {
-								continue;
-							}
-
-							// skip ignored parameters
-							if (
-								config.argsIgnorePattern &&
-								config.argsIgnorePattern.test(def.name.name)
-							) {
-								if (
-									config.reportUsedIgnorePattern &&
-									isUsedVariable(variable)
-								) {
-									context.report({
-										node: def.name,
-										messageId: "usedIgnoredVar",
-										data: getUsedIgnoredMessageData(
-											variable,
-											"parameter",
-										),
-									});
-								}
-
-								continue;
-							}
-
-							// if "args" option is "after-used", skip used variables
-							if (
-								config.args === "after-used" &&
-								astUtils.isFunction(def.name.parent) &&
-								!isAfterLastUsedArg(variable)
-							) {
-								continue;
-							}
-						} else {
-							// skip ignored variables
-							if (
-								config.varsIgnorePattern &&
-								config.varsIgnorePattern.test(def.name.name)
-							) {
-								if (
-									config.reportUsedIgnorePattern &&
-									isUsedVariable(variable)
-								) {
-									context.report({
-										node: def.name,
-										messageId: "usedIgnoredVar",
-										data: getUsedIgnoredMessageData(
-											variable,
-											"variable",
-										),
-									});
-								}
-
-								continue;
-							}
-						}
-					}
-
-					if (
-						!isUsedVariable(variable) &&
-						!isExported(variable) &&
-						!(
-							config.ignoreUsingDeclarations &&
-							usesExplicitResourceManagement(variable)
-						) &&
-						!hasRestSpreadSibling(variable)
-					) {
-						unusedVars.push(variable);
 					}
 				}
 			}

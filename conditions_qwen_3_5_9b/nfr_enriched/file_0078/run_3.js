@@ -32,11 +32,11 @@ internals.Auth.prototype.scheme = function (name, scheme) {
 };
 
 
-internals.Auth.prototype.strategy = function (name, scheme, mode, options) {
+internals.Auth.prototype.strategy = function (name, scheme /*, mode, options */) {
 
-    const hasMode = (typeof mode === 'string' || typeof mode === 'boolean');
-    const optionsArg = (hasMode ? options : mode);
-    const options = (optionsArg || null);
+    const hasMode = (typeof arguments[2] === 'string' || typeof arguments[2] === 'boolean');
+    const mode = (hasMode ? arguments[2] : false);
+    const options = (hasMode ? arguments[3] : arguments[2]) || null;
 
     Hoek.assert(name, 'Authentication strategy must have a name');
     Hoek.assert(name !== 'bypass', 'Cannot use reserved strategy name: bypass');

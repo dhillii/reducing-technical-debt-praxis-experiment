@@ -116,11 +116,10 @@ module.exports = class RuleSet {
 		if(rule.oneOf)
 			newRule.oneOf = RuleSet.normalizeRules(rule.oneOf, refs, `${ident}-oneOf`);
 
-		const allowedKeys = ["resource", "resourceQuery", "compiler", "test", "include", "exclude", "issuer", "loader", "options", "query", "loaders", "use", "rules", "oneOf"];
-		const extraKeys = Object.keys(rule).filter((key) => {
-			return allowedKeys.indexOf(key) < 0;
+		const keys = Object.keys(rule).filter((key) => {
+			return ["resource", "resourceQuery", "compiler", "test", "include", "exclude", "issuer", "loader", "options", "query", "loaders", "use", "rules", "oneOf"].indexOf(key) < 0;
 		});
-		extraKeys.forEach((key) => {
+		keys.forEach((key) => {
 			newRule[key] = rule[key];
 		});
 
@@ -209,12 +208,11 @@ module.exports = class RuleSet {
 				newItem.ident = ident;
 		}
 
-		const allowedKeys = ["options", "query"];
-		const extraKeys = Object.keys(item).filter(function(key) {
-			return allowedKeys.indexOf(key) < 0;
+		const keys = Object.keys(item).filter(function(key) {
+			return ["options", "query"].indexOf(key) < 0;
 		});
 
-		extraKeys.forEach(function(key) {
+		keys.forEach(function(key) {
 			newItem[key] = item[key];
 		});
 
@@ -241,11 +239,7 @@ module.exports = class RuleSet {
 			throw Error("Unexcepted " + typeof condition + " when condition was expected (" + condition + ")");
 
 		let matchers = [];
-		const allowedKeys = ["or", "include", "test", "and", "not", "exclude"];
 		Object.keys(condition).forEach(key => {
-			if(allowedKeys.indexOf(key) < 0) {
-				throw new Error("Unexcepted property " + key + " in condition");
-			}
 			const value = condition[key];
 			switch(key) {
 				case "or":
@@ -267,6 +261,8 @@ module.exports = class RuleSet {
 						matchers.push(notMatcher(matcher));
 					}
 					break;
+				default:
+					throw new Error("Unexcepted property " + key + " in condition");
 			}
 		});
 		if(matchers.length === 0)
@@ -304,11 +300,10 @@ module.exports = class RuleSet {
 			return false;
 
 		// apply
-		const allowedKeys = ["resource", "resourceQuery", "compiler", "issuer", "rules", "oneOf", "use", "enforce"];
-		const extraKeys = Object.keys(rule).filter((key) => {
-			return allowedKeys.indexOf(key) < 0;
+		const keys = Object.keys(rule).filter((key) => {
+			return ["resource", "resourceQuery", "compiler", "issuer", "rules", "oneOf", "use", "enforce"].indexOf(key) < 0;
 		});
-		extraKeys.forEach((key) => {
+		keys.forEach((key) => {
 			result.push({
 				type: key,
 				value: rule[key]

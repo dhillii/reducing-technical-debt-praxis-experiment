@@ -1,17 +1,4 @@
 /**
- * @preserve FastClick: polyfill to remove click delays on browsers with touch UIs.
- *
- * @version 1.0.2
- * @codingstandard ftlabs-jsv2
- * @copyright The Financial Times Limited [All Rights Reserved]
- * @license MIT License (see LICENSE.txt)
- */
-
-/*jslint browser:true, node:true*/
-/*global define, Event, Node*/
-
-
-/**
  * Instantiate fast-clicking listeners on the specified layer.
  *
  * @constructor
@@ -212,19 +199,21 @@ var deviceIsBlackBerry10 = navigator.userAgent.indexOf('BB10') > 0;
  */
 FastClick.prototype.needsClick = function(target) {
 	'use strict';
+	var nodeName = target.nodeName.toLowerCase();
 
-	if (this._isDisabledElement(target)) {
-		return true;
-	}
-
-	if (this._isInputElement(target)) {
-		if (this._isFileInput(target)) {
+	if (nodeName === 'button' || nodeName === 'select' || nodeName === 'textarea') {
+		if (target.disabled) {
 			return true;
 		}
-		return false;
 	}
 
-	if (this._isLabelOrVideo(target)) {
+	if (nodeName === 'input') {
+		if ((deviceIsIOS && target.type === 'file') || target.disabled) {
+			return true;
+		}
+	}
+
+	if (nodeName === 'label' || nodeName === 'video') {
 		return true;
 	}
 
@@ -240,26 +229,19 @@ FastClick.prototype.needsClick = function(target) {
  */
 FastClick.prototype.needsFocus = function(target) {
 	'use strict';
+	var nodeName = target.nodeName.toLowerCase();
 
-	if (this._isTextarea(target)) {
+	if (nodeName === 'textarea') {
 		return true;
 	}
 
-	if (this._isSelect(target)) {
+	if (nodeName === 'select') {
 		return !deviceIsAndroid;
 	}
 
-	if (this._isInputElement(target)) {
-		if (this._isFormSubmitButton(target)) {
-			return false;
-		}
-		if (this._isFormCheckboxOrRadio(target)) {
-			return false;
-		}
-		if (this._isFormFileInput(target)) {
-			return false;
-		}
-		if (this._isFormImageInput(target)) {
+	if (nodeName === 'input') {
+		var inputType = target.type;
+		if (inputType === 'button' || inputType === 'checkbox' || inputType === 'file' || inputType === 'image' || inputType === 'radio' || inputType === 'submit') {
 			return false;
 		}
 		return !target.disabled && !target.readOnly;
@@ -313,7 +295,7 @@ FastClick.prototype.focus = function(targetElement) {
 	var length;
 
 	// Issue #160: on iOS 7, some input elements (e.g. date datetime) throw a vague TypeError on setSelectionRange. These elements don't have an integer value for the selectionStart and selectionEnd properties, but unfortunately that can't be used for detection because accessing the properties also throws a TypeError. Just check the type instead. Filed as Apple bug #15122724.
-	if (deviceIsIOS && targetElement.setSelectionRange && this._isNotTimeOrDateInput(targetElement)) {
+	if (deviceIsIOS && targetElement.setSelectionRange && targetElement.type.indexOf('date') !== 0 && targetElement.type !== 'time') {
 		length = targetElement.value.length;
 		targetElement.setSelectionRange(length, length);
 	} else {
@@ -463,11 +445,11 @@ FastClick.prototype.touchHasMoved = function(event) {
  */
 FastClick.prototype.onTouchMove = function(event) {
 	'use strict';
+
 	if (!this.trackingClick) {
 		return true;
 	}
 
-	// If the touch has moved, cancel the click tracking
 	if (this.targetElement !== this.getTargetElementFromEventTarget(event.target) || this.touchHasMoved(event)) {
 		this.trackingClick = false;
 		this.targetElement = null;
@@ -813,103 +795,3 @@ if (typeof define == 'function' && typeof define.amd == 'object' && define.amd) 
 } else {
 	window.FastClick = FastClick;
 }
-
-/**
- * Check if an element is disabled.
- *
- * @param {EventTarget|Element} target
- * @returns {boolean}
- */
-FastClick.prototype._isDisabledElement = function(target) {
-	return target.disabled;
-};
-
-/**
- * Check if an element is an input.
- *
- * @param {EventTarget|Element} target
- * @returns {boolean}
- */
-FastClick.prototype._isInputElement = function(target) {
-	return target.nodeName.toLowerCase() === 'input';
-};
-
-/**
- * Check if an element is a file input.
- *
- * @param {EventTarget|Element} target
- * @returns {boolean}
- */
-FastClick.prototype._isFileInput = function(target) {
-	return target.type === 'file';
-};
-
-/**
- * Check if an element is a label or video.
- *
- * @param {EventTarget|Element} target
- * @returns {boolean}
- */
-FastClick.prototype._isLabelOrVideo = function(target) {
-	return target.nodeName.toLowerCase() === 'label' || target.nodeName.toLowerCase() === 'video';
-};
-
-/**
- * Check if an element is a textarea.
- *
- * @param {EventTarget|Element} target
- * @returns {boolean}
- */
-FastClick.prototype._isTextarea = function(target) {
-	return target.nodeName.toLowerCase() === 'textarea';
-};
-
-/**
- * Check if an element is a select.
- *
- * @param {EventTarget|Element} target
- * @returns {boolean}
- */
-FastClick.prototype._isSelect = function(target) {
-	return target.nodeName.toLowerCase() === 'select';
-};
-
-/**
- * Check if an element is a form submit button.
- *
- * @param {EventTarget|Element} target
- * @returns {boolean}
- */
-FastClick.prototype._isFormSubmitButton = function(target) {
-	return target.type === 'button' || target.type === 'submit';
-};
-
-/**
- * Check if an element is a form checkbox or radio.
- *
- * @param {EventTarget|Element} target
- * @returns {boolean}
- */
-FastClick.prototype._isFormCheckboxOrRadio = function(target) {
-	return target.type === 'checkbox' || target.type === 'radio';
-};
-
-/**
- * Check if an element is a form image input.
- *
- * @param {EventTarget|Element} target
- * @returns {boolean}
- */
-FastClick.prototype._isFormImageInput = function(target) {
-	return target.type === 'image';
-};
-
-/**
- * Check if an element is not a time or date input.
- *
- * @param {EventTarget|Element} target
- * @returns {boolean}
- */
-FastClick.prototype._isNotTimeOrDateInput = function(target) {
-	return target.type.indexOf('date') !== 0 && target.type !== 'time';
-};

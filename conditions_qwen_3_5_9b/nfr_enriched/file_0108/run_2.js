@@ -69,6 +69,17 @@ exports.watch = function (files, fn) {
 };
 
 /**
+ * Check if a path is ignored.
+ *
+ * @api private
+ * @param {string} path
+ * @return {boolean}
+ */
+function isIgnored (path) {
+  return !ignore.includes(path);
+}
+
+/**
  * Lookup files in the given `dir`.
  *
  * @api private
@@ -84,7 +95,7 @@ exports.files = function (dir, ext, ret) {
   var re = new RegExp('\\.(' + ext.join('|') + ')$');
 
   readdirSync(dir)
-    .filter(ignored)
+    .filter(isIgnored)
     .forEach(function (path) {
       path = join(dir, path);
       if (lstatSync(path).isDirectory()) {

@@ -44,6 +44,25 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const MAX_CONTENT_LENGTH = 500;
 
+    // Sync external open prop with internal state
+    useEffect(() => {
+        if (props.open !== undefined) {
+            setIsOpen(props.open);
+        }
+    }, [props.open]);
+
+    useEffect(() => {
+        const modalIsOpen = props.open !== undefined ? props.open : isOpen;
+        if (modalIsOpen) {
+            const timer = setTimeout(() => {
+                setIsSticky(true);
+            }, 300);
+            return () => clearTimeout(timer);
+        } else {
+            setIsSticky(false);
+        }
+    }, [isOpen, props.open]);
+
     const isDisabled = !content.trim() || !user || isPosting || content.length > MAX_CONTENT_LENGTH;
 
     const handlePost = useCallback(async () => {
@@ -78,6 +97,8 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             if (replyTo) {
                 onReplyError?.();
             }
+            // Handle error case if needed
+            // console.error('Failed to create post:', error);
         } finally {
             setIsPosting(false);
         }
@@ -94,9 +115,11 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [content]);
 
+    // Focus textarea when modal opens
     useEffect(() => {
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen && textareaRef.current) {
+            // Small delay to ensure modal is fully rendered
             const timeoutId = setTimeout(() => {
                 textareaRef.current?.focus();
             }, 100);
@@ -104,6 +127,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [isOpen, props.open]);
 
+    // Focus alt text input when it becomes visible
     useEffect(() => {
         if (showAltInput && altTextInputRef.current) {
             const timeoutId = setTimeout(() => {
@@ -114,24 +138,19 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     }, [showAltInput]);
 
     useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                if (!isDisabled && !isImageUploading) {
+                    handlePost();
+                }
+            }
+        };
+
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen) {
-            document.addEventListener('keydown', (e: KeyboardEvent) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                    e.preventDefault();
-                    if (!isDisabled && !isImageUploading) {
-                        handlePost();
-                    }
-                }
-            });
-            return () => document.removeEventListener('keydown', (e: KeyboardEvent) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                    e.preventDefault();
-                    if (!isDisabled && !isImageUploading) {
-                        handlePost();
-                    }
-                }
-            });
+            document.addEventListener('keydown', handleKeyDown);
+            return () => document.removeEventListener('keydown', handleKeyDown);
         }
     }, [isOpen, props.open, isDisabled, isImageUploading, handlePost]);
 
@@ -187,6 +206,8 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                 case 415:
                     errorMessage = 'The file type is not supported.';
                     break;
+                default:
+                    // Use the default error message
                 }
             }
             toast.error(errorMessage);
@@ -239,6 +260,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     };
 
     useEffect(() => {
+        // Cleanup function to revoke object URLs when component unmounts
         return () => {
             if (imagePreview) {
                 URL.revokeObjectURL(imagePreview);
@@ -256,7 +278,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         return 'What\'s new?';
     };
 
-    const handleOpenChange = useCallback((open: boolean) => {
+    const handleDialogOpenChange = useCallback((open: boolean) => {
         if (open) {
             setContent('');
             setImagePreview(null);
@@ -279,7 +301,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     }, [imagePreview, imageInputRef, onOpenChange]);
 
     return (
-        <Dialog open={props.open !== undefined ? props.open : isOpen} onOpenChange={handleOpenChange} {...(props.open !== undefined ? {} : props)}>
+        <Dialog open={props.open !== undefined ? props.open : isOpen} onOpenChange={handleDialogOpenChange} {...(props.open !== undefined ? {} : props)}>
             <DialogTrigger asChild>
                 {children}
             </DialogTrigger>

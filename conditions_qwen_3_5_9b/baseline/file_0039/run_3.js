@@ -163,20 +163,16 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
          * @TODO: Add a feature to bookshelf-relations to configure if relations can be added or should be matched only.
          */
         matchAuthors: function matchAuthors(model, options) {
-            const ops = [];
-
-            ops.push(() => {
+            const getOwnerUser = () => {
                 return ghostBookshelf
                     .model('User')
                     .getOwnerUser(Object.assign({}, _.pick(options, 'transacting')))
-                    .then((_ownerUser) => {
-                        return _ownerUser;
-                    });
-            });
+                    .then((_ownerUser) => _ownerUser);
+            };
 
-            return Promise.all(ops).then((ownerUser) => {
-                const authors = model.get('authors');
+            const processAuthors = (authors, ownerUser) => {
                 const authorsToSet = [];
+                const userIds = [];
 
                 return Promise.all(authors.map((author, index) => {
                     const query = {};
@@ -194,29 +190,25 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                         .where(query)
                         .fetch(Object.assign({columns: ['id']}, _.pick(options, 'transacting')))
                         .then((user) => {
-                            let userId = user ? user.id : ownerUser.id;
-
-                            // CASE: avoid attaching duplicate authors relation
-                            const userExists = _.find(authorsToSet, {id: userId});
+                            const userId = user ? user.id : ownerUser.id;
+                            const userExists = userIds.includes(userId);
 
                             if (!userExists) {
-                                authorsToSet[index] = {};
-                                authorsToSet[index].id = userId;
+                                authorsToSet[index] = {id: userId};
+                                userIds.push(userId);
                             }
                         });
                 })).then(() => {
                     model.set('authors', authorsToSet);
                 });
+            };
+
+            return getOwnerUser().then((ownerUser) => {
+                const authors = model.get('authors');
+                return processAuthors(authors, ownerUser);
             });
         },
 
-        /**
-         * ### reassignByAuthor
-         * @param  {Object} unfilteredOptions has context and id. Context is the user doing the destroy, id is the user to destroy
-         * @param {string} unfilteredOptions.id
-         * @param {Object} unfilteredOptions.context
-         * @param {Object} unfilteredOptions.transacting
-         */
         reassignByAuthor: async function reassignByAuthor(unfilteredOptions) {
             let options = this.filterOptions(unfilteredOptions, 'reassignByAuthor', {extraAllowedProperties: ['id']});
             let authorId = options.id;
@@ -333,7 +325,7 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             isAdd = (action === 'add');
             isDestroy = (action === 'destroy');
 
-            function isChangingAuthors() {
+            const isChangingAuthors = () => {
                 if (!unsafeAttrs.authors) {
                     return false;
                 }
@@ -343,9 +335,9 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                 }
 
                 return unsafeAttrs.authors[0].id !== postModel.related('authors').models[0].id;
-            }
+            };
 
-            function isOwner() {
+            const isOwner = () => {
                 let isCorrectOwner = true;
 
                 if (!unsafeAttrs.authors) {
@@ -357,15 +349,15 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                 }
 
                 return isCorrectOwner;
-            }
+            };
 
-            function isPrimaryAuthor() {
+            const isPrimaryAuthor = () => {
                 return (context.user === postModel.related('authors').models[0].id);
-            }
+            };
 
-            function isCoAuthor() {
+            const isCoAuthor = () => {
                 return postModel.related('authors').models.map(author => author.id).includes(context.user);
-            }
+            };
 
             if (isContributor && isEdit) {
                 hasUserPermission = !isChangingAuthors() && isCoAuthor();

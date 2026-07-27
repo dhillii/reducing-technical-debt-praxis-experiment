@@ -451,7 +451,7 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
                     (<header className={headerClasses}>
                         {title && <Heading level={3}>{title}</Heading>}
                         {topRightContent}
-                    </header>))}
+                    </header))}
                 <div className={contentClasses}>
                     {children}
                 </div>

@@ -504,26 +504,23 @@ class SignupPage extends React.Component {
     }
 
     /**
-     * Determines the tabIndex for form fields based on their type and configuration.
+     * Determines the tabIndex for a field based on its type and configuration.
      * @param {Object} field - The field configuration object.
-     * @returns {number} The calculated tabIndex value.
+     * @returns {number} The calculated tabIndex.
      */
     getFieldTabIndex(field) {
-        if (field.hidden) {
-            return -1;
+        if (field.tabIndex !== undefined) {
+            return field.tabIndex;
         }
-        if (field.autoFocus) {
-            return 0;
+        if (field.type === 'email') {
+            return 2;
         }
-        return 1;
+        if (field.type === 'text' && field.name === 'name') {
+            return 1;
+        }
+        return -1;
     }
 
-    /**
-     * Builds the configuration for input fields based on the current state and site settings.
-     * @param {Object} state - The current component state.
-     * @param {Array} fieldNames - Optional filter for specific field names.
-     * @returns {Array} An array of field configuration objects.
-     */
     getInputFields({state, fieldNames}) {
         const {site: {portal_name: portalName}} = this.context;
 
@@ -536,6 +533,7 @@ class SignupPage extends React.Component {
                 label: t('Email'),
                 name: 'email',
                 required: true,
+                tabIndex: 2,
                 errorMessage: errors.email || ''
             },
             {
@@ -546,6 +544,7 @@ class SignupPage extends React.Component {
                 label: t('Phone number'),
                 name: 'phonenumber',
                 required: false,
+                tabIndex: -1,
                 autoComplete: 'off',
                 hidden: true
             }
@@ -560,6 +559,7 @@ class SignupPage extends React.Component {
                 label: t('Name'),
                 name: 'name',
                 required: true,
+                tabIndex: 1,
                 errorMessage: errors.name || ''
             });
         }
@@ -569,10 +569,7 @@ class SignupPage extends React.Component {
                 return fieldNames.includes(f.name);
             });
         }
-        return fields.map(field => ({
-            ...field,
-            tabIndex: this.getFieldTabIndex(field)
-        }));
+        return fields;
     }
 
     renderSignupTerms() {
@@ -655,6 +652,7 @@ class SignupPage extends React.Component {
                 brandColor={brandColor}
                 label={label}
                 isRunning={isRunning}
+                tabIndex={3}
             />
         );
     }

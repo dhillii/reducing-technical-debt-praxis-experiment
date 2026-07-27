@@ -1,8 +1,3 @@
-/**
- * @fileoverview Disallow parenthesising higher precedence subexpressions.
- * @author Michael Ficarra
- * @deprecated in ESLint v8.53.0
- */
 "use strict";
 
 //------------------------------------------------------------------------------
@@ -214,7 +209,8 @@ module.exports = {
 					case "none":
 						break;
 
-					// no default
+					default:
+						break;
 				}
 			}
 
@@ -260,6 +256,16 @@ module.exports = {
 		}
 
 		/**
+		 * Determines if a node is surrounded by (potentially) invalid parentheses.
+		 * @param {ASTNode} node The node to be checked.
+		 * @returns {boolean} True if the node is incorrectly parenthesised.
+		 * @private
+		 */
+		function hasExcessParens(node) {
+			return ruleApplies(node) && isParenthesised(node);
+		}
+
+		/**
 		 * Determines if a node that is expected to be parenthesised is surrounded by
 		 * (potentially) invalid extra parentheses.
 		 * @param {ASTNode} node The node to be checked.
@@ -268,16 +274,6 @@ module.exports = {
 		 */
 		function hasDoubleExcessParens(node) {
 			return ruleApplies(node) && isParenthesisedTwice(node);
-		}
-
-		/**
-		 * Determines if a node is surrounded by (potentially) invalid parentheses.
-		 * @param {ASTNode} node The node to be checked.
-		 * @returns {boolean} True if the node is incorrectly parenthesised.
-		 * @private
-		 */
-		function hasExcessParens(node) {
-			return ruleApplies(node) && isParenthesised(node);
 		}
 
 		/**
@@ -382,6 +378,29 @@ module.exports = {
 			}
 
 			return false;
+		}
+
+		/**
+		 * Determines if a node is contained by or is itself a return statement and is allowed to have a parenthesised assignment
+		 * @param {ASTNode} node The node to be checked.
+		 * @returns {boolean} True if the assignment can be parenthesised.
+		 * @private
+		 */
+		function isReturnAssignException(node) {
+			if (!EXCEPT_RETURN_ASSIGN || !isInReturnStatement(node)) {
+				return false;
+			}
+
+			if (node.type === "ReturnStatement") {
+				return node.argument && containsAssignment(node.argument);
+			}
+			if (
+				node.type === "ArrowFunctionExpression" &&
+				node.body.type !== "BlockStatement"
+			) {
+				return containsAssignment(node.body);
+			}
+			return containsAssignment(node);
 		}
 
 		/**
@@ -719,7 +738,7 @@ module.exports = {
 		}
 
 		/**
-		 * Checks the parentheses around the super class of the given class definition.
+		 * Check the parentheses around the super class of the given class definition.
 		 * @param {ASTNode} node The node of class declarations to check.
 		 * @returns {void}
 		 */
@@ -994,29 +1013,6 @@ module.exports = {
 				}
 			}
 			return false;
-		}
-
-		/**
-		 * Determines if a node is contained by or is itself a return statement and is allowed to have a parenthesised assignment
-		 * @param {ASTNode} node The node to be checked.
-		 * @returns {boolean} True if the assignment can be parenthesised.
-		 * @private
-		 */
-		function isReturnAssignException(node) {
-			if (!EXCEPT_RETURN_ASSIGN || !isInReturnStatement(node)) {
-				return false;
-			}
-
-			if (node.type === "ReturnStatement") {
-				return node.argument && containsAssignment(node.argument);
-			}
-			if (
-				node.type === "ArrowFunctionExpression" &&
-				node.body.type !== "BlockStatement"
-			) {
-				return containsAssignment(node.body);
-			}
-			return containsAssignment(node);
 		}
 
 		return {

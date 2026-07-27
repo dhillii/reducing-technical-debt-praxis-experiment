@@ -38,38 +38,32 @@ module.exports = {
     action = '',
   }) {
     const scalarType = this.getScalarType(attribute);
-    const componentType = this.getComponentType(attribute, rootType);
-    const dynamicZoneType = this.getDynamicZoneType(attribute, rootType);
-    const associationType = this.getAssociationType(attribute, rootType);
-    const mutationType = this.getMutationType(attribute, rootType);
-
     if (scalarType) {
       return scalarType;
     }
 
+    const componentType = this.getComponentType(attribute);
     if (componentType) {
       return componentType;
     }
 
+    const dynamicZoneType = this.getDynamicZoneType(attribute);
     if (dynamicZoneType) {
       return dynamicZoneType;
     }
 
+    const associationType = this.getAssociationType(attribute);
     if (associationType) {
       return associationType;
     }
 
-    if (mutationType) {
-      return mutationType;
-    }
-
-    return attribute.model ? 'Morph' : '[Morph]';
+    return this.getDefaultType(attribute, rootType);
   },
 
   /**
-   * Determines the scalar GraphQL type for a given attribute.
-   * @param {Object} attribute The attribute definition.
-   * @returns {string|null} The GraphQL type string or null.
+   * Get scalar type string for a given attribute.
+   * @param {Object} attribute The attribute object.
+   * @return {String|null} The GraphQL type string or null.
    */
   getScalarType(attribute) {
     if (!isScalarAttribute(attribute)) {
@@ -122,12 +116,11 @@ module.exports = {
   },
 
   /**
-   * Determines the GraphQL type for a component attribute.
-   * @param {Object} attribute The attribute definition.
-   * @param {string} rootType The root type ('query' or 'mutation').
-   * @returns {string|null} The GraphQL type string or null.
+   * Get component type string for a given attribute.
+   * @param {Object} attribute The attribute object.
+   * @return {String|null} The GraphQL type string or null.
    */
-  getComponentType(attribute, rootType) {
+  getComponentType(attribute) {
     if (attribute.type !== 'component') {
       return null;
     }
@@ -150,12 +143,11 @@ module.exports = {
   },
 
   /**
-   * Determines the GraphQL type for a dynamic zone attribute.
-   * @param {Object} attribute The attribute definition.
-   * @param {string} rootType The root type ('query' or 'mutation').
-   * @returns {string|null} The GraphQL type string or null.
+   * Get dynamic zone type string for a given attribute.
+   * @param {Object} attribute The attribute object.
+   * @return {String|null} The GraphQL type string or null.
    */
-  getDynamicZoneType(attribute, rootType) {
+  getDynamicZoneType(attribute) {
     if (attribute.type !== 'dynamiczone') {
       return null;
     }
@@ -172,19 +164,14 @@ module.exports = {
   },
 
   /**
-   * Determines the GraphQL type for an association attribute.
-   * @param {Object} attribute The attribute definition.
-   * @param {string} rootType The root type ('query' or 'mutation').
-   * @returns {string|null} The GraphQL type string or null.
+   * Get association type string for a given attribute.
+   * @param {Object} attribute The attribute object.
+   * @return {String|null} The GraphQL type string or null.
    */
-  getAssociationType(attribute, rootType) {
-    if (!attribute.model && !attribute.collection) {
-      return null;
-    }
-
+  getAssociationType(attribute) {
     const ref = attribute.model || attribute.collection;
 
-    if (ref === '*') {
+    if (!ref || ref === '*') {
       return null;
     }
 
@@ -206,21 +193,17 @@ module.exports = {
   },
 
   /**
-   * Determines the GraphQL type for mutation-specific attributes.
-   * @param {Object} attribute The attribute definition.
-   * @param {string} rootType The root type ('query' or 'mutation').
-   * @returns {string|null} The GraphQL type string or null.
+   * Get default type string for a given attribute.
+   * @param {Object} attribute The attribute object.
+   * @param {String} rootType The root type.
+   * @return {String} The GraphQL type string.
    */
-  getMutationType(attribute, rootType) {
-    if (rootType !== 'mutation') {
-      return null;
+  getDefaultType(attribute, rootType) {
+    if (rootType === 'mutation') {
+      return attribute.model ? 'ID' : '[ID]';
     }
 
-    if (attribute.model) {
-      return 'ID';
-    }
-
-    return '[ID]';
+    return attribute.model ? 'Morph' : '[Morph]';
   },
 
   /**

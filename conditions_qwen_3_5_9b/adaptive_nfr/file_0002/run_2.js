@@ -113,22 +113,22 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [showAltInput]);
 
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                e.preventDefault();
-                if (!isDisabled && !isImageUploading) {
-                    handlePost();
-                }
+    const handleKeyDown = useCallback((e: KeyboardEvent) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            if (!isDisabled && !isImageUploading) {
+                handlePost();
             }
-        };
+        }
+    }, [isDisabled, isImageUploading, handlePost]);
 
+    useEffect(() => {
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen) {
             document.addEventListener('keydown', handleKeyDown);
             return () => document.removeEventListener('keydown', handleKeyDown);
         }
-    }, [isOpen, props.open, isDisabled, isImageUploading, handlePost]);
+    }, [isOpen, props.open, handleKeyDown]);
 
     const handlePaste = useCallback(async (e: React.ClipboardEvent | ClipboardEvent) => {
         const items = e.clipboardData?.items;
@@ -172,26 +172,24 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         } catch (error) {
             setImagePreview(null);
 
-            const errorMessage = getErrorMessage(error);
+            let errorMessage = 'Failed to upload image. Try again.';
+
+            if (error && typeof error === 'object' && 'statusCode' in error) {
+                switch (error.statusCode) {
+                case 413:
+                    errorMessage = 'Image size exceeds limit.';
+                    break;
+                case 415:
+                    errorMessage = 'The file type is not supported.';
+                    break;
+                default:
+                    // Use the default error message
+                }
+            }
             toast.error(errorMessage);
         } finally {
             setIsImageUploading(false);
         }
-    };
-
-    const getErrorMessage = (error: unknown): string => {
-        if (error && typeof error === 'object' && 'statusCode' in error) {
-            const statusCode = (error as {statusCode: number}).statusCode;
-            switch (statusCode) {
-            case 413:
-                return 'Image size exceeds limit.';
-            case 415:
-                return 'The file type is not supported.';
-            default:
-                return FILE_SIZE_ERROR_MESSAGE;
-            }
-        }
-        return 'Failed to upload image. Try again.';
     };
 
     const handleImageChange = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -237,25 +235,29 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         textareaRef.current?.focus();
     };
 
-    useEffect(() => {
-        return () => {
-            if (imagePreview) {
-                URL.revokeObjectURL(imagePreview);
-            }
-        };
-    }, [imagePreview]);
-
-    const getPlaceholder = (): string => {
-        if (replyTo) {
-            const attributedTo = replyTo.object.attributedTo || {};
-            if (typeof attributedTo === 'object' && 'preferredUsername' in attributedTo && 'id' in attributedTo) {
-                return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
-            }
-        }
-        return 'What\'s new?';
+    const useModalOpenState = (propsOpen: boolean | undefined, isOpen: boolean): boolean => {
+        return propsOpen !== undefined ? propsOpen : isOpen;
     };
 
-    const handleDialogOpenChange = useCallback((open: boolean) => {
+    const focusTextareaOnOpen = (modalIsOpen: boolean) => {
+        if (modalIsOpen && textareaRef.current) {
+            const timeoutId = setTimeout(() => {
+                textareaRef.current?.focus();
+            }, 100);
+            return () => clearTimeout(timeoutId);
+        }
+    };
+
+    const focusAltTextInputOnShow = (showAltInput: boolean) => {
+        if (showAltInput && altTextInputRef.current) {
+            const timeoutId = setTimeout(() => {
+                altTextInputRef.current?.focus();
+            }, 100);
+            return () => clearTimeout(timeoutId);
+        }
+    };
+
+    const handleOpenChange = useCallback((open: boolean) => {
         if (open) {
             setContent('');
             setImagePreview(null);
@@ -277,8 +279,53 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [imagePreview, imageInputRef, onOpenChange]);
 
+    const getPlaceholderText = (): string => {
+        if (replyTo) {
+            const attributedTo = replyTo.object.attributedTo || {};
+            if (typeof attributedTo === 'object' && 'preferredUsername' in attributedTo && 'id' in attributedTo) {
+                return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
+            }
+        }
+        return 'What\'s new?';
+    };
+
+    const cleanupObjectUrls = () => {
+        if (imagePreview) {
+            URL.revokeObjectURL(imagePreview);
+        }
+    };
+
+    useEffect(() => {
+        return () => {
+            cleanupObjectUrls();
+        };
+    }, [imagePreview]);
+
+    const modalIsOpen = useModalOpenState(props.open, isOpen);
+
+    useEffect(() => {
+        if (modalIsOpen) {
+            const timer = setTimeout(() => {
+                setIsSticky(true);
+            }, 300);
+            return () => clearTimeout(timer);
+        } else {
+            setIsSticky(false);
+        }
+    }, [modalIsOpen]);
+
+    useEffect(() => {
+        focusTextareaOnOpen(modalIsOpen);
+    }, [modalIsOpen]);
+
+    useEffect(() => {
+        focusAltTextInputOnShow(showAltInput);
+    }, [showAltInput]);
+
+    let placeholder = getPlaceholderText();
+
     return (
-        <Dialog open={props.open !== undefined ? props.open : isOpen} onOpenChange={handleDialogOpenChange} {...(props.open !== undefined ? {} : props)}>
+        <Dialog open={modalIsOpen} onOpenChange={handleOpenChange} {...(props.open !== undefined ? {} : props)}>
             <DialogTrigger asChild>
                 {children}
             </DialogTrigger>
@@ -318,7 +365,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                                         autoFocus={true}
                                         className='ap-textarea w-full resize-none bg-transparent text-[1.5rem] break-anywhere'
                                         data-testid="note-textarea"
-                                        placeholder={getPlaceholder()}
+                                        placeholder={placeholder}
                                         rows={1}
                                         value={content}
                                         onChange={handleChange}

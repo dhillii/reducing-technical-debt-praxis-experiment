@@ -272,9 +272,10 @@ module.exports = class Tier {
     }
 
     /**
-     * Resolves the ID from the input data, generating a new one if necessary.
+     * Resolves the ID for a tier, generating a new one if not provided.
      * @param {any} data
      * @returns {ObjectID}
+     * @private
      */
     static #resolveId(data) {
         if (!data.id) {

@@ -117,227 +117,297 @@ const createBruteInstanceWithReset = (store, config, failCallback) => {
     }, pick(config, spamConfigKeys)));
 };
 
-const createGlobalBlock = () => {
+const globalBlock = () => {
     const store = createBruteKnexStore();
-    const failCallback = (req, res, next, nextValidRequestDate) => {
-        return next(new errors.TooManyRequestsError({
-            message: `Too many attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-            context: tpl(messages.forgottenPasswordIp.error, {
-                rfa: spamGlobalBlock.freeRetries + 1 || 5,
-                rfp: spamGlobalBlock.lifetime || 60 * 60
-            }),
-            help: tpl(messages.tooManyAttempts)
-        }));
-    };
+    const config = spamGlobalBlock;
 
-    globalBlockInstance = globalBlockInstance || createBruteInstance(store, spamGlobalBlock, failCallback);
+    globalBlockInstance = globalBlockInstance || createBruteInstance(
+        store,
+        config,
+        (req, res, next, nextValidRequestDate) => {
+            return next(new errors.TooManyRequestsError({
+                message: `Too many attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
+                context: tpl(messages.forgottenPasswordIp.error, {
+                    rfa: config.freeRetries + 1 || 5,
+                    rfp: config.lifetime || 60 * 60
+                }),
+                help: tpl(messages.tooManyAttempts)
+            }));
+        }
+    );
+
     return globalBlockInstance;
 };
 
-const createGlobalReset = () => {
+const globalReset = () => {
     const store = createBruteKnexStore();
-    const failCallback = (req, res, next, nextValidRequestDate) => {
-        return next(new errors.TooManyRequestsError({
-            message: `Too many attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-            context: tpl(messages.forgottenPasswordIp.error, {
-                rfa: spamGlobalReset.freeRetries + 1 || 5,
-                rfp: spamGlobalReset.lifetime || 60 * 60
-            }),
-            help: tpl(messages.forgottenPasswordIp.context)
-        }));
-    };
+    const config = spamGlobalReset;
 
-    globalResetInstance = globalResetInstance || createBruteInstance(store, spamGlobalReset, failCallback);
+    globalResetInstance = globalResetInstance || createBruteInstance(
+        store,
+        config,
+        (req, res, next, nextValidRequestDate) => {
+            return next(new errors.TooManyRequestsError({
+                message: `Too many attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
+                context: tpl(messages.forgottenPasswordIp.error, {
+                    rfa: config.freeRetries + 1 || 5,
+                    rfp: config.lifetime || 60 * 60
+                }),
+                help: tpl(messages.forgottenPasswordIp.context)
+            }));
+        }
+    );
+
     return globalResetInstance;
 };
 
-const createWebmentionsBlock = () => {
+const webmentionsBlock = () => {
     const store = createBruteKnexStore();
-    const failCallback = (req, res, next) => {
-        return next(new errors.TooManyRequestsError({
-            message: messages.webmentionsBlock
-        }));
-    };
+    const config = spamWebmentionsBlock;
 
-    webmentionsBlockInstance = webmentionsBlockInstance || createBruteInstance(store, spamWebmentionsBlock, failCallback);
+    webmentionsBlockInstance = webmentionsBlockInstance || createBruteInstance(
+        store,
+        config,
+        () => {
+            return next(new errors.TooManyRequestsError({
+                message: messages.webmentionsBlock
+            }));
+        }
+    );
+
     return webmentionsBlockInstance;
 };
 
-const createEmailPreviewBlock = () => {
+const emailPreviewBlock = () => {
     const store = createBruteKnexStore();
-    const failCallback = (req, res, next) => {
-        return next(new errors.TooManyRequestsError({
-            message: messages.emailPreviewBlock
-        }));
-    };
+    const config = spamEmailPreviewBlock;
 
-    emailPreviewBlockInstance = emailPreviewBlockInstance || createBruteInstance(store, spamEmailPreviewBlock, failCallback);
+    emailPreviewBlockInstance = emailPreviewBlockInstance || createBruteInstance(
+        store,
+        config,
+        () => {
+            return next(new errors.TooManyRequestsError({
+                message: messages.emailPreviewBlock
+            }));
+        }
+    );
+
     return emailPreviewBlockInstance;
 };
 
-const createMembersAuth = () => {
+const membersAuth = () => {
     const store = createBruteKnexStore();
-    const failCallback = (req, res, next, nextValidRequestDate) => {
-        return next(new errors.TooManyRequestsError({
-            message: `Too many sign-in attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-            context: tpl(messages.tooManySigninAttempts.context),
-            help: tpl(messages.tooManySigninAttempts.context)
-        }));
-    };
+    const config = spamUserLogin;
 
-    membersAuthInstance = membersAuthInstance || createBruteInstanceWithReset(store, spamUserLogin, failCallback);
+    membersAuthInstance = membersAuthInstance || createBruteInstanceWithReset(
+        store,
+        config,
+        (req, res, next, nextValidRequestDate) => {
+            return next(new errors.TooManyRequestsError({
+                message: `Too many sign-in attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
+                context: tpl(messages.tooManySigninAttempts.context),
+                help: tpl(messages.tooManySigninAttempts.context)
+            }));
+        }
+    );
+
     return membersAuthInstance;
 };
 
-const createMembersAuthEnumeration = () => {
+const membersAuthEnumeration = () => {
     const store = createBruteKnexStore();
-    const failCallback = (req, res, next, nextValidRequestDate) => {
-        return next(new errors.TooManyRequestsError({
-            message: `Too many different sign-in attempts, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-            context: tpl(messages.tooManySigninAttempts.context),
-            help: tpl(messages.tooManySigninAttempts.context)
-        }));
-    };
+    const config = spamMemberLogin;
 
-    membersAuthEnumerationInstance = membersAuthEnumerationInstance || createBruteInstanceWithReset(store, spamMemberLogin, failCallback);
+    membersAuthEnumerationInstance = membersAuthEnumerationInstance || createBruteInstanceWithReset(
+        store,
+        config,
+        (req, res, next, nextValidRequestDate) => {
+            return next(new errors.TooManyRequestsError({
+                message: `Too many different sign-in attempts, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
+                context: tpl(messages.tooManySigninAttempts.context),
+                help: tpl(messages.tooManySigninAttempts.context)
+            }));
+        }
+    );
+
     return membersAuthEnumerationInstance;
 };
 
-const createOtcVerificationEnumeration = () => {
+const otcVerificationEnumeration = () => {
     const store = createBruteKnexStore();
-    const failCallback = (req, res, next, nextValidRequestDate) => {
-        return next(new errors.TooManyRequestsError({
-            message: `Too many verification attempts across multiple codes, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-            context: tpl(messages.tooManyOTCVerificationAttempts.context),
-            help: tpl(messages.tooManyOTCVerificationAttempts.context),
-            code: 'OTC_TOTAL_ATTEMPTS_RATE_LIMITED'
-        }));
-    };
+    const config = spamOtcVerificationEnumeration;
 
-    otcVerificationEnumerationInstance = otcVerificationEnumerationInstance || createBruteInstance(store, spamOtcVerificationEnumeration, failCallback);
+    otcVerificationEnumerationInstance = otcVerificationEnumerationInstance || createBruteInstance(
+        store,
+        config,
+        (req, res, next, nextValidRequestDate) => {
+            return next(new errors.TooManyRequestsError({
+                message: `Too many verification attempts across multiple codes, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
+                context: tpl(messages.tooManyOTCVerificationAttempts.context),
+                help: tpl(messages.tooManyOTCVerificationAttempts.context),
+                code: 'OTC_TOTAL_ATTEMPTS_RATE_LIMITED'
+            }));
+        }
+    );
+
     return otcVerificationEnumerationInstance;
 };
 
-const createOtcVerification = () => {
+const otcVerification = () => {
     const store = createBruteKnexStore();
-    const failCallback = (req, res, next, nextValidRequestDate) => {
-        return next(new errors.TooManyRequestsError({
-            message: `Too many attempts for this verification code, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-            context: tpl(messages.tooManyOTCVerificationAttempts.context),
-            help: tpl(messages.tooManyOTCVerificationAttempts.context),
-            code: 'OTC_CODE_ATTEMPTS_RATE_LIMITED'
-        }));
-    };
+    const config = spamOtcVerification;
 
-    otcVerificationInstance = otcVerificationInstance || createBruteInstance(store, spamOtcVerification, failCallback);
+    otcVerificationInstance = otcVerificationInstance || createBruteInstance(
+        store,
+        config,
+        (req, res, next, nextValidRequestDate) => {
+            return next(new errors.TooManyRequestsError({
+                message: `Too many attempts for this verification code, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
+                context: tpl(messages.tooManyOTCVerificationAttempts.context),
+                help: tpl(messages.tooManyOTCVerificationAttempts.context),
+                code: 'OTC_CODE_ATTEMPTS_RATE_LIMITED'
+            }));
+        }
+    );
+
     return otcVerificationInstance;
 };
 
-const createUserLogin = () => {
+const userLogin = () => {
     const store = createBruteKnexStore();
-    const failCallback = (req, res, next, nextValidRequestDate) => {
-        return next(new errors.TooManyRequestsError({
-            message: `Too many login attempts. Please wait ${moment(nextValidRequestDate).fromNow(true)} before trying again, or reset your password.`,
-            context: tpl(messages.tooManySigninAttempts.context),
-            help: tpl(messages.tooManySigninAttempts.context)
-        }));
-    };
+    const config = spamUserLogin;
 
-    userLoginInstance = userLoginInstance || createBruteInstanceWithReset(store, spamUserLogin, failCallback);
+    userLoginInstance = userLoginInstance || createBruteInstanceWithReset(
+        store,
+        config,
+        (req, res, next, nextValidRequestDate) => {
+            return next(new errors.TooManyRequestsError({
+                message: `Too many login attempts. Please wait ${moment(nextValidRequestDate).fromNow(true)} before trying again, or reset your password.`,
+                context: tpl(messages.tooManySigninAttempts.context),
+                help: tpl(messages.tooManySigninAttempts.context)
+            }));
+        }
+    );
+
     return userLoginInstance;
 };
 
-const createUserReset = () => {
+const userReset = () => {
     const store = createBruteKnexStore();
-    const failCallback = (req, res, next, nextValidRequestDate) => {
-        return next(new errors.TooManyRequestsError({
-            message: `Too many password reset attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-            context: tpl(messages.forgottenPasswordEmail.error, {
-                rfa: spamUserReset.freeRetries + 1 || 5,
-                rfp: spamUserReset.lifetime || 60 * 60
-            }),
-            help: tpl(messages.forgottenPasswordEmail.context)
-        }));
-    };
+    const config = spamUserReset;
 
-    userResetInstance = userResetInstance || createBruteInstanceWithReset(store, spamUserReset, failCallback);
+    userResetInstance = userResetInstance || createBruteInstanceWithReset(
+        store,
+        config,
+        (req, res, next, nextValidRequestDate) => {
+            return next(new errors.TooManyRequestsError({
+                message: `Too many password reset attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
+                context: tpl(messages.forgottenPasswordEmail.error, {
+                    rfa: config.freeRetries + 1 || 5,
+                    rfp: config.lifetime || 60 * 60
+                }),
+                help: tpl(messages.forgottenPasswordEmail.context)
+            }));
+        }
+    );
+
     return userResetInstance;
 };
 
-const createUserVerification = () => {
+const userVerification = () => {
     const store = createBruteKnexStore();
-    const failCallback = (req, res, next) => {
-        return next(new errors.TooManyRequestsError({
-            message: tpl(messages.tooManyAttempts)
-        }));
-    };
+    const config = spamUserVerification;
 
-    userVerificationInstance = userVerificationInstance || createBruteInstanceWithReset(store, spamUserVerification, failCallback);
+    userVerificationInstance = userVerificationInstance || createBruteInstanceWithReset(
+        store,
+        config,
+        () => {
+            return next(new errors.TooManyRequestsError({
+                message: tpl(messages.tooManyAttempts)
+            }));
+        }
+    );
+
     return userVerificationInstance;
 };
 
-const createSendVerificationCode = () => {
+const sendVerificationCode = () => {
     const store = createBruteKnexStore();
-    const failCallback = (req, res, next) => {
-        return next(new errors.TooManyRequestsError({
-            message: tpl(messages.tooManyAttempts)
-        }));
-    };
+    const config = spamSendVerificationCode;
 
-    sendVerificationCodeInstance = sendVerificationCodeInstance || createBruteInstanceWithReset(store, spamSendVerificationCode, failCallback);
+    sendVerificationCodeInstance = sendVerificationCodeInstance || createBruteInstanceWithReset(
+        store,
+        config,
+        () => {
+            return next(new errors.TooManyRequestsError({
+                message: tpl(messages.tooManyAttempts)
+            }));
+        }
+    );
+
     return sendVerificationCodeInstance;
 };
 
-const createPrivateBlog = () => {
+const privateBlog = () => {
     const store = createBruteKnexStore();
-    const failCallback = (req, res, next, nextValidRequestDate) => {
-        logging.error(new errors.TooManyRequestsError({
-            message: tpl(messages.tooManySigninAttempts.error, {
-                rateSigninAttempts: spamPrivateBlock.freeRetries + 1 || 5,
-                rateSigninPeriod: spamPrivateBlock.lifetime || 60 * 60
-            }),
-            context: tpl(messages.tooManySigninAttempts.context)
-        }));
+    const config = spamPrivateBlock;
 
-        return next(new errors.TooManyRequestsError({
-            message: `Too many private sign-in attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`
-        }));
-    };
+    privateBlogInstance = privateBlogInstance || createBruteInstance(
+        store,
+        config,
+        (req, res, next, nextValidRequestDate) => {
+            logging.error(new errors.TooManyRequestsError({
+                message: tpl(messages.tooManySigninAttempts.error, {
+                    rateSigninAttempts: config.freeRetries + 1 || 5,
+                    rateSigninPeriod: config.lifetime || 60 * 60
+                }),
+                context: tpl(messages.tooManySigninAttempts.context)
+            }));
 
-    privateBlogInstance = privateBlogInstance || createBruteInstance(store, spamPrivateBlock, failCallback);
+            return next(new errors.TooManyRequestsError({
+                message: `Too many private sign-in attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`
+            }));
+        }
+    );
+
     return privateBlogInstance;
 };
 
-const createContentApiKey = () => {
+const contentApiKey = () => {
     const store = createBruteMemoryStore();
-    const failCallback = (req, res, next) => {
-        const err = new errors.TooManyRequestsError({
-            message: tpl(messages.tooManyAttempts)
-        });
+    const config = spamContentApiKey;
 
-        logging.error(err);
-        return next(err);
-    };
+    contentApiKeyInstance = contentApiKeyInstance || createBruteInstanceWithReset(
+        store,
+        config,
+        (req, res, next) => {
+            const err = new errors.TooManyRequestsError({
+                message: tpl(messages.tooManyAttempts)
+            });
 
-    contentApiKeyInstance = contentApiKeyInstance || createBruteInstance(store, spamContentApiKey, failCallback);
+            logging.error(err);
+            return next(err);
+        }
+    );
+
     return contentApiKeyInstance;
 };
 
 module.exports = {
-    globalBlock: createGlobalBlock,
-    globalReset: createGlobalReset,
-    userLogin: createUserLogin,
-    sendVerificationCode: createSendVerificationCode,
-    userVerification: createUserVerification,
-    membersAuth: createMembersAuth,
-    membersAuthEnumeration: createMembersAuthEnumeration,
-    otcVerification: createOtcVerification,
-    otcVerificationEnumeration: createOtcVerificationEnumeration,
-    userReset: createUserReset,
-    privateBlog: createPrivateBlog,
-    contentApiKey: createContentApiKey,
-    webmentionsBlock: createWebmentionsBlock,
-    emailPreviewBlock: createEmailPreviewBlock,
+    globalBlock,
+    globalReset,
+    userLogin,
+    sendVerificationCode,
+    userVerification,
+    membersAuth,
+    membersAuthEnumeration,
+    otcVerification,
+    otcVerificationEnumeration,
+    userReset,
+    privateBlog,
+    contentApiKey,
+    webmentionsBlock,
+    emailPreviewBlock,
     reset: () => {
         store = undefined;
         memoryStore = undefined;

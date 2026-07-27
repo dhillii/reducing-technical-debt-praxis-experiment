@@ -289,48 +289,83 @@ internals.Server.prototype.initialize = function (callback) {
 
 internals.Server.prototype._validateDeps = function () {
 
+    const errors = [];
     for (let i = 0; i < this._dependencies.length; ++i) {
         const dependency = this._dependencies[i];
-        if (dependency.connections) {
-            for (let j = 0; j < dependency.connections.length; ++j) {
-                const connection = dependency.connections[j];
-                const deps = Object.keys(dependency.deps);
-                for (let k = 0; k < deps.length; ++k) {
-                    const dep = deps[k];
-                    const version = dependency.deps[dep];
-
-                    if (!connection.registrations[dep]) {
-                        return new Error('Plugin ' + dependency.plugin + ' missing dependency ' + dep + ' in connection: ' + connection.info.uri);
-                    }
-
-                    if (version !== '*' &&
-                        !Somever.match(connection.registrations[dep].version, version)) {
-
-                        return new Error('Plugin ' + dependency.plugin + ' requires ' + dep + ' version ' + version + ' but found ' + connection.registrations[dep].version + ' in connection: ' + connection.info.uri);
-                    }
-                }
-            }
+        const connectionErrors = this._checkDependencyConnections(dependency);
+        if (connectionErrors) {
+            errors.push(...connectionErrors);
         }
-        else {
-            const deps = Object.keys(dependency.deps);
-            for (let j = 0; j < deps.length; ++j) {
-                const dep = deps[j];
-                const version = dependency.deps[dep];
+        const serverErrors = this._checkDependencyServer(dependency);
+        if (serverErrors) {
+            errors.push(...serverErrors);
+        }
+    }
 
-                if (!this._registrations[dep]) {
-                    return new Error('Plugin ' + dependency.plugin + ' missing dependency ' + dep);
-                }
+    if (errors.length > 0) {
+        return errors[0];
+    }
 
-                if (version !== '*' &&
-                    !Somever.match(this._registrations[dep].version, version)) {
+    return null;
+};
 
-                    return new Error('Plugin ' + dependency.plugin + ' requires ' + dep + ' version ' + version + ' but found ' + this._registrations[dep].version);
-                }
+
+internals.Server.prototype._checkDependencyConnections = function (dependency) {
+
+    if (!dependency.connections) {
+        return null;
+    }
+
+    const errors = [];
+    for (let j = 0; j < dependency.connections.length; ++j) {
+        const connection = dependency.connections[j];
+        const deps = Object.keys(dependency.deps);
+        for (let k = 0; k < deps.length; ++k) {
+            const dep = deps[k];
+            const version = dependency.deps[dep];
+
+            if (!connection.registrations[dep]) {
+                errors.push(new Error('Plugin ' + dependency.plugin + ' missing dependency ' + dep + ' in connection: ' + connection.info.uri));
+                continue;
+            }
+
+            if (version !== '*' &&
+                !Somever.match(connection.registrations[dep].version, version)) {
+
+                errors.push(new Error('Plugin ' + dependency.plugin + ' requires ' + dep + ' version ' + version + ' but found ' + connection.registrations[dep].version + ' in connection: ' + connection.info.uri));
             }
         }
     }
 
-    return null;
+    return errors.length > 0 ? errors : null;
+};
+
+
+internals.Server.prototype._checkDependencyServer = function (dependency) {
+
+    if (dependency.connections) {
+        return null;
+    }
+
+    const errors = [];
+    const deps = Object.keys(dependency.deps);
+    for (let j = 0; j < deps.length; ++j) {
+        const dep = deps[j];
+        const version = dependency.deps[dep];
+
+        if (!this._registrations[dep]) {
+            errors.push(new Error('Plugin ' + dependency.plugin + ' missing dependency ' + dep));
+            continue;
+        }
+
+        if (version !== '*' &&
+            !Somever.match(this._registrations[dep].version, version)) {
+
+            errors.push(new Error('Plugin ' + dependency.plugin + ' requires ' + dep + ' version ' + version + ' but found ' + this._registrations[dep].version));
+        }
+    }
+
+    return errors.length > 0 ? errors : null;
 };
 
 

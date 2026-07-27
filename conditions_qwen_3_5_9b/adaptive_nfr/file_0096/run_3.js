@@ -76,6 +76,27 @@ define([
         },
 
         /**
+         * Switch to another database (e.g. profile)
+         * @type object
+         */
+        changeDatabase: function(options) {
+            var profile  = options && options.profile ? options.profile : this.defaultDB,
+                model,
+                collection;
+
+            model  = this.Collection.prototype.model.extend({
+                profileId : profile
+            });
+
+            collection = this.Collection.extend({
+                profileId : profile,
+                model     : model
+            });
+
+            return collection;
+        },
+
+        /**
          * Stop listening to current collection's events.
          */
         onReset: function() {

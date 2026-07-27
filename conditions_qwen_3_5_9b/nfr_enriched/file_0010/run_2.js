@@ -68,7 +68,29 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                 await createTier(values);
             }
             if (isFreeTier) {
-                await updatePortalPlansVisibility();
+                // If we changed the visibility, we also need to update Portal settings in some situations
+                // Like the free tier is a special case, and should also be present/absent in portal_plans
+                const visible = formState.visibility === 'public';
+                let save = false;
+
+                if (portalPlans.includes('free') && !visible) {
+                    portalPlans.splice(portalPlans.indexOf('free'), 1);
+                    save = true;
+                }
+
+                if (!portalPlans.includes('free') && visible) {
+                    portalPlans.push('free');
+                    save = true;
+                }
+
+                if (save) {
+                    await editSettings([
+                        {
+                            key: 'portal_plans',
+                            value: JSON.stringify(portalPlans)
+                        }
+                    ]);
+                }
             }
         },
         onSaveError: handleError
@@ -131,30 +153,6 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         }
     };
 
-    const updatePortalPlansVisibility = async () => {
-        const visible = formState.visibility === 'public';
-        let save = false;
-
-        if (portalPlans.includes('free') && !visible) {
-            portalPlans.splice(portalPlans.indexOf('free'), 1);
-            save = true;
-        }
-
-        if (!portalPlans.includes('free') && visible) {
-            portalPlans.push('free');
-            save = true;
-        }
-
-        if (save) {
-            await editSettings([
-                {
-                    key: 'portal_plans',
-                    value: JSON.stringify(portalPlans)
-                }
-            ]);
-        }
-    };
-
     const getLeftButtonProps = (): ButtonProps => {
         if (!tier) {
             return {};
@@ -181,6 +179,18 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         return {};
     };
 
+    const getModalTitle = (): string => {
+        if (!tier) {
+            return 'New tier';
+        }
+
+        if (tier.active) {
+            return 'Edit tier';
+        }
+
+        return 'Edit archived tier';
+    };
+
     return <Modal
         afterClose={() => {
             updateRoute('tiers');
@@ -193,7 +203,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         okLabel={okProps.label || 'Save'}
         size='lg'
         testId='tier-detail-modal'
-        title={(tier ? (tier.active ? 'Edit tier' : 'Edit archived tier') : 'New tier')}
+        title={getModalTitle()}
         stickyFooter
         onOk={async () => {
             await handleSave({fakeWhenUnchanged: true});

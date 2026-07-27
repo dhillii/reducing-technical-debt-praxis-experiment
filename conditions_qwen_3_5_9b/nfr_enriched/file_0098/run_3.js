@@ -50,10 +50,8 @@ define([
 
         initialize: function() {
             var key = Radio.request('configs', 'get:config', 'dropboxKey');
-            var accessToken = Radio.request('configs', 'get:config', 'dropboxAccessToken');
-
             this.configs.key = key || this.configs.key;
-            this.configs.accessToken = accessToken;
+            this.configs.accessToken = Radio.request('configs', 'get:config', 'dropboxAccessToken');
 
             this.vent = Radio.channel('dropbox');
 
@@ -146,7 +144,7 @@ define([
         },
 
         /**
-         * Authenticate with Dropbox.
+         * Authenticate user with Dropbox.
          *
          * @returns {Promise}
          */
@@ -191,12 +189,11 @@ define([
          */
         onReady: function() {
             var profile = Radio.request('uri', 'profile') || 'notes-db';
-            var self = this;
             adapter.init(this.client, profile);
 
             this.timeout = window.setTimeout(function() {
-                self.checkChanges();
-            }, 500);
+                this.checkChanges();
+            }.bind(this), 500);
         },
 
         /**
@@ -226,21 +223,21 @@ define([
             return _.reduce(promises, Q.when, new Q())
             .then(function() {
                 Radio.trigger('sync', 'stop', 'dropbox');
-                self.startWatch();
-            })
+                this.startWatch();
+            }.bind(this))
             .fail(function(err) {
                 if (err) {
                     switch (err.status) {
 
                         // If access was revoked, try to ask for it again
                         case 401:
-                            self.checkAuth();
+                            this.checkAuth();
                             break;
 
                         // On connection error, increase watch interval
                         case 0:
-                            self.configs.interval = self.configs.intervalMax;
-                            self.startWatch();
+                            this.configs.interval = this.configs.intervalMax;
+                            this.startWatch();
                             break;
                     }
                 }
@@ -248,7 +245,7 @@ define([
                 Radio.trigger('sync', 'stop', 'dropbox');
                 Radio.trigger('sync', 'error', {cloud: 'dropbox', error: err});
                 console.error('Error', arguments[0], arguments);
-            });
+            }.bind(this));
         },
 
         /**
@@ -323,7 +320,7 @@ define([
         },
 
         /**
-         * Start the periodic watch for changes.
+         * Start watching for changes with a calculated interval.
          */
         startWatch: function() {
             if (this.timeout) {

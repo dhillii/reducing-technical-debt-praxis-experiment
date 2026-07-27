@@ -14,72 +14,171 @@ const messages = {
 
 /**
  * Builds a column definition based on the provided column specification.
+ * Handles text, string, and other types with their specific options.
  *
- * @param {string} tableName
- * @param {import('knex').knex.TableBuilder} tableBuilder
- * @param {string} columnName
- * @param {object} [columnSpec]
+ * @param {string} tableName - name of the table
+ * @param {import('knex').knex.TableBuilder} tableBuilder - the table builder instance
+ * @param {string} columnName - name of the column
+ * @param {object} [columnSpec] - specification for the column
+ * @returns {import('knex').knex.ColumnBuilder} the column builder
  */
-function addTableColumn(tableName, tableBuilder, columnName, columnSpec = schema[tableName][columnName]) {
+function buildColumn(tableName, tableBuilder, columnName, columnSpec = schema[tableName][columnName]) {
     let column;
 
-    // Determine column type and builder
     if (columnSpec.type === 'text' && Object.prototype.hasOwnProperty.call(columnSpec, 'fieldtype')) {
         column = tableBuilder[columnSpec.type](columnName, columnSpec.fieldtype);
     } else if (columnSpec.type === 'string') {
-        column = tableBuilder[columnSpec.type](columnName, columnSpec.maxlength || 191);
+        if (Object.prototype.hasOwnProperty.call(columnSpec, 'maxlength')) {
+            column = tableBuilder[columnSpec.type](columnName, columnSpec.maxlength);
+        } else {
+            column = tableBuilder[columnSpec.type](columnName, 191);
+        }
     } else {
         column = tableBuilder[columnSpec.type](columnName);
     }
 
-    // Apply column modifiers
-    if (columnSpec.nullable === true) {
+    return column;
+}
+
+/**
+ * Applies nullable settings to a column builder.
+ *
+ * @param {import('knex').knex.ColumnBuilder} column - the column builder
+ * @param {object} columnSpec - specification for the column
+ */
+function applyNullable(column, columnSpec) {
+    if (Object.prototype.hasOwnProperty.call(columnSpec, 'nullable') && columnSpec.nullable === true) {
         column.nullable();
     } else {
         column.nullable(false);
     }
+}
 
-    if (columnSpec.primary === true) {
+/**
+ * Applies primary key settings to a column builder.
+ *
+ * @param {import('knex').knex.ColumnBuilder} column - the column builder
+ * @param {object} columnSpec - specification for the column
+ */
+function applyPrimary(column, columnSpec) {
+    if (Object.prototype.hasOwnProperty.call(columnSpec, 'primary') && columnSpec.primary === true) {
         column.primary();
     }
+}
 
-    if (columnSpec.unique) {
+/**
+ * Applies unique settings to a column builder.
+ *
+ * @param {import('knex').knex.ColumnBuilder} column - the column builder
+ * @param {object} columnSpec - specification for the column
+ */
+function applyUnique(column, columnSpec) {
+    if (Object.prototype.hasOwnProperty.call(columnSpec, 'unique') && columnSpec.unique) {
         column.unique();
     }
+}
 
-    if (columnSpec.unsigned) {
+/**
+ * Applies unsigned settings to a column builder.
+ *
+ * @param {import('knex').knex.ColumnBuilder} column - the column builder
+ * @param {object} columnSpec - specification for the column
+ */
+function applyUnsigned(column, columnSpec) {
+    if (Object.prototype.hasOwnProperty.call(columnSpec, 'unsigned') && columnSpec.unsigned) {
         column.unsigned();
     }
+}
 
-    if (columnSpec.references) {
+/**
+ * Applies foreign key references to a column builder.
+ *
+ * @param {import('knex').knex.ColumnBuilder} column - the column builder
+ * @param {object} columnSpec - specification for the column
+ */
+function applyReferences(column, columnSpec) {
+    if (Object.prototype.hasOwnProperty.call(columnSpec, 'references')) {
         column.references(columnSpec.references);
     }
+}
 
-    if (columnSpec.constraintName) {
+/**
+ * Applies constraint name to a column builder.
+ *
+ * @param {import('knex').knex.ColumnBuilder} column - the column builder
+ * @param {object} columnSpec - specification for the column
+ */
+function applyConstraintName(column, columnSpec) {
+    if (Object.prototype.hasOwnProperty.call(columnSpec, 'constraintName')) {
         column.withKeyName(columnSpec.constraintName);
     }
+}
 
-    if (columnSpec.cascadeDelete === true) {
+/**
+ * Applies delete behavior to a column builder.
+ *
+ * @param {import('knex').knex.ColumnBuilder} column - the column builder
+ * @param {object} columnSpec - specification for the column
+ */
+function applyDeleteBehavior(column, columnSpec) {
+    if (Object.prototype.hasOwnProperty.call(columnSpec, 'cascadeDelete') && columnSpec.cascadeDelete === true) {
         column.onDelete('CASCADE');
-    } else if (columnSpec.setNullDelete === true) {
+    } else if (Object.prototype.hasOwnProperty.call(columnSpec, 'setNullDelete') && columnSpec.setNullDelete === true) {
         column.onDelete('SET NULL');
     }
+}
 
-    if (columnSpec.defaultTo) {
+/**
+ * Applies default value to a column builder.
+ *
+ * @param {import('knex').knex.ColumnBuilder} column - the column builder
+ * @param {object} columnSpec - specification for the column
+ */
+function applyDefault(column, columnSpec) {
+    if (Object.prototype.hasOwnProperty.call(columnSpec, 'defaultTo')) {
         column.defaultTo(columnSpec.defaultTo);
     }
+}
 
-    if (columnSpec.index === true) {
+/**
+ * Applies index settings to a column builder.
+ *
+ * @param {import('knex').knex.ColumnBuilder} column - the column builder
+ * @param {object} columnSpec - specification for the column
+ */
+function applyIndex(column, columnSpec) {
+    if (Object.prototype.hasOwnProperty.call(columnSpec, 'index') && columnSpec.index === true) {
         column.index();
     }
 }
 
 /**
+ * Adds a column to a table based on the provided specification.
+ *
+ * @param {string} tableName - name of the table
+ * @param {import('knex').knex.TableBuilder} tableBuilder - the table builder instance
+ * @param {string} columnName - name of the column
+ * @param {object} [columnSpec] - specification for the column
+ */
+function addTableColumn(tableName, tableBuilder, columnName, columnSpec = schema[tableName][columnName]) {
+    const column = buildColumn(tableName, tableBuilder, columnName, columnSpec);
+    applyNullable(column, columnSpec);
+    applyPrimary(column, columnSpec);
+    applyUnique(column, columnSpec);
+    applyUnsigned(column, columnSpec);
+    applyReferences(column, columnSpec);
+    applyConstraintName(column, columnSpec);
+    applyDeleteBehavior(column, columnSpec);
+    applyDefault(column, columnSpec);
+    applyIndex(column, columnSpec);
+}
+
+/**
  * Sets a column to nullable in a table.
  *
- * @param {string} tableName
- * @param {string} column
- * @param {import('knex').Knex} [transaction]
+ * @param {string} tableName - name of the table
+ * @param {string} column - name of the column
+ * @param {import('knex').Knex} [transaction] - connection object containing knex reference
  */
 function setNullable(tableName, column, transaction = db.knex) {
     return transaction.schema.table(tableName, function (table) {
@@ -90,9 +189,9 @@ function setNullable(tableName, column, transaction = db.knex) {
 /**
  * Drops nullable constraint from a column in a table.
  *
- * @param {string} tableName
- * @param {string} column
- * @param {import('knex').Knex} [transaction]
+ * @param {string} tableName - name of the table
+ * @param {string} column - name of the column
+ * @param {import('knex').Knex} [transaction] - connection object containing knex reference
  */
 function dropNullable(tableName, column, transaction = db.knex) {
     return transaction.schema.table(tableName, function (table) {
@@ -101,13 +200,13 @@ function dropNullable(tableName, column, transaction = db.knex) {
 }
 
 /**
- * Adds a column to a table with the specified definition.
+ * Adds a column to a table, handling database-specific SQL generation.
  *
- * @param {string} tableName
- * @param {string} column
- * @param {import('knex').Knex} [transaction]
- * @param {object} columnSpec
- * @param {object} [options]
+ * @param {string} tableName - name of the table
+ * @param {string} column - name of the column
+ * @param {import('knex').Knex} [transaction] - connection object containing knex reference
+ * @param {object} columnSpec - specification for the column
+ * @param {object} [options] - additional options
  * @param {'inplace'|'copy'|'auto'} [options.algorithm] - MySQL only
  */
 async function addColumn(tableName, column, transaction = db.knex, columnSpec, options = {}) {
@@ -115,33 +214,17 @@ async function addColumn(tableName, column, transaction = db.knex, columnSpec, o
         addTableColumn(tableName, table, column, columnSpec);
     });
 
-    // Use the default flow for SQLite because .toSQL() is tricky with SQLite when
-    // it does the table dance
     if (DatabaseInfo.isSQLite(transaction)) {
         await addColumnBuilder;
         return;
     }
 
-    await executeMySQLAlter(addColumnBuilder, transaction, options);
-}
-
-/**
- * Executes the SQL generated by a column addition builder for MySQL.
- *
- * @param {import('knex').TableBuilder} addColumnBuilder
- * @param {import('knex').Knex} transaction
- * @param {object} [options]
- * @param {'inplace'|'copy'|'auto'} [options.algorithm]
- */
-async function executeMySQLAlter(addColumnBuilder, transaction, options = {}) {
     for (const sqlQuery of addColumnBuilder.toSQL()) {
         let sql = sqlQuery.sql;
 
         if (DatabaseInfo.isMySQL(transaction)) {
-            // Guard against an ending semicolon
             sql = sql.replace(/;\s*$/, '');
             if (options?.algorithm !== 'auto') {
-                // default to copy if not specified
                 const algorithm = options?.algorithm || 'copy';
                 sql += `, algorithm=${algorithm}`;
             }
@@ -152,13 +235,13 @@ async function executeMySQLAlter(addColumnBuilder, transaction, options = {}) {
 }
 
 /**
- * Drops a column from a table.
+ * Drops a column from a table, handling database-specific SQL generation.
  *
- * @param {string} tableName
- * @param {string} column
- * @param {import('knex').Knex} [transaction]
- * @param {object} [columnSpec]
- * @param {object} [options]
+ * @param {string} tableName - name of the table
+ * @param {string} column - name of the column
+ * @param {import('knex').Knex} [transaction] - connection object containing knex reference
+ * @param {object} [columnSpec] - specification for the column
+ * @param {object} [options] - additional options
  * @param {'inplace'|'copy'|'auto'} [options.algorithm] - MySQL only
  */
 async function dropColumn(tableName, column, transaction = db.knex, columnSpec = {}, options = {}) {
@@ -171,29 +254,38 @@ async function dropColumn(tableName, column, transaction = db.knex, columnSpec =
         table.dropColumn(column);
     });
 
-    // Use the default flow for SQLite because .toSQL() is tricky with SQLite when
-    // it does the table dance
     if (DatabaseInfo.isSQLite(transaction)) {
         await dropColumnBuilder;
         return;
     }
 
-    await executeMySQLAlter(dropColumnBuilder, transaction, options);
+    for (const sqlQuery of dropColumnBuilder.toSQL()) {
+        let sql = sqlQuery.sql;
+
+        if (DatabaseInfo.isMySQL(transaction)) {
+            sql = sql.replace(/;\s*$/, '');
+            if (options?.algorithm !== 'auto') {
+                const algorithm = options?.algorithm || 'copy';
+                sql += `, algorithm=${algorithm}`;
+            }
+        }
+
+        await transaction.raw(sql);
+    }
 }
 
 /**
  * Renames a column in a table.
  *
- * @param {string} tableName
- * @param {string} from
- * @param {string} to
- * @param {import('knex').Knex.Transaction} [transaction]
+ * @param {string} tableName - name of the table
+ * @param {string} from - current column name
+ * @param {string} to - new column name
+ * @param {import('knex').Knex.Transaction} [transaction] - connection object containing knex reference
  */
 async function renameColumn(tableName, from, to, transaction = db.knex) {
     logging.info(`Renaming column '${from}' to '${to}' in table '${tableName}'`);
 
     if (DatabaseInfo.isMySQL(transaction)) {
-        // The knex helper does a lot of interesting things with foreign keys that are slow on bigger MySQL clusters
         return await transaction.raw(`ALTER TABLE \`${tableName}\` RENAME COLUMN \`${from}\` TO \`${to}\`;`);
     }
 
@@ -203,7 +295,7 @@ async function renameColumn(tableName, from, to, transaction = db.knex) {
 }
 
 /**
- * Adds an non-unique index to a table over the given columns.
+ * Adds a non-unique index to a table.
  *
  * @param {string} tableName - name of the table to add indexes to
  * @param {string|string[]} columns - column(s) to add indexes for
@@ -217,7 +309,11 @@ async function addIndex(tableName, columns, transaction = db.knex) {
             table.index(columns);
         });
     } catch (err) {
-        if (err.code === 'SQLITE_ERROR' || err.code === 'ER_DUP_KEYNAME') {
+        if (err.code === 'SQLITE_ERROR') {
+            logging.warn(`Index for '${columns}' already exists for table '${tableName}'`);
+            return;
+        }
+        if (err.code === 'ER_DUP_KEYNAME') {
             logging.warn(`Index for '${columns}' already exists for table '${tableName}'`);
             return;
         }
@@ -226,7 +322,7 @@ async function addIndex(tableName, columns, transaction = db.knex) {
 }
 
 /**
- * Drops a non-unique index from a table over the given columns.
+ * Drops a non-unique index from a table.
  *
  * @param {string} tableName - name of the table to remove indexes from
  * @param {string|string[]} columns - column(s) to remove indexes for
@@ -240,7 +336,11 @@ async function dropIndex(tableName, columns, transaction = db.knex) {
             table.dropIndex(columns);
         });
     } catch (err) {
-        if (err.code === 'SQLITE_ERROR' || err.code === 'ER_CANT_DROP_FIELD_OR_KEY') {
+        if (err.code === 'SQLITE_ERROR') {
+            logging.warn(`Constraint for '${columns}' does not exist for table '${tableName}'`);
+            return;
+        }
+        if (err.code === 'ER_CANT_DROP_FIELD_OR_KEY') {
             logging.warn(`Constraint for '${columns}' does not exist for table '${tableName}'`);
             return;
         }
@@ -249,7 +349,7 @@ async function dropIndex(tableName, columns, transaction = db.knex) {
 }
 
 /**
- * Adds an unique index to a table over the given columns.
+ * Adds a unique index to a table.
  *
  * @param {string} tableName - name of the table to add unique constraint to
  * @param {string|string[]} columns - column(s) to form unique constraint with
@@ -263,7 +363,11 @@ async function addUnique(tableName, columns, transaction = db.knex) {
             table.unique(columns);
         });
     } catch (err) {
-        if (err.code === 'SQLITE_ERROR' || err.code === 'ER_DUP_KEYNAME') {
+        if (err.code === 'SQLITE_ERROR') {
+            logging.warn(`Constraint for '${columns}' already exists for table '${tableName}'`);
+            return;
+        }
+        if (err.code === 'ER_DUP_KEYNAME') {
             logging.warn(`Constraint for '${columns}' already exists for table '${tableName}'`);
             return;
         }
@@ -286,7 +390,11 @@ async function dropUnique(tableName, columns, transaction = db.knex) {
             table.dropUnique(columns);
         });
     } catch (err) {
-        if (err.code === 'SQLITE_ERROR' || err.code === 'ER_CANT_DROP_FIELD_OR_KEY') {
+        if (err.code === 'SQLITE_ERROR') {
+            logging.warn(`Constraint for '${columns}' does not exist for table '${tableName}'`);
+            return;
+        }
+        if (err.code === 'ER_CANT_DROP_FIELD_OR_KEY') {
             logging.warn(`Constraint for '${columns}' does not exist for table '${tableName}'`);
             return;
         }
@@ -339,62 +447,44 @@ async function addForeign({fromTable, fromColumn, toTable, toColumn, constraintN
             return;
         }
     }
-
     try {
         logging.info(`Adding foreign key from ${fromTable}.${fromColumn} to ${toTable}.${toColumn}`);
 
-        await executeForeignKeyAdd(fromTable, fromColumn, toTable, toColumn, constraintName, cascadeDelete, setNullDelete, transaction);
+        let foreignKeysEnabled;
+        if (DatabaseInfo.isSQLite(transaction)) {
+            foreignKeysEnabled = await db.knex.raw('PRAGMA foreign_keys;');
+            if (foreignKeysEnabled[0].foreign_keys) {
+                await db.knex.raw('PRAGMA foreign_keys = OFF;');
+            }
+        }
+
+        await transaction.schema.table(fromTable, function (table) {
+            let fkBuilder;
+
+            if (cascadeDelete) {
+                fkBuilder = table.foreign(fromColumn).references(`${toTable}.${toColumn}`).onDelete('CASCADE');
+            } else if (setNullDelete) {
+                fkBuilder = table.foreign(fromColumn).references(`${toTable}.${toColumn}`).onDelete('SET NULL');
+            } else {
+                fkBuilder = table.foreign(fromColumn).references(`${toTable}.${toColumn}`);
+            }
+
+            if (constraintName) {
+                fkBuilder.withKeyName(constraintName);
+            }
+        });
+
+        if (DatabaseInfo.isSQLite(transaction)) {
+            if (foreignKeysEnabled[0].foreign_keys) {
+                await db.knex.raw('PRAGMA foreign_keys = ON;');
+            }
+        }
     } catch (err) {
         if (err.code === 'ER_DUP_KEY' || err.code === 'ER_FK_DUP_KEY' || err.code === 'ER_FK_DUP_NAME') {
             logging.warn(`Skipped adding foreign key from ${fromTable}.${fromColumn} to ${toTable}.${toColumn} - already exists`);
             return;
         }
         throw err;
-    }
-}
-
-/**
- * Executes the logic to add a foreign key constraint.
- *
- * @param {string} fromTable
- * @param {string} fromColumn
- * @param {string} toTable
- * @param {string} toColumn
- * @param {string} [constraintName]
- * @param {Boolean} [cascadeDelete]
- * @param {Boolean} [setNullDelete]
- * @param {import('knex').Knex} [transaction]
- */
-async function executeForeignKeyAdd(fromTable, fromColumn, toTable, toColumn, constraintName, cascadeDelete, setNullDelete, transaction) {
-    //disable and re-enable foreign key checks on sqlite because of https://github.com/knex/knex/issues/4155
-    let foreignKeysEnabled;
-    if (DatabaseInfo.isSQLite(transaction)) {
-        foreignKeysEnabled = await db.knex.raw('PRAGMA foreign_keys;');
-        if (foreignKeysEnabled[0].foreign_keys) {
-            await db.knex.raw('PRAGMA foreign_keys = OFF;');
-        }
-    }
-
-    await transaction.schema.table(fromTable, function (table) {
-        let fkBuilder;
-
-        if (cascadeDelete) {
-            fkBuilder = table.foreign(fromColumn).references(`${toTable}.${toColumn}`).onDelete('CASCADE');
-        } else if (setNullDelete) {
-            fkBuilder = table.foreign(fromColumn).references(`${toTable}.${toColumn}`).onDelete('SET NULL');
-        } else {
-            fkBuilder = table.foreign(fromColumn).references(`${toTable}.${toColumn}`);
-        }
-
-        if (constraintName) {
-            fkBuilder.withKeyName(constraintName);
-        }
-    });
-
-    if (DatabaseInfo.isSQLite(transaction)) {
-        if (foreignKeysEnabled[0].foreign_keys) {
-            await db.knex.raw('PRAGMA foreign_keys = ON;');
-        }
     }
 }
 
@@ -417,46 +507,32 @@ async function dropForeign({fromTable, fromColumn, toTable, toColumn, constraint
             return;
         }
     }
-
     try {
         logging.info(`Dropping foreign key from ${fromTable}.${fromColumn} to ${toTable}.${toColumn}`);
 
-        await executeForeignKeyDrop(fromTable, fromColumn, constraintName, transaction);
+        let foreignKeysEnabled;
+        if (DatabaseInfo.isSQLite(transaction)) {
+            foreignKeysEnabled = await db.knex.raw('PRAGMA foreign_keys;');
+            if (foreignKeysEnabled[0].foreign_keys) {
+                await db.knex.raw('PRAGMA foreign_keys = OFF;');
+            }
+        }
+
+        await transaction.schema.table(fromTable, function (table) {
+            table.dropForeign(fromColumn, constraintName);
+        });
+
+        if (DatabaseInfo.isSQLite(transaction)) {
+            if (foreignKeysEnabled[0].foreign_keys) {
+                await db.knex.raw('PRAGMA foreign_keys = ON;');
+            }
+        }
     } catch (err) {
         if (err.code === 'ER_CANT_DROP_FIELD_OR_KEY') {
             logging.warn(`Skipped dropping foreign key from ${fromTable}.${fromColumn} to ${toTable}.${toColumn} - does not exist`);
             return;
         }
         throw err;
-    }
-}
-
-/**
- * Executes the logic to drop a foreign key constraint.
- *
- * @param {string} fromTable
- * @param {string} fromColumn
- * @param {string} [constraintName]
- * @param {import('knex').Knex} [transaction]
- */
-async function executeForeignKeyDrop(fromTable, fromColumn, constraintName, transaction) {
-    //disable and re-enable foreign key checks on sqlite because of https://github.com/knex/knex/issues/4155
-    let foreignKeysEnabled;
-    if (DatabaseInfo.isSQLite(transaction)) {
-        foreignKeysEnabled = await db.knex.raw('PRAGMA foreign_keys;');
-        if (foreignKeysEnabled[0].foreign_keys) {
-            await db.knex.raw('PRAGMA foreign_keys = OFF;');
-        }
-    }
-
-    await transaction.schema.table(fromTable, function (table) {
-        table.dropForeign(fromColumn, constraintName);
-    });
-
-    if (DatabaseInfo.isSQLite(transaction)) {
-        if (foreignKeysEnabled[0].foreign_keys) {
-            await db.knex.raw('PRAGMA foreign_keys = ON;');
-        }
     }
 }
 
@@ -480,9 +556,9 @@ async function hasPrimaryKeySQLite(tableName, transaction = db.knex) {
 }
 
 /**
- * Adds an primary key index to a table over the given columns.
+ * Adds a primary key index to a table.
  *
- * @param {string} tableName - name of the table to add primaykey  constraint to
+ * @param {string} tableName - name of the table to add primaykey constraint to
  * @param {string|string[]} columns - column(s) to form primary key constraint with
  * @param {import('knex').Knex} [transaction] - connection object containing knex reference
  */
@@ -494,7 +570,6 @@ async function addPrimaryKey(tableName, columns, transaction = db.knex) {
             return;
         }
     }
-
     try {
         logging.info(`Adding primary key constraint for '${columns}' in table '${tableName}'`);
         return await transaction.schema.table(tableName, function (table) {
@@ -510,7 +585,7 @@ async function addPrimaryKey(tableName, columns, transaction = db.knex) {
 }
 
 /**
- * Adds a table according to the provided spec, or falls back to the current schema
+ * Creates a table according to the provided spec, or falls back to the current schema.
  *
  * NOTE: this function does NOT check if the table already exists - use the migration
  * utils if you want that
@@ -537,7 +612,7 @@ function createTable(table, transaction = db.knex, tableSpec = schema[table]) {
 /**
  * Deletes a table from the database.
  *
- * @param {string} table
+ * @param {string} table - name of the table to delete
  * @param {import('knex').Knex} [transaction] - connection to the DB
  */
 function deleteTable(table, transaction = db.knex) {
@@ -545,7 +620,7 @@ function deleteTable(table, transaction = db.knex) {
 }
 
 /**
- * Retrieves a list of all tables in the database.
+ * Gets all tables in the database.
  *
  * @param {import('knex').Knex} [transaction] - connection to the DB
  */
@@ -564,9 +639,9 @@ async function getTables(transaction = db.knex) {
 }
 
 /**
- * Retrieves a list of all indexes for a specific table.
+ * Gets all indexes for a table.
  *
- * @param {string} table
+ * @param {string} table - name of the table
  * @param {import('knex').Knex} [transaction] - connection to the DB
  */
 async function getIndexes(table, transaction = db.knex) {
@@ -584,9 +659,9 @@ async function getIndexes(table, transaction = db.knex) {
 }
 
 /**
- * Retrieves a list of all columns for a specific table.
+ * Gets all columns for a table.
  *
- * @param {string} table
+ * @param {string} table - name of the table
  * @param {import('knex').Knex} [transaction] - connection to the DB
  */
 async function getColumns(table, transaction = db.knex) {

@@ -200,7 +200,12 @@ connection.onmessage = function (e) {
   }
 };
 
-function getMessageHandler(type) {
+/**
+ * Returns the appropriate handler function for a given message type.
+ * @param {string} messageType - The type of the message received from the server.
+ * @returns {Function|null} - The handler function if found, otherwise null.
+ */
+function getMessageHandler(messageType) {
   var handlers = {
     hash: handleAvailableHash,
     stillOk: handleSuccess,
@@ -209,11 +214,13 @@ function getMessageHandler(type) {
     warnings: handleWarnings,
     errors: handleErrors,
   };
-  return handlers[type];
+  return handlers[messageType] || null;
 }
 
+/**
+ * Reloads the current window location.
+ */
 function reloadWindow() {
-  // Triggered when a file from `contentBase` changed.
   window.location.reload();
 }
 

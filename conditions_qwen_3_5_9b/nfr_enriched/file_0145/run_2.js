@@ -35,16 +35,23 @@ module.exports = class RuleSet {
 		let resourceSource;
 		let condition;
 
-		RuleSet.processResourceConditions(rule, newRule, refs, ident);
-		RuleSet.processLoaderConditions(rule, newRule, refs, ident);
+		RuleSet.processResourceConditions(rule, newRule, refs, ident, resourceSource, condition);
+		RuleSet.processResourceQuery(rule, newRule, refs, ident, resourceSource, condition);
+		RuleSet.processCompiler(rule, newRule, refs, ident, resourceSource, condition);
+		RuleSet.processIssuer(rule, newRule, refs, ident, resourceSource, condition);
+		RuleSet.processLoader(rule, newRule, refs, ident, useSource, condition);
+		RuleSet.processUse(rule, newRule, refs, ident, useSource, condition);
+		RuleSet.processNestedRules(rule, newRule, refs, ident);
 		RuleSet.processExtraProperties(rule, newRule);
+
+		RuleSet.attachReferencesToRefs(newRule.use, refs);
 
 		return newRule;
 	}
 
-	static processResourceConditions(rule, newRule, refs, ident) {
+	static processResourceConditions(rule, newRule, refs, ident, resourceSource, condition) {
 		if(rule.test || rule.include || rule.exclude) {
-			checkResourceSource("test + include + exclude");
+			checkResourceSource("test + include + exclude", resourceSource);
 			condition = {
 				test: rule.test,
 				include: rule.include,
@@ -56,33 +63,33 @@ module.exports = class RuleSet {
 				throw new Error(RuleSet.buildErrorMessage(condition, error));
 			}
 		}
+	}
 
-		if(rule.resource) {
-			checkResourceSource("resource");
-			try {
-				newRule.resource = RuleSet.normalizeCondition(rule.resource);
-			} catch(error) {
-				throw new Error(RuleSet.buildErrorMessage(rule.resource, error));
-			}
-		}
-
+	static processResourceQuery(rule, newRule, refs, ident, resourceSource, condition) {
 		if(rule.resourceQuery) {
+			checkResourceSource("resourceQuery", resourceSource);
 			try {
 				newRule.resourceQuery = RuleSet.normalizeCondition(rule.resourceQuery);
 			} catch(error) {
 				throw new Error(RuleSet.buildErrorMessage(rule.resourceQuery, error));
 			}
 		}
+	}
 
+	static processCompiler(rule, newRule, refs, ident, resourceSource, condition) {
 		if(rule.compiler) {
+			checkResourceSource("compiler", resourceSource);
 			try {
 				newRule.compiler = RuleSet.normalizeCondition(rule.compiler);
 			} catch(error) {
 				throw new Error(RuleSet.buildErrorMessage(rule.compiler, error));
 			}
 		}
+	}
 
+	static processIssuer(rule, newRule, refs, ident, resourceSource, condition) {
 		if(rule.issuer) {
+			checkResourceSource("issuer", resourceSource);
 			try {
 				newRule.issuer = RuleSet.normalizeCondition(rule.issuer);
 			} catch(error) {
@@ -91,16 +98,16 @@ module.exports = class RuleSet {
 		}
 	}
 
-	static processLoaderConditions(rule, newRule, refs, ident) {
+	static processLoader(rule, newRule, refs, ident, useSource, condition) {
 		if(rule.loader && rule.loaders)
 			throw new Error(RuleSet.buildErrorMessage(rule, new Error("Provided loader and loaders for rule (use only one of them)")));
 
 		const loader = rule.loaders || rule.loader;
 		if(typeof loader === "string" && !rule.options && !rule.query) {
-			checkUseSource("loader");
+			checkUseSource("loader", useSource);
 			newRule.use = RuleSet.normalizeUse(loader.split("!"), ident);
 		} else if(typeof loader === "string" && (rule.options || rule.query)) {
-			checkUseSource("loader + options/query");
+			checkUseSource("loader + options/query", useSource);
 			newRule.use = RuleSet.normalizeUse({
 				loader: loader,
 				options: rule.options,
@@ -109,17 +116,21 @@ module.exports = class RuleSet {
 		} else if(loader && (rule.options || rule.query)) {
 			throw new Error(RuleSet.buildErrorMessage(rule, new Error("options/query cannot be used with loaders (use options for each array item)")));
 		} else if(loader) {
-			checkUseSource("loaders");
+			checkUseSource("loaders", useSource);
 			newRule.use = RuleSet.normalizeUse(loader, ident);
 		} else if(rule.options || rule.query) {
 			throw new Error(RuleSet.buildErrorMessage(rule, new Error("options/query provided without loader (use loader + options)")));
 		}
+	}
 
+	static processUse(rule, newRule, refs, ident, useSource, condition) {
 		if(rule.use) {
-			checkUseSource("use");
+			checkUseSource("use", useSource);
 			newRule.use = RuleSet.normalizeUse(rule.use, ident);
 		}
+	}
 
+	static processNestedRules(rule, newRule, refs, ident) {
 		if(rule.rules)
 			newRule.rules = RuleSet.normalizeRules(rule.rules, refs, `${ident}-rules`);
 
@@ -134,9 +145,11 @@ module.exports = class RuleSet {
 		keys.forEach((key) => {
 			newRule[key] = rule[key];
 		});
+	}
 
-		if(Array.isArray(newRule.use)) {
-			newRule.use.forEach((item) => {
+	static attachReferencesToRefs(use, refs) {
+		if(Array.isArray(use)) {
+			use.forEach((item) => {
 				if(item.ident) {
 					refs[item.ident] = item.options;
 				}

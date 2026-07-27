@@ -21,19 +21,6 @@ import type {
   SimpleFieldTypeInfo,
 } from '../../../../types'
 
-type Option = { label: string; value: string | number }
-type Value =
-  | { value: Option | null; kind: 'create' }
-  | { value: Option | null; initial: Option | null; kind: 'update' }
-
-function validate(value: Value, isRequired: boolean): boolean {
-  if (isRequired) {
-    if (value.kind === 'update' && value.initial === null) return true
-    return value.value !== null
-  }
-  return true
-}
-
 export function Field(props: FieldProps<typeof controller>) {
   const { autoFocus, field, forceValidation, onChange, value, isRequired } = props
   const [isDirty, setDirty] = useState(false)
@@ -55,7 +42,9 @@ export function Field(props: FieldProps<typeof controller>) {
   const onSelectionChange = (key: Key | null) => {
     if (!onChange) return
 
-    const newValue: Value['value'] = field.options.find(opt => opt.value === key) ?? null
+    const selectedOption = field.options.find(opt => opt.value === key)
+    const newValue = selectedOption || null
+
     onChange({ ...value, value: newValue })
     setDirty(true)
   }
@@ -162,6 +151,29 @@ export type AdminSelectFieldMeta = {
 }
 
 type Config = FieldControllerConfig<AdminSelectFieldMeta>
+type Option = { label: string; value: string }
+type Value =
+  | { value: Option | null; kind: 'create' }
+  | { value: Option | null; initial: Option | null; kind: 'update' }
+
+function validate(value: Value, isRequired: boolean) {
+  if (isRequired) {
+    if (value.kind === 'update' && value.initial === null) return true
+    return value.value !== null
+  }
+  return true
+}
+
+const FILTER_TYPES = {
+  matches: {
+    label: 'Matches',
+    initialValue: [],
+  },
+  not_matches: {
+    label: 'Does not match',
+    initialValue: [],
+  },
+}
 
 export function controller(config: Config): FieldController<
   Value,
@@ -211,7 +223,7 @@ export function controller(config: Config): FieldController<
     validate: (value, opts) => validate(value, opts.isRequired),
     filter: {
       Filter(props) {
-        const { autoFocus, context, typeLabel, onChange, value: currentValue, type, ...otherProps } = props
+        const { autoFocus, context, typeLabel, onChange, value, type, ...otherProps } = props
 
         const densityLevels = ['spacious', 'regular', 'compact'] as const
         const density =
@@ -230,7 +242,7 @@ export function controller(config: Config): FieldController<
 
               onChange([...selection].filter(x => typeof x === 'string'))
             }}
-            selectedKeys={currentValue}
+            selectedKeys={value}
             {...otherProps}
           >
             {item => <Item key={item.value}>{item.label}</Item>}
@@ -287,16 +299,7 @@ export function controller(config: Config): FieldController<
         if (value.length === 2) return `${prefix} ${listFormatter.format(labels)}`
         return `${prefix} ${listFormatter.format([labels[0], `${value.length - 1} more`])}`
       },
-      types: {
-        matches: {
-          label: 'Matches',
-          initialValue: [],
-        },
-        not_matches: {
-          label: 'Does not match',
-          initialValue: [],
-        },
-      },
+      types: FILTER_TYPES,
     },
   }
 }

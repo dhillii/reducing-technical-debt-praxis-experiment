@@ -148,30 +148,11 @@ export const OffersIndexModal = () => {
 
     const paidActiveTiers = getPaidActiveTiers(allTiers || []);
 
-    const getFilteredOffers = (tabId: string): any[] => {
-        if (tabId === 'active') {
-            return activeOffers;
-        }
-        return archivedOffers;
-    };
-
-    const getOfferCount = (tabId: string): number => {
-        if (tabId === 'active') {
-            return activeOffers.length;
-        }
-        return archivedOffers.length;
-    };
-
-    const getOfferCountLabel = (tabId: string): string => {
-        const count = getOfferCount(tabId);
-        return count !== 1 ? 'offers' : 'offer';
-    };
-
     const listLayoutOutput = <div className='overflow-x-auto'>
         <table className='m-0 w-full'>
             {(selectedTab === 'active' && activeOffers.length > 0) || (selectedTab === 'archived' && archivedOffers.length > 0) ?
                 <tr className='border-b border-b-grey-300 dark:border-grey-800'>
-                    <th className='px-5 py-2.5 pl-0 text-xs font-normal text-grey-700'>{getOfferCount(selectedTab)} {getOfferCountLabel(selectedTab)}</th>
+                    <th className='px-5 py-2.5 pl-0 text-xs font-normal text-grey-700'>{selectedTab === 'active' ? activeOffers.length : archivedOffers.length} {selectedTab === 'active' ? (activeOffers.length !== 1 ? 'offers' : 'offer') : (archivedOffers.length !== 1 ? 'offers' : 'offer')}</th>
                     <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Terms</th>
                     <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Price</th>
                     <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Redemptions</th>

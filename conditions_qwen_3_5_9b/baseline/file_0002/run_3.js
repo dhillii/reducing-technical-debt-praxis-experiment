@@ -44,6 +44,25 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const MAX_CONTENT_LENGTH = 500;
 
+    // Sync external open prop with internal state
+    useEffect(() => {
+        if (props.open !== undefined) {
+            setIsOpen(props.open);
+        }
+    }, [props.open]);
+
+    useEffect(() => {
+        const modalIsOpen = props.open !== undefined ? props.open : isOpen;
+        if (modalIsOpen) {
+            const timer = setTimeout(() => {
+                setIsSticky(true);
+            }, 300);
+            return () => clearTimeout(timer);
+        } else {
+            setIsSticky(false);
+        }
+    }, [isOpen, props.open]);
+
     const isDisabled = !content.trim() || !user || isPosting || content.length > MAX_CONTENT_LENGTH;
 
     const handlePost = useCallback(async () => {
@@ -94,6 +113,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [content]);
 
+    // Focus textarea when modal opens
     useEffect(() => {
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen && textareaRef.current) {
@@ -104,6 +124,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [isOpen, props.open]);
 
+    // Focus alt text input when it becomes visible
     useEffect(() => {
         if (showAltInput && altTextInputRef.current) {
             const timeoutId = setTimeout(() => {
@@ -114,24 +135,19 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     }, [showAltInput]);
 
     useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                if (!isDisabled && !isImageUploading) {
+                    handlePost();
+                }
+            }
+        };
+
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen) {
-            document.addEventListener('keydown', (e: KeyboardEvent) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                    e.preventDefault();
-                    if (!isDisabled && !isImageUploading) {
-                        handlePost();
-                    }
-                }
-            });
-            return () => document.removeEventListener('keydown', (e: KeyboardEvent) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                    e.preventDefault();
-                    if (!isDisabled && !isImageUploading) {
-                        handlePost();
-                    }
-                }
-            });
+            document.addEventListener('keydown', handleKeyDown);
+            return () => document.removeEventListener('keydown', handleKeyDown);
         }
     }, [isOpen, props.open, isDisabled, isImageUploading, handlePost]);
 
@@ -241,6 +257,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     };
 
     useEffect(() => {
+        // Cleanup function to revoke object URLs when component unmounts
         return () => {
             if (imagePreview) {
                 URL.revokeObjectURL(imagePreview);

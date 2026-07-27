@@ -275,6 +275,18 @@ function processOptions(options) {
 		}
 	}
 
+	var defineObject;
+
+	ifArgPair("entry", function(name, entry) {
+		if(typeof options.entry[name] !== "undefined" && options.entry[name] !== null) {
+			options.entry[name] = [].concat(options.entry[name]).concat(entry);
+		} else {
+			options.entry[name] = entry;
+		}
+	}, function() {
+		ensureObject(options, "entry");
+	});
+
 	function bindLoaders(arg, collection) {
 		ifArgPair(arg, function(name, binding) {
 			if(name === null) {
@@ -290,20 +302,19 @@ function processOptions(options) {
 			ensureArray(options.module, collection);
 		});
 	}
-
 	bindLoaders("module-bind", "loaders");
 	bindLoaders("module-bind-pre", "preLoaders");
 	bindLoaders("module-bind-post", "postLoaders");
 
-	var defineObject;
 	ifArgPair("define", function(name, value) {
 		if(name === null) {
 			name = value;
 			value = true;
 		}
+		if(!defineObject) {
+			defineObject = {};
+		}
 		defineObject[name] = value;
-	}, function() {
-		defineObject = {};
 	}, function() {
 		ensureArray(options, "plugins");
 		var DefinePlugin = require("../lib/DefinePlugin");

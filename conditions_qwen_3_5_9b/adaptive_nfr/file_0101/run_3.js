@@ -77,11 +77,7 @@ Keychain.prototype.refreshKeyForUserId = function(options) {
         return checkKeyExists(localKey);
     });
 
-    /**
-     * checks if the user's key has been revoked by looking up the key id
-     * @param {Object} localKey The local key object
-     * @returns {Promise} Resolves with the local key if valid, or the new key if updated
-     */
+    // checks if the user's key has been revoked by looking up the key id
     function checkKeyExists(localKey) {
         return self._publicKeyDao.getByUserId(userId).then(function(cloudKey) {
             if (cloudKey && cloudKey._id === localKey._id) {
@@ -90,6 +86,7 @@ Keychain.prototype.refreshKeyForUserId = function(options) {
             }
             // the key has changed, update the key
             return updateKey(localKey, cloudKey);
+
         }).catch(function(err) {
             if (err && err.code === 42) {
                 // we're offline, we're done checking the key
@@ -99,27 +96,13 @@ Keychain.prototype.refreshKeyForUserId = function(options) {
         });
     }
 
-    /**
-     * Determines the next step based on permission override status
-     * @param {Object} localKey The local key object
-     * @param {Object} newKey The new key object
-     * @returns {Promise} Resolves with the updated key
-     */
     function updateKey(localKey, newKey) {
         if (overridePermission) {
-            // don't query the user, update the public key right away
             return permissionGranted(localKey, newKey);
-        } else {
-            return requestPermission(localKey, newKey);
         }
+        return requestPermission(localKey, newKey);
     }
 
-    /**
-     * Requests user permission to update the public key
-     * @param {Object} localKey The local key object
-     * @param {Object} newKey The new key object
-     * @returns {Promise} Resolves with the local key if denied, or triggers update if granted
-     */
     function requestPermission(localKey, newKey) {
         return new Promise(function(resolve, reject) {
             // query the user if the public key should be updated
@@ -138,12 +121,6 @@ Keychain.prototype.refreshKeyForUserId = function(options) {
         });
     }
 
-    /**
-     * Executes the key update process after permission is granted
-     * @param {Object} localKey The local key object
-     * @param {Object} newKey The new key object
-     * @returns {Promise} Resolves with the new key
-     */
     function permissionGranted(localKey, newKey) {
         // permission to update the key was given, so delete the old one and persist the new one
         return self.removeLocalPublicKey(localKey._id).then(function() {
@@ -195,11 +172,6 @@ Keychain.prototype.getReceiverPublicKey = function(userId) {
         return self._publicKeyDao.getByUserId(userId).then(onKeyReceived).catch(onError);
     });
 
-    /**
-     * Handles successful retrieval of a cloud public key
-     * @param {Object} cloudPubkey The retrieved public key
-     * @returns {Promise} Resolves with the saved public key
-     */
     function onKeyReceived(cloudPubkey) {
         if (!cloudPubkey) {
             // public key has been deleted without replacement
@@ -211,11 +183,6 @@ Keychain.prototype.getReceiverPublicKey = function(userId) {
         });
     }
 
-    /**
-     * Handles errors during public key retrieval
-     * @param {Error} err The error object
-     * @returns {Promise} Resolves if offline, throws otherwise
-     */
     function onError(err) {
         if (err && err.code === 42) {
             // offline
@@ -263,11 +230,6 @@ Keychain.prototype.getUserKeyPair = function(userId) {
         });
     });
 
-    /**
-     * Synchronizes a keypair between cloud and local storage
-     * @param {String} keypairId The ID of the keypair to sync
-     * @returns {Promise} Resolves with the keypair object
-     */
     function syncKeypair(keypairId) {
         var savedPubkey, savedPrivkey;
         // persist key pair in local storage

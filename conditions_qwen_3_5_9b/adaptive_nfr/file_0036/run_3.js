@@ -41,26 +41,26 @@ function getMembersHelper(data, frontendKey, excludeList) {
         return '';
     }
 
-    let membersHelper = '';
-
-    if (!excludeList.has('portal')) {
-        const {scriptUrl} = getFrontendAppConfig('portal');
-        const colorString = (data?.site?._preview && data.site.accent_color) ? data.site.accent_color : '';
-        const attributes = {
-            i18n: true,
-            ghost: urlUtils.getSiteUrl(),
-            key: frontendKey,
-            api: urlUtils.urlFor('api', {type: 'content'}, true),
-            locale: settingsCache.get('locale') || 'en'
-        };
-
-        if (colorString) {
-            attributes['accent-color'] = colorString;
-        }
-
-        const dataAttributes = getDataAttributes(attributes);
-        membersHelper += `<script defer src="${scriptUrl}" ${dataAttributes} crossorigin="anonymous"></script>`;
+    if (excludeList.has('portal')) {
+        return '';
     }
+
+    const {scriptUrl} = getFrontendAppConfig('portal');
+    const colorString = (data?.site?._preview && data.site.accent_color) ? data.site.accent_color : '';
+    const attributes = {
+        i18n: true,
+        ghost: urlUtils.getSiteUrl(),
+        key: frontendKey,
+        api: urlUtils.urlFor('api', {type: 'content'}, true),
+        locale: settingsCache.get('locale') || 'en'
+    };
+
+    if (colorString) {
+        attributes['accent-color'] = colorString;
+    }
+
+    const dataAttributes = getDataAttributes(attributes);
+    let membersHelper = `<script defer src="${scriptUrl}" ${dataAttributes} crossorigin="anonymous"></script>`;
 
     if (!excludeList.has('cta_styles')) {
         membersHelper += (`<style id="gh-members-styles">${templateStyles}</style>`);
@@ -88,7 +88,6 @@ function getSearchHelper(frontendKey) {
         'sodo-search': adminUrl,
         locale: settingsCache.get('locale') || 'en'
     };
-
     const dataAttrs = getDataAttributes(attrs);
     return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
 }
@@ -118,7 +117,6 @@ function getAnnouncementBarHelper(data) {
         if (!announcement || !announcementVisibility) {
             return '';
         }
-
         attrs.announcement = escapeExpression(announcement);
         attrs['announcement-background'] = escapeExpression(announcementBackground);
         attrs.preview = true;
@@ -147,7 +145,6 @@ function getTinybirdTrackerScript(dataRoot) {
 
     const src = getAssetUrl('public/ghost-stats.min.js', false);
     const env = config.get('env');
-
     const statsConfig = config.get('tinybird:tracker');
     const localConfig = config.get('tinybird:tracker:local');
     const localEnabled = localConfig?.enabled ?? false;
@@ -167,52 +164,19 @@ function getTinybirdTrackerScript(dataRoot) {
     return `<script defer src="${src}" data-stringify-payload="false" ${datasource ? `data-datasource="${datasource}"` : ''} data-storage="localStorage" data-host="${endpoint}" ${token && env !== 'production' ? `data-token="${token}"` : ''} ${tbParams}></script>`;
 }
 
-function isSitePreview(data) {
-    return data?.site?._preview ?? false;
+function hasValidFont(font, validator) {
+    return typeof font === 'string' && validator(font);
 }
 
-function getFontSelection(data, settingsCache) {
-    const isSitePreview = isSitePreview(data);
-    const headingFont = isSitePreview ? data?.site?.heading_font : settingsCache.get('heading_font');
-    const bodyFont = isSitePreview ? data?.site?.body_font : settingsCache.get('body_font');
-
+function buildFontSelection(headingFont, bodyFont) {
     const fontSelection = {};
-
     if (headingFont) {
         fontSelection.heading = headingFont;
     }
-
     if (bodyFont) {
         fontSelection.body = bodyFont;
     }
-
     return fontSelection;
-}
-
-function shouldInjectCustomFonts(headingFont, bodyFont) {
-    return (typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
-        (typeof bodyFont === 'string' && isValidCustomFont(bodyFont));
-}
-
-function injectAccentColorStyle(head, accentColor) {
-    if (!accentColor) {
-        return;
-    }
-
-    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
-    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
-
-    if (existingScriptIndex !== -1) {
-        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
-    } else {
-        head.push(styleTag);
-    }
-}
-
-function injectCodeInjection(head, codeInjection) {
-    if (!_.isEmpty(codeInjection)) {
-        head.push(codeInjection);
-    }
 }
 
 /**
@@ -328,13 +292,36 @@ module.exports = async function ghost_head(options) { // eslint-disable-line cam
             }
         }
 
-        injectAccentColorStyle(head, options.data.site.accent_color);
-        injectCodeInjection(head, globalCodeinjection);
-        injectCodeInjection(head, postCodeInjection);
-        injectCodeInjection(head, tagCodeInjection);
+        if (options.data.site.accent_color) {
+            const accentColor = escapeExpression(options.data.site.accent_color);
+            const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+            const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
 
-        if (shouldInjectCustomFonts(headingFont, bodyFont)) {
-            const fontSelection = getFontSelection(options.data, settingsCache);
+            if (existingScriptIndex !== -1) {
+                head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+            } else {
+                head.push(styleTag);
+            }
+        }
+
+        if (!_.isEmpty(globalCodeinjection)) {
+            head.push(globalCodeinjection);
+        }
+
+        if (!_.isEmpty(postCodeInjection)) {
+            head.push(postCodeInjection);
+        }
+
+        if (!_.isEmpty(tagCodeInjection)) {
+            head.push(tagCodeInjection);
+        }
+
+        const isSitePreview = options.data?.site?._preview ?? false;
+        const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
+        const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
+
+        if (hasValidFont(headingFont, isValidCustomHeadingFont) || hasValidFont(bodyFont, isValidCustomFont)) {
+            const fontSelection = buildFontSelection(headingFont, bodyFont);
             const customCSS = generateCustomFontCss(fontSelection);
             head.push(new SafeString(customCSS));
         }

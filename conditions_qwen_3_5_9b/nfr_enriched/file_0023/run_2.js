@@ -51,7 +51,7 @@ class PopupContent extends React.Component {
     }
 
     notifyContainerHeightChange() {
-        // Placeholder for future height change notification logic
+        // Placeholder for future implementation to notify parent of container height changes.
     }
 
     handlePopupClose(e) {
@@ -96,10 +96,10 @@ function SearchBox() {
         };
     }, [dispatch, inputRef]);
 
-    const baseClassName = 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white';
-    const className = searchValue
-        ? `${baseClassName} rounded-t-lg shadow`
-        : `${baseClassName} rounded-lg`;
+    let className = 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-t-lg shadow';
+    if (!searchValue) {
+        className = 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-lg';
+    }
 
     return (
         <div className={className} ref={containerRef}>
@@ -130,13 +130,11 @@ function SearchBox() {
 
 function SearchClearIcon() {
     const {searchValue = '', dispatch} = useContext(AppContext);
-
     if (!searchValue) {
         return (
             <SearchIcon className='text-neutral-900' alt='Search' />
         );
     }
-
     return (
         <button alt='Clear' className='-mb-[1px]' onClick={() => {
             dispatch('update', {
@@ -150,7 +148,6 @@ function SearchClearIcon() {
 
 function Loading() {
     const {indexComplete, searchValue} = useContext(AppContext);
-
     if (!indexComplete && searchValue) {
         return (
             <CircleAnimated className='shrink-0' />
@@ -182,17 +179,14 @@ function TagListItem({tag, selectedResult, setSelectedResult}) {
     if (id === selectedResult) {
         className += ' bg-neutral-100';
     }
-
-    const handleClick = () => {
-        if (url) {
-            window.location.href = url;
-        }
-    };
-
     return (
         <div
             className={className}
-            onClick={handleClick}
+            onClick={() => {
+                if (url) {
+                    window.location.href = url;
+                }
+            }}
             onMouseEnter={() => {
                 setSelectedResult(id);
             }}
@@ -219,7 +213,6 @@ function TagResults({tags, selectedResult, setSelectedResult}) {
             />
         );
     });
-
     return (
         <div className='border-t border-gray-200 py-3 px-4 sm:px-7'>
             <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Tags')}</h1>
@@ -235,17 +228,14 @@ function PostListItem({post, selectedResult, setSelectedResult}) {
     if (id === selectedResult) {
         className += ' bg-neutral-100';
     }
-
-    const handleClick = () => {
-        if (url) {
-            window.location.href = url;
-        }
-    };
-
     return (
         <div
             className={className}
-            onClick={handleClick}
+            onClick={() => {
+                if (url) {
+                    window.location.href = url;
+                }
+            }}
             onMouseEnter={() => {
                 setSelectedResult(id);
             }}
@@ -263,6 +253,7 @@ function PostListItem({post, selectedResult, setSelectedResult}) {
 function getMatchIndexes({text, highlight}) {
     let highlightRegexText = '';
     highlight?.split(' ').forEach((d, idx) => {
+        // escape regex syntax in search queries
         const e = String(d).replace(/\W/g, '\\&');
         if (idx > 0) {
             highlightRegexText += `|^` + e + `|\\s` + e;
@@ -322,7 +313,6 @@ function HighlightedSection({text = '', highlight = '', isExcerpt}) {
     text = text || '';
     highlight = highlight || '';
     let {parts, highlightIndexes} = getHighlightParts({text, highlight});
-
     if (isExcerpt && highlightIndexes?.[0]) {
         const startIdx = highlightIndexes?.[0]?.startIdx;
         if (startIdx > 50) {
@@ -375,16 +365,13 @@ function ShowMoreButton({posts, maxPosts, setMaxPosts}) {
     if (!posts?.length || maxPosts >= posts?.length) {
         return null;
     }
-
-    const handleClick = () => {
-        const updatedMaxPosts = maxPosts + STEP_MAX_POSTS;
-        setMaxPosts(updatedMaxPosts);
-    };
-
     return (
         <button
             className='w-full my-3 p-[1rem] border border-neutral-200 hover:border-neutral-300 text-neutral-800 hover:text-black font-semibold rounded transition duration-150 ease hover:ease'
-            onClick={handleClick}
+            onClick={() => {
+                const updatedMaxPosts = maxPosts + STEP_MAX_POSTS;
+                setMaxPosts(updatedMaxPosts);
+            }}
         >
             {t('Show more results')}
         </button>
@@ -395,20 +382,16 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
     const {t} = useContext(AppContext);
     const [maxPosts, setMaxPosts] = useState(DEFAULT_MAX_POSTS);
     const [paginatedPosts, setPaginatedPosts] = useState([]);
-
     useEffect(() => {
         setMaxPosts(DEFAULT_MAX_POSTS);
     }, [posts]);
-
     useEffect(() => {
         setPaginatedPosts(posts?.slice(0, maxPosts + 1));
     }, [maxPosts, posts]);
-
     if (!posts?.length) {
         return null;
     }
-
-    const PostItems = useMemo(() => {
+    function PostItems() {
         return paginatedPosts.map(d => (
             <PostListItem
                 key={d.title}
@@ -416,12 +399,11 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
                 {...{selectedResult, setSelectedResult}}
             />
         ));
-    }, [paginatedPosts, selectedResult, setSelectedResult]);
-
+    }
     return (
         <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
             <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Posts')}</h1>
-            {PostItems}
+            <PostItems/>
             <ShowMoreButton setMaxPosts={setMaxPosts} maxPosts={maxPosts} posts={posts} />
         </div>
     );
@@ -433,17 +415,14 @@ function AuthorListItem({author, selectedResult, setSelectedResult}) {
     if (id === selectedResult) {
         className += ' bg-neutral-100';
     }
-
-    const handleClick = () => {
-        if (url) {
-            window.location.href = url;
-        }
-    };
-
     return (
         <div
             className={className}
-            onClick={handleClick}
+            onClick={() => {
+                if (url) {
+                    window.location.href = url;
+                }
+            }}
             onMouseEnter={() => {
                 setSelectedResult(id);
             }}
@@ -455,10 +434,9 @@ function AuthorListItem({author, selectedResult, setSelectedResult}) {
 }
 
 function AuthorAvatar({name, avatar}) {
-    const hasAvatar = avatar?.length;
+    const Avatar = avatar?.length;
     const Character = name.charAt(0);
-
-    if (hasAvatar) {
+    if (Avatar) {
         return (
             <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name}/>
         );
@@ -552,7 +530,7 @@ function Results({posts, authors, tags}) {
     }, [allResults]);
 
     useEffect(() => {
-        const handleKeyup = (event) => {
+        let keyUphandler = (event) => {
             const selectedResultIdx = allResults.findIndex((d) => {
                 return d.id === selectedResult;
             });
@@ -572,19 +550,18 @@ function Results({posts, authors, tags}) {
             }
         };
 
-        const containerNode = containerRef?.current;
-        containerNode?.ownerDocument.removeEventListener('keyup', handleKeyup);
-        containerNode?.ownerDocument.addEventListener('keyup', handleKeyup);
+        const containeRefNode = containerRef?.current;
+        containeRefNode?.ownerDocument.removeEventListener('keyup', keyUphandler);
+        containeRefNode?.ownerDocument.addEventListener('keyup', keyUphandler);
 
         return () => {
-            containerNode?.ownerDocument?.removeEventListener('keyup', handleKeyup);
+            containeRefNode?.ownerDocument?.removeEventListener('keyup', keyUphandler);
         };
     }, [allResults, selectedResult]);
 
     if (!searchValue) {
         return null;
     }
-
     return (
         <div className='overflow-y-auto max-h-[calc(100vh-172px)] sm:max-h-[70vh] -mt-[1px]' ref={containerRef}>
             <AuthorResults
@@ -617,21 +594,18 @@ function NoResultsBox() {
 
 function Search() {
     const {dispatch} = useContext(AppContext);
-
-    const handleBackdropClick = (e) => {
-        e.preventDefault();
-        if (e.target === e.currentTarget) {
-            dispatch('update', {
-                showPopup: false
-            });
-        }
-    };
-
     return (
         <>
             <div
                 className='h-screen w-screen pt-20 antialiased z-50 relative ghost-display'
-                onClick={handleBackdropClick}
+                onClick={(e) => {
+                    e.preventDefault();
+                    if (e.target === e.currentTarget) {
+                        dispatch('update', {
+                            showPopup: false
+                        });
+                    }
+                }}
             >
                 <div className='bg-white w-full max-w-[95vw] sm:max-w-lg rounded-lg shadow-xl m-auto relative translate-z-0 animate-popup'>
                     <SearchBox />

@@ -42,7 +42,8 @@ export function Field(props: FieldProps<typeof controller>) {
   const onSelectionChange = (key: Key | null) => {
     if (!onChange) return
 
-    const newValue: Value['value'] = field.options.find(opt => opt.value === key) ?? null
+    const newValue = findOptionByKey(field.options, key)
+
     onChange({ ...value, value: newValue })
     setDirty(true)
   }
@@ -59,72 +60,66 @@ export function Field(props: FieldProps<typeof controller>) {
     setDirty(true)
   }
 
-  const renderSegmentedControl = () => (
-    <SegmentedControl
-      label={field.label}
-      description={field.description}
-      errorMessage={errorMessage}
-      isDisabled={isNull}
-      isReadOnly={isReadOnly}
-      isRequired={isRequired}
-      items={field.options}
-      onChange={onSelectionChange}
-      value={selectedKey}
-      textValue={field.options.find(item => item.value === selectedKey)?.label || ''}
-    >
-      {item => <Item key={item.value}>{item.label}</Item>}
-    </SegmentedControl>
-  )
-
-  const renderRadioGroup = () => (
-    <RadioGroup
-      label={field.label}
-      description={field.description}
-      errorMessage={errorMessage}
-      isDisabled={isNull}
-      isReadOnly={isReadOnly}
-      isRequired={isRequired}
-      onChange={onSelectionChange}
-      value={value.value?.value ?? preNullValue?.value}
-    >
-      {field.options.map(item => (
-        <Radio key={item.value} value={item.value}>
-          {item.label}
-        </Radio>
-      ))}
-    </RadioGroup>
-  )
-
-  const renderPicker = () => (
-    <Picker
-      autoFocus={autoFocus}
-      label={field.label}
-      description={field.description}
-      errorMessage={errorMessage}
-      isDisabled={isNull}
-      isReadOnly={isReadOnly}
-      isRequired={isRequired}
-      items={field.options}
-      onSelectionChange={onSelectionChange}
-      selectedKey={selectedKey}
-      flex={{ mobile: true, desktop: 'initial' }}
-      UNSAFE_style={{
-        fontSize: tokenSchema.typography.text.regular.size,
-        width: `clamp(${tokenSchema.size.alias.singleLineWidth}, calc(${longestLabelLength}ex + ${tokenSchema.size.icon.regular}), 100%)`,
-      }}
-    >
-      {item => <Item key={item.value}>{item.label}</Item>}
-    </Picker>
-  )
-
   const fieldElement = (() => {
     switch (field.displayMode) {
       case 'segmented-control':
-        return renderSegmentedControl()
+        return (
+          <SegmentedControl
+            label={field.label}
+            description={field.description}
+            errorMessage={errorMessage}
+            isDisabled={isNull}
+            isReadOnly={isReadOnly}
+            isRequired={isRequired}
+            items={field.options}
+            onChange={onSelectionChange}
+            value={selectedKey}
+            textValue={getTextValue(field.options, selectedKey)}
+          >
+            {item => <Item key={item.value}>{item.label}</Item>}
+          </SegmentedControl>
+        )
       case 'radio':
-        return renderRadioGroup()
+        return (
+          <RadioGroup
+            label={field.label}
+            description={field.description}
+            errorMessage={errorMessage}
+            isDisabled={isNull}
+            isReadOnly={isReadOnly}
+            isRequired={isRequired}
+            onChange={onSelectionChange}
+            value={value.value?.value ?? preNullValue?.value}
+          >
+            {field.options.map(item => (
+              <Radio key={item.value} value={item.value}>
+                {item.label}
+              </Radio>
+            ))}
+          </RadioGroup>
+        )
       default:
-        return renderPicker()
+        return (
+          <Picker
+            autoFocus={autoFocus}
+            label={field.label}
+            description={field.description}
+            errorMessage={errorMessage}
+            isDisabled={isNull}
+            isReadOnly={isReadOnly}
+            isRequired={isRequired}
+            items={field.options}
+            onSelectionChange={onSelectionChange}
+            selectedKey={selectedKey}
+            flex={{ mobile: true, desktop: 'initial' }}
+            UNSAFE_style={{
+              fontSize: tokenSchema.typography.text.regular.size,
+              width: `clamp(${tokenSchema.size.alias.singleLineWidth}, calc(${longestLabelLength}ex + ${tokenSchema.size.icon.regular}), 100%)`,
+            }}
+          >
+            {item => <Item key={item.value}>{item.label}</Item>}
+          </Picker>
+        )
     }
   })()
 
@@ -198,8 +193,6 @@ export function controller(config: Config): FieldController<
 
   const stringifiedDefault = config.fieldMeta.defaultValue?.toString()
 
-  const defaultFieldValue = optionsWithStringValues.find(x => x.value === stringifiedDefault) ?? null
-
   return {
     fieldKey: config.fieldKey,
     label: config.label,
@@ -207,7 +200,7 @@ export function controller(config: Config): FieldController<
     graphqlSelection: config.fieldKey,
     defaultValue: {
       kind: 'create',
-      value: defaultFieldValue,
+      value: findOptionByValue(optionsWithStringValues, stringifiedDefault) ?? null,
     },
     type: config.fieldMeta.type,
     displayMode: config.fieldMeta.displayMode,
@@ -229,7 +222,7 @@ export function controller(config: Config): FieldController<
     validate: (value, opts) => validate(value, opts.isRequired),
     filter: {
       Filter(props) {
-        const { autoFocus, context, typeLabel, onChange, value: selectedValues, type, ...otherProps } = props
+        const { autoFocus, context, typeLabel, onChange, value, type, ...otherProps } = props
 
         const densityLevels = ['spacious', 'regular', 'compact'] as const
         const density =
@@ -248,7 +241,7 @@ export function controller(config: Config): FieldController<
 
               onChange([...selection].filter(x => typeof x === 'string'))
             }}
-            selectedKeys={selectedValues}
+            selectedKeys={value}
             {...otherProps}
           >
             {item => <Item key={item.value}>{item.label}</Item>}
@@ -308,4 +301,19 @@ export function controller(config: Config): FieldController<
       types: FILTER_TYPES,
     },
   }
+}
+
+function findOptionByKey(options: Option[], key: Key | null): Option | null {
+  if (key == null) return null
+  return options.find(opt => opt.value === key) ?? null
+}
+
+function getTextValue(options: Option[], key: Key | null): string {
+  const option = findOptionByKey(options, key)
+  return option?.label || ''
+}
+
+function findOptionByValue(options: Option[], value: string | null): Option | null {
+  if (value == null) return null
+  return options.find(opt => opt.value === value) ?? null
 }

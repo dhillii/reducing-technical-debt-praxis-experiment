@@ -428,10 +428,6 @@ class Strapi {
     return reload;
   }
 
-  /**
-   * Execute lifecycle functions for a specific phase.
-   * @param {string} lifecycleName - The name of the lifecycle phase (e.g., 'register', 'bootstrap').
-   */
   async runLifecyclesFunctions(lifecycleName) {
     const execLifecycle = async fn => {
       if (!fn) {

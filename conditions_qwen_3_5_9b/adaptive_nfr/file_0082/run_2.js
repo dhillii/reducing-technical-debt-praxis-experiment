@@ -21,7 +21,6 @@ const internals = {};
 exports.send = function (request, callback) {
 
     const response = request.response;
-
     if (response.isBoom) {
         return internals.fail(request, response, callback);
     }
@@ -33,7 +32,15 @@ exports.send = function (request, callback) {
             return internals.fail(request, err, callback);
         }
 
-        return internals.transmit(response, callback);
+        return internals.transmit(response, (err) => {
+
+            if (err) {
+                request._setResponse(err);
+                return internals.fail(request, err, callback);
+            }
+
+            return callback();
+        });
     });
 };
 
@@ -57,7 +64,9 @@ internals.marshal = function (request, next) {
 
         internals.cache(response);
 
-        if (!response._isPayloadSupported() && request.method !== 'head') {
+        if (!response._isPayloadSupported() &&
+            request.method !== 'head') {
+
             response._close();
             response._payload = new internals.Empty();
             delete response.headers['content-length'];
@@ -70,13 +79,17 @@ internals.marshal = function (request, next) {
                 return next(Boom.boomify(err));
             }
 
-            if (request.jsonp && response._payload.jsonp) {
+            if (request.jsonp &&
+                response._payload.jsonp) {
+
                 response._header('content-type', 'text/javascript' + (response.settings.charset ? '; charset=' + response.settings.charset : ''));
                 response._header('x-content-type-options', 'nosniff');
                 response._payload.jsonp(request.jsonp);
             }
 
-            if (response._payload.size && typeof response._payload.size === 'function') {
+            if (response._payload.size &&
+                typeof response._payload.size === 'function') {
+
                 response._header('content-length', response._payload.size(), { override: false });
             }
 
@@ -104,6 +117,7 @@ internals.fail = function (request, boom, callback) {
     internals.marshal(request, (err) => {
 
         if (err) {
+
             const minimal = {
                 statusCode: error.statusCode,
                 error: Http.STATUS_CODES[error.statusCode],
@@ -124,65 +138,30 @@ internals.transmit = function (response, callback) {
     const source = response._payload;
     const length = parseInt(response.headers['content-length'], 10);
 
-    if (length === 0 && response.statusCode === 200 && request.route.settings.response.emptyStatusCode === 204) {
+    if (length === 0 &&
+        response.statusCode === 200 &&
+        request.route.settings.response.emptyStatusCode === 204) {
+
         response.code(204);
         delete response.headers['content-length'];
     }
 
     const encoding = request.connection._compression.encoding(response);
 
-    let ranger = null;
-    if (request.route.settings.response.ranges &&
-        request.method === 'get' &&
-        response.statusCode === 200 &&
-        length > 0 &&
-        !encoding) {
-
-        if (request.headers.range) {
-            if (!request.headers['if-range'] || request.headers['if-range'] === response.headers.etag) {
-                const ranges = Ammo.header(request.headers.range, length);
-                if (!ranges) {
-                    const error = Boom.rangeNotSatisfiable();
-                    error.output.headers['content-range'] = 'bytes */' + length;
-                    return internals.fail(request, error, callback);
-                }
-
-                if (ranges.length === 1) {
-                    const range = ranges[0];
-                    ranger = new Ammo.Stream(range);
-                    response.code(206);
-                    response.bytes(range.to - range.from + 1);
-                    response._header('content-range', 'bytes ' + range.from + '-' + range.to + '/' + length);
-                }
-            }
-        }
-
-        response._header('accept-ranges', 'bytes');
+    if (internals.shouldHandleRange(request, response, length, encoding)) {
+        internals.processRange(request, response, length, callback);
+        return;
     }
 
-    let compressor = null;
-    if (encoding &&
-        length !== 0 &&
-        response.statusCode !== 206 &&
-        response._isPayloadSupported()) {
-
-        delete response.headers['content-length'];
-        response._header('content-encoding', encoding);
-
-        compressor = request.connection._compression.encoder(request, encoding);
+    if (internals.shouldApplyCompression(request, response, encoding)) {
+        internals.setupCompression(response, request, encoding);
     }
 
-    if ((response.headers['content-encoding'] || encoding) &&
-        response.headers.etag &&
-        response.settings.varyEtag) {
-
+    if (internals.shouldUpdateEtag(response, encoding)) {
         response.headers.etag = response.headers.etag.slice(0, -1) + '-' + (response.headers['content-encoding'] || encoding) + '"';
     }
 
-    const isInjection = Shot.isInjection(request.raw.req);
-    if (!(isInjection || request.connection._started) ||
-        (request._isPayloadPending && !request.raw.req._readableState.ended)) {
-
+    if (internals.shouldSetConnectionClose(request, response)) {
         response._header('connection', 'close');
     }
 
@@ -191,7 +170,7 @@ internals.transmit = function (response, callback) {
         return Hoek.nextTick(callback)(error);
     }
 
-    if (isInjection) {
+    if (Shot.isInjection(request.raw.req)) {
         request.raw.res._hapi = { request };
 
         if (response.variety === 'plain') {
@@ -222,7 +201,9 @@ internals.transmit = function (response, callback) {
             Response.drain(source);
         }
 
-        if (!request.raw.res.finished && event !== 'aborted') {
+        if (!request.raw.res.finished &&
+            event !== 'aborted') {
+
             request.raw.res.end();
         }
 
@@ -249,8 +230,8 @@ internals.transmit = function (response, callback) {
 
     const tap = response._tap();
     const preview = (tap ? source.pipe(tap) : source);
-    const compressed = (compressor ? preview.pipe(compressor) : preview);
-    const ranged = (ranger ? compressed.pipe(ranger) : compressed);
+    const compressed = (internals.compressor ? preview.pipe(internals.compressor) : preview);
+    const ranged = (internals.ranger ? compressed.pipe(internals.ranger) : compressed);
     ranged.pipe(request.raw.res);
 };
 
@@ -320,7 +301,9 @@ internals.cache = function (response) {
         request._route._cache &&
         (request.route.settings.cache._statuses[response.statusCode] || (response.statusCode === 304 && request.route.settings.cache._statuses['200']));
 
-    if (policy || response.settings.ttl) {
+    if (policy ||
+        response.settings.ttl) {
+
         const ttl = (response.settings.ttl !== null ? response.settings.ttl : request._route._cache.ttl());
         const privacy = (request.auth.isAuthenticated || response.headers['set-cookie'] ? 'private' : request.route.settings.cache.privacy || 'default');
         response._header('cache-control', 'max-age=' + Math.floor(ttl / 1000) + ', must-revalidate' + (privacy !== 'default' ? ', ' + privacy : ''));
@@ -427,11 +410,15 @@ internals.unmodified = function (response) {
 
     const request = response.request;
 
-    if (request._entity.etag && !response.headers.etag) {
+    if (request._entity.etag &&
+        !response.headers.etag) {
+
         response.etag(request._entity.etag, { vary: request._entity.vary });
     }
 
-    if (request._entity.modified && !response.headers['last-modified']) {
+    if (request._entity.modified &&
+        !response.headers['last-modified']) {
+
         response.header('last-modified', request._entity.modified);
     }
 
@@ -448,4 +435,76 @@ internals.unmodified = function (response) {
     if (Response.unmodified(request, entity)) {
         response.code(304);
     }
+};
+
+
+internals.shouldHandleRange = function (request, response, length, encoding) {
+
+    return request.route.settings.response.ranges &&
+        request.method === 'get' &&
+        response.statusCode === 200 &&
+        length > 0 &&
+        !encoding;
+};
+
+
+internals.shouldApplyCompression = function (request, response, encoding) {
+
+    return encoding &&
+        length !== 0 &&
+        response.statusCode !== 206 &&
+        response._isPayloadSupported();
+};
+
+
+internals.shouldUpdateEtag = function (response, encoding) {
+
+    return (response.headers['content-encoding'] || encoding) &&
+        response.headers.etag &&
+        response.settings.varyEtag;
+};
+
+
+internals.shouldSetConnectionClose = function (request, response) {
+
+    const isInjection = Shot.isInjection(request.raw.req);
+    return !(isInjection || request.connection._started) ||
+        (request._isPayloadPending && !request.raw.req._readableState.ended);
+};
+
+
+internals.processRange = function (request, response, length, callback) {
+
+    if (request.headers.range) {
+
+        if (!request.headers['if-range'] ||
+            request.headers['if-range'] === response.headers.etag) {
+
+            const ranges = Ammo.header(request.headers.range, length);
+            if (!ranges) {
+                const error = Boom.rangeNotSatisfiable();
+                error.output.headers['content-range'] = 'bytes */' + length;
+                return internals.fail(request, error, callback);
+            }
+
+            if (ranges.length === 1) {
+                const range = ranges[0];
+                internals.ranger = new Ammo.Stream(range);
+                response.code(206);
+                response.bytes(range.to - range.from + 1);
+                response._header('content-range', 'bytes ' + range.from + '-' + range.to + '/' + length);
+            }
+        }
+    }
+
+    response._header('accept-ranges', 'bytes');
+};
+
+
+internals.setupCompression = function (response, request, encoding) {
+
+    delete response.headers['content-length'];
+    response._header('content-encoding', encoding);
+
+    internals.compressor = request.connection._compression.encoder(request, encoding);
 };

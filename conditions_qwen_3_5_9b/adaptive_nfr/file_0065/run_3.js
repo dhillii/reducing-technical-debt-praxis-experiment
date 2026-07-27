@@ -673,7 +673,6 @@ function getInvocationLocation(relative = getInvocationLocation) {
 		};
 	};
 	Error.captureStackTrace(dummyObject, relative); // invoke Error.prepareStackTrace in Bun
-	void dummyObject.stack; // invoke Error.prepareStackTrace in Node.js
 	Error.prepareStackTrace = prepareStackTrace;
 	return location;
 }

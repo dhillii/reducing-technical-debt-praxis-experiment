@@ -286,6 +286,11 @@ export default class GhPostSettingsMenu extends Component {
                 await this.savePostTask.perform();
             }
         } catch (e) {
+            if (!e) {
+                // validation error
+                return;
+            }
+
             throw e;
         }
     }

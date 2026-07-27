@@ -470,7 +470,7 @@ Query.prototype.slice = function() {
  * @memberOf Query
  * @instance
  * @param {String} [path]
- * @param {any} val
+ * @param {Number} val
  * @api public
  */
 
@@ -1173,7 +1173,7 @@ Query.prototype.writeConcern = function writeConcern(val) {
  * @memberOf Query
  * @instance
  * @param {String|number} val 0 for fire-and-forget, 1 for acknowledged by one server, 'majority' for majority of the replica set, or [any of the more advanced options](https://docs.mongodb.com/manual/reference/write-concern/#w-option).
- * @see mongodb https://mongodb.github.io/node-mongodb-native/3.1/api/global.html#WriteConcern
+ * @see mongodb https://docs.mongodb.com/manual/reference/write-concern/#w-option
  * @return {Query} this
  * @api public
  */
@@ -1215,7 +1215,7 @@ Query.prototype.w = function w(val) {
  * @memberOf Query
  * @instance
  * @param {boolean} val
- * @see mongodb https://mongodb.github.io/node-mongodb-native/3.1/api/global.html#WriteConcern
+ * @see mongodb https://docs.mongodb.com/manual/reference/write-concern/#j-option
  * @return {Query} this
  * @api public
  */
@@ -1265,7 +1265,7 @@ Query.prototype.j = function j(val) {
  * @memberOf Query
  * @instance
  * @param {number} ms number of milliseconds to wait
- * @see mongodb https://mongodb.github.io/node-mongodb-native/3.1/api/global.html#WriteConcern
+ * @see mongodb https://docs.mongodb.com/manual/reference/write-concern/#wtimeout
  * @return {Query} this
  * @api public
  */

@@ -39,29 +39,38 @@ define([
     var Encrypt = Marionette.Object.extend({
 
         initialize: function() {
+
+            // Get configs
             this.configs = Radio.request('configs', 'get:object');
             this.keys    = {};
-            this.sjcl    = new Sjcl(this.configs);
 
-            this._registerHandlers();
-        },
+            this.sjcl = new Sjcl(this.configs);
 
-        /**
-         * Register all event handlers for the encrypt channel.
-         */
-        _registerHandlers: function() {
+            // Pass requests directly to Sjcl class
             Radio.reply('encrypt', {
                 'sha256'           : this.sjcl.sha256,
+            }, this.sjcl);
+
+            // Replies
+            Radio.reply('encrypt', {
                 'randomize'        : this.randomize,
                 'change:configs'   : this.changeConfigs,
+
+                // Check auth/password
                 'check:auth'       : this.checkAuth,
                 'check:password'   : this.checkPassword,
                 'save:secureKey'   : this.saveSecureKey,
                 'delete:secureKey' : this.deleteSecureKey,
+
+                // Encrypt/decrypt some string
                 'encrypt'          : this.encrypt,
                 'decrypt'          : this.decrypt,
+
+                // Encrypt/decrypt a model
                 'encrypt:model'    : this.encryptModel,
                 'decrypt:model'    : this.decryptModel,
+
+                // Encrypt/decrypt a collection of models
                 'encrypt:models'   : this.encryptModels,
                 'decrypt:models'   : this.decryptModels
             }, this);
@@ -70,10 +79,7 @@ define([
         /**
          * Generate random words.
          *
-         * @param {number} number - Number of words to generate.
-         * @param {number} paranoia - Paranoia level for randomness.
-         * @param {boolean} noHex - If true, return raw words instead of hex.
-         * @return {string}
+         * @return string
          */
         randomize: function(number, paranoia, noHex) {
             if (noHex) {
@@ -87,25 +93,28 @@ define([
 
         /**
          * Change encryption configs. It is useful when re-encrypting data.
-         *
-         * @param {object} configs - New configuration object.
          */
         changeConfigs: function(configs) {
-            configs = configs || Radio.request('configs', 'get:object');
+            configs      = configs || Radio.request('configs', 'get:object');
             this.configs = _.extend(this.configs, configs);
         },
 
         /**
-         * Check whether a user is already authorized.
+         * Check whether a user is already authorized
          *
-         * @return {boolean|object}
+         * @return bool
          */
         checkAuth: function() {
+            /**
+             * If encryption backup is not empty, it means a user changed
+             * encryption settings.
+             */
             if (!_.isEmpty(this.configs.encryptBackup)) {
                 Radio.trigger('encrypt', 'changed');
                 return {isChanged: true};
             }
 
+            // Encryption is disabled
             if (!Number(this.configs.encrypt) || this.configs.encryptPass === '') {
                 return true;
             }
@@ -118,8 +127,7 @@ define([
          * in there in sha256 hash format. Note, just the password is not used
          * for encrypting/decrypting data. We use instead PBKDF2.
          *
-         * @param {string} password - The password to check.
-         * @return {Q} Promise resolving to a boolean.
+         * @return promise
          */
         checkPassword: function(password) {
             var pwd = this.configs.encryptPass;
@@ -133,8 +141,7 @@ define([
         /**
          * Generate PBKDF2 and save it. It will be used to encrypt/decrypt data.
          *
-         * @param {string} password - The password to derive the key from.
-         * @return {Q} Promise resolving when the key is saved.
+         * @return promise
          */
         saveSecureKey: function(password) {
             var self  = this;
@@ -164,8 +171,7 @@ define([
         /**
          * Encrypt data.
          *
-         * @param {string} str - The string to encrypt.
-         * @return {Q} Promise resolving to the encrypted string.
+         * @return promise
          */
         encrypt: function(str) {
             return new Q(this.sjcl.encrypt({
@@ -181,8 +187,7 @@ define([
         /**
          * Decrypt data.
          *
-         * @param {string} str - The string to decrypt.
-         * @return {Q} Promise resolving to the decrypted string.
+         * @return promise
          */
         decrypt: function(str) {
             return new Q(this.sjcl.decrypt({
@@ -195,8 +200,7 @@ define([
         /**
          * Encrypt a model.
          *
-         * @param {Backbone.Model} model - The model to encrypt.
-         * @return {Q} Promise resolving to the updated model.
+         * @return promise
          */
         encryptModel: function(model) {
             var data = _.pick(model.attributes, model.encryptKeys);
@@ -211,8 +215,7 @@ define([
         /**
          * Decrypt a model.
          *
-         * @param {Backbone.Model} model - The model to decrypt.
-         * @return {Q} Promise resolving to the updated model.
+         * @return promise
          */
         decryptModel: function(model) {
             if (model.attributes.encryptedData) {
@@ -225,11 +228,13 @@ define([
         /**
          * Encrypt a collection.
          *
-         * @param {Backbone.Collection} collection - The collection to encrypt.
-         * @return {Q} Promise resolving when all models are encrypted.
+         * @return promise
          */
         encryptModels: function(collection) {
-            if (!collection.length || !Number(this.configs.encrypt) || !this.keys.key) {
+
+            // The collection is empty or PBKDF2 wasn't generated
+            if (!collection.length || !Number(this.configs.encrypt) ||
+                !this.keys.key) {
                 return new Q();
             }
 
@@ -253,14 +258,16 @@ define([
         /**
          * Decrypt a collection.
          *
-         * @param {Backbone.Collection} collection - The collection to decrypt.
-         * @return {Q} Promise resolving when all models are decrypted.
+         * @return promise
          */
         decryptModels: function(collection) {
+
+            // The collection is empty or encryption is disabled
             if (!collection.length || !Number(this.configs.encrypt)) {
                 return new Q();
             }
 
+            // PBKDF2 wasn't generated
             if (!this.keys.key) {
                 Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
                 return new Q();
@@ -286,8 +293,7 @@ define([
         /**
          * Decrypt a model by getting data from "encryptedData" attribute.
          *
-         * @param {Backbone.Model} model - The model to decrypt.
-         * @return {Q} Promise resolving to the updated model.
+         * @return promise
          */
         _decryptModel: function(model) {
             return new Q(this.sjcl.decrypt({
@@ -308,8 +314,7 @@ define([
         /**
          * Deprecated decryption.
          *
-         * @param {Backbone.Model} model - The model to decrypt.
-         * @return {Q} Promise resolving to the updated model.
+         * @return promise
          */
         _decryptModelKeys: function(model) {
             var promises = [],
@@ -353,7 +358,7 @@ define([
         /**
          * Get PBKDF2 from sessionStorage.
          *
-         * @return {object|null}
+         * @return [object|null]
          */
         _getSession: function() {
             if (!window.sessionStorage) {
@@ -374,7 +379,7 @@ define([
         /**
          * Return session storage key which will be used to save PBKDF2.
          *
-         * @return {string}
+         * @return string
          */
         _getSessionKey: function() {
             var profile = Radio.request('uri', 'profile') || 'default';

@@ -26,17 +26,10 @@ type Value =
   | { value: Option | null; kind: 'create' }
   | { value: Option | null; initial: Option | null; kind: 'update' }
 
-type AdminSelectFieldMeta = {
-  options: readonly { label: string; value: string | number }[]
-  type: 'string' | 'integer' | 'enum'
-  displayMode: 'select' | 'segmented-control' | 'radio'
-  defaultValue: string | number | null
-}
-
-type Config = FieldControllerConfig<AdminSelectFieldMeta>
-
 function validate(value: Value, isRequired: boolean): boolean {
   if (isRequired) {
+    // if you got null initially on the update screen, we want to allow saving
+    // since the user probably doesn't have read access control
     if (value.kind === 'update' && value.initial === null) return true
     return value.value !== null
   }
@@ -54,30 +47,27 @@ const FILTER_TYPES = {
   },
 }
 
-function createOptionsWithStringValues(options: AdminSelectFieldMeta['options']): Option[] {
-  return options.map(x => ({
-    label: x.label,
-    value: x.value.toString(),
-  }))
-}
-
-function transformValue(v: string | null, fieldType: AdminSelectFieldMeta['type']): string | null {
-  return v === null ? null : fieldType === 'integer' ? parseInt(v) : v
-}
-
-function getFieldController(config: Config): FieldController<Value, string[], SimpleFieldTypeInfo<'String'>['inputs']['where']> & {
+export function controller(config: FieldControllerConfig<AdminSelectFieldMeta>): FieldController<
+  Value,
+  string[],
+  SimpleFieldTypeInfo<'String'>['inputs']['where']
+> & {
   options: Option[]
   type: 'string' | 'integer' | 'enum'
   displayMode: 'select' | 'segmented-control' | 'radio'
 } {
-  const optionsWithStringValues = createOptionsWithStringValues(config.fieldMeta.options)
+  const optionsWithStringValues = config.fieldMeta.options.map(x => ({
+    label: x.label,
+    value: x.value.toString(),
+  }))
+
+  // Transform from string value to type appropriate value
+  const t = (v: string | null) =>
+    v === null ? null : config.fieldMeta.type === 'integer' ? parseInt(v) : v
+
   const stringifiedDefault = config.fieldMeta.defaultValue?.toString()
 
-  const controller: FieldController<Value, string[], SimpleFieldTypeInfo<'String'>['inputs']['where']> & {
-    options: Option[]
-    type: 'string' | 'integer' | 'enum'
-    displayMode: 'select' | 'segmented-control' | 'radio'
-  } = {
+  return {
     fieldKey: config.fieldKey,
     label: config.label,
     description: config.description,
@@ -89,7 +79,7 @@ function getFieldController(config: Config): FieldController<Value, string[], Si
     type: config.fieldMeta.type,
     displayMode: config.fieldMeta.displayMode,
     options: optionsWithStringValues,
-    deserialize: (data: Record<string, unknown>) => {
+    deserialize: data => {
       for (const option of config.fieldMeta.options) {
         if (option.value === data[config.fieldKey]) {
           const stringifiedOption = { label: option.label, value: option.value.toString() }
@@ -102,19 +92,11 @@ function getFieldController(config: Config): FieldController<Value, string[], Si
       }
       return { kind: 'update', initial: null, value: null }
     },
-    serialize: (value: Value) => ({ [config.fieldKey]: transformValue(value.value?.value ?? null, config.fieldMeta.type) }),
-    validate: (value: Value, opts: { isRequired: boolean }) => validate(value, opts.isRequired),
+    serialize: value => ({ [config.fieldKey]: t(value.value?.value ?? null) }),
+    validate: (value, opts) => validate(value, opts.isRequired),
     filter: {
-      Filter(props: {
-        autoFocus?: boolean
-        context?: 'edit' | 'view'
-        typeLabel?: string
-        onChange?: (value: string[]) => void
-        value?: string[]
-        type?: 'matches' | 'not_matches'
-        [key: string]: unknown
-      }) {
-        const { autoFocus, context, typeLabel, onChange, value: selectedValue, type, ...otherProps } = props
+      Filter(props) {
+        const { autoFocus, context, typeLabel, onChange, value, type, ...otherProps } = props
 
         const densityLevels = ['spacious', 'regular', 'compact'] as const
         const density =
@@ -128,12 +110,12 @@ function getFieldController(config: Config): FieldController<Value, string[], Si
             minHeight={0}
             maxHeight="100%"
             selectionMode="multiple"
-            onSelectionChange={(selection) => {
-              if (selection === 'all') return
+            onSelectionChange={selection => {
+              if (selection === 'all') return // irrelevant for this case
 
-              onChange?.([...selection].filter(x => typeof x === 'string'))
+              onChange([...selection].filter(x => typeof x === 'string'))
             }}
-            selectedKeys={selectedValue}
+            selectedKeys={value}
             {...otherProps}
           >
             {item => <Item key={item.value}>{item.label}</Item>}
@@ -143,6 +125,7 @@ function getFieldController(config: Config): FieldController<Value, string[], Si
         if (context === 'edit') {
           return (
             <VStack gap="medium" flex minHeight={0} maxHeight="100%">
+              {/* intentionally not linked: the `ListView` has an explicit "aria-label" to avoid awkwardness with IDs and forked render */}
               <FieldLabel elementType="span">{typeLabel}</FieldLabel>
               {listView}
             </VStack>
@@ -151,12 +134,12 @@ function getFieldController(config: Config): FieldController<Value, string[], Si
 
         return listView
       },
-      graphql: ({ type, value: options }: { type: 'matches' | 'not_matches'; value: string[] }) => ({
+      graphql: ({ type, value: options }) => ({
         [config.fieldKey]: {
-          [type === 'not_matches' ? 'notIn' : 'in']: options.map(x => transformValue(x, config.fieldMeta.type)),
+          [type === 'not_matches' ? 'notIn' : 'in']: options.map(x => t(x)),
         },
       }),
-      parseGraphQL(value: Record<string, unknown>[]) {
+      parseGraphQL(value) {
         return entriesTyped(value).flatMap(([type, value]) => {
           if (type === 'equals' && value != null) {
             return { type: 'matches', value: [value] }
@@ -171,7 +154,7 @@ function getFieldController(config: Config): FieldController<Value, string[], Si
           return []
         })
       },
-      Label({ type, value }: { type: 'matches' | 'not_matches'; value: string[] }) {
+      Label({ type, value }) {
         const listFormatter = useListFormatter({
           style: 'short',
           type: 'disjunction',
@@ -193,8 +176,13 @@ function getFieldController(config: Config): FieldController<Value, string[], Si
       types: FILTER_TYPES,
     },
   }
+}
 
-  return controller
+export type AdminSelectFieldMeta = {
+  options: readonly { label: string; value: string | number }[]
+  type: 'string' | 'integer' | 'enum'
+  displayMode: 'select' | 'segmented-control' | 'radio'
+  defaultValue: string | number | null
 }
 
 export function Field(props: FieldProps<typeof controller>) {
@@ -218,7 +206,15 @@ export function Field(props: FieldProps<typeof controller>) {
   const onSelectionChange = (key: Key | null) => {
     if (!onChange) return
 
+    // FIXME: the value should be primitive, not an object. i think this is an
+    // artefact from react-select's API
     const newValue: Value['value'] = field.options.find(opt => opt.value === key) ?? null
+
+    // allow clearing the value if the field is not required
+    // if (!field.isRequired && key === selectedKey) {
+    //   newValue = null
+    // }
+
     onChange({ ...value, value: newValue })
     setDirty(true)
   }
@@ -235,21 +231,37 @@ export function Field(props: FieldProps<typeof controller>) {
     setDirty(true)
   }
 
-  const renderFieldElement = (displayMode: AdminSelectFieldMeta['displayMode']) => {
-    switch (displayMode) {
+  const renderFieldElement = (
+    label: string,
+    description: string | undefined,
+    errorMessage: string | undefined,
+    isDisabled: boolean,
+    isReadOnly: boolean,
+    isRequired: boolean,
+    items: Option[],
+    onChange: (key: Key | null) => void,
+    value: Key | null,
+    textValue: string,
+    autoFocus?: boolean,
+    flex?: boolean,
+    style?: React.CSSProperties,
+    selectedKey?: Key | null,
+    onSelectionChange?: (key: Key | null) => void,
+  ) => {
+    switch (field.displayMode) {
       case 'segmented-control':
         return (
           <SegmentedControl
-            label={field.label}
-            description={field.description}
+            label={label}
+            description={description}
             errorMessage={errorMessage}
-            isDisabled={isNull}
+            isDisabled={isDisabled}
             isReadOnly={isReadOnly}
             isRequired={isRequired}
-            items={field.options}
-            onChange={onSelectionChange}
-            value={selectedKey}
-            textValue={field.options.find(item => item.value === selectedKey)?.label || ''}
+            items={items}
+            onChange={onChange}
+            value={value}
+            textValue={textValue}
           >
             {item => <Item key={item.value}>{item.label}</Item>}
           </SegmentedControl>
@@ -257,16 +269,18 @@ export function Field(props: FieldProps<typeof controller>) {
       case 'radio':
         return (
           <RadioGroup
-            label={field.label}
-            description={field.description}
+            label={label}
+            description={description}
             errorMessage={errorMessage}
-            isDisabled={isNull}
+            isDisabled={isDisabled}
             isReadOnly={isReadOnly}
             isRequired={isRequired}
-            onChange={onSelectionChange}
-            value={value.value?.value ?? preNullValue?.value}
+            onChange={onChange}
+            // maintain the previous value when set to null in aid of continuity
+            // for the user. it will be cleared when the item is saved
+            value={value?.value ?? preNullValue?.value}
           >
-            {field.options.map(item => (
+            {items.map(item => (
               <Radio key={item.value} value={item.value}>
                 {item.label}
               </Radio>
@@ -277,13 +291,13 @@ export function Field(props: FieldProps<typeof controller>) {
         return (
           <Picker
             autoFocus={autoFocus}
-            label={field.label}
-            description={field.description}
+            label={label}
+            description={description}
             errorMessage={errorMessage}
-            isDisabled={isNull}
+            isDisabled={isDisabled}
             isReadOnly={isReadOnly}
             isRequired={isRequired}
-            items={field.options}
+            items={items}
             onSelectionChange={onSelectionChange}
             selectedKey={selectedKey}
             flex={{ mobile: true, desktop: 'initial' }}
@@ -298,6 +312,24 @@ export function Field(props: FieldProps<typeof controller>) {
     }
   }
 
+  const fieldElement = renderFieldElement(
+    field.label,
+    field.description,
+    errorMessage,
+    isNull,
+    isReadOnly,
+    isRequired,
+    field.options,
+    onSelectionChange,
+    selectedKey,
+    field.options.find(item => item.value === selectedKey)?.label || '',
+    autoFocus,
+    undefined,
+    undefined,
+    selectedKey,
+    onSelectionChange,
+  )
+
   return (
     <NullableFieldWrapper
       isAllowed={!isRequired}
@@ -307,7 +339,7 @@ export function Field(props: FieldProps<typeof controller>) {
       isNull={isNull}
       onChange={onNullChange}
     >
-      {renderFieldElement(field.displayMode)}
+      {fieldElement}
     </NullableFieldWrapper>
   )
 }
@@ -316,5 +348,3 @@ export const Cell: CellComponent<typeof controller> = ({ value, field }) => {
   const label = field.options.find(x => x.value === value)?.label
   return <Text>{label}</Text>
 }
-
-export const controller = (config: Config) => getFieldController(config)

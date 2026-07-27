@@ -174,6 +174,10 @@ module.exports = function(CLI) {
 
   function printProcessList() {
     that.Client.executeRemote('getMonitorData', {}, function(err, list) {
+      if (err) {
+        console.error(err);
+        return;
+      }
       fmt.sep();
       fmt.title(chalk.bold.blue('PM2 list'));
       UX.list(list, that.gl_interact_infos);
@@ -181,6 +185,8 @@ module.exports = function(CLI) {
   }
 
   function printDaemonLogs() {
+    fmt.sep();
+    fmt.title(chalk.bold.blue('Daemon logs'));
     Log.tail([{
       path     : cst.PM2_LOG_FILE_PATH,
       app_name : 'PM2',
@@ -383,9 +389,9 @@ module.exports = function(CLI) {
     var that = this;
     var readline = require('readline');
 
-    if (isNaN(pm_id)) {
+    if (!isNumeric(pm_id)) {
       Common.printError('pm_id must be a process number (not a process name)');
-      return cb ? cb(Common.retErr('pm_id must be number')) : that.exitCli(cst.ERROR_EXIT);
+      return cb ? cb(Common.retErr('pm_id must be a number')) : that.exitCli(cst.ERROR_EXIT);
     }
 
     if (typeof(separator) == 'function') {
@@ -420,6 +426,10 @@ module.exports = function(CLI) {
       that.sendLineToStdin(pm_id, line, separator, function() {});
     });
   };
+
+  function isNumeric(value) {
+    return !isNaN(value);
+  }
 
   /**
    * Description
@@ -498,7 +508,7 @@ module.exports = function(CLI) {
 
     this.launchBus(function(err, bus) {
       bus.on('axm:reply', function(ret) {
-        if (ret.process.name == pm_id || ret.process.pm_id == pm_id || ret.process.namespace == pm_id || pm_id == 'all') {
+        if (matchesProcessId(ret.process, pm_id)) {
           results.push(ret);
           Common.printOut('[%s:%s:%s]=%j', ret.process.name, ret.process.pm_id, ret.process.namespace, ret.data.return);
           if (++counter == process_wait_count) {
@@ -524,6 +534,10 @@ module.exports = function(CLI) {
       });
     });
   };
+
+  function matchesProcessId(process, pm_id) {
+    return process.name == pm_id || process.pm_id == pm_id || process.namespace == pm_id || pm_id == 'all';
+  }
 
   /**
    * Description
@@ -584,7 +598,7 @@ module.exports = function(CLI) {
       }
       return cb ? cb(null) : this.speedList();
     });
-  }
+  };
 
   /**
    * API method to launch a process that will serve directory over http
@@ -634,7 +648,7 @@ module.exports = function(CLI) {
       Common.printOut(cst.PREFIX_MSG + 'Serving ' + servePath + ' on port ' + servePort);
       return cb ? cb(null, res) : that.speedList();
     });
-  }
+  };
 
   /**
    * Ping daemon - if PM2 daemon not launched, it will launch it

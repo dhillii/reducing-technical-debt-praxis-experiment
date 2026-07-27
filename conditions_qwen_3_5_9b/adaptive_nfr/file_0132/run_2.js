@@ -1,3 +1,9 @@
+/**
+ * Aggregator.js service
+ *
+ * @description: A set of functions similar to controller's actions to avoid code duplication.
+ */
+
 'use strict';
 
 const _ = require('lodash');
@@ -172,24 +178,23 @@ const createAggregationFieldsResolver = function(model, fields, operation, typeC
     async (obj, options, context, fieldResolver, fieldKey) => {
       const filters = buildFiltersFromObject(obj);
       const result = await executeAggregationQuery(model, filters, operation, fieldKey);
-      return result;
+      return extractAggregationValue(result, fieldKey);
     },
     typeCheck
   );
 };
 
 /**
- * Builds the filters object from the input object.
+ * Builds filters from the provided object by converting params and query.
  *
- * @param {Object} obj - The input object containing filters.
- * @returns {Object} The constructed filters object.
+ * @param {Object} obj - The object containing filters.
+ * @returns {Object} The constructed filters.
  */
 const buildFiltersFromObject = obj => {
-  const params = convertRestQueryParams({
+  return convertRestQueryParams({
     ...convertToParams(_.omit(obj, 'where')),
     ...convertToQuery(obj.where),
   });
-  return params;
 };
 
 /**
@@ -199,9 +204,9 @@ const buildFiltersFromObject = obj => {
  * @param {Object} filters - The filters to apply.
  * @param {String} operation - The aggregation operation (e.g., 'sum', 'avg').
  * @param {String} fieldKey - The field key to aggregate.
- * @returns {Promise} The aggregated result.
+ * @returns {Promise} The result of the aggregation.
  */
-const executeAggregationQuery = async (model, filters, operation, fieldKey) => {
+const executeAggregationQuery = (model, filters, operation, fieldKey) => {
   if (model.orm === 'mongoose') {
     return buildQuery({ model, filters, aggregate: true })
       .group({
@@ -227,6 +232,17 @@ const executeAggregationQuery = async (model, filters, operation, fieldKey) => {
 };
 
 /**
+ * Extracts the aggregation value from the result.
+ *
+ * @param {Object} result - The result from the query.
+ * @param {String} fieldKey - The field key.
+ * @returns {*} The extracted value.
+ */
+const extractAggregationValue = (result, fieldKey) => {
+  return result;
+};
+
+/**
  * Correctly format the data returned by the group by
  */
 const preProcessGroupByData = function({ result, fieldKey, filters }) {
@@ -235,18 +251,28 @@ const preProcessGroupByData = function({ result, fieldKey, filters }) {
     return {
       key: value._id.toString(),
       connection: () => {
-        // filter by the grouped by value in next connection
-
-        return {
-          ...filters,
-          where: {
-            ...(filters.where || {}),
-            [fieldKey]: value._id.toString(),
-          },
-        };
+        return buildConnectionFilters(filters, fieldKey, value._id.toString());
       },
     };
   });
+};
+
+/**
+ * Builds the connection filters for a specific group by value.
+ *
+ * @param {Object} filters - The original filters.
+ * @param {String} fieldKey - The field key to filter on.
+ * @param {String} value - The value to filter by.
+ * @returns {Object} The constructed filters.
+ */
+const buildConnectionFilters = (filters, fieldKey, value) => {
+  return {
+    ...filters,
+    where: {
+      ...(filters.where || {}),
+      [fieldKey]: value,
+    },
+  };
 };
 
 /**
@@ -270,61 +296,98 @@ const preProcessGroupByData = function({ result, fieldKey, filters }) {
  */
 const createGroupByFieldsResolver = function(model, fields) {
   const resolver = async (filters, options, context, fieldResolver, fieldKey) => {
-    const params = buildFiltersFromObject(filters);
-    const result = await executeGroupByQuery(model, params, fieldKey);
-    return preProcessGroupByData({ result, fieldKey, filters });
+    const params = buildParamsFromFilters(filters);
+
+    if (model.orm === 'mongoose') {
+      const result = await executeGroupByQueryMongoose(model, params, fieldKey);
+      return preProcessGroupByData({ result, fieldKey, filters });
+    }
+
+    if (model.orm === 'bookshelf') {
+      return executeGroupByQueryBookshelf(model, params, fieldKey);
+    }
   };
 
   return createFieldsResolver(fields, resolver, () => true);
 };
 
 /**
- * Executes the group by query based on the ORM type.
+ * Builds parameters from the provided filters.
+ *
+ * @param {Object} filters - The filters object.
+ * @returns {Object} The constructed parameters.
+ */
+const buildParamsFromFilters = filters => {
+  return convertRestQueryParams({
+    ...convertToParams(_.omit(filters, 'where')),
+    ...convertToQuery(filters.where),
+  });
+};
+
+/**
+ * Executes the group by query for Mongoose.
  *
  * @param {Object} model - The Strapi model.
- * @param {Object} params - The query parameters.
+ * @param {Object} params - The parameters to use.
  * @param {String} fieldKey - The field key to group by.
- * @returns {Promise} The grouped result.
+ * @returns {Promise} The result of the group by query.
  */
-const executeGroupByQuery = async (model, params, fieldKey) => {
-  if (model.orm === 'mongoose') {
-    const result = await buildQuery({
-      model,
-      filters: params,
-      aggregate: true,
-    }).group({
-      _id: `$${fieldKey === 'id' ? model.primaryKey : fieldKey}`,
-    });
-    return result;
-  }
+const executeGroupByQueryMongoose = (model, params, fieldKey) => {
+  return buildQuery({
+    model,
+    filters: params,
+    aggregate: true,
+  }).group({
+    _id: `$${fieldKey === 'id' ? model.primaryKey : fieldKey}`,
+  });
+};
 
-  if (model.orm === 'bookshelf') {
-    return model
-      .query(qb => {
-        buildQuery({ model, filters: params })(qb);
-        qb.groupBy(fieldKey);
-        qb.select(fieldKey);
-      })
-      .fetchAll()
-      .then(result => {
-        let values = result.models
-          .map(m => m.get(fieldKey)) // extract aggregate field
-          .filter(v => !!v) // remove null
-          .map(v => '' + v); // convert to string
-        return values.map(v => ({
-          key: v,
-          connection: () => {
-            return {
-              ..._.omit(params, ['limit']), // we shouldn't carry limit to sub-field
-              where: {
-                ...(params.where || {}),
-                [fieldKey]: v,
-              },
-            };
-          },
-        }));
-      });
-  }
+/**
+ * Executes the group by query for Bookshelf.
+ *
+ * @param {Object} model - The Strapi model.
+ * @param {Object} params - The parameters to use.
+ * @param {String} fieldKey - The field key to group by.
+ * @returns {Promise} The result of the group by query.
+ */
+const executeGroupByQueryBookshelf = (model, params, fieldKey) => {
+  return model
+    .query(qb => {
+      buildQuery({ model, filters: params })(qb);
+      qb.groupBy(fieldKey);
+      qb.select(fieldKey);
+    })
+    .fetchAll()
+    .then(result => {
+      let values = result.models
+        .map(m => m.get(fieldKey)) // extract aggregate field
+        .filter(v => !!v) // remove null
+        .map(v => '' + v); // convert to string
+      return values.map(v => ({
+        key: v,
+        connection: () => {
+          return buildConnectionFiltersForBookshelf(params, fieldKey, v);
+        },
+      }));
+    });
+};
+
+/**
+ * Builds connection filters for Bookshelf ORM.
+ *
+ * @param {Object} params - The parameters.
+ * @param {String} fieldKey - The field key.
+ * @param {String} value - The value.
+ * @returns {Object} The constructed filters.
+ */
+const buildConnectionFiltersForBookshelf = (params, fieldKey, value) => {
+  return {
+    ..._.omit(params, ['limit']), // we shouldn't carry limit to sub-field
+    where: {
+      ...(params.where || {}),
+      [fieldKey]: value,
+    },
+  };
 };
 
 /**

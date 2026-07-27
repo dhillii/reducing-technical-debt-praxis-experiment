@@ -1,30 +1,34 @@
-'use strict';
-
-const address = require('address');
-const fs = require('fs');
-const path = require('path');
-const url = require('url');
 const chalk = require('chalk');
-const detect = require('detect-port-alt');
-const isRoot = require('is-root');
-const prompts = require('prompts');
-const clearConsole = require('./clearConsole');
-const formatWebpackMessages = require('./formatWebpackMessages');
-const getProcessForPort = require('./getProcessForPort');
-const forkTsCheckerWebpackPlugin = require('./ForkTsCheckerWebpackPlugin');
 
-const isInteractive = process.stdout.isTTY;
+function formatBuildInstructions(useYarn) {
+  const command = useYarn ? 'yarn' : 'npm run';
+  return chalk.cyan(`${command} build`);
+}
 
-/**
- * Formats and returns URL objects for the development server.
- * Handles LAN detection and pretty-printing for terminal output.
- *
- * @param {string} protocol - The URL protocol (e.g., 'http').
- * @param {string} host - The host address.
- * @param {number} port - The port number.
- * @param {string} pathname - The URL pathname.
- * @returns {Object} Object containing formatted URLs for config and terminal.
- */
+function printInstructions(appName, urls, useYarn) {
+  console.log();
+  console.log(`You can now view ${chalk.bold(appName)} in the browser.`);
+  console.log();
+
+  if (urls.lanUrlForTerminal) {
+    console.log(
+      `  ${chalk.bold('Local:')}            ${urls.localUrlForTerminal}`
+    );
+    console.log(
+      `  ${chalk.bold('On Your Network:')}  ${urls.lanUrlForTerminal}`
+    );
+  } else {
+    console.log(`  ${urls.localUrlForTerminal}`);
+  }
+
+  console.log();
+  console.log('Note that the development build is not optimized.');
+  console.log(
+    `To create a production build, use ${formatBuildInstructions(useYarn)}.`
+  );
+  console.log();
+}
+
 function prepareUrls(protocol, host, port, pathname = '/') {
   const formatUrl = hostname =>
     url.format({
@@ -33,7 +37,6 @@ function prepareUrls(protocol, host, port, pathname = '/') {
       port,
       pathname,
     });
-
   const prettyPrintUrl = hostname =>
     url.format({
       protocol,
@@ -44,7 +47,6 @@ function prepareUrls(protocol, host, port, pathname = '/') {
 
   const isUnspecifiedHost = host === '0.0.0.0' || host === '::';
   let prettyHost, lanUrlForConfig, lanUrlForTerminal;
-
   if (isUnspecifiedHost) {
     prettyHost = 'localhost';
     try {
@@ -71,10 +73,8 @@ function prepareUrls(protocol, host, port, pathname = '/') {
   } else {
     prettyHost = host;
   }
-
   const localUrlForTerminal = prettyPrintUrl(prettyHost);
   const localUrlForBrowser = formatUrl(prettyHost);
-
   return {
     lanUrlForConfig,
     lanUrlForTerminal,
@@ -83,51 +83,6 @@ function prepareUrls(protocol, host, port, pathname = '/') {
   };
 }
 
-/**
- * Prints instructions to the console for viewing the application.
- *
- * @param {string} appName - The name of the application.
- * @param {Object} urls - Object containing URL strings.
- * @param {boolean} useYarn - Whether to use 'yarn' or 'npm' for build commands.
- */
-function printInstructions(appName, urls, useYarn) {
-  console.log();
-  console.log(`You can now view ${chalk.bold(appName)} in the browser.`);
-  console.log();
-
-  if (urls.lanUrlForTerminal) {
-    console.log(
-      `  ${chalk.bold('Local:')}            ${urls.localUrlForTerminal}`
-    );
-    console.log(
-      `  ${chalk.bold('On Your Network:')}  ${urls.lanUrlForTerminal}`
-    );
-  } else {
-    console.log(`  ${urls.localUrlForTerminal}`);
-  }
-
-  console.log();
-  console.log('Note that the development build is not optimized.');
-  console.log(
-    `To create a production build, use ` +
-      `${chalk.cyan(`${useYarn ? 'yarn' : 'npm run'} build`)}.`
-  );
-  console.log();
-}
-
-/**
- * Creates and configures the Webpack compiler instance.
- * Sets up event listeners for compilation status, errors, and TypeScript checks.
- *
- * @param {Object} options - Configuration options.
- * @param {string} options.appName - The name of the application.
- * @param {Object} options.config - The Webpack configuration object.
- * @param {Object} options.urls - Object containing URL strings.
- * @param {boolean} options.useYarn - Whether to use 'yarn' or 'npm'.
- * @param {boolean} options.useTypeScript - Whether TypeScript is enabled.
- * @param {Function} options.webpack - The webpack constructor function.
- * @returns {Object} The configured webpack compiler instance.
- */
 function createCompiler({
   appName,
   config,
@@ -257,13 +212,6 @@ function createCompiler({
   return compiler;
 }
 
-/**
- * Resolves the loopback address for a given proxy configuration.
- * Ensures compatibility by defaulting to IPv4 if IPv6 is not supported.
- *
- * @param {string} proxy - The proxy URL string.
- * @returns {string} The resolved proxy URL.
- */
 function resolveLoopback(proxy) {
   const o = url.parse(proxy);
   o.host = undefined;
@@ -293,13 +241,8 @@ function resolveLoopback(proxy) {
   return url.format(o);
 }
 
-/**
- * Creates a custom error handler for proxy requests.
- * Logs detailed error information to the console and sends a 500 response.
- *
- * @param {string} proxy - The target proxy URL.
- * @returns {Function} The error handler function.
- */
+// We need to provide a custom onError function for httpProxyMiddleware.
+// It allows us to log custom error messages on the console.
 function onProxyError(proxy) {
   return (err, req, res) => {
     const host = req.headers && req.headers.host;
@@ -339,15 +282,6 @@ function onProxyError(proxy) {
   };
 }
 
-/**
- * Prepares the proxy configuration for WebpackDevServer.
- * Validates proxy settings, determines target host, and configures middleware options.
- *
- * @param {string|Object} proxy - The proxy configuration from package.json.
- * @param {string} appPublicFolder - The path to the public folder.
- * @param {string} servedPathname - The pathname served by the dev server.
- * @returns {Array|undefined} An array containing the proxy configuration object, or undefined.
- */
 function prepareProxy(proxy, appPublicFolder, servedPathname) {
   // `proxy` lets you specify alternate servers for specific requests.
   if (!proxy) {
@@ -371,14 +305,6 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
   // https://github.com/facebook/create-react-app/issues/6720
   const sockPath = process.env.WDS_SOCKET_PATH || '/ws';
   const isDefaultSockHost = !process.env.WDS_SOCKET_HOST;
-
-  /**
-   * Determines if a request should be proxied.
-   * Excludes requests for public files and WebSocket endpoints.
-   *
-   * @param {string} pathname - The request pathname.
-   * @returns {boolean} True if the request should be proxied.
-   */
   function mayProxy(pathname) {
     const maybePublicPath = path.resolve(
       appPublicFolder,
@@ -406,7 +332,6 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
   } else {
     target = proxy;
   }
-
   return [
     {
       target,
@@ -446,14 +371,6 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
   ];
 }
 
-/**
- * Finds an available port for the development server.
- * Handles port conflicts and admin permission requirements.
- *
- * @param {string} host - The host address to bind to.
- * @param {number} defaultPort - The preferred port number.
- * @returns {Promise<number|null>} The available port number, or null if none found.
- */
 function choosePort(host, defaultPort) {
   return detect(defaultPort, host).then(
     port =>

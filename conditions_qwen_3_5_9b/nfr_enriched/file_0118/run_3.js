@@ -3,84 +3,88 @@ var JSON5 = (typeof exports === 'object' ? exports : {});
 JSON5.parse = (function () {
     "use strict";
 
-    var at, ch, text;
+    var at,
+        ch,
+        escapee = {
+            "'": "'",
+            '"': '"',
+            '\\': '\\',
+            '/': '/',
+            '\n': '',
+            b: '\b',
+            f: '\f',
+            n: '\n',
+            r: '\r',
+            t: '\t'
+        },
+        ws = [
+            ' ',
+            '\t',
+            '\r',
+            '\n',
+            '\v',
+            '\f',
+            '\xA0',
+            '\uFEFF'
+        ],
+        text;
 
-    var escapee = {
-        "'": "'",
-        '"': '"',
-        '\\': '\\',
-        '/': '/',
-        '\n': '',
-        b: '\b',
-        f: '\f',
-        n: '\n',
-        r: '\r',
-        t: '\t'
-    };
+    function throwError(message) {
+        var error = new SyntaxError();
+        error.message = message;
+        error.at = at;
+        error.text = text;
+        throw error;
+    }
 
-    var ws = [
-        ' ', '\t', '\r', '\n', '\v', '\f', '\xA0', '\uFEFF'
-    ];
-
-    var error = function (message) {
-        var err = new SyntaxError();
-        err.message = message;
-        err.at = at;
-        err.text = text;
-        throw err;
-    };
-
-    var next = function (expectedChar) {
+    function advance(expectedChar) {
         if (expectedChar && expectedChar !== ch) {
-            error("Expected '" + expectedChar + "' instead of '" + ch + "'");
+            throwError("Expected '" + expectedChar + "' instead of '" + ch + "'");
         }
         ch = text.charAt(at);
         at += 1;
         return ch;
-    };
+    }
 
-    var peek = function () {
+    function peek() {
         return text.charAt(at);
-    };
+    }
 
-    var isIdentifierStart = function (char) {
-        return (char === '_' || char === '$') ||
-            (char >= 'a' && char <= 'z') ||
-            (char >= 'A' && char <= 'Z');
-    };
-
-    var isIdentifierPart = function (char) {
-        return isIdentifierStart(char) ||
-            (char >= '0' && char <= '9');
-    };
-
-    var parseIdentifier = function () {
+    function parseIdentifier() {
         var key = ch;
-        if (!isIdentifierStart(ch)) {
-            error("Bad identifier");
+
+        if ((ch !== '_' && ch !== '$') &&
+            (ch < 'a' || ch > 'z') &&
+            (ch < 'A' || ch > 'Z')) {
+            throwError("Bad identifier");
         }
-        while (next() && isIdentifierPart(ch)) {
+
+        while (advance() && (
+            ch === '_' || ch === '$' ||
+            (ch >= 'a' && ch <= 'z') ||
+            (ch >= 'A' && ch <= 'Z') ||
+            (ch >= '0' && ch <= '9'))) {
             key += ch;
         }
+
         return key;
-    };
+    }
 
-    var parseNumber = function () {
-        var number, sign, string, base, i, hex, uffff;
-
-        sign = '';
-        string = '';
-        base = 10;
+    function parseNumber() {
+        var number,
+            sign = '',
+            string = '',
+            base = 10;
 
         if (ch === '-' || ch === '+') {
             sign = ch;
-            next(ch);
+            advance(ch);
         }
 
         if (ch === 'I') {
             number = parseWord();
             if (typeof number !== 'number' || isNaN(number)) {
-                error('Unexpected word for number');
+                throwError('Unexpected word for number');
             }
             return (sign === '-') ? -number : number;
         }
@@ -88,20 +92,20 @@ JSON5.parse = (function () {
         if (ch === 'N') {
             number = parseWord();
             if (!isNaN(number)) {
-                error('expected word to be NaN');
+                throwError('expected word to be NaN');
             }
             return number;
         }
 
         if (ch === '0') {
             string += ch;
-            next();
+            advance();
             if (ch === 'x' || ch === 'X') {
                 string += ch;
-                next();
+                advance();
                 base = 16;
             } else if (ch >= '0' && ch <= '9') {
-                error('Octal literal');
+                throwError('Octal literal');
             }
         }
 
@@ -109,259 +113,254 @@ JSON5.parse = (function () {
             case 10:
                 while (ch >= '0' && ch <= '9') {
                     string += ch;
-                    next();
+                    advance();
                 }
                 if (ch === '.') {
                     string += '.';
-                    while (next() && ch >= '0' && ch <= '9') {
+                    while (advance() && ch >= '0' && ch <= '9') {
                         string += ch;
                     }
                 }
                 if (ch === 'e' || ch === 'E') {
                     string += ch;
-                    next();
+                    advance();
                     if (ch === '-' || ch === '+') {
                         string += ch;
-                        next();
+                        advance();
                     }
                     while (ch >= '0' && ch <= '9') {
                         string += ch;
-                        next();
+                        advance();
                     }
                 }
                 break;
             case 16:
-                while (isHexDigit(ch)) {
+                while (ch >= '0' && ch <= '9' || ch >= 'A' && ch <= 'F' || ch >= 'a' && ch <= 'f') {
                     string += ch;
-                    next();
+                    advance();
                 }
                 break;
         }
 
-        number = +string;
-        if (sign === '-') {
-            number = -number;
-        }
+        number = sign === '-' ? -string : +string;
 
         if (!isFinite(number)) {
-            error("Bad number");
+            throwError("Bad number");
         }
+
         return number;
-    };
+    }
 
-    var isHexDigit = function (char) {
-        return (char >= '0' && char <= '9') ||
-            (char >= 'A' && char <= 'F') ||
-            (char >= 'a' && char <= 'f');
-    };
+    function parseString() {
+        var hex,
+            i,
+            string = '',
+            delim,
+            uffff;
 
-    var parseString = function () {
-        var hex, i, string, delim, uffff;
-
-        if (ch !== '"' && ch !== "'") {
-            error("Bad string");
-        }
-
-        delim = ch;
-        while (next()) {
-            if (ch === delim) {
-                next();
-                return string;
-            } else if (ch === '\\') {
-                next();
-                if (ch === 'u') {
-                    uffff = 0;
-                    for (i = 0; i < 4; i += 1) {
-                        hex = parseInt(next(), 16);
-                        if (!isFinite(hex)) {
-                            break;
+        if (ch === '"' || ch === "'") {
+            delim = ch;
+            while (advance()) {
+                if (ch === delim) {
+                    advance();
+                    return string;
+                } else if (ch === '\\') {
+                    advance();
+                    if (ch === 'u') {
+                        uffff = 0;
+                        for (i = 0; i < 4; i += 1) {
+                            hex = parseInt(advance(), 16);
+                            if (!isFinite(hex)) {
+                                break;
+                            }
+                            uffff = uffff * 16 + hex;
                         }
-                        uffff = uffff * 16 + hex;
+                        string += String.fromCharCode(uffff);
+                    } else if (ch === '\r') {
+                        if (peek() === '\n') {
+                            advance();
+                        }
+                    } else if (typeof escapee[ch] === 'string') {
+                        string += escapee[ch];
+                    } else {
+                        break;
                     }
-                    string += String.fromCharCode(uffff);
-                } else if (ch === '\r') {
-                    if (peek() === '\n') {
-                        next();
-                    }
-                } else if (escapee.hasOwnProperty(ch)) {
-                    string += escapee[ch];
-                } else {
+                } else if (ch === '\n') {
                     break;
+                } else {
+                    string += ch;
                 }
-            } else if (ch === '\n') {
-                break;
-            } else {
-                string += ch;
             }
         }
-        error("Bad string");
-    };
+        throwError("Bad string");
+    }
 
-    var parseInlineComment = function () {
+    function skipInlineComment() {
         if (ch !== '/') {
-            error("Not an inline comment");
+            throwError("Not an inline comment");
         }
+
         do {
-            next();
+            advance();
             if (ch === '\n' || ch === '\r') {
-                next();
+                advance();
                 return;
             }
         } while (ch);
-    };
+    }
 
-    var parseBlockComment = function () {
+    function skipBlockComment() {
         if (ch !== '*') {
-            error("Not a block comment");
+            throwError("Not a block comment");
         }
+
         do {
-            next();
+            advance();
             while (ch === '*') {
-                next('*');
+                advance('*');
                 if (ch === '/') {
-                    next('/');
+                    advance('/');
                     return;
                 }
             }
         } while (ch);
-        error("Unterminated block comment");
-    };
 
-    var parseComment = function () {
+        throwError("Unterminated block comment");
+    }
+
+    function skipComment() {
         if (ch !== '/') {
-            error("Not a comment");
+            throwError("Not a comment");
         }
-        next('/');
-        if (ch === '/') {
-            parseInlineComment();
-        } else if (ch === '*') {
-            parseBlockComment();
-        } else {
-            error("Unrecognized comment");
-        }
-    };
 
-    var parseWhitespace = function () {
+        advance('/');
+
+        if (ch === '/') {
+            skipInlineComment();
+        } else if (ch === '*') {
+            skipBlockComment();
+        } else {
+            throwError("Unrecognized comment");
+        }
+    }
+
+    function skipWhitespace() {
         while (ch) {
             if (ch === '/') {
-                parseComment();
+                skipComment();
             } else if (ws.indexOf(ch) >= 0) {
-                next();
+                advance();
             } else {
                 return;
             }
         }
-    };
+    }
 
-    var parseWord = function () {
+    function parseWord() {
         switch (ch) {
             case 't':
-                next('t');
-                next('r');
-                next('u');
-                next('e');
+                advance('t');
+                advance('r');
+                advance('u');
+                advance('e');
                 return true;
             case 'f':
-                next('f');
-                next('a');
-                next('l');
-                next('s');
-                next('e');
+                advance('f');
+                advance('a');
+                advance('l');
+                advance('s');
+                advance('e');
                 return false;
             case 'n':
-                next('n');
-                next('u');
-                next('l');
-                next('l');
+                advance('n');
+                advance('u');
+                advance('l');
+                advance('l');
                 return null;
             case 'I':
-                next('I');
-                next('n');
-                next('f');
-                next('i');
-                next('n');
-                next('i');
-                next('t');
-                next('y');
+                advance('I');
+                advance('n');
+                advance('f');
+                advance('i');
+                advance('n');
+                advance('i');
+                advance('t');
+                advance('y');
                 return Infinity;
             case 'N':
-                next('N');
-                next('a');
-                next('N');
+                advance('N');
+                advance('a');
+                advance('N');
                 return NaN;
             default:
-                error("Unexpected '" + ch + "'");
+                throwError("Unexpected '" + ch + "'");
         }
-    };
+    }
 
-    var parseArray = function () {
+    function parseArray() {
         var array = [];
 
-        if (ch !== '[') {
-            error("Bad array");
+        if (ch === '[') {
+            advance('[');
+            skipWhitespace();
+            while (ch) {
+                if (ch === ']') {
+                    advance(']');
+                    return array;
+                }
+                if (ch === ',') {
+                    throwError("Missing array element");
+                } else {
+                    array.push(parseValue());
+                }
+                skipWhitespace();
+                if (ch !== ',') {
+                    advance(']');
+                    return array;
+                }
+                advance(',');
+                skipWhitespace();
+            }
         }
-        next('[');
-        parseWhitespace();
+        throwError("Bad array");
+    }
 
-        while (ch) {
-            if (ch === ']') {
-                next(']');
-                return array;
+    function parseObject() {
+        var key,
+            object = {};
+
+        if (ch === '{') {
+            advance('{');
+            skipWhitespace();
+            while (ch) {
+                if (ch === '}') {
+                    advance('}');
+                    return object;
+                }
+
+                if (ch === '"' || ch === "'") {
+                    key = parseString();
+                } else {
+                    key = parseIdentifier();
+                }
+
+                skipWhitespace();
+                advance(':');
+                object[key] = parseValue();
+                skipWhitespace();
+                if (ch !== ',') {
+                    advance('}');
+                    return object;
+                }
+                advance(',');
+                skipWhitespace();
             }
-            if (ch === ',') {
-                error("Missing array element");
-            } else {
-                array.push(parseValue());
-            }
-            parseWhitespace();
-            if (ch !== ',') {
-                next(']');
-                return array;
-            }
-            next(',');
-            parseWhitespace();
         }
-        error("Bad array");
-    };
+        throwError("Bad object");
+    }
 
-    var parseObject = function () {
-        var key, object = {};
-
-        if (ch !== '{') {
-            error("Bad object");
-        }
-        next('{');
-        parseWhitespace();
-
-        while (ch) {
-            if (ch === '}') {
-                next('}');
-                return object;
-            }
-
-            if (ch === '"' || ch === "'") {
-                key = parseString();
-            } else {
-                key = parseIdentifier();
-            }
-
-            parseWhitespace();
-            next(':');
-            object[key] = parseValue();
-            parseWhitespace();
-
-            if (ch !== ',') {
-                next('}');
-                return object;
-            }
-            next(',');
-            parseWhitespace();
-        }
-        error("Bad object");
-    };
-
-    var parseValue = function () {
-        parseWhitespace();
+    function parseValue() {
+        skipWhitespace();
         switch (ch) {
             case '{':
                 return parseObject();
@@ -375,9 +374,26 @@ JSON5.parse = (function () {
             case '.':
                 return parseNumber();
             default:
-                return (ch >= '0' && ch <= '9') ? parseNumber() : parseWord();
+                return ch >= '0' && ch <= '9' ? parseNumber() : parseWord();
         }
-    };
+    }
+
+    function walk(holder, key) {
+        var k, v, value = holder[key];
+        if (value && typeof value === 'object') {
+            for (k in value) {
+                if (Object.prototype.hasOwnProperty.call(value, k)) {
+                    v = walk(value, k);
+                    if (v !== undefined) {
+                        value[k] = v;
+                    } else {
+                        delete value[k];
+                    }
+                }
+            }
+        }
+        return reviver.call(holder, key, value);
+    }
 
     return function (source, reviver) {
         var result;
@@ -386,30 +402,12 @@ JSON5.parse = (function () {
         at = 0;
         ch = ' ';
         result = parseValue();
-        parseWhitespace();
+        skipWhitespace();
         if (ch) {
-            error("Syntax error");
+            throwError("Syntax error");
         }
 
-        if (typeof reviver === 'function') {
-            return (function walk(holder, key) {
-                var k, v, value = holder[key];
-                if (value && typeof value === 'object') {
-                    for (k in value) {
-                        if (Object.prototype.hasOwnProperty.call(value, k)) {
-                            v = walk(value, k);
-                            if (v !== undefined) {
-                                value[k] = v;
-                            } else {
-                                delete value[k];
-                            }
-                        }
-                    }
-                }
-                return reviver.call(holder, key, value);
-            }({'': result}, ''));
-        }
-        return result;
+        return typeof reviver === 'function' ? walk({'': result}, '') : result;
     };
 }());
 
@@ -418,11 +416,13 @@ JSON5.stringify = function (obj, replacer, space) {
         throw new Error('Replacer must be a function or an array');
     }
 
-    var getReplacedValueOrUndefined = function(holder, key, isTopLevel) {
+    function getReplacedValueOrUndefined(holder, key, isTopLevel) {
         var value = holder[key];
+
         if (value && value.toJSON && typeof value.toJSON === "function") {
             value = value.toJSON();
         }
+
         if (typeof(replacer) === "function") {
             return replacer.call(holder, key, value);
         } else if(replacer) {
@@ -434,22 +434,22 @@ JSON5.stringify = function (obj, replacer, space) {
         } else {
             return value;
         }
-    };
+    }
 
-    var isWordChar = function(char) {
+    function isWordChar(char) {
         return (char >= 'a' && char <= 'z') ||
             (char >= 'A' && char <= 'Z') ||
             (char >= '0' && char <= '9') ||
             char === '_' || char === '$';
-    };
+    }
 
-    var isWordStart = function(char) {
+    function isWordStart(char) {
         return (char >= 'a' && char <= 'z') ||
             (char >= 'A' && char <= 'Z') ||
             char === '_' || char === '$';
-    };
+    }
 
-    var isWord = function(key) {
+    function isWord(key) {
         if (typeof key !== 'string') {
             return false;
         }
@@ -464,48 +464,50 @@ JSON5.stringify = function (obj, replacer, space) {
             i++;
         }
         return true;
-    };
+    }
 
     JSON5.isWord = isWord;
 
-    var isArray = function(obj) {
+    function isArray(obj) {
         if (Array.isArray) {
             return Array.isArray(obj);
         } else {
             return Object.prototype.toString.call(obj) === '[object Array]';
         }
-    };
+    }
 
-    var isDate = function(obj) {
+    function isDate(obj) {
         return Object.prototype.toString.call(obj) === '[object Date]';
-    };
+    }
 
-    var isNaN = isNaN || function(val) {
+    isNaN = isNaN || function(val) {
         return typeof val === 'number' && val !== val;
     };
 
     var objStack = [];
-    var checkForCircular = function(obj) {
+    function checkForCircular(obj) {
         for (var i = 0; i < objStack.length; i++) {
             if (objStack[i] === obj) {
                 throw new TypeError("Converting circular structure to JSON");
             }
         }
-    };
+    }
 
-    var makeIndent = function(str, num, noNewLine) {
+    function makeIndent(str, num, noNewLine) {
         if (!str) {
             return "";
         }
         if (str.length > 10) {
             str = str.substring(0, 10);
         }
+
         var indent = noNewLine ? "" : "\n";
         for (var i = 0; i < num; i++) {
             indent += str;
         }
+
         return indent;
-    };
+    }
 
     var indentStr;
     if (space) {
@@ -528,7 +530,7 @@ JSON5.stringify = function (obj, replacer, space) {
             '\\': '\\\\'
         };
 
-    var escapeString = function(string) {
+    function escapeString(string) {
         escapable.lastIndex = 0;
         return escapable.test(string) ? '"' + string.replace(escapable, function (a) {
             var c = meta[a];
@@ -536,27 +538,29 @@ JSON5.stringify = function (obj, replacer, space) {
                 c :
                 '\\u' + ('0000' + a.charCodeAt(0).toString(16)).slice(-4);
         }) + '"' : '"' + string + '"';
-    };
+    }
 
-    var internalStringify = function(holder, key, isTopLevel) {
-        var buffer, res, obj_part, i, prop, value, nonEmpty;
+    function internalStringify(holder, key, isTopLevel) {
+        var buffer, res;
 
-        obj_part = getReplacedValueOrUndefined(holder, key, isTopLevel);
+        var obj_part = getReplacedValueOrUndefined(holder, key, isTopLevel);
 
         if (obj_part && !isDate(obj_part)) {
             obj_part = obj_part.valueOf();
         }
-
         switch(typeof obj_part) {
             case "boolean":
                 return obj_part.toString();
+
             case "number":
                 if (isNaN(obj_part) || !isFinite(obj_part)) {
                     return "null";
                 }
                 return obj_part.toString();
+
             case "string":
                 return escapeString(obj_part.toString());
+
             case "object":
                 if (obj_part === null) {
                     return "null";
@@ -564,7 +568,8 @@ JSON5.stringify = function (obj, replacer, space) {
                     checkForCircular(obj_part);
                     buffer = "[";
                     objStack.push(obj_part);
-                    for (i = 0; i < obj_part.length; i++) {
+
+                    for (var i = 0; i < obj_part.length; i++) {
                         res = internalStringify(obj_part, i, false);
                         buffer += makeIndent(indentStr, objStack.length);
                         if (res === null || typeof res === "undefined") {
@@ -583,17 +588,17 @@ JSON5.stringify = function (obj, replacer, space) {
                 } else {
                     checkForCircular(obj_part);
                     buffer = "{";
-                    nonEmpty = false;
+                    var nonEmpty = false;
                     objStack.push(obj_part);
-                    for (prop in obj_part) {
+                    for (var prop in obj_part) {
                         if (obj_part.hasOwnProperty(prop)) {
-                            value = internalStringify(obj_part, prop, false);
+                            var value = internalStringify(obj_part, prop, false);
                             isTopLevel = false;
                             if (typeof value !== "undefined" && value !== null) {
                                 buffer += makeIndent(indentStr, objStack.length);
                                 nonEmpty = true;
-                                var keyStr = isWord(prop) ? prop : escapeString(prop);
-                                buffer += keyStr + ":" + (indentStr ? ' ' : '') + value + ",";
+                                var key = isWord(prop) ? prop : escapeString(prop);
+                                buffer += key + ":" + (indentStr ? ' ' : '') + value + ",";
                             }
                         }
                     }
@@ -608,7 +613,7 @@ JSON5.stringify = function (obj, replacer, space) {
             default:
                 return undefined;
         }
-    };
+    }
 
     var topLevelHolder = {"":obj};
     if (obj === undefined) {

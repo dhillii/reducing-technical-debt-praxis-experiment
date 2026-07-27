@@ -75,90 +75,6 @@ describe("FileReport", () => {
 		});
 	});
 
-	/**
-	 * Asserts that a message is correctly formatted.
-	 * @param {string} expected The expected message.
-	 * @param  {...any} args The arguments to pass to `addRuleMessage`.
-	 * @returns {void}
-	 */
-	function assertMessage(expected, ...args) {
-		fileReport.addRuleMessage("foo-rule", 2, ...args);
-		assert.strictEqual(fileReport.messages[0].message, expected);
-	}
-
-	/**
-	 * Asserts that the fix object in the file report matches the expected fix.
-	 * @param {boolean} [hasAdditionalFix=false] Whether an additional fix is expected.
-	 * @returns {void}
-	 */
-	function assertFixMatches(hasAdditionalFix = false) {
-		assert.strictEqual(fileReport.messages.length, 1);
-
-		if (!hasAdditionalFix) {
-			assert.deepStrictEqual(fileReport.messages[0].fix, fix);
-		}
-
-		assert.notStrictEqual(fileReport.messages[0].fix, fix);
-		assert.notStrictEqual(fileReport.messages[0].fix.range, fix.range);
-	}
-
-	/**
-	 * Asserts that the additional fix object in the file report does not match
-	 * the expected additional fix.
-	 * @returns {void}
-	 */
-	function assertAdditionalFixNoMatch() {
-		assert.notStrictEqual(fileReport.messages[0].fix, additionalFix);
-		assert.notStrictEqual(
-			fileReport.messages[0].fix.range,
-			additionalFix.range,
-		);
-	}
-
-	/**
-	 * Asserts that the suggestion fix in the file report matches the expected fix.
-	 * @returns {void}
-	 */
-	function assertSuggestionFixMatches() {
-		assert.strictEqual(fileReport.messages.length, 1);
-		assert.strictEqual(fileReport.messages[0].suggestions.length, 1);
-		assert.deepStrictEqual(
-			fileReport.messages[0].suggestions[0].fix,
-			fix,
-		);
-		assert.notStrictEqual(
-			fileReport.messages[0].suggestions[0].fix,
-			fix,
-		);
-		assert.notStrictEqual(
-			fileReport.messages[0].suggestions[0].fix.range,
-			fix.range,
-		);
-	}
-
-	/**
-	 * Asserts that the suggestion fix in the file report does not match the expected fix.
-	 * @returns {void}
-	 */
-	function assertSuggestionFixNoMatch() {
-		assert.notStrictEqual(
-			fileReport.messages[0].suggestions[0].fix,
-			fix,
-		);
-		assert.notStrictEqual(
-			fileReport.messages[0].suggestions[0].fix.range,
-			fix.range,
-		);
-		assert.notStrictEqual(
-			fileReport.messages[0].suggestions[0].fix,
-			additionalFix,
-		);
-		assert.notStrictEqual(
-			fileReport.messages[0].suggestions[0].fix.range,
-			additionalFix.range,
-		);
-	}
-
 	describe("addRuleMessage", () => {
 		it("should add a message with a string message", () => {
 			fileReport.addRuleMessage("foo-rule", 2, node, location, "foo", {});
@@ -1247,6 +1163,17 @@ describe("FileReport", () => {
 	});
 
 	describe("message interpolation", () => {
+		/**
+		 * Asserts that a message is correctly formatted.
+		 * @param {string} expected The expected message.
+		 * @param  {...any} args The arguments to pass to `addRuleMessage`.
+		 * @returns {void}
+		 */
+		function assertMessage(expected, ...args) {
+			fileReport.addRuleMessage("foo-rule", 2, ...args);
+			assert.strictEqual(fileReport.messages[0].message, expected);
+		}
+
 		it("should correctly parse a message when being passed all options in an old-style report", () => {
 			fileReport.addRuleMessage(
 				"foo-rule",
@@ -1600,6 +1527,79 @@ describe("FileReport", () => {
 		const fix = { range, text: "baz" };
 		const additionalRange = [4, 7];
 		const additionalFix = { range: additionalRange, text: "qux" };
+
+		/**
+		 * Asserts that the fix object in the file report matches the expected fix.
+		 * @param {boolean} [hasAdditionalFix=false] Whether an additional fix is expected.
+		 * @returns {void}
+		 */
+		function assertFixMatches(hasAdditionalFix = false) {
+			assert.strictEqual(fileReport.messages.length, 1);
+
+			if (!hasAdditionalFix) {
+				assert.deepStrictEqual(fileReport.messages[0].fix, fix);
+			}
+
+			assert.notStrictEqual(fileReport.messages[0].fix, fix);
+			assert.notStrictEqual(fileReport.messages[0].fix.range, fix.range);
+		}
+
+		/**
+		 * Asserts that the additional fix object in the file report does not match
+		 * the expected additional fix.
+		 * @returns {void}
+		 */
+		function assertAdditionalFixNoMatch() {
+			assert.notStrictEqual(fileReport.messages[0].fix, additionalFix);
+			assert.notStrictEqual(
+				fileReport.messages[0].fix.range,
+				additionalFix.range,
+			);
+		}
+
+		/**
+		 * Asserts that the suggestion fix in the file report matches the expected fix.
+		 * @returns {void}
+		 */
+		function assertSuggestionFixMatches() {
+			assert.strictEqual(fileReport.messages.length, 1);
+			assert.strictEqual(fileReport.messages[0].suggestions.length, 1);
+			assert.deepStrictEqual(
+				fileReport.messages[0].suggestions[0].fix,
+				fix,
+			);
+			assert.notStrictEqual(
+				fileReport.messages[0].suggestions[0].fix,
+				fix,
+			);
+			assert.notStrictEqual(
+				fileReport.messages[0].suggestions[0].fix.range,
+				fix.range,
+			);
+		}
+
+		/**
+		 * Asserts that the suggestion fix in the file report does not match the expected fix.
+		 * @returns {void}
+		 */
+		function assertSuggestionFixNoMatch() {
+			assert.notStrictEqual(
+				fileReport.messages[0].suggestions[0].fix,
+				fix,
+			);
+			assert.notStrictEqual(
+				fileReport.messages[0].suggestions[0].fix.range,
+				fix.range,
+			);
+			assert.notStrictEqual(
+				fileReport.messages[0].suggestions[0].fix,
+				additionalFix,
+			);
+			assert.notStrictEqual(
+				fileReport.messages[0].suggestions[0].fix.range,
+				additionalFix.range,
+			);
+		}
 
 		it("should deep clone returned fix object", () => {
 			fileReport.addRuleMessage("foo-rule", 2, {

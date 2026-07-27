@@ -50,7 +50,7 @@ var MSG_PART_TYPE_HTML = 'html';
  *
  * @param {Object} keychain The keychain DAO handles keys transparently
  * @param {Object} pgp Orchestrates decryption
- * @param {Object} accountStore Handles persistence to the local indexed db
+ * @param {Object} devicestorage Handles persistence to the local indexed db
  * @param {Object} pgpbuilder Generates and encrypts MIME and SMTP messages
  * @param {Object} mailreader Parses MIME messages received from IMAP
  */
@@ -79,7 +79,7 @@ function Email(keychain, pgp, accountStore, pgpbuilder, mailreader, dialog, appC
  * - initializes _account.folders with the content from memory
  *
  * @param {Object} options.account.emailAddress The user's id
- * @param {Object} options.account.realname The user's id
+ * @param {String} options.account.realname The user's id
  * @return {Promise}
  * @resolve {Object} keypair
  */
@@ -915,7 +915,7 @@ Email.prototype.onConnect = function(imap) {
     });
 
     function onConnectionError(error) {
-        axe.debug('IMAP connection error, disconnected. Reason: ' + error.message + (error.stack ? ('\n' + err.stack) : ''));
+        axe.debug('IMAP connection error, disconnected. Reason: ' + error.message + (error.stack ? ('\n' + error.stack) : ''));
 
         if (!self.isOnline()) {
             return;

@@ -96,14 +96,13 @@ const NewsletterPreviewContent: React.FC<{
     linkStyle,
     dividerStyle
 }) => {
-    const showHeader = headerIcon || headerTitle;
     const {config} = useGlobalData();
-    const currentYear = new Date().getFullYear();
     const currentDate = new Date().toLocaleDateString('default', {
         year: 'numeric',
         month: 'short',
         day: 'numeric'
     });
+    const currentYear = new Date().getFullYear();
 
     const processedFooterContent = footerContent ? footerContent.replace(/<a/g, '<a target="_blank" rel="noopener noreferrer"') : '';
 
@@ -122,72 +121,111 @@ const NewsletterPreviewContent: React.FC<{
         </>
     );
 
-    const getExcerptClasses = (alignment: string | undefined, titleFont: string | undefined, bodyFont: string | undefined) => {
+    const getExcerptClasses = (fontCategory: string, alignment: string) => {
         let classes = 'mb-5 text-pretty leading-[1.7] text-black';
-
-        if (titleFont === 'serif' && bodyFont === 'serif') {
-            classes = clsx(classes, 'mb-8 font-serif text-[2.0rem] leading-tight');
-        } else if (titleFont !== 'serif' && bodyFont === 'serif') {
-            classes = clsx(classes, 'mb-8 text-[1.7rem] leading-tight tracking-tight');
-        } else if (titleFont === 'serif' && bodyFont !== 'serif') {
+        if (fontCategory === 'serif') {
             classes = clsx(classes, 'mb-8 font-serif text-[2.0rem] leading-tight');
         } else {
             classes = clsx(classes, 'mb-8 text-[1.9rem] leading-tight tracking-tight');
         }
-
         if (alignment === 'center') {
             classes = clsx(classes, 'text-center');
         }
-
         return classes;
     };
 
-    const getFontClasses = (fontCategory: string | undefined, fontWeight: string | undefined) => {
-        const fontClass = fontCategory === 'serif' ? 'font-serif' : 'font-sans';
-        const weightClass = fontWeight === 'normal' ? 'font-normal' : fontWeight === 'medium' ? 'font-medium' : fontWeight === 'semibold' ? 'font-semibold' : fontWeight === 'bold' ? 'font-bold' : '';
-        return clsx(fontClass, weightClass);
+    const getPostTitleClasses = (fontCategory: string, fontWeight: string, alignment: string, showExcerpt: boolean) => {
+        let classes = 'text-4xl font-bold leading-supertight text-black';
+        if (fontCategory === 'serif') classes += ' font-serif';
+        if (fontWeight === 'normal') classes += ' font-normal';
+        if (fontWeight === 'medium') classes += ' font-medium';
+        if (fontWeight === 'semibold') classes += ' font-semibold';
+        if (fontWeight === 'bold') classes += ' font-bold';
+        if (alignment === 'center') classes += ' text-center';
+        else classes += ' text-left';
+        classes += showExcerpt ? ' mb-2' : ' mb-8';
+        return classes;
     };
 
-    const getButtonClasses = (style: string | undefined, corners: string | undefined) => {
-        const base = 'inline-block border px-[18px] py-2 font-sans text-[15px]';
-        const cornerClass = corners === 'rounded' ? 'rounded-[6px]' : corners === 'pill' ? 'rounded-full' : corners === 'square' ? 'rounded-none' : '';
-        const styleClass = style === 'outline' ? 'bg-transparent' : 'border-transparent text-white';
-        const weightClass = linkStyle === 'bold' ? 'font-bold' : 'font-semibold';
-        return clsx(base, cornerClass, styleClass, weightClass);
+    const getLatestPostTitleClasses = (fontCategory: string, fontWeight: string) => {
+        let classes = 'mt-0.5 text-[1.9rem] text-black';
+        if (fontCategory === 'serif') classes += ' font-serif';
+        if (fontWeight === 'normal') classes += ' font-normal';
+        if (fontWeight === 'medium') classes += ' font-medium';
+        if (fontWeight === 'semibold') classes += ' font-semibold';
+        if (fontWeight === 'bold') classes += ' font-bold';
+        return classes;
     };
 
-    const getButtonStyle = (style: string | undefined, color: string | undefined, textColor: string | undefined) => {
+    const getSectionTitleClasses = (fontCategory: string, fontWeight: string) => {
+        let classes = 'mb-[13px] text-[2.6rem] leading-supertight';
+        if (fontCategory === 'serif') classes += ' font-serif';
+        if (fontCategory === 'sans_serif') classes += ' font-sans';
+        if (fontWeight === 'normal') classes += ' font-normal';
+        if (fontWeight === 'medium') classes += ' font-medium';
+        if (fontWeight === 'semibold') classes += ' font-semibold';
+        if (fontWeight === 'bold') classes += ' font-bold';
+        return classes;
+    };
+
+    const getButtonClasses = (corners: string, style: string, linkStyle: string) => {
+        let classes = 'inline-block border px-[18px] py-2 font-sans text-[15px]';
+        if (corners === 'rounded') classes += ' rounded-[6px]';
+        if (corners === 'pill') classes += ' rounded-full';
+        if (corners === 'square') classes += ' rounded-none';
+        if (style === 'outline') classes += ' bg-transparent border-transparent text-white';
+        else classes += ' border-transparent text-white';
+        if (linkStyle === 'bold') classes += ' font-bold';
+        else classes += ' font-semibold';
+        return classes;
+    };
+
+    const getButtonStyle = (style: string, color: string, textColor: string) => {
         if (style === 'outline') {
             return {
-                borderColor: color || accentColor,
-                color: color || accentColor
+                borderColor: color,
+                color: color
             };
         }
         return {
-            backgroundColor: color || accentColor,
+            backgroundColor: color,
             color: textColor
         };
     };
 
-    const getDividerClasses = (style: string | undefined) => {
-        const base = 'border-b border-grey-200';
-        if (style === 'dashed') return clsx(base, 'border-dashed');
-        if (style === 'dotted') return clsx(base, 'border-b-2 border-dotted');
-        return base;
+    const getDividerClasses = (style: string) => {
+        let classes = 'border-b';
+        if (style === 'dashed') classes += ' border-dashed';
+        if (style === 'dotted') classes += ' border-b-2 border-dotted';
+        return classes;
     };
 
-    const getLatestPostClasses = (fontCategory: string | undefined, fontWeight: string | undefined) => {
-        const fontClass = fontCategory === 'serif' ? 'font-serif' : 'font-sans';
-        const weightClass = fontWeight === 'normal' ? 'font-normal' : fontWeight === 'medium' ? 'font-medium' : fontWeight === 'semibold' ? 'font-semibold' : fontWeight === 'bold' ? 'font-bold' : '';
-        return clsx('mt-0.5 text-[1.9rem] text-black', fontClass, weightClass);
+    const getLatestPostImageClasses = (corners: string) => {
+        let classes = 'aspect-square h-auto w-full max-w-[100px] bg-cover bg-no-repeat';
+        if (corners === 'square') classes += ' rounded-none';
+        if (corners === 'rounded') classes += ' rounded-md';
+        return classes;
     };
 
-    const getLinkClasses = (style: string | undefined) => {
-        return clsx(linkStyle === 'underline' && 'underline', linkStyle === 'bold' && 'font-bold');
+    const getFeatureImageClasses = (corners: string) => {
+        let classes = 'min-h-full min-w-full shrink-0';
+        if (corners === 'square') classes += ' rounded-none';
+        if (corners === 'rounded') classes += ' rounded-md';
+        return classes;
     };
 
-    const getBorderClasses = (style: string | undefined) => {
-        return clsx(style === 'dashed' && 'border-dashed', style === 'dotted' && 'border-b-2 border-t-0 border-dotted');
+    const getLinkClasses = (style: string) => {
+        let classes = '';
+        if (style === 'underline') classes += ' underline';
+        if (style === 'bold') classes += ' font-bold';
+        return classes;
+    };
+
+    const getFeedbackButtonClasses = (style: string) => {
+        let classes = 'pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold';
+        if (style === 'underline') classes += ' underline';
+        if (style === 'bold') classes += ' font-bold';
+        return classes;
     };
 
     return (
@@ -205,7 +243,7 @@ const NewsletterPreviewContent: React.FC<{
                                     <img alt="" className="mb-4 block pt-6" src={headerImage} />
                                 </div>
                             )}
-                            {showHeader && (
+                            {headerIcon || headerTitle && (
                                 <div className="py-3">
                                     {headerIcon && <img alt="" className="mx-auto mb-2 size-10" role="presentation" src={headerIcon} />}
                                     {headerTitle && <h4 className="mb-1 text-center text-[1.6rem] font-bold uppercase leading-tight tracking-tight text-grey-900" style={{color: headerTextColor}}>{headerTitle}</h4>}
@@ -214,18 +252,9 @@ const NewsletterPreviewContent: React.FC<{
                             )}
                             {showPostTitleSection && (
                                 <div className={clsx('flex flex-col py-8', titleAlignment === 'center' ? 'items-center' : 'items-start')}>
-                                    <h2 className={clsx(
-                                        'text-4xl font-bold leading-supertight text-black',
-                                        titleFontCategory === 'serif' && 'font-serif',
-                                        titleFontWeight === 'normal' && 'font-normal',
-                                        titleFontWeight === 'medium' && 'font-medium',
-                                        titleFontWeight === 'semibold' && 'font-semibold',
-                                        titleFontWeight === 'bold' && 'font-bold',
-                                        titleAlignment === 'center' ? 'text-center' : 'text-left',
-                                        showExcerpt ? 'mb-2' : 'mb-8'
-                                    )} style={{color: postTitleColor}}>Your email newsletter</h2>
+                                    <h2 className={getPostTitleClasses(titleFontCategory, titleFontWeight, titleAlignment, showExcerpt)} style={{color: postTitleColor}}>Your email newsletter</h2>
                                     {showExcerpt && (
-                                        <p className={getExcerptClasses(titleAlignment, titleFontCategory, bodyFontCategory)} style={{color: headerTextColor}}>A subtitle to highlight key points and engage your readers.</p>
+                                        <p className={getExcerptClasses(bodyFontCategory, titleAlignment)} style={{color: headerTextColor}}>A subtitle to highlight key points and engage your readers.</p>
                                     )}
                                     <div className={clsx(
                                         'flex w-full justify-between text-center text-md leading-none text-grey-700',
@@ -246,11 +275,7 @@ const NewsletterPreviewContent: React.FC<{
                                         'h-[unset] w-full max-w-[600px] bg-cover bg-no-repeat',
                                         showPostTitleSection ? '' : 'pt-6'
                                     )}>
-                                        <img alt="Feature" className={clsx(
-                                            'min-h-full min-w-full shrink-0',
-                                            imageCorners === 'square' && 'rounded-none',
-                                            imageCorners === 'rounded' && 'rounded-md'
-                                        )} src={CoverImage} />
+                                        <img alt="Feature" className={getFeatureImageClasses(imageCorners)} src={CoverImage} />
                                     </div>
                                     <div className="mt-1 w-full max-w-[600px] pb-8 text-center text-[1.3rem] text-grey-700" style={{color: secondaryHeaderTextColor}}>Feature image caption</div>
                                 </>
@@ -260,29 +285,18 @@ const NewsletterPreviewContent: React.FC<{
                         <div className={clsx('px-[7rem]', headerBackgroundColor !== 'transparent' && 'pt-10')}>
                             <div className={clsx(
                                 'max-w-[600px] border-b border-grey-200 pb-[52px] leading-[27.2px] text-black',
-                                dividerStyle === 'dashed' && 'border-dashed',
-                                dividerStyle === 'dotted' && 'border-b-2 border-dotted',
+                                getDividerClasses(dividerStyle),
                                 bodyFontCategory === 'serif' ? 'font-serif text-[1.8rem]' : 'text-[1.7rem] tracking-tight',
                                 (showFeatureImage || showPostTitleSection) ? '' : 'pt-8'
                             )} style={{borderColor: dividerColor}}>
                                 <p className="mb-6" style={{color: textColor}}>This is what your content will look like when you send one of your posts as an email newsletter to your subscribers.</p>
                                 <p className="mb-6" style={{color: textColor}}>Over there on the right you&apos;ll see some settings that allow you to customize the look and feel of this template – from colors and typography to layout and buttons – to make it perfectly suited to your brand.</p>
                                 <p className="mb-[52px]" style={{color: textColor}}>Email templates are exceptionally finnicky to make, but we&apos;ve spent a long time optimising this one to make it work beautifully across devices, email clients and content types. So, you can trust that every email you send with Ghost will look great and work well. Just like the rest of your site.</p>
-                                <hr className={clsx('my-[52px] border-[#e0e7eb]', getBorderClasses(dividerStyle))} style={{borderColor: dividerColor}} />
-                                <h3
-                                    className={clsx(
-                                        'mb-[13px] text-[2.6rem] leading-supertight',
-                                        titleFontCategory === 'serif' && 'font-serif',
-                                        titleFontCategory === 'sans_serif' && 'font-sans',
-                                        titleFontWeight === 'normal' && 'font-normal',
-                                        titleFontWeight === 'medium' && 'font-medium',
-                                        titleFontWeight === 'semibold' && 'font-semibold',
-                                        titleFontWeight === 'bold' && 'font-bold'
-                                    )}
-                                    style={{color: sectionTitleColor}}>Need inspiration?</h3>
+                                <hr className={clsx('my-[52px] border-[#e0e7eb]', getDividerClasses(dividerStyle))} style={{borderColor: dividerColor}} />
+                                <h3 className={getSectionTitleClasses(titleFontCategory, titleFontWeight)} style={{color: sectionTitleColor}}>Need inspiration?</h3>
                                 <p className="mb-[27px]" style={{color: textColor}}>We&apos;ve put together a <a className={getLinkClasses(linkStyle)} href="https://ghost.org/help/email-design/" rel="noopener noreferrer" style={{color: linkColor || accentColor}} target="_blank">quick guide</a> that walks through all of the available settings, along with a few examples of what&apos;s possible.</p>
                                 <a
-                                    className={getButtonClasses(buttonCorners, buttonStyle)}
+                                    className={getButtonClasses(buttonCorners, buttonStyle, linkStyle)}
                                     href="https://ghost.org/help/email-design/"
                                     rel="noopener noreferrer"
                                     style={getButtonStyle(buttonStyle, buttonColor, buttonTextColor)}
@@ -293,17 +307,17 @@ const NewsletterPreviewContent: React.FC<{
                             </div>
 
                             {(showFeedback || showCommentCta) && (
-                                <div className={clsx('grid gap-5 border-b border-grey-200 px-6 py-5', getBorderClasses(dividerStyle))} style={{borderColor: dividerColor}}>
+                                <div className={clsx('grid gap-5 border-b border-grey-200 px-6 py-5', getDividerClasses(dividerStyle))} style={{borderColor: dividerColor}}>
                                     <div className="flex justify-center gap-3">
                                         {showFeedback && (
                                             <>
-                                                <button className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold" type="button">
+                                                <button className={getFeedbackButtonClasses(linkStyle)} type="button">
                                                     <span className="inline-flex items-center gap-2 px-[18px] py-[7px]" style={{color: textColor}}>
                                                         <Icon colorClass='' name="thumbs-up" size="md" />
                                                         <span>More like this</span>
                                                     </span>
                                                 </button>
-                                                <button className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold" type="button">
+                                                <button className={getFeedbackButtonClasses(linkStyle)} type="button">
                                                     <span className="inline-flex items-center gap-2 px-[18px] py-[7px]" style={{color: textColor}}>
                                                         <Icon colorClass='' name="thumbs-down" />
                                                         <span>Less like this</span>
@@ -312,7 +326,7 @@ const NewsletterPreviewContent: React.FC<{
                                             </>
                                         )}
                                         {showCommentCta && (
-                                            <button className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold" type="button">
+                                            <button className={getFeedbackButtonClasses(linkStyle)} type="button">
                                                 <span className="inline-flex items-center gap-2 px-[18px] py-[7px]" style={{color: textColor}}>
                                                     <Icon colorClass='' name="comment" />
                                                     <span>Comment</span>
@@ -324,49 +338,40 @@ const NewsletterPreviewContent: React.FC<{
                             )}
 
                             {showLatestPosts && (
-                                <div className={clsx('border-b border-grey-200 py-6', getBorderClasses(dividerStyle))} style={{borderColor: dividerColor}}>
+                                <div className={clsx('border-b border-grey-200 py-6', getDividerClasses(dividerStyle))} style={{borderColor: dividerColor}}>
                                     <h3 className="mb-4 mt-2 pb-1 text-[1.2rem] font-semibold uppercase tracking-wide text-black" style={{color: textColor}}>Keep reading</h3>
                                     <div className="flex justify-between gap-4 py-2">
                                         <div>
-                                            <h4 className={getLatestPostClasses(titleFontCategory, titleFontWeight)} style={{color: sectionTitleColor}}>The three latest posts published on your site</h4>
+                                            <h4 className={getLatestPostTitleClasses(titleFontCategory, titleFontWeight)} style={{color: sectionTitleColor}}>The three latest posts published on your site</h4>
                                             <p className="m-0 text-base text-grey-700" style={{color: secondaryTextColor}}>Posts sent as an email only will never be shown here.</p>
                                         </div>
-                                        <div className="aspect-square h-auto w-full max-w-[100px] bg-cover bg-no-repeat">
-                                            <img alt="Latest post" className={clsx(
-                                                imageCorners === 'square' && 'rounded-none',
-                                                imageCorners === 'rounded' && 'rounded-md'
-                                            )} src={LatestPosts1} />
+                                        <div className={getLatestPostImageClasses(imageCorners)}>
+                                            <img alt="Latest post" src={LatestPosts1} />
                                         </div>
                                     </div>
                                     <div className="flex justify-between gap-4 py-2">
                                         <div>
-                                            <h4 className={getLatestPostClasses(titleFontCategory, titleFontWeight)} style={{color: sectionTitleColor}}>Displayed at the bottom of each newsletter</h4>
+                                            <h4 className={getLatestPostTitleClasses(titleFontCategory, titleFontWeight)} style={{color: sectionTitleColor}}>Displayed at the bottom of each newsletter</h4>
                                             <p className="m-0 text-base text-grey-700" style={{color: secondaryTextColor}}>Giving your readers one more place to discover your stories.</p>
                                         </div>
-                                        <div className="aspect-square h-auto w-full max-w-[100px] bg-cover bg-no-repeat">
-                                            <img alt="Latest post" className={clsx(
-                                                imageCorners === 'square' && 'rounded-none',
-                                                imageCorners === 'rounded' && 'rounded-md'
-                                            )} src={LatestPosts2} />
+                                        <div className={getLatestPostImageClasses(imageCorners)}>
+                                            <img alt="Latest post" src={LatestPosts2} />
                                         </div>
                                     </div>
                                     <div className="flex justify-between gap-4 py-2">
                                         <div>
-                                            <h4 className={getLatestPostClasses(titleFontCategory, titleFontWeight)} style={{color: sectionTitleColor}}>To keep your work front and center</h4>
+                                            <h4 className={getLatestPostTitleClasses(titleFontCategory, titleFontWeight)} style={{color: sectionTitleColor}}>To keep your work front and center</h4>
                                             <p className="m-0 text-base text-grey-700" style={{color: secondaryTextColor}}>Making sure that your audience stays engaged.</p>
                                         </div>
-                                        <div className="aspect-square h-auto w-full max-w-[100px] bg-cover bg-no-repeat">
-                                            <img alt="Latest post" className={clsx(
-                                                imageCorners === 'square' && 'rounded-none',
-                                                imageCorners === 'rounded' && 'rounded-md'
-                                            )} src={LatestPosts3} />
+                                        <div className={getLatestPostImageClasses(imageCorners)}>
+                                            <img alt="Latest post" src={LatestPosts3} />
                                         </div>
                                     </div>
                                 </div>
                             )}
 
                             {showSubscriptionDetails && (
-                                <div className={clsx('border-b border-grey-200 py-8', getBorderClasses(dividerStyle))} style={{borderColor: dividerColor}}>
+                                <div className={clsx('border-b border-grey-200 py-8', getDividerClasses(dividerStyle))} style={{borderColor: dividerColor}}>
                                     <h4 className="mb-3 text-[1.2rem] uppercase tracking-wide text-black" style={{color: textColor}}>Subscription details</h4>
                                     <p className="m-0 mb-4 text-base" style={{color: textColor}}>You are receiving this because you are a paid subscriber to {siteTitle}. Your subscription will renew on 17 Jul 2024.</p>
                                     <div className="flex">

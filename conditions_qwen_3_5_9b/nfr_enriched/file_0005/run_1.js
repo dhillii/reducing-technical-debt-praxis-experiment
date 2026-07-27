@@ -109,7 +109,7 @@ const Sidebar: React.FC<{
         }
     };
 
-    const isBackgroundDark = () => {
+    const backgroundColorIsDark = () => {
         if (newsletter.background_color === 'light') {
             return false;
         }
@@ -481,7 +481,7 @@ const Sidebar: React.FC<{
                                 {
                                     value: null,
                                     title: 'Auto',
-                                    hex: isBackgroundDark() ? '#ffffff' : '#000000'
+                                    hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
                                 },
                                 {
                                     value: 'accent',
@@ -534,7 +534,7 @@ const Sidebar: React.FC<{
                                 {
                                     value: null,
                                     title: 'Auto',
-                                    hex: isBackgroundDark() ? '#ffffff' : '#000000'
+                                    hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
                                 },
                                 {
                                     value: 'accent',
@@ -560,7 +560,7 @@ const Sidebar: React.FC<{
                                 {
                                     value: null,
                                     title: 'Auto',
-                                    hex: isBackgroundDark() ? '#ffffff' : '#000000'
+                                    hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
                                 }
                             ]}
                             title='Button color'
@@ -646,7 +646,7 @@ const Sidebar: React.FC<{
                                 {
                                     value: null,
                                     title: 'Auto',
-                                    hex: isBackgroundDark() ? '#ffffff' : '#000000'
+                                    hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
                                 }
                             ]}
                             title='Link color'
@@ -769,13 +769,9 @@ const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: b
         savingDelay: 500,
         onSave: async () => {
             const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState);
-            let toastMessage;
-
-            if (emailToVerify && emailToVerify === 'sender_email') {
-                toastMessage = <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
-            } else if (emailToVerify && emailToVerify === 'sender_reply_to') {
-                toastMessage = <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
-            }
+            const toastMessage = emailToVerify ? (
+                <div>We&lsquo;ve sent a confirmation email to the new address.</div>
+            ) : null;
 
             if (toastMessage) {
                 showToast({

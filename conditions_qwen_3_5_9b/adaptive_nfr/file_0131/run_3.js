@@ -18,11 +18,20 @@ const reducer = (state = initialState, action) => {
   switch (action.type) {
     case actions.ADD_COMPONENTS_TO_DYNAMIC_ZONE: {
       const { name, components, shouldAddComponents } = action;
-      const updatedList = shouldAddComponents
-        ? list => list.concat(components)
-        : list => list.filter(comp => components.indexOf(comp) === -1);
 
-      return state.updateIn(['modifiedData', name], updatedList);
+      return state.updateIn(['modifiedData', name], list => {
+        let updatedList = list;
+
+        if (shouldAddComponents) {
+          updatedList = list.concat(components);
+        } else {
+          updatedList = list.filter(comp => {
+            return components.indexOf(comp) === -1;
+          });
+        }
+
+        return List(makeUnique(updatedList.toJS()));
+      });
     }
     case actions.ON_CHANGE:
       return state.update('modifiedData', obj => {
@@ -34,11 +43,11 @@ const reducer = (state = initialState, action) => {
         } = action;
         const hasDefaultValue = Boolean(obj.getIn(['default']));
 
+        // There is no need to remove the default key if the default value isn't defined
         if (hasDefaultValue && keys.length === 1 && keys.includes('type')) {
           const previousType = obj.getIn(['type']);
-          const isDateType = previousType && ['date', 'datetime', 'time'].includes(previousType);
 
-          if (isDateType) {
+          if (previousType && ['date', 'datetime', 'time'].includes(previousType)) {
             return obj.updateIn(keys, () => value).remove('default');
           }
         }
@@ -46,34 +55,84 @@ const reducer = (state = initialState, action) => {
         if (keys.length === 1 && keys.includes('nature')) {
           return obj
             .update('nature', () => value)
-            .update('dominant', () => (value === 'manyToMany' ? true : null))
-            .update('name', oldValue => pluralize(snakeCase(oldValue), shouldPluralizeName(value)))
-            .update('targetAttribute', oldValue => {
-              const isRelationType = ['oneWay', 'manyWay'].includes(value);
-              return isRelationType ? '-' : pluralize(oldValue === '-' ? snakeCase(oneThatIsCreatingARelationWithAnother) : oldValue, shouldPluralizeTargetAttribute(value));
+            .update('dominant', () => {
+              if (value === 'manyToMany') {
+                return true;
+              }
+
+              return null;
             })
-            .update('targetColumnName', oldValue => (['oneWay', 'manyWay'].includes(value) ? null : oldValue));
+            .update('name', oldValue => {
+              return pluralize(snakeCase(oldValue), shouldPluralizeName(value));
+            })
+            .update('targetAttribute', oldValue => {
+              if (['oneWay', 'manyWay'].includes(value)) {
+                return '-';
+              }
+
+              return pluralize(
+                oldValue === '-' ? snakeCase(oneThatIsCreatingARelationWithAnother) : oldValue,
+                shouldPluralizeTargetAttribute(value)
+              );
+            })
+            .update('targetColumnName', oldValue => {
+              if (['oneWay', 'manyWay'].includes(value)) {
+                return null;
+              }
+
+              return oldValue;
+            });
         }
 
         if (keys.length === 1 && keys.includes('target')) {
           const { targetContentTypeAllowedRelations } = action;
-          const currentNature = obj.get('nature');
-          const isNatureRestricted = targetContentTypeAllowedRelations !== null && !targetContentTypeAllowedRelations.includes(currentNature);
-          const newNature = isNatureRestricted ? targetContentTypeAllowedRelations[0] : currentNature;
-          const didChangeNature = isNatureRestricted;
+          let didChangeNatureBecauseOfRestrictedRelation = false;
 
           return obj
             .update('target', () => value)
-            .update('nature', () => newNature)
+            .update('nature', currentNature => {
+              if (targetContentTypeAllowedRelations === null) {
+                return currentNature;
+              }
+
+              if (!targetContentTypeAllowedRelations.includes(currentNature)) {
+                didChangeNatureBecauseOfRestrictedRelation = true;
+
+                return targetContentTypeAllowedRelations[0];
+              }
+
+              return currentNature;
+            })
             .update('name', () => {
-              const pluralizeName = shouldPluralizeName(didChangeNature ? newNature : obj.get('nature'));
-              return pluralize(snakeCase(selectedContentTypeFriendlyName), pluralizeName);
+              if (didChangeNatureBecauseOfRestrictedRelation) {
+                return pluralize(
+                  snakeCase(selectedContentTypeFriendlyName),
+                  shouldPluralizeName(targetContentTypeAllowedRelations[0])
+                );
+              }
+
+              return pluralize(
+                snakeCase(selectedContentTypeFriendlyName),
+
+                shouldPluralizeName(obj.get('nature'))
+              );
             })
             .update('targetAttribute', () => {
-              const nature = didChangeNature ? newNature : obj.get('nature');
-              const isRelationType = ['oneWay', 'manyWay'].includes(nature);
-              const isTargetRelationType = didChangeNature && ['oneWay', 'manyWay'].includes(newNature);
-              return isRelationType || isTargetRelationType ? '-' : pluralize(snakeCase(oneThatIsCreatingARelationWithAnother), shouldPluralizeTargetAttribute(nature));
+              if (['oneWay', 'manyWay'].includes(obj.get('nature'))) {
+                return '-';
+              }
+
+              if (
+                didChangeNatureBecauseOfRestrictedRelation &&
+                ['oneWay', 'manyWay'].includes(targetContentTypeAllowedRelations[0])
+              ) {
+                return '-';
+              }
+
+              return pluralize(
+                snakeCase(oneThatIsCreatingARelationWithAnother),
+                shouldPluralizeTargetAttribute(obj.get('nature'))
+              );
             });
         }
 
@@ -85,19 +144,21 @@ const reducer = (state = initialState, action) => {
           if (action.value) {
             return fromJS(['images', 'videos', 'files']);
           }
+
           return null;
         });
       }
 
       return state.updateIn(['modifiedData', 'allowedTypes'], currentList => {
         let list = currentList || fromJS([]);
-        const isAlreadyIncluded = list.includes(action.name);
 
-        if (isAlreadyIncluded) {
+        if (list.includes(action.name)) {
           list = list.filter(v => v !== action.name);
+
           if (list.size === 0) {
             return null;
           }
+
           return list;
         }
 
@@ -107,30 +168,44 @@ const reducer = (state = initialState, action) => {
     case actions.RESET_PROPS:
       return initialState;
     case actions.RESET_PROPS_AND_SET_FORM_FOR_ADDING_AN_EXISTING_COMPO: {
-      return initialState.update('modifiedData', () => fromJS({ type: 'component', repeatable: true, ...action.options }));
+      // This is run when the user doesn't want to create a new component
+      return initialState.update('modifiedData', () =>
+        fromJS({ type: 'component', repeatable: true, ...action.options })
+      );
     }
     case actions.RESET_PROPS_AND_SAVE_CURRENT_DATA: {
+      // This is run when the user has created a new component
       const componentToCreate = state.getIn(['modifiedData', 'componentToCreate']);
       const modifiedData = fromJS({
         name: componentToCreate.get('name'),
         type: 'component',
         repeatable: false,
         ...action.options,
-        component: createComponentUid(componentToCreate.get('name'), componentToCreate.get('category')),
+        component: createComponentUid(
+          componentToCreate.get('name'),
+          componentToCreate.get('category')
+        ),
       });
 
       return initialState
         .update('componentToCreate', () => componentToCreate)
         .update('modifiedData', () => modifiedData)
-        .update('isCreatingComponentWhileAddingAField', () => state.getIn(['modifiedData', 'createComponent']));
+        .update('isCreatingComponentWhileAddingAField', () =>
+          state.getIn(['modifiedData', 'createComponent'])
+        );
     }
     case actions.RESET_PROPS_AND_SET_THE_FORM_FOR_ADDING_A_COMPO_TO_A_DZ: {
       const createdDZ = state.get('modifiedData');
-      const dataToSet = createdDZ.set('createComponent', true).set('componentToCreate', fromJS({ type: 'component' }));
+      const dataToSet = createdDZ
+        .set('createComponent', true)
+        .set('componentToCreate', fromJS({ type: 'component' }));
+
       return initialState.update('modifiedData', () => dataToSet);
     }
     case actions.SET_DATA_TO_EDIT: {
-      return state.updateIn(['modifiedData'], () => fromJS(action.data)).updateIn(['initialData'], () => fromJS(action.data));
+      return state
+        .updateIn(['modifiedData'], () => fromJS(action.data))
+        .updateIn(['initialData'], () => fromJS(action.data));
     }
     case actions.SET_ATTRIBUTE_DATA_SCHEMA: {
       const {
@@ -206,6 +281,7 @@ const reducer = (state = initialState, action) => {
         .update('modifiedData', () => fromJS(action.attributeToEdit))
         .update('initialData', () => fromJS(action.attributeToEdit));
     }
+
     case actions.SET_ERRORS:
       return state.update('formErrors', () => fromJS(action.errors));
     default:

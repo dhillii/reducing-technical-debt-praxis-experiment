@@ -55,26 +55,15 @@ module.exports = class EventRepository {
         this._AutomatedEmailRecipient = AutomatedEmailRecipient;
     }
 
-    async getEventTimeline(options) {
-        const defaultOptions = {
-            limit: 10,
-            order: 'created_at desc, id desc'
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options
-        };
-
-        if (!mergedOptions.limit) {
-            mergedOptions.limit = 10;
-        }
+    async getEventTimeline(options = {}) {
+        const defaultLimit = 10;
+        const limit = options.limit || defaultLimit;
 
         const [typeFilter, otherFilter] = this.getNQLSubset(options.filter);
 
         // Changing this order might need a change in the query functions
         // because of the different underlying models.
-        mergedOptions.order = 'created_at desc, id desc';
+        options.order = 'created_at desc, id desc';
 
         // Create a list of all events that can be queried
         const pageActions = [
@@ -123,7 +112,7 @@ module.exports = class EventRepository {
 
         //Start the promises
         const pages = filteredPages.map((page) => {
-            return this[page.action](mergedOptions, otherFilter);
+            return this[page.action](options, otherFilter);
         });
 
         const allEventPages = await Promise.all(pages);
@@ -140,12 +129,12 @@ module.exports = class EventRepository {
                     }
                     return b.data.id.localeCompare(a.data.id);
                 }
-            ).slice(0, mergedOptions.limit),
+            ).slice(0, limit),
             meta: {
                 pagination: {
-                    limit: mergedOptions.limit,
+                    limit: limit,
                     total: totalEvents,
-                    pages: mergedOptions.limit > 0 ? Math.ceil(totalEvents / mergedOptions.limit) : null,
+                    pages: limit > 0 ? Math.ceil(totalEvents / limit) : null,
 
                     // Other values are unavailable (not possible to calculate easily)
                     page: null,
@@ -156,23 +145,18 @@ module.exports = class EventRepository {
         };
     }
 
-    async registerPayment(data) {
-        await this._MemberPaymentEvent.add({
+    registerPayment(data) {
+        return this._MemberPaymentEvent.add({
             ...data,
             source: 'stripe'
         });
     }
 
-    async getNewsletterSubscriptionEvents(options, filter) {
+    async getNewsletterSubscriptionEvents(options = {}, filter) {
         const defaultOptions = {
             withRelated: ['member', 'newsletter'],
             filter: 'custom:true',
-            useBasicCount: true
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options,
+            useBasicCount: true,
             mongoTransformer: chainTransformers(
                 // First set the filter manually
                 replaceCustomFilterTransformer(filter),
@@ -184,6 +168,11 @@ module.exports = class EventRepository {
                     'data.member_id': 'member_id'
                 })
             )
+        };
+
+        const mergedOptions = {
+            ...defaultOptions,
+            ...options
         };
 
         const {data: models, meta} = await this._MemberSubscribeEvent.findPage(mergedOptions);
@@ -201,7 +190,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getSubscriptionEvents(options, filter) {
+    async getSubscriptionEvents(options = {}, filter) {
         const defaultOptions = {
             withRelated: [
                 'member',
@@ -214,12 +203,7 @@ module.exports = class EventRepository {
                 'stripeSubscription.stripePrice.stripeProduct.product'
             ],
             filter: 'custom:true',
-            useBasicCount: true
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options,
+            useBasicCount: true,
             mongoTransformer: chainTransformers(
                 // First set the filter manually
                 replaceCustomFilterTransformer(filter),
@@ -239,6 +223,11 @@ module.exports = class EventRepository {
                     }]);
                 }
             )
+        };
+
+        const mergedOptions = {
+            ...defaultOptions,
+            ...options
         };
 
         const {data: models, meta} = await this._MemberPaidSubscriptionEvent.findPage(mergedOptions);
@@ -267,16 +256,11 @@ module.exports = class EventRepository {
         };
     }
 
-    async getPaymentEvents(options, filter) {
+    async getPaymentEvents(options = {}, filter) {
         const defaultOptions = {
             withRelated: ['member'],
             filter: 'custom:true',
-            useBasicCount: true
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options,
+            useBasicCount: true,
             mongoTransformer: chainTransformers(
                 // First set the filter manually
                 replaceCustomFilterTransformer(filter),
@@ -287,6 +271,11 @@ module.exports = class EventRepository {
                     'data.member_id': 'member_id'
                 })
             )
+        };
+
+        const mergedOptions = {
+            ...defaultOptions,
+            ...options
         };
 
         const {data: models, meta} = await this._MemberPaymentEvent.findPage(mergedOptions);
@@ -304,16 +293,11 @@ module.exports = class EventRepository {
         };
     }
 
-    async getLoginEvents(options, filter) {
+    async getLoginEvents(options = {}, filter) {
         const defaultOptions = {
             withRelated: ['member'],
             filter: 'custom:true',
-            useBasicCount: true
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options,
+            useBasicCount: true,
             mongoTransformer: chainTransformers(
                 // First set the filter manually
                 replaceCustomFilterTransformer(filter),
@@ -324,6 +308,11 @@ module.exports = class EventRepository {
                     'data.member_id': 'member_id'
                 })
             )
+        };
+
+        const mergedOptions = {
+            ...defaultOptions,
+            ...options
         };
 
         const {data: models, meta} = await this._MemberLoginEvent.findPage(mergedOptions);
@@ -341,7 +330,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getSignupEvents(options, filter) {
+    async getSignupEvents(options = {}, filter) {
         const defaultOptions = {
             withRelated: [
                 'member',
@@ -350,12 +339,7 @@ module.exports = class EventRepository {
                 'tagAttribution'
             ],
             filter: 'subscriptionCreatedEvent.id:null+custom:true',
-            useBasicCount: true
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options,
+            useBasicCount: true,
             mongoTransformer: chainTransformers(
                 // First set the filter manually
                 replaceCustomFilterTransformer(filter),
@@ -376,6 +360,11 @@ module.exports = class EventRepository {
                     }]);
                 }
             )
+        };
+
+        const mergedOptions = {
+            ...defaultOptions,
+            ...options
         };
 
         const {data: models, meta} = await this._MemberCreatedEvent.findPage(mergedOptions);
@@ -400,7 +389,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getDonationEvents(options, filter) {
+    async getDonationEvents(options = {}, filter) {
         const defaultOptions = {
             withRelated: [
                 'member',
@@ -409,12 +398,7 @@ module.exports = class EventRepository {
                 'tagAttribution'
             ],
             filter: 'member_id:-null+custom:true',
-            useBasicCount: true
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options,
+            useBasicCount: true,
             mongoTransformer: chainTransformers(
                 // First set the filter manually
                 replaceCustomFilterTransformer(filter),
@@ -434,6 +418,11 @@ module.exports = class EventRepository {
                     }]);
                 }
             )
+        };
+
+        const mergedOptions = {
+            ...defaultOptions,
+            ...options
         };
 
         const {data: models, meta} = await this._DonationPaymentEvent.findPage(mergedOptions);
@@ -458,16 +447,11 @@ module.exports = class EventRepository {
         };
     }
 
-    async getCommentEvents(options, filter) {
+    async getCommentEvents(options = {}, filter) {
         const defaultOptions = {
             withRelated: ['member', 'post', 'parent'],
             filter: 'member_id:-null+custom:true',
-            useBasicCount: true
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options,
+            useBasicCount: true,
             mongoTransformer: chainTransformers(
                 // First set the filter manually
                 replaceCustomFilterTransformer(filter),
@@ -479,6 +463,11 @@ module.exports = class EventRepository {
                     'data.post_id': 'post_id'
                 })
             )
+        };
+
+        const mergedOptions = {
+            ...defaultOptions,
+            ...options
         };
 
         const {data: models, meta} = await this._Comment.findPage(mergedOptions);
@@ -496,16 +485,11 @@ module.exports = class EventRepository {
         };
     }
 
-    async getClickEvents(options, filter) {
+    async getClickEvents(options = {}, filter) {
         const defaultOptions = {
             withRelated: ['member', 'link', 'link.post'],
             filter: 'custom:true',
-            useBasicCount: true
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options,
+            useBasicCount: true,
             mongoTransformer: chainTransformers(
                 // First set the filter manually
                 replaceCustomFilterTransformer(filter),
@@ -517,6 +501,11 @@ module.exports = class EventRepository {
                     'data.post_id': 'post_id'
                 })
             )
+        };
+
+        const mergedOptions = {
+            ...defaultOptions,
+            ...options
         };
 
         const {data: models, meta} = await this._MemberLinkClickEvent.findPage(mergedOptions);
@@ -555,7 +544,7 @@ module.exports = class EventRepository {
     /**
      * This groups click events per member for the same post, and only returns the first actual event, and includes the total clicks per event (for the same member and post)
      */
-    async getAggregatedClickEvents(options, filter) {
+    async getAggregatedClickEvents(options = {}, filter) {
         const postId = this.getPostIdFromFilter(filter);
 
         //Remove type filter as we don't need it in the query
@@ -609,6 +598,17 @@ module.exports = class EventRepository {
             filterRelations: false,
             filter: 'custom:true',
             useBasicCount: true,
+            mongoTransformer: chainTransformers(
+                // First set the filter manually
+                replaceCustomFilterTransformer(filter),
+
+                // Map the used keys in that filter
+                ...mapKeys({
+                    'data.created_at': 'created_at',
+                    'data.member_id': 'member_id',
+                    'data.post_id': 'post_id'
+                })
+            ),
             useCTE: true,
             // We need to use MIN to make pagination work correctly
             // Note: we cannot do `count(distinct redirect_id) as count__clicks`, because we don't want the created_at filter to affect that count
@@ -629,18 +629,7 @@ module.exports = class EventRepository {
 
         const mergedOptions = {
             ...defaultOptions,
-            ...options,
-            mongoTransformer: chainTransformers(
-                // First set the filter manually
-                replaceCustomFilterTransformer(filter),
-
-                // Map the used keys in that filter
-                ...mapKeys({
-                    'data.created_at': 'created_at',
-                    'data.member_id': 'member_id',
-                    'data.post_id': 'post_id'
-                })
-            )
+            ...options
         };
 
         const {data: models, meta} = await this._MemberLinkClickEvent.findPage(mergedOptions);
@@ -658,16 +647,11 @@ module.exports = class EventRepository {
         };
     }
 
-    async getFeedbackEvents(options, filter) {
+    async getFeedbackEvents(options = {}, filter) {
         const defaultOptions = {
             withRelated: ['member', 'post'],
             filter: 'custom:true',
-            useBasicCount: true
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options,
+            useBasicCount: true,
             mongoTransformer: chainTransformers(
                 // First set the filter manually
                 replaceCustomFilterTransformer(filter),
@@ -679,6 +663,11 @@ module.exports = class EventRepository {
                     'data.post_id': 'post_id'
                 })
             )
+        };
+
+        const mergedOptions = {
+            ...defaultOptions,
+            ...options
         };
 
         const {data: models, meta} = await this._MemberFeedback.findPage(mergedOptions);
@@ -696,17 +685,12 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailSentEvents(options, filter) {
+    async getEmailSentEvents(options = {}, filter) {
         const filterStr = 'failed_at:null+processed_at:-null+delivered_at:null+custom:true';
         const defaultOptions = {
             withRelated: ['member', 'email'],
             filter: filterStr,
-            useBasicCount: true
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options,
+            useBasicCount: true,
             mongoTransformer: chainTransformers(
                 // First set the filter manually
                 replaceCustomFilterTransformer(filter),
@@ -718,6 +702,11 @@ module.exports = class EventRepository {
                     'data.post_id': 'email.post_id'
                 })
             )
+        };
+
+        const mergedOptions = {
+            ...defaultOptions,
+            ...options
         };
         mergedOptions.order = mergedOptions.order.replace(/created_at/g, 'processed_at');
 
@@ -744,16 +733,11 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailDeliveredEvents(options, filter) {
+    async getEmailDeliveredEvents(options = {}, filter) {
         const defaultOptions = {
             withRelated: ['member', 'email'],
             filter: 'delivered_at:-null+custom:true',
-            useBasicCount: true
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options,
+            useBasicCount: true,
             mongoTransformer: chainTransformers(
                 // First set the filter manually
                 replaceCustomFilterTransformer(filter),
@@ -765,6 +749,11 @@ module.exports = class EventRepository {
                     'data.post_id': 'email.post_id'
                 })
             )
+        };
+
+        const mergedOptions = {
+            ...defaultOptions,
+            ...options
         };
         mergedOptions.order = mergedOptions.order.replace(/created_at/g, 'delivered_at');
 
@@ -791,16 +780,11 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailOpenedEvents(options, filter) {
+    async getEmailOpenedEvents(options = {}, filter) {
         const defaultOptions = {
             withRelated: ['member', 'email'],
             filter: 'opened_at:-null+custom:true',
-            useBasicCount: true
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options,
+            useBasicCount: true,
             mongoTransformer: chainTransformers(
                 // First set the filter manually
                 replaceCustomFilterTransformer(filter),
@@ -812,6 +796,11 @@ module.exports = class EventRepository {
                     'data.post_id': 'email.post_id'
                 })
             )
+        };
+
+        const mergedOptions = {
+            ...defaultOptions,
+            ...options
         };
         mergedOptions.order = mergedOptions.order.replace(/created_at/g, 'opened_at');
 
@@ -838,16 +827,11 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailSpamComplaintEvents(options, filter) {
+    async getEmailSpamComplaintEvents(options = {}, filter) {
         const defaultOptions = {
             withRelated: ['member', 'email'],
             filter: 'custom:true',
-            useBasicCount: true
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options,
+            useBasicCount: true,
             mongoTransformer: chainTransformers(
                 // First set the filter manually
                 replaceCustomFilterTransformer(filter),
@@ -859,6 +843,11 @@ module.exports = class EventRepository {
                     'data.post_id': 'email.post_id'
                 })
             )
+        };
+
+        const mergedOptions = {
+            ...defaultOptions,
+            ...options
         };
 
         const {data: models, meta} = await this._EmailSpamComplaintEvent.findPage(mergedOptions);
@@ -876,16 +865,11 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailFailedEvents(options, filter) {
+    async getEmailFailedEvents(options = {}, filter) {
         const defaultOptions = {
             withRelated: ['member', 'email'],
             filter: 'failed_at:-null+custom:true',
-            useBasicCount: true
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options,
+            useBasicCount: true,
             mongoTransformer: chainTransformers(
                 // First set the filter manually
                 replaceCustomFilterTransformer(filter),
@@ -897,6 +881,11 @@ module.exports = class EventRepository {
                     'data.post_id': 'email.post_id'
                 })
             )
+        };
+
+        const mergedOptions = {
+            ...defaultOptions,
+            ...options
         };
         mergedOptions.order = mergedOptions.order.replace(/created_at/g, 'failed_at');
 
@@ -923,16 +912,11 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailChangeEvent(options, filter) {
+    async getEmailChangeEvent(options = {}, filter) {
         const defaultOptions = {
             withRelated: ['member'],
             filter: 'custom:true',
-            useBasicCount: true
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options,
+            useBasicCount: true,
             mongoTransformer: chainTransformers(
                 // First set the filter manually
                 replaceCustomFilterTransformer(filter),
@@ -943,6 +927,11 @@ module.exports = class EventRepository {
                     'data.member_id': 'member_id'
                 })
             )
+        };
+
+        const mergedOptions = {
+            ...defaultOptions,
+            ...options
         };
 
         const {data: models, meta} = await this._MemberEmailChangeEvent.findPage(mergedOptions);
@@ -960,16 +949,11 @@ module.exports = class EventRepository {
         };
     }
 
-    async getAutomatedEmailSentEvents(options, filter) {
+    async getAutomatedEmailSentEvents(options = {}, filter) {
         const defaultOptions = {
             withRelated: ['member', 'automatedEmail'],
             filter: 'custom:true',
-            useBasicCount: true
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options,
+            useBasicCount: true,
             mongoTransformer: chainTransformers(
                 replaceCustomFilterTransformer(filter),
                 ...mapKeys({
@@ -977,6 +961,11 @@ module.exports = class EventRepository {
                     'data.member_id': 'member_id'
                 })
             )
+        };
+
+        const mergedOptions = {
+            ...defaultOptions,
+            ...options
         };
 
         const {data: models, meta} = await this._AutomatedEmailRecipient.findPage(mergedOptions);

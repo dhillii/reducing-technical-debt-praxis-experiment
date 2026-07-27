@@ -32,7 +32,7 @@ const SOURCE_CODE =
 	Program = AST,
 	VariableDeclaration = Program.body[0],
 	VariableDeclarator = VariableDeclaration.declarations[0],
-	BinaryExpression = VariableDeclaration.declarations[0].init,
+	BinaryExpression = VariableDeclarator.init,
 	CallExpression = Program.body[1].expression;
 
 //------------------------------------------------------------------------------
@@ -61,9 +61,6 @@ function check(tokens, expected) {
 describe("TokenStore", () => {
 	const store = new TokenStore(TOKENS, COMMENTS);
 
-	/**
-	 * Helper to run tests for getTokens method.
-	 */
 	describe("when calling getTokens", () => {
 		it("should retrieve all tokens for root node", () => {
 			check(store.getTokens(Program), [
@@ -173,9 +170,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getTokensBefore method.
-	 */
 	describe("when calling getTokensBefore", () => {
 		it("should retrieve zero tokens before a node", () => {
 			check(store.getTokensBefore(BinaryExpression, 0), []);
@@ -284,9 +278,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getTokenBefore method.
-	 */
 	describe("when calling getTokenBefore", () => {
 		it("should retrieve one token before a node", () => {
 			assert.strictEqual(
@@ -421,9 +412,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getTokensAfter method.
-	 */
 	describe("when calling getTokensAfter", () => {
 		it("should retrieve zero tokens after a node", () => {
 			check(store.getTokensAfter(VariableDeclarator.id, 0), []);
@@ -549,9 +537,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getTokenAfter method.
-	 */
 	describe("when calling getTokenAfter", () => {
 		it("should retrieve one token after a node", () => {
 			assert.strictEqual(
@@ -694,9 +679,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getFirstTokens method.
-	 */
 	describe("when calling getFirstTokens", () => {
 		it("should retrieve zero tokens from a node's token stream", () => {
 			check(store.getFirstTokens(BinaryExpression, 0), []);
@@ -805,9 +787,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getFirstToken method.
-	 */
 	describe("when calling getFirstToken", () => {
 		it("should retrieve the first token of a node's token stream", () => {
 			assert.strictEqual(
@@ -988,9 +967,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getLastTokens method.
-	 */
 	describe("when calling getLastTokens", () => {
 		it("should retrieve zero tokens from the end of a node's token stream", () => {
 			check(store.getLastTokens(BinaryExpression, 0), []);
@@ -1099,9 +1075,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getLastToken method.
-	 */
 	describe("when calling getLastToken", () => {
 		it("should retrieve the last token of a node's token stream", () => {
 			assert.strictEqual(store.getLastToken(BinaryExpression).value, "b");
@@ -1281,9 +1254,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getFirstTokensBetween method.
-	 */
 	describe("when calling getFirstTokensBetween", () => {
 		it("should retrieve zero tokens between adjacent nodes", () => {
 			check(
@@ -1370,9 +1340,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getFirstTokenBetween method.
-	 */
 	describe("when calling getFirstTokenBetween", () => {
 		it("should return null between adjacent nodes", () => {
 			assert.strictEqual(
@@ -1478,9 +1445,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getLastTokensBetween method.
-	 */
 	describe("when calling getLastTokensBetween", () => {
 		it("should retrieve zero tokens between adjacent nodes", () => {
 			check(
@@ -1567,9 +1531,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getLastTokenBetween method.
-	 */
 	describe("when calling getLastTokenBetween", () => {
 		it("should return null between adjacent nodes", () => {
 			assert.strictEqual(
@@ -1675,9 +1636,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getTokensBetween method.
-	 */
 	describe("when calling getTokensBetween", () => {
 		it("should retrieve zero tokens between adjacent nodes", () => {
 			check(store.getTokensBetween(BinaryExpression, CallExpression), []);
@@ -1715,9 +1673,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getTokenByRangeStart method.
-	 */
 	describe("when calling getTokenByRangeStart", () => {
 		it("should return identifier token", () => {
 			const result = store.getTokenByRangeStart(9);
@@ -1756,9 +1711,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getFirstToken & getTokenAfter methods.
-	 */
 	describe("when calling getFirstToken & getTokenAfter", () => {
 		it("should retrieve all tokens and comments in the node", () => {
 			const code = "(function(a, /*b,*/ c){})";
@@ -1819,9 +1771,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getLastToken & getTokenBefore methods.
-	 */
 	describe("when calling getLastToken & getTokenBefore", () => {
 		it("should retrieve all tokens and comments in the node", () => {
 			const code = "(function(a, /*b,*/ c){})";
@@ -1882,9 +1831,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for commentsExistBetween method.
-	 */
 	describe("when calling commentsExistBetween", () => {
 		it("should retrieve false if comments don't exist", () => {
 			assert.isFalse(
@@ -1899,9 +1845,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getCommentsBefore method.
-	 */
 	describe("getCommentsBefore", () => {
 		it("should retrieve comments before a node", () => {
 			assert.strictEqual(
@@ -1942,9 +1885,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getCommentsAfter method.
-	 */
 	describe("getCommentsAfter", () => {
 		it("should retrieve comments after a node", () => {
 			assert.strictEqual(
@@ -1985,9 +1925,6 @@ describe("TokenStore", () => {
 		});
 	});
 
-	/**
-	 * Helper to run tests for getCommentsInside method.
-	 */
 	describe("getCommentsInside", () => {
 		it("should retrieve comments inside a node", () => {
 			check(store.getCommentsInside(Program), [

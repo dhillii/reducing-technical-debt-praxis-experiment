@@ -118,7 +118,17 @@ module.exports = class Tier {
      * @param {'month'|'year'} cadence
      */
     getPrice(cadence) {
-        return this[cadence === 'month' ? 'monthlyPrice' : 'yearlyPrice'];
+        const cadenceMap = {
+            month: this.monthlyPrice,
+            year: this.yearlyPrice
+        };
+        const price = cadenceMap[cadence];
+        if (price === undefined) {
+            throw new ValidationError({
+                message: 'Invalid cadence'
+            });
+        }
+        return price;
     }
 
     /** @type {number|null} */
@@ -237,6 +247,7 @@ module.exports = class Tier {
         }
 
         let name = validateName(data.name);
+
         let slug = validateSlug(data.slug);
         let description = validateDescription(data.description);
         let welcomePageURL = validateWelcomePageURL(data.welcomePageURL);
@@ -246,7 +257,7 @@ module.exports = class Tier {
         let currency = validateCurrency(data.currency || null, type);
         let trialDays = validateTrialDays(data.trialDays || 0, type);
         let monthlyPrice = validateMonthlyPrice(data.monthlyPrice || null, type);
-        let yearlyPrice = validateYearlyPrice(data.yearlyPrice || null, type);
+        let yearlyPrice = validateYearlyPrice(data.yearlyPrice || null , type);
         let createdAt = validateCreatedAt(data.createdAt);
         let updatedAt = validateUpdatedAt(data.updatedAt);
         let benefits = validateBenefits(data.benefits);

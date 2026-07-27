@@ -279,16 +279,25 @@ function getOfferMessage(offer, originalPrice, currency, amountOff) {
     return '';
 }
 
-const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineOffer}) => {
-    const {brandColor, action} = useContext(AppContext);
-    const isAcceptingOffer = action === 'applyOffer:running';
-
+function formatRetentionOfferPrice({offer, price}) {
     const originalPrice = formatNumber(price.amount / 100);
     const currency = getCurrencySymbol(price.currency);
     const discountedPrice = formatNumber(getUpdatedOfferPrice({offer, price}));
     const amountOff = getOfferOffAmount({offer});
     const discountText = offer.type === 'free_months' ? `${amountOff} free` : `${amountOff} off`;
 
+    return {
+        originalPrice,
+        currency,
+        discountedPrice,
+        discountText
+    };
+}
+
+const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineOffer}) => {
+    const {brandColor, action} = useContext(AppContext);
+    const isAcceptingOffer = action === 'applyOffer:running';
+    const {originalPrice, currency, discountedPrice, discountText} = formatRetentionOfferPrice({offer, price});
     const offerMessage = getOfferMessage(offer, originalPrice, currency, amountOff);
 
     // TODO: Add i18n once copy is finalized

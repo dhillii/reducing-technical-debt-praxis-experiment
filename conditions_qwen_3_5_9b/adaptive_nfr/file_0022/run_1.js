@@ -54,13 +54,13 @@ export const kebabToPascalCase = (str: string): string => {
 
 // Helper to format a URL
 export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) => {
-    if (isNullable(value, nullable)) {
+    if (isNullableAndEmpty(value, nullable)) {
         return {save: null, display: ''};
     }
 
     let url = value.trim();
 
-    if (!url) {
+    if (isUrlEmpty(url)) {
         if (baseUrl) {
             return {save: '/', display: baseUrl};
         }
@@ -102,13 +102,15 @@ export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) =
     }
     const parsedBaseUrl = new URL(baseUrl);
 
-    if (isRelativeToBasePath(parsedUrl, parsedBaseUrl)) {
-        url = url.replace(/^[a-zA-Z0-9-]+:/, '');
-        url = url.replace(/^\/\//, '');
-        url = url.replace(parsedBaseUrl.host, '');
-        url = url.replace(parsedBaseUrl.pathname, '');
+    const isRelativeToBasePath = isRelativeToBasePathLogic(parsedUrl, parsedBaseUrl);
+    const isOnSameHost = parsedUrl.host === parsedBaseUrl.host;
 
-        if (!url.match(/^\//)) {
+    if (isOnSameHost && isRelativeToBasePath) {
+        url = stripProtocol(url);
+        url = stripDoubleSlash(url);
+        url = stripHost(url, parsedBaseUrl.host);
+        url = stripPath(url, parsedBaseUrl.pathname);
+        if (!url.startsWith('/')) {
             url = `/${url}`;
         }
     }
@@ -118,6 +120,62 @@ export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) =
     }
 
     return {save: url, display: displayFromBase(url, baseUrl)};
+};
+
+const isNullableAndEmpty = (value: string, nullable?: boolean): boolean => {
+    return nullable && !value;
+};
+
+const isUrlEmpty = (url: string): boolean => {
+    return !url;
+};
+
+const isEmailAddress = (url: string): boolean => {
+    return isEmail(url);
+};
+
+const isAnchorLink = (url: string): boolean => {
+    return url.match(/^#/);
+};
+
+const isProtocolRelative = (url: string): boolean => {
+    return url.match(/^(\/\/)/);
+};
+
+const isNotUrlLike = (url: string): boolean => {
+    return !url.match(/^[a-zA-Z0-9-]+:/) && !url.match(/^(\/|\?)/);
+};
+
+const isRelativeToBasePathLogic = (parsedUrl: URL, parsedBaseUrl: URL): boolean => {
+    if (!parsedUrl.pathname) {
+        return false;
+    }
+    if (parsedUrl.pathname.indexOf(parsedBaseUrl.pathname) !== 0) {
+        return false;
+    }
+    const normalizedUrlPath = `${parsedUrl.pathname}/`;
+    const normalizedBasePath = parsedBaseUrl.pathname;
+    return normalizedUrlPath === normalizedBasePath;
+};
+
+const stripProtocol = (url: string): string => {
+    return url.replace(/^[a-zA-Z0-9-]+:/, '');
+};
+
+const stripDoubleSlash = (url: string): string => {
+    return url.replace(/^\/\//, '');
+};
+
+const stripHost = (url: string, host: string): string => {
+    return url.replace(host, '');
+};
+
+const stripPath = (url: string, path: string): string => {
+    return url.replace(path, '');
+};
+
+const needsTrailingSlash = (url: string): boolean => {
+    return !url.match(/\/$/) && !url.match(/[.#?]/);
 };
 
 // Helper to display a URL from a base URL
@@ -487,6 +545,10 @@ export function getCountryFlag(countryCode:string) {
     );
 }
 
+const isInvalidCountryCode = (countryCode: string): boolean => {
+    return !countryCode || countryCode === null || countryCode.toUpperCase() === 'NULL' || countryCode === 'ᴺᵁᴸᴸ' || countryCode === 'ᴺᵁ';
+};
+
 /**
  * Sanitizes chart data based on the date range
  * - For ranges between 91-356 days: shows weekly changes
@@ -503,13 +565,113 @@ export const sanitizeChartData = <T extends {date: string}>(data: T[], range: nu
     }
 
     if (isWeeklyRange(range)) {
-        return aggregateByWeek(data, fieldName, aggregationType);
+        return processWeeklyData(data, range, fieldName, aggregationType);
     } else if (isMonthlyRange(range)) {
-        return aggregateByMonth(data, fieldName, aggregationType);
+        return processMonthlyData(data, range, fieldName, aggregationType);
     }
 
     // Return original data for ranges < 91 days
     return data;
+};
+
+const isWeeklyRange = (range: number): boolean => {
+    return range >= 91 && range <= 356;
+};
+
+const isMonthlyRange = (range: number): boolean => {
+    return range > 356;
+};
+
+const processWeeklyData = <T extends {date: string}>(data: T[], range: number, fieldName: keyof T, aggregationType: 'sum' | 'avg' | 'exact'): T[] => {
+    const weeklyData: T[] = [];
+    let currentWeek = moment(data[0].date).startOf('week');
+    let weekTotal = 0;
+    let weekCount = 0;
+    let lastValue = 0;
+
+    data.forEach((item, index) => {
+        const itemDate = moment(item.date);
+        if (itemDate.isSame(currentWeek, 'week')) {
+            weekTotal += Number(item[fieldName]);
+            weekCount += 1;
+            lastValue = Number(item[fieldName]);
+        } else {
+            // Add the value for the previous week
+            weeklyData.push({
+                ...data[index - 1],
+                date: currentWeek.format('YYYY-MM-DD'),
+                [fieldName]: getAggregatedValue(weekTotal, weekCount, aggregationType)
+            } as T);
+
+            // Start new week
+            currentWeek = itemDate.startOf('week');
+            weekTotal = Number(item[fieldName]);
+            weekCount = 1;
+            lastValue = Number(item[fieldName]);
+        }
+
+        // Handle the last item
+        if (index === data.length - 1) {
+            weeklyData.push({
+                ...item,
+                date: currentWeek.format('YYYY-MM-DD'),
+                [fieldName]: getAggregatedValue(weekTotal, weekCount, aggregationType)
+            } as T);
+        }
+    });
+
+    return weeklyData;
+};
+
+const processMonthlyData = <T extends {date: string}>(data: T[], range: number, fieldName: keyof T, aggregationType: 'sum' | 'avg' | 'exact'): T[] => {
+    const monthlyData: T[] = [];
+    let currentMonth = moment(data[0].date).startOf('month');
+    let monthTotal = 0;
+    let monthCount = 0;
+    let lastValue = 0;
+
+    data.forEach((item, index) => {
+        const itemDate = moment(item.date);
+        if (itemDate.isSame(currentMonth, 'month')) {
+            monthTotal += Number(item[fieldName]);
+            monthCount += 1;
+            lastValue = Number(item[fieldName]);
+        } else {
+            // Add the value for the previous month
+            monthlyData.push({
+                ...data[index - 1],
+                date: currentMonth.format('YYYY-MM-DD'),
+                [fieldName]: getAggregatedValue(monthTotal, monthCount, aggregationType)
+            } as T);
+
+            // Start new month
+            currentMonth = itemDate.startOf('month');
+            monthTotal = Number(item[fieldName]);
+            monthCount = 1;
+            lastValue = Number(item[fieldName]);
+        }
+
+        // Handle the last item
+        if (index === data.length - 1) {
+            monthlyData.push({
+                ...item,
+                date: currentMonth.format('YYYY-MM-DD'),
+                [fieldName]: getAggregatedValue(monthTotal, monthCount, aggregationType)
+            } as T);
+        }
+    });
+
+    return monthlyData;
+};
+
+const getAggregatedValue = (total: number, count: number, aggregationType: 'sum' | 'avg' | 'exact'): number => {
+    if (aggregationType === 'sum') {
+        return total;
+    }
+    if (aggregationType === 'avg') {
+        return count > 0 ? total / count : 0;
+    }
+    return total;
 };
 
 /**
@@ -558,128 +720,4 @@ export const stringToHslColor = (str: string, saturation:string, lightness:strin
 
     const h = hash % 360;
     return 'hsl(' + h + ', ' + saturation + '%, ' + lightness + '%)';
-};
-
-// Predicate functions
-const isNullable = (value: string | null | undefined, nullable?: boolean): boolean => {
-    if (!nullable) return false;
-    return value == null;
-};
-
-const isEmailAddress = (url: string): boolean => isEmail(url);
-
-const isAnchorLink = (url: string): boolean => url.match(/^#/);
-
-const isProtocolRelative = (url: string): boolean => url.match(/^(\/\/)/);
-
-const isNotUrlLike = (url: string): boolean => !url.match(/^[a-zA-Z0-9-]+:/) && !url.match(/^(\/|\?)/);
-
-const isRelativeToBasePath = (parsedUrl: URL, parsedBaseUrl: URL): boolean => {
-    if (!parsedUrl.pathname) return false;
-    return parsedUrl.pathname.indexOf(parsedBaseUrl.pathname) === 0;
-};
-
-const needsTrailingSlash = (url: string): boolean => !url.match(/\/$/) && !url.match(/[.#?]/);
-
-const isInvalidCountryCode = (countryCode: string | null | undefined): boolean => {
-    if (!countryCode) return true;
-    if (countryCode === 'NULL') return true;
-    if (countryCode === 'ᴺᵁᴸᴸ') return true;
-    if (countryCode === 'ᴺᵁ') return true;
-    return false;
-};
-
-const isWeeklyRange = (range: number): boolean => range >= 91 && range <= 356;
-
-const isMonthlyRange = (range: number): boolean => range > 356;
-
-// Aggregation helpers
-const aggregateByWeek = (data: {date: string}[], fieldName: keyof {date: string} | 'value', aggregationType: 'sum' | 'avg' | 'exact'): {date: string; [fieldName: string]: number}[] => {
-    const weeklyData: {date: string; [fieldName: string]: number}[] = [];
-    let currentWeek = moment(data[0].date).startOf('week');
-    let weekTotal = 0;
-    let weekCount = 0;
-    let lastValue = 0;
-
-    data.forEach((item, index) => {
-        const itemDate = moment(item.date);
-        if (itemDate.isSame(currentWeek, 'week')) {
-            weekTotal += Number(item[fieldName]);
-            weekCount += 1;
-            lastValue = Number(item[fieldName]);
-        } else {
-            // Add the value for the previous week
-            weeklyData.push({
-                ...data[index - 1],
-                date: currentWeek.format('YYYY-MM-DD'),
-                [fieldName]: aggregationType === 'sum' ? weekTotal :
-                    aggregationType === 'avg' ? (weekCount > 0 ? weekTotal / weekCount : 0) :
-                        lastValue
-            });
-
-            // Start new week
-            currentWeek = itemDate.startOf('week');
-            weekTotal = Number(item[fieldName]);
-            weekCount = 1;
-            lastValue = Number(item[fieldName]);
-        }
-
-        // Handle the last item
-        if (index === data.length - 1) {
-            weeklyData.push({
-                ...item,
-                date: currentWeek.format('YYYY-MM-DD'),
-                [fieldName]: aggregationType === 'sum' ? weekTotal :
-                    aggregationType === 'avg' ? (weekCount > 0 ? weekTotal / weekCount : 0) :
-                        lastValue
-            });
-        }
-    });
-
-    return weeklyData;
-};
-
-const aggregateByMonth = (data: {date: string}[], fieldName: keyof {date: string} | 'value', aggregationType: 'sum' | 'avg' | 'exact'): {date: string; [fieldName: string]: number}[] => {
-    const monthlyData: {date: string; [fieldName: string]: number}[] = [];
-    let currentMonth = moment(data[0].date).startOf('month');
-    let monthTotal = 0;
-    let monthCount = 0;
-    let lastValue = 0;
-
-    data.forEach((item, index) => {
-        const itemDate = moment(item.date);
-        if (itemDate.isSame(currentMonth, 'month')) {
-            monthTotal += Number(item[fieldName]);
-            monthCount += 1;
-            lastValue = Number(item[fieldName]);
-        } else {
-            // Add the value for the previous month
-            monthlyData.push({
-                ...data[index - 1],
-                date: currentMonth.format('YYYY-MM-DD'),
-                [fieldName]: aggregationType === 'sum' ? monthTotal :
-                    aggregationType === 'avg' ? (monthCount > 0 ? monthTotal / monthCount : 0) :
-                        lastValue
-            });
-
-            // Start new month
-            currentMonth = itemDate.startOf('month');
-            monthTotal = Number(item[fieldName]);
-            monthCount = 1;
-            lastValue = Number(item[fieldName]);
-        }
-
-        // Handle the last item
-        if (index === data.length - 1) {
-            monthlyData.push({
-                ...item,
-                date: currentMonth.format('YYYY-MM-DD'),
-                [fieldName]: aggregationType === 'sum' ? monthTotal :
-                    aggregationType === 'avg' ? (monthCount > 0 ? monthTotal / monthCount : 0) :
-                        lastValue
-            });
-        }
-    });
-
-    return monthlyData;
 };

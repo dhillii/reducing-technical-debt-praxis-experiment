@@ -72,7 +72,8 @@ module.exports = new LazyLoadingRuleMap(
 		"line-comment-position": () => require("./line-comment-position"),
 		"linebreak-style": () => require("./linebreak-style"),
 		"lines-around-comment": () => require("./lines-around-comment"),
-		"lines-around-directive": () => require("./lines-around-directive"),
+		"lines-around-directive": () =>
+			require("./lines-around-directive"),
 		"lines-between-class-members": () =>
 			require("./lines-between-class-members"),
 		"logical-assignment-operators": () =>
@@ -85,14 +86,16 @@ module.exports = new LazyLoadingRuleMap(
 		"max-nested-callbacks": () => require("./max-nested-callbacks"),
 		"max-params": () => require("./max-params"),
 		"max-statements": () => require("./max-statements"),
-		"max-statements-per-line": () => require("./max-statements-per-line"),
+		"max-statements-per-line": () =>
+			require("./max-statements-per-line"),
 		"multiline-comment-style": () => require("./multiline-comment-style"),
 		"multiline-ternary": () => require("./multiline-ternary"),
 		"new-cap": () => require("./new-cap"),
 		"new-parens": () => require("./new-parens"),
 		"newline-after-var": () => require("./newline-after-var"),
 		"newline-before-return": () => require("./newline-before-return"),
-		"newline-per-chained-call": () => require("./newline-per-chained-call"),
+		"newline-per-chained-call": () =>
+			require("./newline-per-chained-call"),
 		"no-alert": () => require("./no-alert"),
 		"no-array-constructor": () => require("./no-array-constructor"),
 		"no-async-promise-executor": () =>
@@ -126,7 +129,8 @@ module.exports = new LazyLoadingRuleMap(
 		"no-duplicate-imports": () => require("./no-duplicate-imports"),
 		"no-else-return": () => require("./no-else-return"),
 		"no-empty": () => require("./no-empty"),
-		"no-empty-character-class": () => require("./no-empty-character-class"),
+		"no-empty-character-class": () =>
+			require("./no-empty-character-class"),
 		"no-empty-function": () => require("./no-empty-function"),
 		"no-empty-pattern": () => require("./no-empty-pattern"),
 		"no-empty-static-block": () => require("./no-empty-static-block"),
@@ -135,7 +139,8 @@ module.exports = new LazyLoadingRuleMap(
 		"no-ex-assign": () => require("./no-ex-assign"),
 		"no-extend-native": () => require("./no-extend-native"),
 		"no-extra-bind": () => require("./no-extra-bind"),
-		"no-extra-boolean-cast": () => require("./no-extra-boolean-cast"),
+		"no-extra-boolean-cast": () =>
+			require("./no-extra-boolean-cast"),
 		"no-extra-label": () => require("./no-extra-label"),
 		"no-extra-parens": () => require("./no-extra-parens"),
 		"no-extra-semi": () => require("./no-extra-semi"),
@@ -164,7 +169,8 @@ module.exports = new LazyLoadingRuleMap(
 			require("./no-misleading-character-class"),
 		"no-mixed-operators": () => require("./no-mixed-operators"),
 		"no-mixed-requires": () => require("./no-mixed-requires"),
-		"no-mixed-spaces-and-tabs": () => require("./no-mixed-spaces-and-tabs"),
+		"no-mixed-spaces-and-tabs": () =>
+			require("./no-mixed-spaces-and-tabs"),
 		"no-multi-assign": () => require("./no-multi-assign"),
 		"no-multi-spaces": () => require("./no-multi-spaces"),
 		"no-multi-str": () => require("./no-multi-str"),

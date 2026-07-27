@@ -6,19 +6,6 @@ module.exports = function() {
   var hotCurrentParents = [];
   var hotCurrentParentsTemp = [];
 
-  var hotStatusHandlers = [];
-  var hotStatus = "idle";
-
-  var hotWaitingFiles = 0;
-  var hotChunksLoading = 0;
-  var hotWaitingFilesMap = {};
-  var hotRequestedFilesMap = {};
-  var hotAvailableFilesMap = {};
-  var hotDeferred;
-
-  var hotUpdate;
-  var hotUpdateNewHash;
-
   function hotCreateRequire(moduleId) {
     var me = installedModules[moduleId];
     if (!me) return $require$;
@@ -142,9 +129,7 @@ module.exports = function() {
       check: hotCheck,
       apply: hotApply,
       status: function(l) {
-        if (!l) {
-          return hotStatus;
-        }
+        if (!l) return hotStatus;
         hotStatusHandlers.push(l);
       },
 
@@ -166,12 +151,25 @@ module.exports = function() {
     return hot;
   }
 
+  var hotStatusHandlers = [];
+  var hotStatus = "idle";
+
   function hotSetStatus(newStatus) {
     hotStatus = newStatus;
     for (var i = 0; i < hotStatusHandlers.length; i++) {
       hotStatusHandlers[i].call(null, newStatus);
     }
   }
+
+  var hotWaitingFiles = 0;
+  var hotChunksLoading = 0;
+  var hotWaitingFilesMap = {};
+  var hotRequestedFilesMap = {};
+  var hotAvailableFilesMap = {};
+  var hotDeferred;
+
+  var hotUpdate;
+  var hotUpdateNewHash;
 
   function toModuleId(id) {
     var isNumber = (+id) + "" === id;
@@ -189,6 +187,7 @@ module.exports = function() {
         hotSetStatus("idle");
         return null;
       }
+
       hotRequestedFilesMap = {};
       hotWaitingFilesMap = {};
       hotAvailableFilesMap = update.c;
@@ -201,15 +200,18 @@ module.exports = function() {
           reject: reject
         };
       });
+
       hotUpdate = {};
       /*foreachInstalledChunks*/
       {
         /*globals chunkId */
         hotEnsureUpdateChunk(chunkId);
       }
+
       if (hotStatus === "prepare" && hotChunksLoading === 0 && hotWaitingFiles === 0) {
         hotUpdateDownloaded();
       }
+
       return promise;
     });
   }
@@ -243,9 +245,8 @@ module.exports = function() {
     hotSetStatus("ready");
     var deferred = hotDeferred;
     hotDeferred = null;
-    if (!deferred) {
-      return;
-    }
+    if (!deferred) return;
+
     if (hotApplyOnUpdate) {
       hotApply(hotApplyOnUpdate).then(function(result) {
         deferred.resolve(result);
@@ -285,14 +286,17 @@ module.exports = function() {
           id: id
         };
       });
+
       while (queue.length > 0) {
         var queueItem = queue.pop();
         var moduleId = queueItem.id;
         var chain = queueItem.chain;
         module = installedModules[moduleId];
+
         if (!module || module.hot._selfAccepted) {
           continue;
         }
+
         if (module.hot._selfDeclined) {
           return {
             type: "self-declined",
@@ -300,6 +304,7 @@ module.exports = function() {
             moduleId: moduleId
           };
         }
+
         if (module.hot._main) {
           return {
             type: "unaccepted",
@@ -307,12 +312,12 @@ module.exports = function() {
             moduleId: moduleId
           };
         }
-        for (var i = 0; i < module.parents.length; i++) {
-          var parentId = module.parents[i];
+
+        for (var k = 0; k < module.parents.length; k++) {
+          var parentId = module.parents[k];
           var parent = installedModules[parentId];
-          if (!parent) {
-            continue;
-          }
+          if (!parent) continue;
+
           if (parent.hot._declinedDependencies[moduleId]) {
             return {
               type: "declined",
@@ -321,9 +326,11 @@ module.exports = function() {
               parentId: parentId
             };
           }
+
           if (outdatedModules.indexOf(parentId) >= 0) {
             continue;
           }
+
           if (parent.hot._acceptedDependencies[moduleId]) {
             if (!outdatedDependencies[parentId]) {
               outdatedDependencies[parentId] = [];
@@ -331,6 +338,7 @@ module.exports = function() {
             addAllToSet(outdatedDependencies[parentId], [moduleId]);
             continue;
           }
+
           delete outdatedDependencies[parentId];
           outdatedModules.push(parentId);
           queue.push({
@@ -349,8 +357,8 @@ module.exports = function() {
     }
 
     function addAllToSet(a, b) {
-      for (var i = 0; i < b.length; i++) {
-        var item = b[i];
+      for (var k = 0; k < b.length; k++) {
+        var item = b[k];
         if (a.indexOf(item) < 0) {
           a.push(item);
         }
@@ -369,6 +377,7 @@ module.exports = function() {
       if (Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
         moduleId = toModuleId(id);
         var result;
+
         if (hotUpdate[id]) {
           result = getAffectedStuff(moduleId);
         } else {
@@ -377,13 +386,16 @@ module.exports = function() {
             moduleId: id
           };
         }
+
         var abortError = false;
         var doApply = false;
         var doDispose = false;
         var chainInfo = "";
+
         if (result.chain) {
           chainInfo = "\nUpdate propagation: " + result.chain.join(" -> ");
         }
+
         switch (result.type) {
           case "self-declined":
             if (options.onDeclined) {
@@ -424,22 +436,25 @@ module.exports = function() {
           default:
             throw new Error("Unexception type " + result.type);
         }
+
         if (abortError) {
           hotSetStatus("abort");
           return Promise.reject(abortError);
         }
+
         if (doApply) {
           appliedUpdate[moduleId] = hotUpdate[moduleId];
           addAllToSet(outdatedModules, result.outdatedModules);
-          for (moduleId in result.outdatedDependencies) {
-            if (Object.prototype.hasOwnProperty.call(result.outdatedDependencies, moduleId)) {
-              if (!outdatedDependencies[moduleId]) {
-                outdatedDependencies[moduleId] = [];
+          for (var depId in result.outdatedDependencies) {
+            if (Object.prototype.hasOwnProperty.call(result.outdatedDependencies, depId)) {
+              if (!outdatedDependencies[depId]) {
+                outdatedDependencies[depId] = [];
               }
-              addAllToSet(outdatedDependencies[moduleId], result.outdatedDependencies[moduleId]);
+              addAllToSet(outdatedDependencies[depId], result.outdatedDependencies[depId]);
             }
           }
         }
+
         if (doDispose) {
           addAllToSet(outdatedModules, [result.moduleId]);
           appliedUpdate[moduleId] = warnUnexpectedRequire;
@@ -469,9 +484,7 @@ module.exports = function() {
     while (queue.length > 0) {
       moduleId = queue.pop();
       module = installedModules[moduleId];
-      if (!module) {
-        continue;
-      }
+      if (!module) continue;
 
       var data = {};
 
@@ -483,14 +496,11 @@ module.exports = function() {
       hotCurrentModuleData[moduleId] = data;
 
       module.hot.active = false;
-
       delete installedModules[moduleId];
 
       for (j = 0; j < module.children.length; j++) {
         var child = installedModules[module.children[j]];
-        if (!child) {
-          continue;
-        }
+        if (!child) continue;
         idx = child.parents.indexOf(moduleId);
         if (idx >= 0) {
           child.parents.splice(idx, 1);
@@ -517,7 +527,6 @@ module.exports = function() {
     }
 
     hotSetStatus("apply");
-
     hotCurrentHash = hotUpdateNewHash;
 
     for (moduleId in appliedUpdate) {
@@ -532,6 +541,7 @@ module.exports = function() {
         module = installedModules[moduleId];
         moduleOutdatedDependencies = outdatedDependencies[moduleId];
         var callbacks = [];
+
         for (i = 0; i < moduleOutdatedDependencies.length; i++) {
           dependency = moduleOutdatedDependencies[i];
           cb = module.hot._acceptedDependencies[dependency];
@@ -540,6 +550,7 @@ module.exports = function() {
           }
           callbacks.push(cb);
         }
+
         for (i = 0; i < callbacks.length; i++) {
           cb = callbacks[i];
           try {

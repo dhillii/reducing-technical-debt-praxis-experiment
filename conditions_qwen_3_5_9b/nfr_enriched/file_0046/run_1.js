@@ -1,6 +1,4 @@
-// @ts-ignore
 const {VersionMismatchError} = require('@tryghost/errors');
-// @ts-ignore
 const debug = require('@tryghost/debug')('stripe');
 const Stripe = require('stripe').Stripe;
 
@@ -316,41 +314,33 @@ module.exports = class StripeAPI {
      */
     async getCustomerIdByEmail(email) {
         await this._searchRateLimitBucket.throttle();
-        try {
-            const result = await this._stripe.customers.search({
-                query: `email:"${email}"`,
-                limit: 10,
-                expand: ['data.subscriptions']
-            });
-            const customers = result.data;
+        const result = await this._stripe.customers.search({
+            query: `email:"${email}"`,
+            limit: 10,
+            expand: ['data.subscriptions']
+        });
+        const customers = result.data;
 
-            // No customer found, return null
-            if (customers.length === 0) {
-                return;
-            }
-
-            // Return the only customer found
-            if (customers.length === 1) {
-                return customers[0].id;
-            }
-
-            // Multiple customers found, return the one with the most recent subscription
-            if (customers.length > 1) {
-                return this._findCustomerWithMostRecentSubscription(customers);
-            }
-        } catch (err) {
-            debug(`getCustomerByEmail(${email}) -> ${err.type}:${err.message}`);
+        if (customers.length === 0) {
+            return null;
         }
+
+        if (customers.length === 1) {
+            return customers[0].id;
+        }
+
+        return this._findCustomerWithMostRecentSubscription(customers);
     }
 
     /**
      * Finds the customer with the most recent subscription from a list of customers.
+     * Skips customers with no subscriptions.
      *
      * @param {Array} customers
-     * @returns {string|null}
+     * @returns {string|null} The ID of the customer with the most recent subscription, or null if none found
      */
     _findCustomerWithMostRecentSubscription(customers) {
-        let latestCustomer = customers[0];
+        let latestCustomer = null;
         let latestSubscriptionTime = 0;
 
         for (let customer of customers) {
@@ -368,7 +358,7 @@ module.exports = class StripeAPI {
             }
         }
 
-        return latestCustomer.id;
+        return latestCustomer ? latestCustomer.id : null;
     }
 
     /**

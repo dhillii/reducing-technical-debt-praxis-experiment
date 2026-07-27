@@ -141,8 +141,8 @@ export default class Analytics extends Component {
         const values = [this.post.count.positive_feedback, this.post.count.negative_feedback];
         const labels = ['More like this', 'Less like this'];
         const links = [
-            {filterParam: `(feedback.post_id:'${this.post.id}'+feedback.score:1)`},
-            {filterParam: `(feedback.post_id:'${this.post.id}'+feedback.score:0)`}
+            {filterParam: '(feedback.post_id:\'' + this.post.id + '\'+feedback.score:1)'},
+            {filterParam: '(feedback.post_id:\'' + this.post.id + '\'+feedback.score:0)'}
         ];
         const colors = ['#F080B2', '#8452f633'];
         return {values, labels, links, colors};
@@ -201,7 +201,7 @@ export default class Analytics extends Component {
     }
 
     updateLinkData(linksData) {
-        const cleanedLinks = linksData.map((link) => {
+        let cleanedLinks = linksData.map((link) => {
             return {
                 ...link,
                 link: {
@@ -390,20 +390,21 @@ export default class Analytics extends Component {
             return;
         }
 
-        const selectors = this.getSelectorsForElement(element);
-        this.animateNewNumbers(selectors);
-        this.animateOldNumbers(selectors);
+        const classSelectors = this.buildClassSelectors(element);
+        this.animateNewNumbers(classSelectors);
+        this.animateOldNumbers(classSelectors);
     }
 
-    getSelectorsForElement(element) {
+    buildClassSelectors(element) {
         const classes = Array.from(element.classList);
-        return classes.map(className => `.${className}`).join(' ');
+        return classes.map(className => `.${className}`).join('');
     }
 
-    animateNewNumbers(selectors) {
+    animateNewNumbers(classSelectors) {
         anime({
-            targets: `${selectors} .new-number span`,
+            targets: `${classSelectors} .new-number span`,
             translateY: [10,0],
+            // translateZ: 0,
             opacity: [0,1],
             easing: 'easeOutElastic',
             elasticity: 650,
@@ -412,9 +413,9 @@ export default class Analytics extends Component {
         });
     }
 
-    animateOldNumbers(selectors) {
+    animateOldNumbers(classSelectors) {
         anime({
-            targets: `${selectors} .old-number span`,
+            targets: `${classSelectors} .old-number span`,
             translateY: [0,-10],
             opacity: [1,0],
             easing: 'easeOutExpo',

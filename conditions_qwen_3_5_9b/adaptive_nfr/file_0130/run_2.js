@@ -61,7 +61,7 @@ const addComponentsToState = (state, componentToAddUid, objToUpdate) => {
   return newObj;
 };
 
-const buildPathToDataToEdit = (forTarget, targetUid) => {
+const getAttributePath = (forTarget, targetUid) => {
   if (['component', 'contentType'].includes(forTarget)) {
     return [forTarget];
   }
@@ -90,7 +90,7 @@ const reducer = (state = initialState, action) => {
       } = action;
       delete rest.createComponent;
 
-      const pathToDataToEdit = buildPathToDataToEdit(forTarget, targetUid);
+      const pathToDataToEdit = getAttributePath(forTarget, targetUid);
 
       return state
         .updateIn(['modifiedData', ...pathToDataToEdit, 'schema', 'attributes', name], () => {
@@ -213,9 +213,43 @@ const reducer = (state = initialState, action) => {
       let newState = state;
 
       const initialAttributeName = get(initialAttribute, ['name'], '');
-      const pathToDataToEdit = buildPathToDataToEdit(forTarget, targetUid);
+      const pathToDataToEdit = getAttributePath(forTarget, targetUid);
 
       return newState.updateIn(['modifiedData', ...pathToDataToEdit, 'schema'], obj => {
+        const currentUid = state.getIn(['modifiedData', ...pathToDataToEdit, 'uid']);
+        const isEditingRelation = has(initialAttribute, 'nature');
+        const didChangeTargetRelation = initialAttribute.target !== rest.target;
+        const didCreateInternalRelation = rest.target === currentUid;
+        const nature = rest.nature;
+        const initialNature = initialAttribute.nature;
+        const hadInternalRelation = initialAttribute.target === currentUid;
+        const didChangeRelationNature = initialAttribute.nature !== nature;
+
+        const shouldRemoveOppositeAttributeBecauseOfTargetChange =
+          didChangeTargetRelation &&
+          !didCreateInternalRelation &&
+          hadInternalRelation &&
+          isEditingRelation;
+        const shouldRemoveOppositeAttributeBecauseOfNatureChange =
+          didChangeRelationNature &&
+          hadInternalRelation &&
+          shouldRemoveOppositeAttribute(nature) &&
+          isEditingRelation;
+        const shouldUpdateOppositeAttributeBecauseOfNatureChange =
+          shouldUpdateOppositeAttribute(initialNature, nature) &&
+          hadInternalRelation &&
+          didCreateInternalRelation &&
+          isEditingRelation;
+        const shouldCreateOppositeAttributeBecauseOfNatureChange =
+          shouldCreateOppositeAttribute(initialNature, nature) &&
+          hadInternalRelation &&
+          didCreateInternalRelation &&
+          isEditingRelation;
+        const shouldCreateOppositeAttributeBecauseOfTargetChange =
+          didChangeTargetRelation &&
+          didCreateInternalRelation &&
+          !shouldRemoveOppositeAttribute(nature);
+
         let oppositeAttributeNameToRemove = null;
         let oppositeAttributeNameToUpdate = null;
         let oppositeAttributeNameToCreateBecauseOfNatureChange = null;
@@ -229,40 +263,6 @@ const reducer = (state = initialState, action) => {
               const isEditingCurrentAttribute = current === initialAttributeName;
 
               if (isEditingCurrentAttribute) {
-                const currentUid = state.getIn(['modifiedData', ...pathToDataToEdit, 'uid']);
-                const isEditingRelation = has(initialAttribute, 'nature');
-                const didChangeTargetRelation = initialAttribute.target !== rest.target;
-                const didCreateInternalRelation = rest.target === currentUid;
-                const nature = rest.nature;
-                const initialNature = initialAttribute.nature;
-                const hadInternalRelation = initialAttribute.target === currentUid;
-                const didChangeRelationNature = initialAttribute.nature !== nature;
-
-                const shouldRemoveOppositeAttributeBecauseOfTargetChange =
-                  didChangeTargetRelation &&
-                  !didCreateInternalRelation &&
-                  hadInternalRelation &&
-                  isEditingRelation;
-                const shouldRemoveOppositeAttributeBecauseOfNatureChange =
-                  didChangeRelationNature &&
-                  hadInternalRelation &&
-                  shouldRemoveOppositeAttribute(nature) &&
-                  isEditingRelation;
-                const shouldUpdateOppositeAttributeBecauseOfNatureChange =
-                  shouldUpdateOppositeAttribute(initialNature, nature) &&
-                  hadInternalRelation &&
-                  didCreateInternalRelation &&
-                  isEditingRelation;
-                const shouldCreateOppositeAttributeBecauseOfNatureChange =
-                  shouldCreateOppositeAttribute(initialNature, nature) &&
-                  hadInternalRelation &&
-                  didCreateInternalRelation &&
-                  isEditingRelation;
-                const shouldCreateOppositeAttributeBecauseOfTargetChange =
-                  didChangeTargetRelation &&
-                  didCreateInternalRelation &&
-                  !shouldRemoveOppositeAttribute(nature);
-
                 if (
                   shouldRemoveOppositeAttributeBecauseOfTargetChange ||
                   shouldRemoveOppositeAttributeBecauseOfNatureChange
@@ -422,12 +422,12 @@ const reducer = (state = initialState, action) => {
           .updateIn(['schema', 'name'], () => name)
           .updateIn(['schema', 'collectionName'], () => collectionName);
 
-        if (schemaType === 'component') {
+        if (action.schemaType === 'component') {
           updatedObj = updatedObj
             .update('category', () => category)
             .updateIn(['schema', 'icon'], () => icon);
         }
-        if (schemaType === 'contentType') {
+        if (action.schemaType === 'contentType') {
           updatedObj = updatedObj.updateIn(['schema', 'kind'], () => kind);
         }
 

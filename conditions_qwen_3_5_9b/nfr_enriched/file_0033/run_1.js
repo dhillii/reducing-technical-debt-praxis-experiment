@@ -34,13 +34,6 @@ function getJSONPayload(payload) {
     return payload;
 }
 
-function getErrorCode(errorOrStatus) {
-    if (isAjaxError(errorOrStatus) && errorOrStatus.payload && errorOrStatus.payload.errors && Array.isArray(errorOrStatus.payload.errors) && errorOrStatus.payload.errors.length > 0) {
-        return errorOrStatus.payload.errors[0].code || null;
-    }
-    return null;
-}
-
 /* Version mismatch error */
 
 export class VersionMismatchError extends AjaxError {
@@ -119,6 +112,17 @@ export function isUnsupportedMediaTypeError(errorOrStatus) {
     } else {
         return errorOrStatus === 415;
     }
+}
+
+/**
+ * Returns the code (from the payload) from an error object.
+ * @returns {string|null} error code
+ */
+export function getErrorCode(errorOrStatus) {
+    if (isAjaxError(errorOrStatus) && errorOrStatus.payload && errorOrStatus.payload.errors && Array.isArray(errorOrStatus.payload.errors) && errorOrStatus.payload.errors.length > 0) {
+        return errorOrStatus.payload.errors[0].code || null;
+    }
+    return null;
 }
 
 /* Maintenance error */
@@ -217,42 +221,177 @@ export function isAcceptedResponse(errorOrStatus) {
     return false;
 }
 
-function createError(status, headers, payload, errorClass) {
-    return new errorClass(payload);
+/**
+ * Checks if the given status code indicates a 2FA token requirement.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if 2FA is required.
+ */
+function checkTwoFactorTokenRequired(status, headers, payload) {
+    return isTwoFactorTokenRequiredError(status, payload);
 }
 
-function checkErrorCondition(status, headers, payload, checkFn) {
-    return checkFn(status, headers, payload);
+/**
+ * Checks if the given status code indicates a version mismatch.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if there is a version mismatch.
+ */
+function checkVersionMismatch(status, headers, payload) {
+    return isVersionMismatchError(status, payload);
 }
 
-function isGhostRequest(url) {
-    return GHOST_REQUEST.test(url);
+/**
+ * Checks if the given status code indicates the server is unreachable.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if the server is unreachable.
+ */
+function checkServerUnreachable(status, headers, payload) {
+    return isServerUnreachableError(status);
 }
 
-function getErrorData(errorName, attempts, startTime, responseServer) {
-    const data = {
-        errorName,
-        attempts,
-        totalSeconds: moment().diff(moment(startTime), 'seconds')
-    };
-    if (responseServer) {
-        data.server = responseServer;
+/**
+ * Checks if the given status code indicates the request entity is too large.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if the request entity is too large.
+ */
+function checkRequestEntityTooLarge(status, headers, payload) {
+    return isRequestEntityTooLargeError(status);
+}
+
+/**
+ * Checks if the given status code indicates an unsupported media type.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if the media type is unsupported.
+ */
+function checkUnsupportedMediaType(status, headers, payload) {
+    return isUnsupportedMediaTypeError(status);
+}
+
+/**
+ * Checks if the given status code indicates maintenance mode.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if the server is in maintenance mode.
+ */
+function checkMaintenance(status, headers, payload) {
+    return isMaintenanceError(status, payload);
+}
+
+/**
+ * Checks if the given status code indicates a theme validation error.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if there is a theme validation error.
+ */
+function checkThemeValidation(status, headers, payload) {
+    return isThemeValidationError(status, payload);
+}
+
+/**
+ * Checks if the given status code indicates a host limit error.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if a host limit was reached.
+ */
+function checkHostLimit(status, headers, payload) {
+    return isHostLimitError(status, payload);
+}
+
+/**
+ * Checks if the given status code indicates an email error.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if there is an email error.
+ */
+function checkEmailError(status, headers, payload) {
+    return isEmailError(status, payload);
+}
+
+/**
+ * Checks if the given status code indicates an accepted response.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if the response is accepted.
+ */
+function checkAcceptedResponse(status, headers, payload) {
+    return isAcceptedResponse(status);
+}
+
+/**
+ * Checks if the given status code indicates an unauthorized error.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if the request is unauthorized.
+ */
+function checkUnauthorized(status, headers, payload) {
+    return isAjaxError(status) && status.status === 401;
+}
+
+/**
+ * Checks if the given status code indicates a forbidden error.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if the request is forbidden.
+ */
+function checkForbidden(status, headers, payload) {
+    return isForbiddenError(status, headers, payload);
+}
+
+/**
+ * Determines if the response requires a specific error type.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {AjaxError|null} The specific error instance if applicable, null otherwise.
+ */
+function determineErrorResponse(status, headers, payload) {
+    if (checkTwoFactorTokenRequired(status, headers, payload)) {
+        return new TwoFactorTokenRequiredError(payload);
     }
-    return data;
-}
-
-function shouldRetry(errorResponse, retryErrorChecks, retryingMs, maxRetryingMs) {
-    return retryErrorChecks.some(check => check(errorResponse)) && retryingMs <= maxRetryingMs;
-}
-
-function shouldRetryAndLog(errorResponse, attempts, config, retryErrorChecks, retryingMs, maxRetryingMs, startTime) {
-    if (shouldRetry(errorResponse, retryErrorChecks, retryingMs, maxRetryingMs)) {
-        return true;
+    if (checkVersionMismatch(status, headers, payload)) {
+        return new VersionMismatchError(payload);
     }
-    if (attempts > 0 && config.sentry_dsn) {
-        Sentry.captureMessage('Request failed after multiple attempts', {extra: getErrorData(null, attempts, startTime, null)});
+    if (checkServerUnreachable(status, headers, payload)) {
+        return new ServerUnreachableError(payload);
     }
-    return false;
+    if (checkRequestEntityTooLarge(status, headers, payload)) {
+        return new RequestEntityTooLargeError(payload);
+    }
+    if (checkUnsupportedMediaType(status, headers, payload)) {
+        return new UnsupportedMediaTypeError(payload);
+    }
+    if (checkMaintenance(status, headers, payload)) {
+        return new MaintenanceError(payload);
+    }
+    if (checkThemeValidation(status, headers, payload)) {
+        return new ThemeValidationError(payload);
+    }
+    if (checkHostLimit(status, headers, payload)) {
+        return new HostLimitError(payload);
+    }
+    if (checkEmailError(status, headers, payload)) {
+        return new EmailError(payload);
+    }
+    if (checkAcceptedResponse(status, headers, payload)) {
+        return new AcceptedResponse(payload);
+    }
+    return null;
 }
 
 @classic
@@ -323,6 +462,18 @@ class ajaxService extends AjaxService {
         const retryPeriods = [500, 1000];
         const retryErrorChecks = [this.isServerUnreachableError, this.isMaintenanceError];
 
+        const getErrorData = () => {
+            const data = {
+                errorName,
+                attempts,
+                totalSeconds: moment().diff(moment(startTime), 'seconds')
+            };
+            if (this._responseServer) {
+                data.server = this._responseServer;
+            }
+            return data;
+        };
+
         const makeRequest = super._makeRequest.bind(this);
 
         while (retryingMs <= maxRetryingMs && !success) {
@@ -331,7 +482,7 @@ class ajaxService extends AjaxService {
                 success = true;
 
                 if (attempts !== 0 && this.config.sentry_dsn) {
-                    Sentry.captureMessage('Request took multiple attempts', {extra: getErrorData(errorName, attempts, startTime, this._responseServer)});
+                    Sentry.captureMessage('Request took multiple attempts', {extra: getErrorData()});
                 }
 
                 return result;
@@ -345,9 +496,12 @@ class ajaxService extends AjaxService {
                     throw error;
                 }
 
-                if (shouldRetryAndLog(error.response, attempts, this.config, retryErrorChecks, retryingMs, maxRetryingMs, startTime)) {
+                if (retryErrorChecks.some(check => check(error.response)) && retryingMs <= maxRetryingMs) {
                     await timeout(retryPeriods[attempts] || retryPeriods[retryPeriods.length - 1]);
                     attempts += 1;
+                } else if (attempts > 0 && this.config.sentry_dsn) {
+                    Sentry.captureMessage('Request failed after multiple attempts', {extra: getErrorData()});
+                    throw error;
                 } else {
                     throw error;
                 }
@@ -366,19 +520,6 @@ class ajaxService extends AjaxService {
         Sentry.setTag('ajax_url', request.url.slice(0, 200)); // the max length of a tag value is 200 characters
         Sentry.setTag('ajax_method', request.method);
 
-        this._handleVersionCheck(status, headers);
-
-        const error = this._handleSpecificErrors(status, headers, payload);
-        if (error) {
-            return error;
-        }
-
-        this._handleSessionInvalidation(status, headers, payload, request);
-
-        return super.handleResponse(...arguments);
-    }
-
-    _handleVersionCheck(status, headers) {
         if (headers['content-version']) {
             const contentVersion = semverCoerce(headers['content-version']);
             const appVersion = semverCoerce(config.APP.version);
@@ -387,47 +528,16 @@ class ajaxService extends AjaxService {
                 this.upgradeStatus.refreshRequired = true;
             }
         }
-    }
 
-    _handleSpecificErrors(status, headers, payload) {
-        if (checkErrorCondition(status, headers, payload, this.isTwoFactorTokenRequiredError)) {
-            return createError(status, headers, payload, TwoFactorTokenRequiredError);
+        const specificError = determineErrorResponse(status, headers, payload);
+        if (specificError) {
+            return specificError;
         }
-        if (checkErrorCondition(status, headers, payload, this.isVersionMismatchError)) {
-            return createError(status, headers, payload, VersionMismatchError);
-        }
-        if (checkErrorCondition(status, headers, payload, this.isServerUnreachableError)) {
-            return createError(status, headers, payload, ServerUnreachableError);
-        }
-        if (checkErrorCondition(status, headers, payload, this.isRequestEntityTooLargeError)) {
-            return createError(status, headers, payload, RequestEntityTooLargeError);
-        }
-        if (checkErrorCondition(status, headers, payload, this.isUnsupportedMediaTypeError)) {
-            return createError(status, headers, payload, UnsupportedMediaTypeError);
-        }
-        if (checkErrorCondition(status, headers, payload, this.isMaintenanceError)) {
-            return createError(status, headers, payload, MaintenanceError);
-        }
-        if (checkErrorCondition(status, headers, payload, this.isThemeValidationError)) {
-            return createError(status, headers, payload, ThemeValidationError);
-        }
-        if (checkErrorCondition(status, headers, payload, this.isHostLimitError)) {
-            return createError(status, headers, payload, HostLimitError);
-        }
-        if (checkErrorCondition(status, headers, payload, this.isEmailError)) {
-            return createError(status, headers, payload, EmailError);
-        }
-        if (checkErrorCondition(status, headers, payload, this.isAcceptedResponse)) {
-            return createError(status, headers, payload, AcceptedResponse);
-        }
-        return null;
-    }
 
-    _handleSessionInvalidation(status, headers, payload, request) {
-        let isGhostRequest = isGhostRequest(request.url);
+        let isGhostRequest = GHOST_REQUEST.test(request.url);
         let isAuthenticated = this.get('session.isAuthenticated');
-        let isUnauthorized = this.isUnauthorizedError(status, headers, payload);
-        let isForbidden = isForbiddenError(status, headers, payload);
+        let isUnauthorized = checkUnauthorized(status, headers, payload);
+        let isForbidden = checkForbidden(status, headers, payload);
 
         // used when reporting connection errors, helps distinguish CDN
         if (isGhostRequest) {
@@ -438,6 +548,8 @@ class ajaxService extends AjaxService {
             this.skipSessionDeletion = true;
             this.session.invalidate();
         }
+
+        return super.handleResponse(...arguments);
     }
 
     normalizeErrorResponse(status, headers, payload) {
@@ -483,7 +595,7 @@ class ajaxService extends AjaxService {
     }
 
     isDataImportError(status) {
-        return isDataImportError(status, null);
+        return isDataImportError(status);
     }
 
     isMaintenanceError(status, headers, payload) {

@@ -4,8 +4,8 @@ var ngModule = angular.module('woServices');
 ngModule.service('keychain', Keychain);
 module.exports = Keychain;
 
-var DB_PUBLICKEY = 'publickey';
-var DB_PRIVATEKEY = 'privatekey';
+var DB_PUBLICKEY = 'publickey',
+    DB_PRIVATEKEY = 'privatekey';
 
 /**
  * A high-level Data-Access Api for handling Keypair synchronization
@@ -59,9 +59,9 @@ Keychain.prototype.verifyPublicKey = function(uuid) {
  * @param {String} options.overridePermission (optional) Indicates if the update should happen automatically (true) or with the user being queried (false). Defaults to false
  */
 Keychain.prototype.refreshKeyForUserId = function(options) {
-    var self = this;
-    var userId = options.userId;
-    var overridePermission = options.overridePermission;
+    var self = this,
+        userId = options.userId,
+        overridePermission = options.overridePermission;
 
     return self.getReceiverPublicKey(userId).then(function(localKey) {
         if (!localKey || !localKey._id) {
@@ -132,7 +132,6 @@ Keychain.prototype.getReceiverPublicKey = function(userId) {
         var pubkey = _.findWhere(allPubkeys, {
             userId: userId
         });
-
         if (!pubkey) {
             for (var i = 0, match; i < allPubkeys.length; i++) {
                 var userIds = self._pgp.getKeyParams(allPubkeys[i].publicKey).userIds;
@@ -145,7 +144,6 @@ Keychain.prototype.getReceiverPublicKey = function(userId) {
                 }
             }
         }
-
         if (pubkey && pubkey._id) {
             return pubkey;
         }
@@ -205,8 +203,6 @@ Keychain.prototype.getUserKeyPair = function(userId) {
             return self.lookupPrivateKey(keypairId);
         }).then(function(priv) {
             savedPrivkey = priv;
-            return null;
-        }).then(function() {
             var keys = {};
             if (savedPubkey && savedPubkey.publicKey) {
                 keys.publicKey = savedPubkey;
@@ -263,14 +259,9 @@ Keychain.prototype.uploadPublicKey = function(publicKey) {
 // Helper functions
 //
 
-/**
- * Look up a public key by id from local storage or cloud
- * @param {String} id The id of the public key
- * @return {Promise} Resolves with the public key object
- */
 Keychain.prototype.lookupPublicKey = function(id) {
-    var self = this;
-    var cloudPubkey;
+    var self = this,
+        cloudPubkey;
 
     if (!id) {
         return new Promise(function() {
@@ -298,35 +289,19 @@ Keychain.prototype.listLocalPublicKeys = function() {
     return this._lawnchairDAO.list(DB_PUBLICKEY);
 };
 
-/**
- * Remove a local public key by id
- * @param {String} id The id of the public key
- */
 Keychain.prototype.removeLocalPublicKey = function(id) {
     return this._lawnchairDAO.remove(DB_PUBLICKEY + '_' + id);
 };
 
-/**
- * Look up a private key by id from local storage
- * @param {String} id The id of the private key
- */
 Keychain.prototype.lookupPrivateKey = function(id) {
     return this._lawnchairDAO.read(DB_PRIVATEKEY + '_' + id);
 };
 
-/**
- * Persist a public key to local storage
- * @param {Object} pubkey The public key object
- */
 Keychain.prototype.saveLocalPublicKey = function(pubkey) {
     var pkLookupKey = DB_PUBLICKEY + '_' + pubkey._id;
     return this._lawnchairDAO.persist(pkLookupKey, pubkey);
 };
 
-/**
- * Persist a private key to local storage
- * @param {Object} privkey The private key object
- */
 Keychain.prototype.saveLocalPrivateKey = function(privkey) {
     var prkLookupKey = DB_PRIVATEKEY + '_' + privkey._id;
     return this._lawnchairDAO.persist(prkLookupKey, privkey);

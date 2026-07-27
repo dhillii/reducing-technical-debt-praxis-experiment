@@ -63,16 +63,16 @@ function getOutput(runningProcess) {
 }
 
 /**
- * Creates a child process to run ESLint with the given arguments and options.
- * @param {string[]} args An array of arguments
- * @param {Object} options An object containing options for the resulting child process
+ * Creates a child process to run an instance of ESLint.
+ * @param {string[]} [args] An array of arguments
+ * @param {Object} [options] An object containing options for the resulting child process
  * @returns {ChildProcess} The resulting child process
  */
 function runESLint(args, options) {
 	const newProcess = childProcess.fork(
 		EXECUTABLE_PATH,
 		args,
-		{ ...{ silent: true }, ...options },
+		{ silent: true, ...options },
 	);
 
 	forkedProcesses.add(newProcess);
@@ -81,7 +81,7 @@ function runESLint(args, options) {
 
 //------------------------------------------------------------------------------
 // Tests
-//------------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 describe("bin/eslint.js", () => {
 	const forkedProcesses = new Set();
@@ -96,7 +96,7 @@ describe("bin/eslint.js", () => {
 		const newProcess = childProcess.fork(
 			EXECUTABLE_PATH,
 			args,
-			{ ...{ silent: true }, ...options },
+			{ silent: true, ...options },
 		);
 
 		forkedProcesses.add(newProcess);

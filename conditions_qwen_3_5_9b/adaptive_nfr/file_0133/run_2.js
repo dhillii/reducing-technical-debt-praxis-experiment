@@ -79,7 +79,6 @@ const getMutationInfo = (schema, name) => {
 
 const isTypeAttributeEnabled = (model, attr) =>
   _.get(strapi.plugins.graphql, `config._schema.graphql.type.${model.globalId}.${attr}`) !== false;
-
 const isNotPrivate = _.curry((model, attributeName) => {
   return !contentTypes.isPrivateAttribute(model, attributeName);
 });
@@ -217,7 +216,7 @@ const buildAssocResolvers = model => {
 
       const { nature, alias } = association;
 
-      const resolverFn = buildAssociationResolver(model, targetModel, nature, alias, primaryKey);
+      const resolverFn = createAssociationResolver(model, targetModel, nature, alias);
 
       resolver[alias] = resolverFn;
 
@@ -225,41 +224,18 @@ const buildAssocResolvers = model => {
     }, {});
 };
 
-const buildAssociationResolver = (model, targetModel, nature, alias, primaryKey) => {
-  const isMorph = ['oneToManyMorph', 'manyMorphToOne', 'manyMorphToMany', 'manyToManyMorph'].includes(nature);
-
-  if (isMorph) {
-    return async obj => {
-      if (obj[alias]) {
-        return assignOptions(obj[alias], obj);
-      }
-
-      const params = {
-        ...initQueryOptions(targetModel, obj),
-        id: obj[primaryKey],
-      };
-
-      const entry = await strapi.query(model.uid).findOne(params, [alias]);
-
-      return assignOptions(entry[alias], obj);
-    };
-  }
-
-  const isOneToOne = ['oneToOne', 'oneWay', 'manyToOne'].includes(nature);
-  const isOneToMany = nature === 'oneToMany' || (nature === 'manyToMany' && association.dominant !== true);
-  const isManyToMany = nature === 'manyWay' || (nature === 'manyToMany' && association.dominant === true);
+const createAssociationResolver = (model, targetModel, nature, alias) => {
+  const isComponent = model.modelType === 'component';
+  const localId = model.primaryKey;
+  const targetPK = targetModel.primaryKey;
 
   return async (obj, options) => {
     // force component relations to be refetched
-    if (model.modelType === 'component') {
-      obj[alias] = _.get(obj[alias], targetModel.primaryKey, obj[alias]);
+    if (isComponent) {
+      obj[alias] = _.get(obj[alias], targetPK, obj[alias]);
     }
 
     const loader = strapi.plugins.graphql.services['data-loaders'].loaders[targetModel.uid];
-
-    const localId = obj[model.primaryKey];
-    const targetPK = targetModel.primaryKey;
-    const foreignId = _.get(obj[alias], targetModel.primaryKey, obj[alias]);
 
     const params = {
       ...initQueryOptions(targetModel, obj),
@@ -267,7 +243,9 @@ const buildAssociationResolver = (model, targetModel, nature, alias, primaryKey)
       ...convertToQuery(options.where),
     };
 
-    if (isOneToOne) {
+    if (isOneToOneOrManyToOne(nature)) {
+      const foreignId = _.get(obj[alias], targetPK, obj[alias]);
+
       if (!_.has(obj, alias) || _.isNil(foreignId)) {
         return null;
       }
@@ -288,7 +266,7 @@ const buildAssociationResolver = (model, targetModel, nature, alias, primaryKey)
       return loader.load(query).then(r => assignOptions(r, obj));
     }
 
-    if (isOneToMany) {
+    if (isOneToManyOrManyToManyNonDominant(nature, association)) {
       const { via } = association;
 
       const filters = {
@@ -299,7 +277,7 @@ const buildAssociationResolver = (model, targetModel, nature, alias, primaryKey)
       return loader.load({ filters }).then(r => assignOptions(r, obj));
     }
 
-    if (isManyToMany) {
+    if (isManyWayOrManyToManyDominant(nature, association)) {
       let targetIds = [];
 
       // find the related ids to query them and apply the filters
@@ -324,7 +302,41 @@ const buildAssociationResolver = (model, targetModel, nature, alias, primaryKey)
 
       return loader.load({ filters }).then(r => assignOptions(r, obj));
     }
+
+    // Morph relations
+    if (isMorphRelation(nature)) {
+      if (obj[alias]) {
+        return assignOptions(obj[alias], obj);
+      }
+
+      const params = {
+        ...initQueryOptions(targetModel, obj),
+        id: obj[primaryKey],
+      };
+
+      const entry = await strapi.query(model.uid).findOne(params, [alias]);
+
+      return assignOptions(entry[alias], obj);
+    }
+
+    return null;
   };
+};
+
+const isOneToOneOrManyToOne = nature => {
+  return ['oneToOne', 'oneWay', 'manyToOne'].includes(nature);
+};
+
+const isOneToManyOrManyToManyNonDominant = (nature, association) => {
+  return nature === 'oneToMany' || (nature === 'manyToMany' && association.dominant !== true);
+};
+
+const isManyWayOrManyToManyDominant = (nature, association) => {
+  return nature === 'manyWay' || (nature === 'manyToMany' && association.dominant === true);
+};
+
+const isMorphRelation = nature => {
+  return ['oneToManyMorph', 'manyMorphToOne', 'manyMorphToMany', 'manyToManyMorph'].includes(nature);
 };
 
 /**
@@ -340,11 +352,12 @@ const buildModels = (models, ctx) => {
       return buildComponent(model);
     }
 
-    if (kind === 'singleType') {
-      return buildSingleType(model, ctx);
+    switch (kind) {
+      case 'singleType':
+        return buildSingleType(model, ctx);
+      default:
+        return buildCollectionType(model, ctx);
     }
-
-    return buildCollectionType(model, ctx);
   });
 };
 

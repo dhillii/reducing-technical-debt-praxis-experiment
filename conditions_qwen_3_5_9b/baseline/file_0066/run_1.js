@@ -9,6 +9,7 @@ const astUtils = require("./utils/ast-utils");
 //------------------------------------------------------------------------------
 // Rule Definition
 //------------------------------------------------------------------------------
+// this rule has known coverage issues, but it's deprecated and shouldn't be updated in the future anyway.
 /* c8 ignore next */
 /** @type {import('../types').Rule.RuleModule} */
 module.exports = {
@@ -187,7 +188,7 @@ module.exports = {
 
 	create(context) {
 		const DEFAULT_VARIABLE_INDENT = 1;
-		const DEFAULT_PARAMETER_INDENT = null;
+		const DEFAULT_PARAMETER_INDENT = null; // For backwards compatibility, don't check parameter indentation unless specified in the config
 		const DEFAULT_FUNCTION_BODY_INDENT = 1;
 
 		let indentType = "space";
@@ -294,7 +295,7 @@ module.exports = {
 		 * @param {number} expectedAmount The expected amount of indentation characters for this line
 		 * @param {number} actualSpaces The actual number of indentation spaces that were found on this line
 		 * @param {number} actualTabs The actual number of indentation tabs that were found on this line
-		 * @returns {Object} An error message object for this line
+		 * @returns {string} An error message for this line
 		 */
 		function createErrorMessageData(
 			expectedAmount,
@@ -694,7 +695,7 @@ module.exports = {
 		 * @returns {void}
 		 */
 		function checkIndentInFunctionBlock(node) {
-			const calleeNode = node.parent;
+			const calleeNode = node.parent; // FunctionExpression
 			let indent;
 
 			if (

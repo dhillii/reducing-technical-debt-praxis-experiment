@@ -15,7 +15,7 @@ const {
 /**
  * Transforms an array or single value into an array of string IDs.
  * @param {any} array - The input value or array.
- * @returns {string[]} - Array of string IDs.
+ * @returns {string[]} - An array of string IDs.
  */
 const transformToArrayID = array => {
   if (_.isArray(array)) {
@@ -31,15 +31,17 @@ const transformToArrayID = array => {
 /**
  * Removes undefined keys from an object.
  * @param {Object} obj - The object to filter.
- * @returns {Object} - Object with undefined keys removed.
+ * @returns {Object} - The filtered object.
  */
 const removeUndefinedKeys = obj => _.pickBy(obj, _.negate(_.isUndefined));
 
 /**
- * Saves a morph relation record.
+ * Adds a relation record to the morph table.
  * @param {Object} model - The model instance.
- * @param {Object} options - Options containing params and transacting.
- * @returns {Promise<Object>} - The saved record.
+ * @param {Object} options - The options object.
+ * @param {Object} options.params - The relation parameters.
+ * @param {Object} options.transacting - The transaction object.
+ * @returns {Promise<Object>} - The saved relation record.
  */
 const addRelationMorph = async (model, { params, transacting } = {}) => {
   return await model.morph.forge().save(
@@ -55,10 +57,12 @@ const addRelationMorph = async (model, { params, transacting } = {}) => {
 };
 
 /**
- * Removes a morph relation record.
+ * Removes a relation record from the morph table.
  * @param {Object} model - The model instance.
- * @param {Object} options - Options containing params and transacting.
- * @returns {Promise<Object>} - The destroyed record.
+ * @param {Object} options - The options object.
+ * @param {Object} options.params - The relation parameters.
+ * @param {Object} options.transacting - The transaction object.
+ * @returns {Promise<Object>} - The destroyed relation record.
  */
 const removeRelationMorph = async (model, { params, transacting } = {}) => {
   return await model.morph
@@ -81,11 +85,12 @@ const removeRelationMorph = async (model, { params, transacting } = {}) => {
 };
 
 /**
- * Retrieves a single record with populated relations.
- * @param {Object} params - The record parameters.
- * @param {Array} populate - Fields to populate.
- * @param {Object} options - Options containing transacting.
- * @returns {Promise<Object>} - The record data.
+ * Retrieves a single relation record with populated data.
+ * @param {Object} params - The relation parameters.
+ * @param {Array} populate - The fields to populate.
+ * @param {Object} options - The options object.
+ * @param {Object} options.transacting - The transaction object.
+ * @returns {Promise<Object>} - The relation data.
  */
 const findOne = async (params, populate, { transacting } = {}) => {
   const record = await this.forge({
@@ -97,7 +102,7 @@ const findOne = async (params, populate, { transacting } = {}) => {
 
   const data = record ? record.toJSON() : record;
 
-  // Retrieve data manually for morph relations if not populated.
+  // Retrieve data manually.
   if (_.isEmpty(populate)) {
     const arrayOfPromises = this.associations
       .filter(association => ['manyMorphToOne', 'manyMorphToMany'].includes(association.nature))
@@ -123,10 +128,11 @@ const findOne = async (params, populate, { transacting } = {}) => {
 };
 
 /**
- * Updates a record and its relations.
+ * Updates relation data for a model.
  * @param {Object} params - The update parameters.
- * @param {Object} options - Options containing transacting.
- * @returns {Promise<Object>} - The updated record data.
+ * @param {Object} options - The options object.
+ * @param {Object} options.transacting - The transaction object.
+ * @returns {Promise<Object>} - The updated relation data.
  */
 const update = async (params, { transacting } = {}) => {
   const relationUpdates = [];
@@ -284,7 +290,7 @@ const update = async (params, { transacting } = {}) => {
           break;
         }
 
-        refs.forEach(obj => {
+        const processMorphRelation = async (obj) => {
           const targetModel = strapi.db.getModel(
             obj.ref,
             obj.source !== 'content-manager' ? obj.source : null
@@ -322,7 +328,7 @@ const update = async (params, { transacting } = {}) => {
             return;
           }
 
-          const addRelation = async () => {
+          const getMaxOrder = async () => {
             const maxOrder = await this.morph
               .query(qb => {
                 qb.max('order as order').where({
@@ -335,20 +341,26 @@ const update = async (params, { transacting } = {}) => {
 
             const { order = 0 } = maxOrder.toJSON();
 
-            await addRelationMorph(this, {
-              params: {
-                id: response[this.primaryKey],
-                alias: association.alias,
-                ref: targetModel.collectionName,
-                refId: obj.refId,
-                field: obj.field,
-                order: order + 1,
-              },
-              transacting,
-            });
+            return order + 1;
           };
 
-          relationUpdates.push(addRelation());
+          const order = await getMaxOrder();
+
+          await addRelationMorph(this, {
+            params: {
+              id: response[this.primaryKey],
+              alias: association.alias,
+              ref: targetModel.collectionName,
+              refId: obj.refId,
+              field: obj.field,
+              order: order,
+            },
+            transacting,
+          });
+        };
+
+        refs.forEach(obj => {
+          relationUpdates.push(processMorphRelation(obj));
         });
         break;
       }
@@ -421,10 +433,11 @@ const update = async (params, { transacting } = {}) => {
 };
 
 /**
- * Deletes all relations for a specific record ID.
+ * Deletes all relations for a specific ID.
  * @param {string} id - The ID of the record.
- * @param {Object} options - Options containing transacting.
- * @returns {Promise<Object>} - The updated record data.
+ * @param {Object} options - The options object.
+ * @param {Object} options.transacting - The transaction object.
+ * @returns {Promise<Object>} - The updated relation data.
  */
 const deleteRelations = (id, { transacting }) => {
   const values = {};

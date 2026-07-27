@@ -76,7 +76,7 @@ exports.watch = function (files, fn) {
  * @return {boolean}
  */
 function isIgnored (path) {
-  return !~ignore.indexOf(path);
+  return !ignore.includes(path);
 }
 
 /**
@@ -414,7 +414,7 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
 
   stack = stack || [];
 
-  if (stack.indexOf(value) !== -1) {
+  if (stack.includes(value)) {
     return '[Circular]';
   }
 

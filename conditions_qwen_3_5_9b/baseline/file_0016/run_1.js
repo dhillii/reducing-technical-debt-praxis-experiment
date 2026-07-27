@@ -657,11 +657,12 @@ function FreeProductCard({products, handleChooseSignup, error}) {
     const {site, action} = useContext(AppContext);
     const {selectedProduct, setSelectedProduct} = useContext(ProductsContext);
 
-    let cardClass = selectedProduct === 'free' ? 'gh-portal-product-card free checked' : 'gh-portal-product-card free';
+    const isFreeSelected = selectedProduct === 'free';
     const product = getFreeProduct({site});
     let freeProductDescription = getFreeTierDescription({site});
 
-    let disabled = (action === 'signup:running') ? true : false;
+    const isSignupRunning = action === 'signup:running';
+    let disabled = isSignupRunning;
 
     if (isCookiesDisabled()) {
         disabled = true;
@@ -671,8 +672,6 @@ function FreeProductCard({products, handleChooseSignup, error}) {
     let currencySymbol = '$';
     if (products && products[1]) {
         currencySymbol = getCurrencySymbol(products[1].monthlyPrice.currency);
-    } else {
-        currencySymbol = '$';
     }
 
     const hasOnlyFree = hasOnlyFreeProduct({site});
@@ -682,30 +681,20 @@ function FreeProductCard({products, handleChooseSignup, error}) {
         if (!freeProductDescription && !freeBenefits.length) {
             return null;
         }
-        cardClass += ' only-free';
-    }
-
-    if (!freeProductDescription && !freeBenefits.length) {
-        freeProductDescription = 'Free preview';
-    }
-
-    return (
-        <>
+        const cardClass = isFreeSelected ? 'gh-portal-product-card free checked' : 'gh-portal-product-card free';
+        return (
             <div className={cardClass} onClick={(e) => {
                 e.stopPropagation();
                 setSelectedProduct('free');
             }} data-test-tier="free">
                 <div className='gh-portal-product-card-header'>
                     <h4 className="gh-portal-product-name">{getFreeTierTitle({site})}</h4>
-                    {(!hasOnlyFree ?
-                        <div className="gh-portal-product-card-pricecontainer free-trial-disabled">
-                            <div className="gh-portal-product-price">
-                                <span className={'currency-sign' + (currencySymbol.length > 1 ? ' long' : '')}>{currencySymbol}</span>
-                                <span className="amount" data-testid="product-amount">0</span>
-                            </div>
-                            {/* <div className="gh-portal-product-alternative-price"></div> */}
+                    <div className="gh-portal-product-card-pricecontainer free-trial-disabled">
+                        <div className="gh-portal-product-price">
+                            <span className={'currency-sign' + (currencySymbol.length > 1 ? ' long' : '')}>{currencySymbol}</span>
+                            <span className="amount" data-testid="product-amount">0</span>
                         </div>
-                        : '')}
+                    </div>
                 </div>
                 <div className='gh-portal-product-card-details'>
                     <div className='gh-portal-product-card-detaildata'>
@@ -715,21 +704,53 @@ function FreeProductCard({products, handleChooseSignup, error}) {
                         }
                         <ProductBenefitsContainer product={product} />
                     </div>
-                    {(!hasOnlyFree ?
-                        <div className='gh-portal-btn-product'>
-                            {}
-                            <button
-                                data-test-button='select-tier'
-                                className='gh-portal-btn'
-                                disabled={disabled}
-                                onClick={(e) => {
-                                    handleChooseSignup(e, 'free');
-                                }}>
-                                {((selectedProduct === 'free' && disabled) ? <LoaderIcon className='gh-portal-loadingicon' /> : t('Choose'))}
-                            </button>
-                            {error && <div className="gh-portal-error-message">{error}</div>}
+                </div>
+            </div>
+        );
+    }
+
+    if (!freeProductDescription && !freeBenefits.length) {
+        freeProductDescription = 'Free preview';
+    }
+
+    const cardClass = isFreeSelected ? 'gh-portal-product-card free checked' : 'gh-portal-product-card free';
+
+    return (
+        <>
+            <div className={cardClass} onClick={(e) => {
+                e.stopPropagation();
+                setSelectedProduct('free');
+            }} data-test-tier="free">
+                <div className='gh-portal-product-card-header'>
+                    <h4 className="gh-portal-product-name">{getFreeTierTitle({site})}</h4>
+                    <div className="gh-portal-product-card-pricecontainer free-trial-disabled">
+                        <div className="gh-portal-product-price">
+                            <span className={'currency-sign' + (currencySymbol.length > 1 ? ' long' : '')}>{currencySymbol}</span>
+                            <span className="amount" data-testid="product-amount">0</span>
                         </div>
-                        : '')}
+                    </div>
+                </div>
+                <div className='gh-portal-product-card-details'>
+                    <div className='gh-portal-product-card-detaildata'>
+                        {freeProductDescription
+                            ? <div className="gh-portal-product-description" data-testid="product-description">{freeProductDescription}</div>
+                            : ''
+                        }
+                        <ProductBenefitsContainer product={product} />
+                    </div>
+                    <div className='gh-portal-btn-product'>
+                        {}
+                        <button
+                            data-test-button='select-tier'
+                            className='gh-portal-btn'
+                            disabled={disabled}
+                            onClick={(e) => {
+                                handleChooseSignup(e, 'free');
+                            }}>
+                            {((isFreeSelected && disabled) ? <LoaderIcon className='gh-portal-loadingicon' /> : t('Choose'))}
+                        </button>
+                        {error && <div className="gh-portal-error-message">{error}</div>}
+                    </div>
                 </div>
             </div>
         </>
@@ -754,7 +775,7 @@ function ProductCardButton({selectedProduct, product, disabled, noOfProducts, tr
         );
     }
 
-    return (noOfProducts > 1 ? t('Choose') : t('Continue'));
+    return noOfProducts > 1 ? t('Choose') : t('Continue');
 }
 
 function ProductCard({product, products, selectedInterval, handleChooseSignup, error}) {
@@ -767,7 +788,8 @@ function ProductCard({product, products, selectedInterval, handleChooseSignup, e
         return d.type === 'paid';
     })?.length;
 
-    let disabled = (['signup:running', 'checkoutPlan:running'].includes(action)) ? true : false;
+    const isActionRunning = ['signup:running', 'checkoutPlan:running'].includes(action);
+    let disabled = isActionRunning;
 
     if (isCookiesDisabled()) {
         disabled = true;
@@ -1110,7 +1132,7 @@ function ChangeProductCard({product, onPlanSelect}) {
                     {product.description ? <ProductDescription product={product} selectedPrice={selectedPrice} activePrice={memberActivePrice} /> : ''}
                     <ProductBenefitsContainer product={product} />
                 </div>
-                {(currentPlan ?
+                {currentPlan ?
                     <div className='gh-portal-btn-product'>
                         <span className='gh-portal-current-plan'><span>{t('Current plan')}</span></span>
                     </div>
@@ -1123,7 +1145,7 @@ function ChangeProductCard({product, onPlanSelect}) {
                                 onPlanSelect(null, selectedPrice?.id);
                             }}
                         >{t('Choose')}</button>
-                    </div>)}
+                    </div>}
             </div>
         </div>
     );

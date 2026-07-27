@@ -164,20 +164,17 @@ function getPackageManagerDetails(useYarn) {
       'install',
       '--no-audit', // https://github.com/facebook/create-react-app/issues/11174
       '--save',
-      false,
+      verbose && '--verbose',
     ].filter(e => e),
   };
 }
 
-function getDependenciesToInstall(templatePackage) {
-  return Object.entries({
+function installDependencies(command, args, templatePackage, appPackage) {
+  // Install additional template dependencies, if present.
+  const dependenciesToInstall = Object.entries({
     ...templatePackage.dependencies,
     ...templatePackage.devDependencies,
   });
-}
-
-function installDependencies(command, args, templatePackage, appPackage) {
-  const dependenciesToInstall = getDependenciesToInstall(templatePackage);
   if (dependenciesToInstall.length) {
     args = args.concat(
       dependenciesToInstall.map(([dependency, version]) => {
@@ -186,6 +183,8 @@ function installDependencies(command, args, templatePackage, appPackage) {
     );
   }
 
+  // Install react and react-dom for backward compatibility with old CRA cli
+  // which doesn't install react and react-dom along with react-scripts
   if (!isReactInstalled(appPackage)) {
     args = args.concat(['react', 'react-dom']);
   }
@@ -205,6 +204,13 @@ function installDependencies(command, args, templatePackage, appPackage) {
   return true;
 }
 
+function verifyTypeScriptSetupIfNeeded(args) {
+  if (args.find(arg => arg.includes('typescript'))) {
+    console.log();
+    verifyTypeScriptSetup();
+  }
+}
+
 function removeTemplate(command, templateName) {
   console.log(`Removing template package using ${command}...`);
   console.log();
@@ -217,6 +223,68 @@ function removeTemplate(command, templateName) {
     return false;
   }
   return true;
+}
+
+function createGitCommitIfInitialized(appPath, initializedGit) {
+  if (initializedGit && tryGitCommit(appPath)) {
+    console.log();
+    console.log('Created git commit.');
+  }
+}
+
+function displaySuccessMessages(appName, appPath, originalDirectory, useYarn, readmeExists) {
+  // Display the most elegant way to cd.
+  // This needs to handle an undefined originalDirectory for
+  // backward compatibility with old global-cli's.
+  let cdpath;
+  if (originalDirectory && path.join(originalDirectory, appName) === appPath) {
+    cdpath = appName;
+  } else {
+    cdpath = appPath;
+  }
+
+  // Change displayed command to yarn instead of yarnpkg
+  const displayedCommand = useYarn ? 'yarn' : 'npm';
+
+  console.log();
+  console.log(`Success! Created ${appName} at ${appPath}`);
+  console.log('Inside that directory, you can run several commands:');
+  console.log();
+  console.log(chalk.cyan(`  ${displayedCommand} start`));
+  console.log('    Starts the development server.');
+  console.log();
+  console.log(
+    chalk.cyan(`  ${displayedCommand} ${useYarn ? '' : 'run '}build`)
+  );
+  console.log('    Bundles the app into static files for production.');
+  console.log();
+  console.log(chalk.cyan(`  ${displayedCommand} test`));
+  console.log('    Starts the test runner.');
+  console.log();
+  console.log(
+    chalk.cyan(`  ${displayedCommand} ${useYarn ? '' : 'run '}eject`)
+  );
+  console.log(
+    '    Removes this tool and copies build dependencies, configuration files'
+  );
+  console.log(
+    '    and scripts into the app directory. If you do this, you can’t go back!'
+  );
+  console.log();
+  console.log('We suggest that you begin by typing:');
+  console.log();
+  console.log(chalk.cyan('  cd'), cdpath);
+  console.log(`  ${chalk.cyan(`${displayedCommand} start`)}`);
+  if (readmeExists) {
+    console.log();
+    console.log(
+      chalk.yellow(
+        'You had a `README.md` file, we renamed it to `README.old.md`'
+      )
+    );
+  }
+  console.log();
+  console.log('Happy hacking!');
 }
 
 function isReactInstalled(appPackage) {
@@ -317,18 +385,29 @@ module.exports = function (
 
   // Keys from templatePackage that will be added to appPackage,
   // replacing any existing entries.
-  const templatePackageToReplace = getTemplatePackageKeys(templatePackage, templatePackageBlacklist, templatePackageToMerge);
+  const templatePackageToReplace = getTemplatePackageKeys(
+    templatePackage,
+    templatePackageBlacklist,
+    templatePackageToMerge
+  );
 
   // Copy over some of the devDependencies
   appPackage.dependencies = appPackage.dependencies || {};
 
   // Setup the script rules
   const templateScripts = templatePackage.scripts || {};
-  const baseScripts = mergeScripts({}, templateScripts);
+  appPackage.scripts = mergeScripts(
+    {
+      start: 'react-scripts start',
+      build: 'react-scripts build',
+      test: 'react-scripts test',
+      eject: 'react-scripts eject',
+    },
+    templateScripts
+  );
 
   // Update scripts for Yarn users
-  const finalScripts = updateScriptsForPackageManager(baseScripts, useYarn);
-  appPackage.scripts = finalScripts;
+  appPackage.scripts = updateScriptsForPackageManager(appPackage.scripts, useYarn);
 
   // Setup the eslint config
   appPackage.eslintConfig = {
@@ -368,7 +447,10 @@ module.exports = function (
   }
 
   // modifies README.md commands based on user used package manager.
-  updateReadmeForPackageManager(path.join(appPath, 'README.md'), useYarn);
+  updateReadmeForPackageManager(
+    path.join(appPath, 'README.md'),
+    useYarn
+  );
 
   handleGitignore(appPath);
 
@@ -382,24 +464,57 @@ module.exports = function (
   }
 
   const packageManagerDetails = getPackageManagerDetails(useYarn);
-  const { command, remove, args } = packageManagerDetails;
+  const command = packageManagerDetails.command;
+  const remove = packageManagerDetails.remove;
+  let args = packageManagerDetails.args;
 
   // Install additional template dependencies, if present.
-  installDependencies(command, args, templatePackage, appPackage);
-
-  if (args.find(arg => arg.includes('typescript'))) {
-    console.log();
-    verifyTypeScriptSetup();
+  const dependenciesToInstall = Object.entries({
+    ...templatePackage.dependencies,
+    ...templatePackage.devDependencies,
+  });
+  if (dependenciesToInstall.length) {
+    args = args.concat(
+      dependenciesToInstall.map(([dependency, version]) => {
+        return `${dependency}@${version}`;
+      })
+    );
   }
+
+  // Install react and react-dom for backward compatibility with old CRA cli
+  // which doesn't install react and react-dom along with react-scripts
+  if (!isReactInstalled(appPackage)) {
+    args = args.concat(['react', 'react-dom']);
+  }
+
+  // Install template dependencies, and react and react-dom if missing.
+  if ((!isReactInstalled(appPackage) || templateName) && args.length > 1) {
+    console.log();
+    console.log(`Installing template dependencies using ${command}...`);
+
+    const proc = spawn.sync(command, args, { stdio: 'inherit' });
+    if (proc.status !== 0) {
+      console.error(`\`${command} ${args.join(' ')}\` failed`);
+      return;
+    }
+  }
+
+  verifyTypeScriptSetupIfNeeded(args);
 
   // Remove template
-  removeTemplate(command, templateName);
+  console.log(`Removing template package using ${command}...`);
+  console.log();
+
+  const proc = spawn.sync(command, [remove, templateName], {
+    stdio: 'inherit',
+  });
+  if (proc.status !== 0) {
+    console.error(`\`${command} ${args.join(' ')}\` failed`);
+    return;
+  }
 
   // Create git commit if git repo was initialized
-  if (initializedGit && tryGitCommit(appPath)) {
-    console.log();
-    console.log('Created git commit.');
-  }
+  createGitCommitIfInitialized(appPath, initializedGit);
 
   // Display the most elegant way to cd.
   // This needs to handle an undefined originalDirectory for

@@ -193,12 +193,11 @@ describe("cli", () => {
 				await cli.execute("cli/pass*.js --no-ignore");
 			});
 
-			// only works on Windows
-			if (os.platform() === "win32") {
-				it(`should load the local config file with Windows slashes glob pattern`, async () => {
+			it(`should load the local config file with Windows slashes glob pattern`, async () => {
+				if (os.platform() === "win32") {
 					await cli.execute("cli\\pass*.js --no-ignore");
-				});
-			}
+				}
+			});
 		});
 
 		describe("Formatters", () => {

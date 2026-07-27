@@ -93,34 +93,50 @@ const InputModalStepper = ({
     goNext();
   };
 
-  const goBack = (elementName = null) => {
+  const shouldConfirmCloseWithFiles = () => {
     const hasFilesToUpload = !isEmpty(filesToUpload);
+    const currentStepIsUpload = currentStep === 'upload';
+    const currentStepIsBrowse = currentStep === 'browse';
+    const hasBackButtonDestination = backButtonDestination;
 
-    // Redirect the user to the list modal from the upload one
-    if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
-      if (hasFilesToUpload) {
-        // eslint-disable-next-line no-alert
-        const confirm = globalThis.confirm(
-          formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-        );
-
-        if (!confirm) {
-          return;
-        }
-      }
-
-      goTo(backButtonDestination);
-      handleClearFilesToUploadAndDownload();
-
-      return;
+    if (hasFilesToUpload && currentStepIsUpload && hasBackButtonDestination) {
+      return true;
     }
 
-    if (
-      elementName === 'backButton' &&
-      backButtonDestination &&
-      currentStep === 'browse' &&
-      hasFilesToUpload
-    ) {
+    if (hasFilesToUpload && currentStepIsBrowse && hasBackButtonDestination) {
+      return true;
+    }
+
+    return false;
+  };
+
+  const handleBackButtonNavigation = (elementName = null) => {
+    const hasFilesToUpload = !isEmpty(filesToUpload);
+    const currentStepIsUpload = currentStep === 'upload';
+    const currentStepIsBrowse = currentStep === 'browse';
+    const hasBackButtonDestination = backButtonDestination;
+
+    if (elementName === 'backButton' && hasBackButtonDestination) {
+      if (currentStepIsUpload || currentStepIsBrowse) {
+        if (hasFilesToUpload) {
+          // eslint-disable-next-line no-alert
+          const confirm = globalThis.confirm(
+            formatMessage({ id: getTrad('window.confirm.close-modal.files') })
+          );
+
+          if (!confirm) {
+            return;
+          }
+        }
+
+        goTo(backButtonDestination);
+        handleClearFilesToUploadAndDownload();
+
+        return;
+      }
+    }
+
+    if (elementName === 'backButton' && hasBackButtonDestination && currentStepIsBrowse && hasFilesToUpload) {
       goTo(backButtonDestination);
 
       return;
@@ -289,8 +305,32 @@ const InputModalStepper = ({
     }
   };
 
+  const shouldConfirmCloseWithUnsavedChanges = () => {
+    const currentStepIsList = currentStep === 'list';
+    const currentStepIsEdit = currentStep === 'edit';
+    const filesChanged = !isEqual(selectedFiles, initialSelectedFiles);
+    const fileToEditChanged = initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit);
+    const hasSelectedFiles = selectedFiles.length > 0;
+
+    if (currentStepIsList && filesChanged) {
+      return true;
+    }
+
+    if (currentStepIsEdit && fileToEditChanged) {
+      return true;
+    }
+
+    if (currentStepIsEdit && hasSelectedFiles) {
+      return true;
+    }
+
+    return false;
+  };
+
   const handleToggle = () => {
-    if (filesToUploadLength > 0) {
+    const hasFilesToUpload = !isEmpty(filesToUpload);
+
+    if (hasFilesToUpload) {
       // eslint-disable-next-line no-alert
       const confirm = globalThis.confirm(
         formatMessage({ id: getTrad('window.confirm.close-modal.files') })
@@ -301,11 +341,7 @@ const InputModalStepper = ({
       }
     }
 
-    if (
-      (currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles)) ||
-      (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
-      (currentStep === 'edit' && selectedFiles.length > 0)
-    ) {
+    if (shouldConfirmCloseWithUnsavedChanges()) {
       // eslint-disable-next-line no-alert
       const confirm = globalThis.confirm(
         formatMessage({ id: getTrad('window.confirm.close-modal.file') })
@@ -329,7 +365,7 @@ const InputModalStepper = ({
       <Modal isOpen={isOpen} onToggle={handleToggle} onClosed={handleCloseModal}>
         {/* header title */}
         <ModalHeader
-          goBack={goBack}
+          goBack={handleBackButtonNavigation}
           HeaderComponent={HeaderComponent}
           headerBreadcrumbs={headerBreadcrumbs}
           withBackButton={withBackButton}

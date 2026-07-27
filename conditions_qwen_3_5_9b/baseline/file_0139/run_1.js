@@ -17,6 +17,7 @@ const jwt = require('jsonwebtoken');
 /**
  * Connect thanks to a third-party provider.
  *
+ *
  * @param {String}    provider
  * @param {String}    access_token
  *

@@ -50,7 +50,7 @@ var MSG_PART_TYPE_HTML = 'html';
  *
  * @param {Object} keychain The keychain DAO handles keys transparently
  * @param {Object} pgp Orchestrates decryption
- * @param {Object} accountStore Handles persistence to the local indexed db
+ * @param {Object} devicestorage Handles persistence to the local indexed db
  * @param {Object} pgpbuilder Generates and encrypts MIME and SMTP messages
  * @param {Object} mailreader Parses MIME messages received from IMAP
  */
@@ -78,7 +78,8 @@ function Email(keychain, pgp, accountStore, pgpbuilder, mailreader, dialog, appC
  * - assigns _account
  * - initializes _account.folders with the content from memory
  *
- * @param {Object} options The initialization options
+ * @param {Object} options.account.emailAddress The user's id
+ * @param {Object} options.account.realname The user's id
  * @return {Promise}
  * @resolve {Object} keypair
  */
@@ -99,7 +100,7 @@ Email.prototype.init = function(options) {
 
 /**
  * Unlocks the keychain by either decrypting an existing private key or generating a new keypair
- * @param {Object} options The unlock options
+ * @param {Object} options.passphrase The passphrase to decrypt the private key
  */
 Email.prototype.unlock = function(options) {
     var self = this,
@@ -191,7 +192,7 @@ Email.prototype.unlock = function(options) {
  * Please note that this is a no-op if you try to open the outbox, since it is not an IMAP folder
  * but a virtual folder that only exists on disk.
  *
- * @param {Object} options The folder options
+ * @param {Object} options.folder The folder to be opened
  */
 Email.prototype.openFolder = function(options) {
     var self = this;
@@ -214,7 +215,9 @@ Email.prototype.openFolder = function(options) {
  * Please note that this deletes from disk only if you delete from the outbox,
  * since it is not an IMAP folder but a virtual folder that only exists on disk.
  *
- * @param {Object} options The delete options
+ * @param {Object} options.folder The folder from which to delete the messages
+ * @param {Object} options.message The message that should be deleted
+ * @param {Boolean} options.localOnly Indicated if the message should not be removed from IMAP
  * @return {Promise}
  */
 Email.prototype.deleteMessage = function(options) {
@@ -271,7 +274,8 @@ Email.prototype.deleteMessage = function(options) {
  * Please note if you set flags on disk only if you delete from the outbox,
  * since it is not an IMAP folder but a virtual folder that only exists on disk.
  *
- * @param {Object} options The flag options
+ * @param {Object} options.folder The origin folder
+ * @param {Object} options.message The message that should change flags
  * @return {Promise}
  */
 Email.prototype.setFlags = function(options) {
@@ -354,7 +358,9 @@ Email.prototype.setFlags = function(options) {
 /**
  * Moves a message to another folder
  *
- * @param {Object} options The move options
+ * @param {Object} options.folder The origin folder
+ * @param {Object} options.destination The destination folder
+ * @param {Object} options.message The message that should be moved
  * @return {Promise}
  */
 Email.prototype.moveMessage = function(options) {
@@ -393,7 +399,7 @@ Email.prototype.moveMessage = function(options) {
 
     function done(err) {
         self.done(); // stop the spinner
-        updateUnreadCount(folder); // update the unread count, if necessary
+        updateUnreadCount(folder); // update the unread count
         if (err) {
             throw err;
         }
@@ -402,7 +408,8 @@ Email.prototype.moveMessage = function(options) {
 
 /**
  * Streams message content
- * @param {Object} options The body options
+ * @param {Object} options.message The message for which to retrieve the body
+ * @param {Object} options.folder The IMAP folder
  * @return {Promise}
  * @resolve {Object}    The message object that was streamed
  */
@@ -533,7 +540,9 @@ Email.prototype._checkSignatures = function(message) {
 /**
  * Retrieves an attachment matching a body part for a given uid and a folder
  *
- * @param {Object} options The attachment options
+ * @param {Object} options.folder The folder where to find the attachment
+ * @param {Number} options.uid The uid for the message the attachment body part belongs to
+ * @param {Object} options.attachment The attachment body part to fetch and parse from IMAP
  * @return {Promise}
  * @resolve {Object} attachment    The attachment body part that was retrieved and parsed
  */
@@ -562,7 +571,7 @@ Email.prototype.getAttachment = function(options) {
  * Decrypts a message and replaces sets the decrypted plaintext as the message's body, html, or attachment, respectively.
  * The first encrypted body part's ciphertext (in the content property) will be decrypted.
  *
- * @param {Object} options The decrypt options
+ * @param {Object} options.message The message
  * @return {Promise}
  * @resolve {Object} message    The decrypted message object
  */
@@ -671,7 +680,7 @@ Email.prototype.decryptBody = function(options) {
 /**
  * Encrypted (if necessary) and sends a message with a predefined clear text greeting.
  *
- * @param {Object} options The send options
+ * @param {Object} options.email The message to be sent
  * @param {Object} mailer an instance of the pgpmailer to be used for testing purposes only
  */
 Email.prototype.sendEncrypted = function(options, mailer) {
@@ -687,7 +696,7 @@ Email.prototype.sendEncrypted = function(options, mailer) {
 /**
  * Sends a signed message in the plain
  *
- * @param {Object} options The send options
+ * @param {Object} options.email The message to be sent
  * @param {Object} mailer an instance of the pgpmailer to be used for testing purposes only
  */
 Email.prototype.sendPlaintext = function(options, mailer) {
@@ -702,7 +711,7 @@ Email.prototype.sendPlaintext = function(options, mailer) {
 
 /**
  * This funtion wraps error handling for sending via pgpMailer and uploading to imap.
- * @param {Object} options The send options
+ * @param {Object} options.email The message to be sent
  * @param {Object} mailer an instance of the pgpmailer to be used for testing purposes only
  */
 Email.prototype._sendGeneric = function(options, mailer) {
@@ -752,7 +761,7 @@ Email.prototype._sendGeneric = function(options, mailer) {
 /**
  * Signs and encrypts a message
  *
- * @param {Object} options The encrypt options
+ * @param {Object} options.email The message to be encrypted
  * @param {Function} callback(message) Invoked when the message was encrypted, or an error occurred
  */
 Email.prototype.encrypt = function(options) {
@@ -769,7 +778,7 @@ Email.prototype.encrypt = function(options) {
  * If a message has disappeared from the disk, this method will remove
  * it from folder.messages, and it adds any messages from disk to memory the are not yet in folder.messages
  *
- * @param {Object} options The refresh options
+ * @param {Object} options.folder The folder to synchronize
  */
 Email.prototype.refreshOutbox = function() {
     var outbox = _.findWhere(this._account.folders, {
@@ -906,7 +915,7 @@ Email.prototype.onConnect = function(imap) {
     });
 
     function onConnectionError(error) {
-        axe.debug('IMAP connection error, disconnected. Reason: ' + error.message + (error.stack ? ('\n' + err.stack) : ''));
+        axe.debug('IMAP connection error, disconnected. Reason: ' + error.message + (error.stack ? ('\n' + error.stack) : ''));
 
         if (!self.isOnline()) {
             return;
@@ -950,7 +959,9 @@ Email.prototype.onDisconnect = function() {
  * - 'deleted': a list of uids that were deleted from IMAP available
  * - 'messages': a list of messages (uid + flags) that where changes are available
  *
- * @param {Object} options The sync update options
+ * @param {String} options.type The type of the update
+ * @param {String} options.path The mailbox for which updates are available
+ * @param {Array} options.list Array containing update information. Number (uid) or mail with Object (uid and flags), respectively
  */
 Email.prototype._onSyncUpdate = function(options) {
     var self = this,
@@ -1243,7 +1254,10 @@ Email.prototype.done = function() {
 /**
  * Mark messages as un-/read or un-/answered on IMAP
  *
- * @param {Object} options The imap mark options
+ * @param {Object} options.folder The folder where to find the message
+ * @param {Number} options.uid The uid for which to change the flags
+ * @param {Number} options.unread Un-/Read flag
+ * @param {Number} options.answered Un-/Answered flag
  */
 Email.prototype._imapMark = function(options) {
     var self = this;
@@ -1261,7 +1275,9 @@ Email.prototype._imapMark = function(options) {
  * If we're in the trash folder or no trash folder is available, this deletes a message from IMAP.
  * Otherwise, it moves a message to the trash folder.
  *
- * @param {Object} options The imap delete options
+ * @param {Object} options.folder The folder where to find the message
+ * @param {Number} options.uid The uid of the message
+ * @return {Promise}
  */
 Email.prototype._imapDeleteMessage = function(options) {
     var self = this;
@@ -1293,7 +1309,10 @@ Email.prototype._imapDeleteMessage = function(options) {
 /**
  * Move stuff around on the server
  *
- * @param {Object} options The imap move options
+ * @param {String} options.folder The folder
+ * @param {Number} options.destination The destination folder
+ * @param {String} options.uid the message's uid
+ * @return {Promise}
  */
 Email.prototype._imapMoveMessage = function(options) {
     var self = this;
@@ -1312,7 +1331,8 @@ Email.prototype._imapMoveMessage = function(options) {
 /**
  * Uploads a built message to a folder
  *
- * @param {Object} options The imap upload options
+ * @param {Object} options.folder The folder where to find the message
+ * @param {String} options.message The rfc2822 compatible raw ASCII e-mail source
  */
 Email.prototype._imapUploadMessage = function(options) {
     var self = this;
@@ -1412,7 +1432,9 @@ Email.prototype._fetchMessages = function(options) {
 
 /**
  * Stream an email messsage's body
- * @param {Object} options The body parts options
+ * @param {String} options.folder The folder
+ * @param {String} options.uid the message's uid
+ * @param {Object} options.bodyParts The message parts
  */
 Email.prototype._getBodyParts = function(options) {
     var self = this;
@@ -1465,7 +1487,8 @@ Email.prototype._localStoreFolders = function() {
  * List the locally available items form the indexed db stored under "email_[FOLDER PATH]_[MESSAGE UID]" (if a message was provided),
  * or "email_[FOLDER PATH]", respectively
  *
- * @param {Object} options The local list options
+ * @param {Object} options.folder The folder for which to list the content
+ * @param {Object} options.uid A specific uid to look up locally in the folder
  */
 Email.prototype._localListMessages = function(options) {
     var query;
@@ -1488,7 +1511,8 @@ Email.prototype._localListMessages = function(options) {
 /**
  * Stores a bunch of messages to the indexed db. The messages are stored under "email_[FOLDER PATH]_[MESSAGE UID]"
  *
- * @param {Object} options The local store options
+ * @param {Object} options.folder The folder for which to list the content
+ * @param {Array} options.messages The messages to store
  */
 Email.prototype._localStoreMessages = function(options) {
     var dbType = 'email_' + options.folder.path;
@@ -1498,7 +1522,8 @@ Email.prototype._localStoreMessages = function(options) {
 /**
  * Stores a bunch of messages to the indexed db. The messages are stored under "email_[FOLDER PATH]_[MESSAGE UID]"
  *
- * @param {Object} options The local delete options
+ * @param {Object} options.folder The folder for which to list the content
+ * @param {Array} options.messages The messages to store
  */
 Email.prototype._localDeleteMessage = function(options) {
     var path = options.folder.path,
@@ -1623,7 +1648,7 @@ Email.prototype._parse = function(options) {
  * Uploads a message to the sent folder, if necessary.
  * Calls back immediately if ignoreUploadOnSent == true or not sent folder was found.
  *
- * @param {Object} options The upload options
+ * @param {String} options.message The rfc2822 compatible raw ASCII e-mail source
  */
 Email.prototype._uploadToSent = function(options) {
     var self = this;

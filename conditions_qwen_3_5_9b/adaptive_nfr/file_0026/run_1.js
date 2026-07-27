@@ -68,10 +68,7 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     source: {
         endpoint: 'api_top_sources',
         valueKey: 'source',
-        transformValue: v => ({
-            value: v || '',
-            label: v || 'Direct'
-        })
+        transformValue: v => ({value: v || '', label: v || 'Direct'})
     },
     location: {
         endpoint: 'api_top_locations',
@@ -85,23 +82,29 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     device: {
         endpoint: 'api_top_devices',
         valueKey: 'device',
-        transformValue: v => ({
-            value: v,
-            label: getDeviceLabel(v)
-        })
+        transformValue: transformDeviceValue
     }
 };
 
-// Extracted device label mapping to reduce cyclomatic complexity
-const getDeviceLabel = (value: string): string => {
-    const deviceMap: Record<string, string> = {
-        'mobile-ios': 'iOS',
-        'mobile-android': 'Android',
-        'desktop': 'Desktop',
-        'bot': 'Bot',
-        'unknown': 'Unknown'
-    };
-    return deviceMap[value] || value;
+// Strategy object for device value transformation
+const DEVICE_VALUE_STRATEGY = {
+    'mobile-ios': 'iOS',
+    'mobile-android': 'Android',
+    'desktop': 'Desktop',
+    'bot': 'Bot',
+    'unknown': 'Unknown'
+};
+
+/**
+ * Transforms a raw device value string into a structured object with value and label.
+ * Uses a lookup table for known device types and returns the raw value for unknown types.
+ */
+const transformDeviceValue = (value: string): {value: string; label: string} => {
+    const knownDevice = DEVICE_VALUE_STRATEGY[value];
+    if (knownDevice) {
+        return {value, label: knownDevice};
+    }
+    return {value, label: value};
 };
 
 // Build filter params for Tinybird API, excluding the specified field to avoid circular filtering

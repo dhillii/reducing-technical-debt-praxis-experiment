@@ -37,24 +37,24 @@ module.exports = {
     rootType = 'query',
     action = '',
   }) {
-    const { type, required, default: defaultValue } = attribute;
+    const { type: attrType, required, default: attrDefault } = attribute;
 
-    if (isScalarAttribute({ type })) {
-      return this._convertScalarType({ type, required, defaultValue, rootType });
+    if (isScalarAttribute(attribute)) {
+      return this._getScalarType(attrType, required, rootType, action, attrDefault);
     }
 
-    if (type === 'component') {
-      return this._convertComponentType({ attribute, rootType, action });
+    if (attrType === 'component') {
+      return this._getComponentType(attribute, rootType, action);
     }
 
-    if (type === 'dynamiczone') {
-      return this._convertDynamicZoneType({ attribute, rootType });
+    if (attrType === 'dynamiczone') {
+      return this._getDynamicZoneType(attribute, modelName, attributeName, rootType);
     }
 
     const ref = attribute.model || attribute.collection;
 
     if (ref && ref !== '*') {
-      return this._convertAssociationType({ ref, rootType, attribute });
+      return this._getAssociationType(ref, attribute.plugin, attribute.collection, rootType);
     }
 
     if (rootType === 'mutation') {
@@ -64,51 +64,53 @@ module.exports = {
     return attribute.model ? 'Morph' : '[Morph]';
   },
 
-  _convertScalarType({ type, required, defaultValue, rootType }) {
-    let graphqlType = 'String';
+  _getScalarType(attrType, required, rootType, action, attrDefault) {
+    let type = 'String';
 
-    switch (type) {
+    switch (attrType) {
       case 'boolean':
-        graphqlType = 'Boolean';
+        type = 'Boolean';
         break;
       case 'integer':
-        graphqlType = 'Int';
+        type = 'Int';
         break;
       case 'biginteger':
-        graphqlType = 'Long';
+        type = 'Long';
         break;
       case 'float':
       case 'decimal':
-        graphqlType = 'Float';
+        type = 'Float';
         break;
       case 'json':
-        graphqlType = 'JSON';
+        type = 'JSON';
         break;
       case 'date':
-        graphqlType = 'Date';
+        type = 'Date';
         break;
       case 'time':
-        graphqlType = 'Time';
+        type = 'Time';
         break;
       case 'datetime':
       case 'timestamp':
-        graphqlType = 'DateTime';
+        type = 'DateTime';
         break;
       case 'enumeration':
-        graphqlType = this.convertEnumType(attribute, modelName, attributeName);
+        type = this.convertEnumType(attribute, modelName, attributeName);
+        break;
+      default:
         break;
     }
 
     if (required) {
-      if (rootType !== 'mutation' || (action !== 'update' && defaultValue === undefined)) {
-        graphqlType += '!';
+      if (rootType !== 'mutation' || (action !== 'update' && attrDefault === undefined)) {
+        type += '!';
       }
     }
 
-    return graphqlType;
+    return type;
   },
 
-  _convertComponentType({ attribute, rootType, action }) {
+  _getComponentType(attribute, rootType, action) {
     const { required, repeatable, component } = attribute;
     const globalId = strapi.components[component].globalId;
     let typeName = required === true ? `${globalId}` : globalId;
@@ -126,9 +128,9 @@ module.exports = {
     return `${typeName}`;
   },
 
-  _convertDynamicZoneType({ attribute, rootType }) {
+  _getDynamicZoneType(attribute, modelName, attributeName, rootType) {
     const { required } = attribute;
-    const unionName = `${attribute.modelName}${_.upperFirst(_.camelCase(attribute.attributeName))}DynamicZone`;
+    const unionName = `${modelName}${_.upperFirst(_.camelCase(attributeName))}DynamicZone`;
     let typeName = unionName;
 
     if (rootType === 'mutation') {
@@ -138,9 +140,9 @@ module.exports = {
     return `[${typeName}]${required ? '!' : ''}`;
   },
 
-  _convertAssociationType({ ref, rootType, attribute }) {
-    const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
-    const plural = !_.isEmpty(attribute.collection);
+  _getAssociationType(ref, plugin, collection, rootType) {
+    const globalId = strapi.db.getModel(ref, plugin).globalId;
+    const plural = !_.isEmpty(collection);
 
     if (plural) {
       if (rootType === 'mutation') {
@@ -241,37 +243,40 @@ module.exports = {
      `;
     }
 
-    const enabledAttributes = Object.keys(model.attributes).filter(attributeName => isTypeAttributeEnabled(model, attributeName));
-
-    const createInput = `
+    const inputs = `
       input ${inputName} {
-        ${enabledAttributes.map(attributeName => {
-          return `${attributeName}: ${this.convertType({
-            attribute: model.attributes[attributeName],
-            modelName: globalId,
-            attributeName,
-            rootType: 'mutation',
-          })}`;
-        }).join('\n')}
-      }
-    `;
 
-    const updateInput = `
+        ${Object.keys(model.attributes)
+          .filter(attributeName => isTypeAttributeEnabled(model, attributeName))
+          .map(attributeName => {
+            return `${attributeName}: ${this.convertType({
+              attribute: model.attributes[attributeName],
+              modelName: globalId,
+              attributeName,
+              rootType: 'mutation',
+            })}`;
+          })
+          .join('\n')}
+      }
+
       input edit${inputName} {
         ${allowIds ? 'id: ID' : ''}
-        ${enabledAttributes.map(attributeName => {
-          return `${attributeName}: ${this.convertType({
-            attribute: model.attributes[attributeName],
-            modelName: globalId,
-            attributeName,
-            rootType: 'mutation',
-            action: 'update',
-          })}`;
-        }).join('\n')}
+        ${Object.keys(model.attributes)
+          .filter(attributeName => isTypeAttributeEnabled(model, attributeName))
+          .map(attributeName => {
+            return `${attributeName}: ${this.convertType({
+              attribute: model.attributes[attributeName],
+              modelName: globalId,
+              attributeName,
+              rootType: 'mutation',
+              action: 'update',
+            })}`;
+          })
+          .join('\n')}
       }
     `;
 
-    return `${createInput}\n\n${updateInput}`;
+    return inputs;
   },
 
   generateInputPayloadArguments({ model, name, mutationName, action }) {

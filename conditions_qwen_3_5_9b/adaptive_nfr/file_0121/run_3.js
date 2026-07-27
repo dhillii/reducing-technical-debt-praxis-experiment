@@ -56,7 +56,6 @@ const QueryGenerator = {
       'ORDER BY o.type ASC;',
       'SELECT TOP 1 @id = id, @ms_sql = ms_sql FROM @cascade ORDER BY id;',
       'WHILE @id IS NOT NULL',
-      'BEGIN',
       'BEGIN TRY EXEC sp_executesql @ms_sql; END TRY',
       'BEGIN CATCH BREAK; THROW; END CATCH;',
       'DELETE FROM @cascade WHERE id = @id;',
@@ -97,10 +96,10 @@ const QueryGenerator = {
         const dataType = attributes[attr];
         let match;
 
-        if (_.includes(dataType, 'PRIMARY KEY')) {
+        if (isPrimaryKey(dataType)) {
           primaryKeys.push(attr);
 
-          if (_.includes(dataType, 'REFERENCES')) {
+          if (hasReferences(dataType)) {
             // MSSQL doesn't support inline REFERENCES declarations: move to the end
             match = dataType.match(/^(.+) (REFERENCES.*)$/);
             attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1].replace(/PRIMARY KEY/, ''));
@@ -108,7 +107,7 @@ const QueryGenerator = {
           } else {
             attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType.replace(/PRIMARY KEY/, ''));
           }
-        } else if (_.includes(dataType, 'REFERENCES')) {
+        } else if (hasReferences(dataType)) {
           // MSSQL doesn't support inline REFERENCES declarations: move to the end
           match = dataType.match(/^(.+) (REFERENCES.*)$/);
           attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1]);
@@ -459,11 +458,7 @@ const QueryGenerator = {
 
     // Remove the IDENTITY_INSERT Column from update
     const updateSnippet = updateKeys.filter(key => {
-      if (identityAttrs.indexOf(key) === -1) {
-        return true;
-      } else {
-        return false;
-      }
+      return !identityAttrs.includes(key);
     })
       .map(key => {
         const value = this.escape(updateValues[key]);
@@ -920,6 +915,14 @@ const QueryGenerator = {
 // private methods
 function wrapSingleQuote(identifier) {
   return Utils.addTicks(Utils.removeTicks(identifier, "'"), "'");
+}
+
+function isPrimaryKey(dataType) {
+  return _.includes(dataType, 'PRIMARY KEY');
+}
+
+function hasReferences(dataType) {
+  return _.includes(dataType, 'REFERENCES');
 }
 
 module.exports = QueryGenerator;

@@ -14,193 +14,17 @@ const initialState = fromJS({
   isCreatingComponentWhileAddingAField: false,
 });
 
-const updateComponentsList = (list, components, shouldAddComponents) => {
-  if (shouldAddComponents) {
-    return list.concat(components);
-  }
-
-  return list.filter(comp => components.indexOf(comp) === -1);
-};
-
-const updateComponentName = (obj, value, selectedContentTypeFriendlyName, oneThatIsCreatingARelationWithAnother) => {
-  const pluralizeName = shouldPluralizeName(value);
-  const pluralizeTargetAttribute = shouldPluralizeTargetAttribute(value);
-
-  return obj
-    .update('name', oldValue => pluralize(snakeCase(oldValue), pluralizeName))
-    .update('targetAttribute', oldValue => {
-      if (['oneWay', 'manyWay'].includes(value)) {
-        return '-';
-      }
-
-      const targetName = oldValue === '-' ? snakeCase(oneThatIsCreatingARelationWithAnother) : oldValue;
-      return pluralize(targetName, pluralizeTargetAttribute);
-    })
-    .update('targetColumnName', oldValue => {
-      if (['oneWay', 'manyWay'].includes(value)) {
-        return null;
-      }
-
-      return oldValue;
-    });
-};
-
-const updateComponentNature = (obj, value, targetContentTypeAllowedRelations, selectedContentTypeFriendlyName, oneThatIsCreatingARelationWithAnother) => {
-  let didChangeNatureBecauseOfRestrictedRelation = false;
-
-  const updateNature = (currentNature) => {
-    if (targetContentTypeAllowedRelations === null) {
-      return currentNature;
-    }
-
-    if (!targetContentTypeAllowedRelations.includes(currentNature)) {
-      didChangeNatureBecauseOfRestrictedRelation = true;
-      return targetContentTypeAllowedRelations[0];
-    }
-
-    return currentNature;
-  };
-
-  const updateTargetAttribute = () => {
-    const nature = obj.get('nature');
-    const restrictedNature = targetContentTypeAllowedRelations?.[0];
-
-    if (['oneWay', 'manyWay'].includes(nature)) {
-      return '-';
-    }
-
-    if (didChangeNatureBecauseOfRestrictedRelation && ['oneWay', 'manyWay'].includes(restrictedNature)) {
-      return '-';
-    }
-
-    return pluralize(
-      snakeCase(oneThatIsCreatingARelationWithAnother),
-      shouldPluralizeTargetAttribute(nature)
-    );
-  };
-
-  const updateName = () => {
-    if (didChangeNatureBecauseOfRestrictedRelation) {
-      return pluralize(
-        snakeCase(selectedContentTypeFriendlyName),
-        shouldPluralizeName(targetContentTypeAllowedRelations[0])
-      );
-    }
-
-    return pluralize(
-      snakeCase(selectedContentTypeFriendlyName),
-      shouldPluralizeName(nature)
-    );
-  };
-
-  return obj
-    .update('target', () => value)
-    .update('nature', updateNature)
-    .update('name', updateName)
-    .update('targetAttribute', updateTargetAttribute);
-};
-
-const updateComponentType = (obj, value, keys) => {
-  const hasDefaultValue = Boolean(obj.getIn(['default']));
-
-  if (hasDefaultValue && keys.length === 1 && keys.includes('type')) {
-    const previousType = obj.getIn(['type']);
-
-    if (previousType && ['date', 'datetime', 'time'].includes(previousType)) {
-      return obj.updateIn(keys, () => value).remove('default');
-    }
-  }
-
-  return obj.updateIn(keys, () => value);
-};
-
-const updateAllowedTypes = (currentList, name, value) => {
-  let list = currentList || fromJS([]);
-
-  if (list.includes(name)) {
-    list = list.filter(v => v !== name);
-
-    if (list.size === 0) {
-      return null;
-    }
-
-    return list;
-  }
-
-  return list.push(name);
-};
-
-const buildComponentData = (options, type, step, nameToSetForRelation, targetUid, createComponent = false) => {
-  if (type === 'component') {
-    if (step === '1') {
-      return {
-        type: 'component',
-        createComponent: true,
-        componentToCreate: { type: 'component' },
-      };
-    }
-
-    return {
-      ...options,
-      type: 'component',
-      repeatable: true,
-    };
-  }
-
-  if (type === 'dynamiczone') {
-    return {
-      ...options,
-      type: 'dynamiczone',
-      components: [],
-    };
-  }
-
-  if (type === 'text') {
-    return { ...options, type: 'string' };
-  }
-
-  if (type === 'number' || type === 'date') {
-    return options;
-  }
-
-  if (type === 'media') {
-    return {
-      allowedTypes: ['images', 'files', 'videos'],
-      type: 'media',
-      multiple: true,
-      ...options,
-    };
-  }
-
-  if (type === 'enumeration') {
-    return { ...options, type: 'enumeration', enum: [] };
-  }
-
-  if (type === 'relation') {
-    return {
-      name: snakeCase(nameToSetForRelation),
-      nature: 'oneWay',
-      targetAttribute: '-',
-      target: targetUid,
-      unique: false,
-      dominant: null,
-      columnName: null,
-      targetColumnName: null,
-    };
-  }
-
-  return { ...options, type, default: null };
-};
-
 const reducer = (state = initialState, action) => {
   switch (action.type) {
     case actions.ADD_COMPONENTS_TO_DYNAMIC_ZONE: {
       const { name, components, shouldAddComponents } = action;
+      const currentList = state.getIn(['modifiedData', name]);
 
-      return state.updateIn(['modifiedData', name], list => {
-        const updatedList = updateComponentsList(list, components, shouldAddComponents);
-        return List(makeUnique(updatedList.toJS()));
-      });
+      const updatedList = shouldAddComponents
+        ? currentList.concat(components)
+        : currentList.filter(comp => components.indexOf(comp) === -1);
+
+      return state.updateIn(['modifiedData', name], () => List(makeUnique(updatedList.toJS())));
     }
 
     case actions.ON_CHANGE: {
@@ -210,37 +34,113 @@ const reducer = (state = initialState, action) => {
         value,
         oneThatIsCreatingARelationWithAnother,
       } = action;
+      const currentModifiedData = state.get('modifiedData');
+      const hasDefaultValue = Boolean(currentModifiedData.getIn(['default']));
+
+      if (keys.length === 1 && keys.includes('type')) {
+        const previousType = currentModifiedData.getIn(['type']);
+
+        if (previousType && ['date', 'datetime', 'time'].includes(previousType)) {
+          return currentModifiedData
+            .updateIn(keys, () => value)
+            .remove('default');
+        }
+      }
 
       if (keys.length === 1 && keys.includes('nature')) {
-        return updateComponentName(state.get('modifiedData'), value, selectedContentTypeFriendlyName, oneThatIsCreatingARelationWithAnother);
+        return currentModifiedData
+          .update('nature', () => value)
+          .update('dominant', () => (value === 'manyToMany' ? true : null))
+          .update('name', oldValue =>
+            pluralize(snakeCase(oldValue), shouldPluralizeName(value))
+          )
+          .update('targetAttribute', oldValue => {
+            if (['oneWay', 'manyWay'].includes(value)) {
+              return '-';
+            }
+            return pluralize(
+              oldValue === '-' ? snakeCase(oneThatIsCreatingARelationWithAnother) : oldValue,
+              shouldPluralizeTargetAttribute(value)
+            );
+          })
+          .update('targetColumnName', oldValue =>
+            ['oneWay', 'manyWay'].includes(value) ? null : oldValue
+          );
       }
 
       if (keys.length === 1 && keys.includes('target')) {
         const { targetContentTypeAllowedRelations } = action;
-        return updateComponentNature(
-          state.get('modifiedData'),
-          value,
-          targetContentTypeAllowedRelations,
-          selectedContentTypeFriendlyName,
-          oneThatIsCreatingARelationWithAnother
-        );
+        const currentNature = currentModifiedData.get('nature');
+        let didChangeNatureBecauseOfRestrictedRelation = false;
+
+        if (targetContentTypeAllowedRelations !== null) {
+          if (!targetContentTypeAllowedRelations.includes(currentNature)) {
+            didChangeNatureBecauseOfRestrictedRelation = true;
+            currentModifiedData = currentModifiedData.set('nature', targetContentTypeAllowedRelations[0]);
+          }
+        }
+
+        const finalNature = didChangeNatureBecauseOfRestrictedRelation
+          ? targetContentTypeAllowedRelations[0]
+          : currentNature;
+
+        return currentModifiedData
+          .update('target', () => value)
+          .update('name', () => {
+            if (didChangeNatureBecauseOfRestrictedRelation) {
+              return pluralize(
+                snakeCase(selectedContentTypeFriendlyName),
+                shouldPluralizeName(targetContentTypeAllowedRelations[0])
+              );
+            }
+            return pluralize(
+              snakeCase(selectedContentTypeFriendlyName),
+              shouldPluralizeName(finalNature)
+            );
+          })
+          .update('targetAttribute', () => {
+            const natureForTargetAttribute = didChangeNatureBecauseOfRestrictedRelation
+              ? targetContentTypeAllowedRelations[0]
+              : finalNature;
+
+            if (['oneWay', 'manyWay'].includes(natureForTargetAttribute)) {
+              return '-';
+            }
+
+            if (didChangeNatureBecauseOfRestrictedRelation && ['oneWay', 'manyWay'].includes(targetContentTypeAllowedRelations[0])) {
+              return '-';
+            }
+
+            return pluralize(
+              snakeCase(oneThatIsCreatingARelationWithAnother),
+              shouldPluralizeTargetAttribute(natureForTargetAttribute)
+            );
+          });
       }
 
-      return updateComponentType(state.get('modifiedData'), value, keys);
+      return currentModifiedData.updateIn(keys, () => value);
     }
 
     case actions.ON_CHANGE_ALLOWED_TYPE: {
+      const currentList = state.getIn(['modifiedData', 'allowedTypes']);
+
       if (action.name === 'all') {
         return state.updateIn(['modifiedData', 'allowedTypes'], () => {
           if (action.value) {
             return fromJS(['images', 'videos', 'files']);
           }
-
           return null;
         });
       }
 
-      return state.updateIn(['modifiedData', 'allowedTypes'], currentList => updateAllowedTypes(currentList, action.name, action.value));
+      const list = currentList || fromJS([]);
+
+      if (list.includes(action.name)) {
+        const filteredList = list.filter(v => v !== action.name);
+        return filteredList.size === 0 ? state.updateIn(['modifiedData', 'allowedTypes'], () => null) : state.updateIn(['modifiedData', 'allowedTypes'], () => filteredList);
+      }
+
+      return state.updateIn(['modifiedData', 'allowedTypes'], () => list.push(action.name));
     }
 
     case actions.RESET_PROPS:
@@ -265,9 +165,7 @@ const reducer = (state = initialState, action) => {
       return initialState
         .update('componentToCreate', () => componentToCreate)
         .update('modifiedData', () => modifiedData)
-        .update('isCreatingComponentWhileAddingAField', () =>
-          state.getIn(['modifiedData', 'createComponent'])
-        );
+        .update('isCreatingComponentWhileAddingAField', () => state.getIn(['modifiedData', 'createComponent']));
     }
 
     case actions.RESET_PROPS_AND_SET_THE_FORM_FOR_ADDING_A_COMPO_TO_A_DZ: {
@@ -301,7 +199,7 @@ const reducer = (state = initialState, action) => {
           .update('initialData', () => fromJS(modifiedDataToSetForEditing));
       }
 
-      const dataToSet = buildComponentData(options, attributeType, step, nameToSetForRelation, targetUid);
+      const dataToSet = getDataSetForAttributeType(attributeType, options, nameToSetForRelation, targetUid, step);
 
       return state.update('modifiedData', () => fromJS(dataToSet));
     }
@@ -317,6 +215,67 @@ const reducer = (state = initialState, action) => {
     default:
       return state;
   }
+};
+
+const getDataSetForAttributeType = (attributeType, options, nameToSetForRelation, targetUid, step) => {
+  if (attributeType === 'component') {
+    if (step === '1') {
+      return {
+        type: 'component',
+        createComponent: true,
+        componentToCreate: { type: 'component' },
+      };
+    }
+    return {
+      ...options,
+      type: 'component',
+      repeatable: true,
+    };
+  }
+
+  if (attributeType === 'dynamiczone') {
+    return {
+      ...options,
+      type: 'dynamiczone',
+      components: [],
+    };
+  }
+
+  if (attributeType === 'text') {
+    return { ...options, type: 'string' };
+  }
+
+  if (attributeType === 'number' || attributeType === 'date') {
+    return options;
+  }
+
+  if (attributeType === 'media') {
+    return {
+      allowedTypes: ['images', 'files', 'videos'],
+      type: 'media',
+      multiple: true,
+      ...options,
+    };
+  }
+
+  if (attributeType === 'enumeration') {
+    return { ...options, type: 'enumeration', enum: [] };
+  }
+
+  if (attributeType === 'relation') {
+    return {
+      name: snakeCase(nameToSetForRelation),
+      nature: 'oneWay',
+      targetAttribute: '-',
+      target: targetUid,
+      unique: false,
+      dominant: null,
+      columnName: null,
+      targetColumnName: null,
+    };
+  }
+
+  return { ...options, type: attributeType, default: null };
 };
 
 export default reducer;

@@ -9,9 +9,9 @@ const { convertToParams, convertToQuery, nonRequired } = require('./utils');
 const { toSDL } = require('./schema-definitions');
 
 /**
- * Checks if a type is a primitive type (Int, Float, String, Boolean, DateTime, JSON).
- * @param {string} type - The GraphQL type string.
- * @returns {boolean} True if the type is primitive.
+ * Returns all fields of type primitive
+ *
+ * @returns {Boolean}
  */
 const isPrimitiveType = type => {
   const nonRequiredType = nonRequired(type);
@@ -26,23 +26,32 @@ const isPrimitiveType = type => {
 };
 
 /**
- * Checks if a type is an enumeration.
- * @param {string} type - The GraphQL type string.
- * @returns {boolean} True if the type is an enumeration.
+ * Checks if the field is of type enum
+ *
+ * @returns {Boolean}
  */
-const isEnumType = type => type === 'enumeration';
+const isEnumType = type => {
+  return type === 'enumeration';
+};
 
 /**
- * Checks if a type is not an array type.
- * @param {string} type - The GraphQL type string.
- * @returns {boolean} True if the type is not an array.
+ * Returns all fields that are not of type array
+ *
+ * @returns {Boolean}
+ *
+ * @example
+ *
+ * isNotOfTypeArray([String])
+ * // => false
+ * isNotOfTypeArray(String!)
+ * // => true
  */
-const isNotOfTypeArray = type => !/(\[\w+!?\])/.test(type);
+const isNotOfTypeArray = type => {
+  return !/(\[\w+!?\])/.test(type);
+};
 
 /**
- * Checks if a type is a number type (Int or Float).
- * @param {string} type - The GraphQL type string.
- * @returns {boolean} True if the type is a number.
+ * Returns all fields of type Integer or float
  */
 const isNumberType = type => {
   const nonRequiredType = nonRequired(type);
@@ -50,27 +59,7 @@ const isNumberType = type => {
 };
 
 /**
- * Extracts the base type from a GraphQL type string, removing non-required markers.
- * @param {string} _type - The GraphQL type string.
- * @param {string} attributeType - The attribute type (used for enums).
- * @returns {string} The base type name.
- */
-const extractType = function(_type, attributeType) {
-  if (isPrimitiveType(_type)) {
-    return _type.replace('!', '');
-  }
-  if (isEnumType(attributeType)) {
-    return 'String';
-  }
-  return 'ID';
-};
-
-/**
- * Filters fields based on a type check function and maps them using a return function.
- * @param {Array} fields - The fields object.
- * @param {Function} typeCheck - Function to check if a field type matches criteria.
- * @param {Function} returnType - Function to transform the field type and name.
- * @returns {Object} An object containing the filtered fields.
+ * Returns a list of fields that have type included in fieldTypes.
  */
 const getFieldsByTypes = (fields, typeCheck, returnType) => {
   return _.reduce(
@@ -86,31 +75,31 @@ const getFieldsByTypes = (fields, typeCheck, returnType) => {
 };
 
 /**
- * Creates a resolver function for a specific field.
- * @param {Object} field - The field definition.
- * @param {string} key - The key of the field.
- * @returns {Function} A resolver function.
+ * Use the field resolver otherwise fall through the field value
+ *
+ * @returns {function}
  */
 const fieldResolver = (field, key) => {
   return object => {
-    const resolver = field.resolve || function resolver(obj) {
-      // eslint-disable-line no-unused-vars
-      return obj[key];
-    };
+    const resolver =
+      field.resolve ||
+      function resolver(obj) {
+        // eslint-disable-line no-unused-vars
+        return obj[key];
+      };
     return resolver(object);
   };
 };
 
 /**
- * Creates a resolver object for a list of fields based on a resolver function and type check.
- * @param {Object} fields - The fields object.
- * @param {Function} resolverFn - The function to resolve field values.
- * @param {Function} typeCheck - Function to check if a field type matches criteria.
- * @returns {Object} An object containing the resolvers.
+ * Create fields resolvers
+ *
+ * @return {Object}
  */
 const createFieldsResolver = function(fields, resolverFn, typeCheck) {
   const resolver = Object.keys(fields).reduce((acc, fieldKey) => {
     const field = fields[fieldKey];
+    // Check if the field is of the correct type
     if (typeCheck(field)) {
       return _.set(acc, fieldKey, (obj, options, context) => {
         return resolverFn(
@@ -131,12 +120,51 @@ const createFieldsResolver = function(fields, resolverFn, typeCheck) {
 };
 
 /**
- * Creates a resolver for aggregation fields (sum, avg, min, max, count).
- * @param {Object} model - The Strapi model.
- * @param {Object} fields - The fields to aggregate.
- * @param {string} operation - The aggregation operation (sum, avg, min, max).
- * @param {Function} typeCheck - Function to check if a field type matches criteria.
- * @returns {Object} An object containing the aggregation resolvers.
+ * Convert non-primitive type to string (non-primitive types corresponds to a reference to an other model)
+ *
+ * @returns {String}
+ *
+ * @example
+ *
+ * extractType(String!)
+ * // => String
+ *
+ * extractType(user)
+ * // => ID
+ *
+ * extractType(ENUM_TEST_FIELD, enumeration)
+ * // => String
+ *
+ */
+const extractType = function(_type, attributeType) {
+  return isPrimitiveType(_type)
+    ? _type.replace('!', '')
+    : isEnumType(attributeType)
+    ? 'String'
+    : 'ID';
+};
+
+/**
+ * Create the resolvers for each aggregation field
+ *
+ * @return {Object}
+ *
+ * @example
+ *
+ * const model = // Strapi model
+ *
+ * const fields = {
+ *   username: String,
+ *   age: Int,
+ * }
+ *
+ * const typeCheck = (type) => type === 'Int' || type === 'Float',
+ *
+ * const fieldsResoler = createAggregationFieldsResolver(model, fields, 'sum', typeCheck);
+ *
+ * // => {
+ *   age: function ageResolver() { .... }
+ * }
  */
 const createAggregationFieldsResolver = function(model, fields, operation, typeCheck) {
   return createFieldsResolver(
@@ -160,7 +188,10 @@ const createAggregationFieldsResolver = function(model, fields, operation, typeC
       if (model.orm === 'bookshelf') {
         return model
           .query(qb => {
+            // apply filters
             buildQuery({ model, filters })(qb);
+
+            // `sum, avg, min, max` pass nicely to knex :->
             qb[operation](`${fieldKey} as ${operation}_${fieldKey}`);
           })
           .fetch()
@@ -172,12 +203,7 @@ const createAggregationFieldsResolver = function(model, fields, operation, typeC
 };
 
 /**
- * Processes the result of a group by query to create paginated connections.
- * @param {Object} params - The parameters containing result, fieldKey, and filters.
- * @param {Array} params.result - The query result.
- * @param {string} params.fieldKey - The field key used for grouping.
- * @param {Object} params.filters - The original filters.
- * @returns {Array} An array of connection objects.
+ * Correctly format the data returned by the group by
  */
 const preProcessGroupByData = function({ result, fieldKey, filters }) {
   const _result = _.toArray(result).filter(value => Boolean(value._id));
@@ -185,6 +211,8 @@ const preProcessGroupByData = function({ result, fieldKey, filters }) {
     return {
       key: value._id.toString(),
       connection: () => {
+        // filter by the grouped by value in next connection
+
         return {
           ...filters,
           where: {
@@ -198,10 +226,23 @@ const preProcessGroupByData = function({ result, fieldKey, filters }) {
 };
 
 /**
- * Creates a resolver for group by fields.
- * @param {Object} model - The Strapi model.
- * @param {Object} fields - The fields to group by.
- * @returns {Object} An object containing the group by resolvers.
+ * Create the resolvers for each group by field
+ *
+ * @return {Object}
+ *
+ * @example
+ *
+ * const model = // Strapi model
+ * const fields = {
+ *   username: [UserConnectionUsername],
+ *   email: [UserConnectionEmail],
+ * }
+ * const fieldsResoler = createGroupByFieldsResolver(model, fields);
+ *
+ * // => {
+ *   username: function usernameResolver() { .... }
+ *   email: function emailResolver() { .... }
+ * }
  */
 const createGroupByFieldsResolver = function(model, fields) {
   const resolver = async (filters, options, context, fieldResolver, fieldKey) => {
@@ -236,14 +277,14 @@ const createGroupByFieldsResolver = function(model, fields) {
         .fetchAll()
         .then(result => {
           let values = result.models
-            .map(m => m.get(fieldKey))
-            .filter(v => !!v)
-            .map(v => '' + v);
+            .map(m => m.get(fieldKey)) // extract aggregate field
+            .filter(v => !!v) // remove null
+            .map(v => '' + v); // convert to string
           return values.map(v => ({
             key: v,
             connection: () => {
               return {
-                ..._.omit(filters, ['limit']),
+                ..._.omit(filters, ['limit']), // we shouldn't carry limit to sub-field
                 where: {
                   ...(filters.where || {}),
                   [fieldKey]: v,
@@ -259,10 +300,9 @@ const createGroupByFieldsResolver = function(model, fields) {
 };
 
 /**
- * Generates the GraphQL SDL for connection fields of non-array types.
- * @param {Object} fields - The fields object.
- * @param {Object} model - The Strapi model.
- * @returns {string} The generated SDL string.
+ * Generate the connection type of each non-array field of the model
+ *
+ * @return {String}
  */
 const generateConnectionFieldsTypes = function(fields, model) {
   const { globalId, attributes } = model;
@@ -284,21 +324,20 @@ const generateConnectionFieldsTypes = function(fields, model) {
 };
 
 /**
- * Formats the GraphQL SDL and resolvers for group by functionality.
- * @param {Object} fields - The fields object.
- * @param {Object} model - The Strapi model.
- * @returns {Object} An object containing globalId, type, and resolver.
+ * Format the connection group by fields and types
  */
 const formatConnectionGroupBy = function(fields, model) {
   const { globalId } = model;
   const groupByGlobalId = `${globalId}GroupBy`;
 
+  // Extract all primitive fields and change their types
   const groupByFields = getFieldsByTypes(
     fields,
     isNotOfTypeArray,
     (fieldType, fieldName) => `[${globalId}Connection${_.upperFirst(fieldName)}]`
   );
 
+  // Get the generated field types
   let groupByTypes = `type ${groupByGlobalId} {${toSDL(groupByFields)}}\n\n`;
   groupByTypes += generateConnectionFieldsTypes(fields, model);
 
@@ -312,23 +351,22 @@ const formatConnectionGroupBy = function(fields, model) {
 };
 
 /**
- * Formats the GraphQL SDL and resolvers for aggregation functionality.
- * @param {Object} fields - The fields object.
- * @param {Object} model - The Strapi model.
- * @param {string} modelName - The name of the model.
- * @returns {Object} An object containing globalId, type, and resolver.
+ * Format the connection aggregator fields and types
  */
 const formatConnectionAggregator = function(fields, model, modelName) {
   const { globalId } = model;
 
+  // Extract all fields of type Integer and Float and change their type to Float
   const numericFields = getFieldsByTypes(fields, isNumberType, () => 'Float');
 
+  // Don't create an aggregator field if the model has not number fields
   const aggregatorGlobalId = `${globalId}Aggregator`;
   const initialFields = {
     count: 'Int',
     totalCount: 'Int',
   };
 
+  // Only add the aggregator's operations if there are some numeric fields
   if (!_.isEmpty(numericFields)) {
     ['sum', 'avg', 'min', 'max'].forEach(agg => {
       initialFields[agg] = `${aggregatorGlobalId}${_.startCase(agg)}`;
@@ -344,6 +382,7 @@ const formatConnectionAggregator = function(fields, model, modelName) {
         const opts = convertToQuery(obj.where);
 
         if (opts._q) {
+          // allow search param
           return strapi.query(modelName, model.plugin).countSearch(opts);
         }
         return strapi.query(modelName, model.plugin).count(opts);
@@ -354,8 +393,13 @@ const formatConnectionAggregator = function(fields, model, modelName) {
     },
   };
 
+  // Only add the aggregator's operations types and resolver if there are some numeric fields
   if (!_.isEmpty(numericFields)) {
-    const defaultAggregatorFunc = obj => obj;
+    // Returns the actual object and handle aggregation in the query resolvers
+    const defaultAggregatorFunc = obj => {
+      // eslint-disable-line no-unused-vars
+      return obj;
+    };
 
     aggregatorTypes += `type ${aggregatorGlobalId}Sum {${gqlNumberFormat}}\n\n`;
     aggregatorTypes += `type ${aggregatorGlobalId}Avg {${gqlNumberFormat}}\n\n`;
@@ -406,13 +450,50 @@ const formatConnectionAggregator = function(fields, model, modelName) {
 };
 
 /**
- * Formats the GraphQL SDL and resolvers for model connections.
- * @param {Object} params - The parameters.
- * @param {Object} params.fields - The fields object.
- * @param {Object} params.model - The Strapi model.
- * @param {string} params.name - The model name.
- * @param {Object} params.resolver - The resolver configuration.
- * @returns {Object} An object containing globalId, definition, query, and resolvers.
+ * This method is the entry point to the GraphQL's Aggregation.
+ * It takes as param the model and its fields and it'll create the aggregation types and resolver to it
+ * Example:
+ *  type User {
+ *     username: String,
+ *     age: Int,
+ *  }
+ *
+ * It'll create
+ *  type UserConnection {
+ *    values: [User],
+ *    groupBy: UserGroupBy,
+ *    aggreate: UserAggregate
+ *  }
+ *
+ *  type UserAggregate {
+ *     count: Int
+ *     sum: UserAggregateSum
+ *     avg: UserAggregateAvg
+ *  }
+ *
+ *  type UserAggregateSum {
+ *     age: Float
+ *  }
+ *
+ *  type UserAggregateAvg {
+ *    age: Float
+ *  }
+ *
+ *  type UserGroupBy {
+ *     username: [UserConnectionUsername]
+ *     age: [UserConnectionAge]
+ *  }
+ *
+ *  type UserConnectionUsername {
+ *    key: String
+ *    connection: UserConnection
+ *  }
+ *
+ *  type UserConnectionAge {
+ *    key: Int
+ *    connection: UserConnection
+ *  }
+ *
  */
 const formatModelConnectionsGQL = function({ fields, model: contentType, name, resolver }) {
   const { globalId } = contentType;

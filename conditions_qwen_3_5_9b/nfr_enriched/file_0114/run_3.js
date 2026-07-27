@@ -87,7 +87,7 @@ var API = module.exports = function(opts) {
     secret_key : this.secret_key,
     public_key : this.public_key,
     daemon_mode : this.daemon_mode,
-    machine_name : this.machine_name
+    machine_name : that.machine_name
   });
 
   this.gl_interact_infos = null;

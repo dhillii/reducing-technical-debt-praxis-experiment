@@ -1,3 +1,11 @@
+/**
+ * Copyright (C) 2015 Laverna project Authors.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+/* global define */
 define([
     'q',
     'underscore',
@@ -122,7 +130,7 @@ define([
          * @return promise
          */
         checkPassword: function(password) {
-            const pwd = this.configs.encryptPass;
+            var pwd = this.configs.encryptPass;
 
             return new Q(this.sjcl.sha256(password))
             .then(function(hash) {
@@ -136,7 +144,7 @@ define([
          * @return promise
          */
         saveSecureKey: function(password) {
-            const self  = this;
+            var self = this;
 
             return new Q(this.sjcl.deriveKey({
                 configs : this.configs,
@@ -195,7 +203,7 @@ define([
          * @return promise
          */
         encryptModel: function(model) {
-            const data = _.pick(model.attributes, model.encryptKeys);
+            var data = _.pick(model.attributes, model.encryptKeys);
 
             return this.encrypt(data)
             .then(function(encrypted) {
@@ -230,7 +238,7 @@ define([
                 return new Q();
             }
 
-            const promises = [],
+            var promises = [],
                 self     = this;
 
             Radio.trigger('encrypt', 'encrypting:models', collection);
@@ -265,7 +273,7 @@ define([
                 return new Q();
             }
 
-            const promises = [],
+            var promises = [],
                 self = this;
 
             Radio.trigger('encrypt', 'decrypting:models', collection);
@@ -309,7 +317,7 @@ define([
          * @return promise
          */
         _decryptModelKeys: function(model) {
-            const promises = [],
+            var promises = [],
                 self     = this;
 
             _.each(model.encryptKeys, function(key) {
@@ -357,7 +365,7 @@ define([
                 return null;
             }
 
-            const keys  = window.sessionStorage.getItem(this._getSessionKey());
+            var keys  = window.sessionStorage.getItem(this._getSessionKey());
             try {
                 keys = JSON.parse(keys);
                 this.keys = keys || this.keys;
@@ -374,7 +382,7 @@ define([
          * @return string
          */
         _getSessionKey: function() {
-            const profile = Radio.request('uri', 'profile') || 'default';
+            var profile = Radio.request('uri', 'profile') || 'default';
             profile = (Number(this.configs.useDefaultConfigs) ? 'default' : profile);
             return 'secureKey.' + profile;
         }

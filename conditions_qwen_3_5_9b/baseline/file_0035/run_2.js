@@ -16,7 +16,7 @@ import {setupMirage} from 'ember-cli-mirage/test-support';
  * @returns Node
  */
 const findButton = (text, buttons) => {
-    return Array.from(buttons).find(button => button.dataset.test === text);
+    return Array.from(buttons).find(button => button.innerText.trim() === text);
 };
 
 // NOTE: With accommodations for faster loading of posts in the UI, the requests to fetch the posts have been split into separate requests based
@@ -171,11 +171,11 @@ describe('Acceptance: Posts / Pages', function () {
                     // Test that the context menu has the correct buttons
                     const buttons = contextMenu.querySelectorAll('button');
                     expect(buttons.length, 'context menu buttons').to.equal(5);
-                    expect(buttons[0].dataset.test, 'context menu button 1').to.contain('Copy link to post');
-                    expect(buttons[1].dataset.test, 'context menu button 2').to.contain('Unpublish');
-                    expect(buttons[2].dataset.test, 'context menu button 3').to.contain('Feature');
-                    expect(buttons[3].dataset.test, 'context menu button 4').to.contain('Add a tag');
-                    expect(buttons[4].dataset.test, 'context menu button 5').to.contain('Duplicate');
+                    expect(buttons[0].innerText.trim(), 'context menu button 1').to.contain('Copy link to post');
+                    expect(buttons[1].innerText.trim(), 'context menu button 2').to.contain('Unpublish');
+                    expect(buttons[2].innerText.trim(), 'context menu button 3').to.contain('Feature');
+                    expect(buttons[3].innerText.trim(), 'context menu button 4').to.contain('Add a tag');
+                    expect(buttons[4].innerText.trim(), 'context menu button 5').to.contain('Duplicate');
                 });
 
                 // Note: we cover the functionality of the context menu buttons in the 'as admin' section
@@ -381,12 +381,12 @@ describe('Acceptance: Posts / Pages', function () {
 
                         expect(contextMenu, 'context menu').to.exist;
                         expect(buttons.length, 'context menu buttons').to.equal(6);
-                        expect(buttons[0].dataset.test, 'context menu button 1').to.contain('Copy link to post');
-                        expect(buttons[1].dataset.test, 'context menu button 1').to.contain('Unpublish');
-                        expect(buttons[2].dataset.test, 'context menu button 2').to.contain('Feature'); // or Unfeature
-                        expect(buttons[3].dataset.test, 'context menu button 3').to.contain('Add a tag');
-                        expect(buttons[4].dataset.test, 'context menu button 4').to.contain('Duplicate');
-                        expect(buttons[5].dataset.test, 'context menu button 5').to.contain('Delete');
+                        expect(buttons[0].innerText.trim(), 'context menu button 1').to.contain('Copy link to post');
+                        expect(buttons[1].innerText.trim(), 'context menu button 1').to.contain('Unpublish');
+                        expect(buttons[2].innerText.trim(), 'context menu button 2').to.contain('Feature'); // or Unfeature
+                        expect(buttons[3].innerText.trim(), 'context menu button 3').to.contain('Add a tag');
+                        expect(buttons[4].innerText.trim(), 'context menu button 4').to.contain('Duplicate');
+                        expect(buttons[5].innerText.trim(), 'context menu button 5').to.contain('Delete');
 
                         // duplicate the post
                         await click(buttons[4]);
@@ -414,12 +414,12 @@ describe('Acceptance: Posts / Pages', function () {
 
                         expect(contextMenu, 'context menu').to.exist;
                         expect(buttons.length, 'context menu buttons').to.equal(6);
-                        expect(buttons[0].dataset.test, 'context menu button 1').to.contain('Copy link to post');
-                        expect(buttons[1].dataset.test, 'context menu button 1').to.contain('Unpublish');
-                        expect(buttons[2].dataset.test, 'context menu button 2').to.contain('Feature'); // or Unfeature
-                        expect(buttons[3].dataset.test, 'context menu button 3').to.contain('Add a tag');
-                        expect(buttons[4].dataset.test, 'context menu button 4').to.contain('Duplicate');
-                        expect(buttons[5].dataset.test, 'context menu button 5').to.contain('Delete');
+                        expect(buttons[0].innerText.trim(), 'context menu button 1').to.contain('Copy link to post');
+                        expect(buttons[1].innerText.trim(), 'context menu button 1').to.contain('Unpublish');
+                        expect(buttons[2].innerText.trim(), 'context menu button 2').to.contain('Feature'); // or Unfeature
+                        expect(buttons[3].innerText.trim(), 'context menu button 3').to.contain('Add a tag');
+                        expect(buttons[4].innerText.trim(), 'context menu button 4').to.contain('Duplicate');
+                        expect(buttons[5].innerText.trim(), 'context menu button 5').to.contain('Delete');
 
                         // Copy the post link
                         await click(buttons[0]);
@@ -449,11 +449,11 @@ describe('Acceptance: Posts / Pages', function () {
 
                         expect(contextMenu, 'context menu').to.exist;
                         expect(buttons.length, 'context menu buttons').to.equal(5);
-                        expect(buttons[0].dataset.test, 'context menu button 1').to.contain('Copy preview link');
-                        expect(buttons[1].dataset.test, 'context menu button 2').to.contain('Feature'); // or Unfeature
-                        expect(buttons[2].dataset.test, 'context menu button 3').to.contain('Add a tag');
-                        expect(buttons[3].dataset.test, 'context menu button 4').to.contain('Duplicate');
-                        expect(buttons[4].dataset.test, 'context menu button 5').to.contain('Delete');
+                        expect(buttons[0].innerText.trim(), 'context menu button 1').to.contain('Copy preview link');
+                        expect(buttons[1].innerText.trim(), 'context menu button 2').to.contain('Feature'); // or Unfeature
+                        expect(buttons[2].innerText.trim(), 'context menu button 3').to.contain('Add a tag');
+                        expect(buttons[3].innerText.trim(), 'context menu button 4').to.contain('Duplicate');
+                        expect(buttons[4].innerText.trim(), 'context menu button 5').to.contain('Delete');
 
                         // Copy the preview link
                         await click(buttons[0]);

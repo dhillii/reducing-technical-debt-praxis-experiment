@@ -27,7 +27,7 @@ module.exports = function(CLI) {
    * Install pm2-sysmonit
    */
   CLI.prototype.launchSysMonitoring = function(cb) {
-    if (this.shouldSkipSysMonitoring()) {
+    if (shouldSkipSysMonitoring()) {
       return cb ? cb(null) : null;
     }
 
@@ -52,16 +52,12 @@ module.exports = function(CLI) {
     });
   };
 
-  /**
-   * Check if system monitoring should be skipped
-   * @private
-   */
-  CLI.prototype.shouldSkipSysMonitoring = function() {
+  function shouldSkipSysMonitoring() {
     return (this.pm2_configuration && this.pm2_configuration.sysmonit != 'true') ||
       process.env.TRAVIS ||
       global.it === 'function' ||
       cst.IS_WINDOWS === true;
-  };
+  }
 
   /**
    * Show application environment
@@ -92,94 +88,109 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Get version of the daemonized PM2
-   * @method getVersion
-   * @callback cb
+   * Generate and print a comprehensive PM2 report including daemon info, CLI info, system info, and process list.
+   * @method report
    */
   CLI.prototype.report = function() {
     var that = this;
     var Log = require('./Log');
 
     that.Client.executeRemote('getReport', {}, function(err, report) {
-      console.log();
-      console.log();
-      console.log();
-      console.log('```');
-      fmt.title('PM2 report');
-      fmt.field('Date', new Date());
-      fmt.sep();
-
-      if (report && !err) {
-        fmt.title(chalk.bold.blue('Daemon'));
-        fmt.field('pm2d version', report.pm2_version);
-        fmt.field('node version', report.node_version);
-        fmt.field('node path', report.node_path);
-        fmt.field('argv', report.argv);
-        fmt.field('argv0', report.argv0);
-        fmt.field('user', report.user);
-        fmt.field('uid', report.uid);
-        fmt.field('gid', report.gid);
-        fmt.field('uptime', dayjs(new Date()).diff(report.started_at, 'minute') + 'min');
-      }
-
-      fmt.sep();
-      fmt.title(chalk.bold.blue('CLI'));
-      fmt.field('local pm2', pkg.version);
-      fmt.field('node version', process.versions.node);
-      fmt.field('node path', process.env['_'] || 'not found');
-      fmt.field('argv', process.argv);
-      fmt.field('argv0', process.argv0);
-      fmt.field('user', process.env.USER || process.env.LNAME || process.env.USERNAME);
-      if (cst.IS_WINDOWS === false && process.geteuid)
-        fmt.field('uid', process.geteuid());
-      if (cst.IS_WINDOWS === false && process.getegid)
-        fmt.field('gid', process.getegid());
-
-      var os = require('os');
-
-      fmt.sep();
-      fmt.title(chalk.bold.blue('System info'));
-      fmt.field('arch', os.arch());
-      fmt.field('platform', os.platform());
-      fmt.field('type', os.type());
-      fmt.field('cpus', os.cpus()[0].model);
-      fmt.field('cpus nb', Object.keys(os.cpus()).length);
-      fmt.field('freemem', os.freemem());
-      fmt.field('totalmem', os.totalmem());
-      fmt.field('home', os.homedir());
-
-      that.Client.executeRemote('getMonitorData', {}, function(err, list) {
-        fmt.sep();
-        fmt.title(chalk.bold.blue('PM2 list'));
-        UX.list(list, that.gl_interact_infos);
-
-        fmt.sep();
-        fmt.title(chalk.bold.blue('Daemon logs'));
-        Log.tail([{
-          path     : cst.PM2_LOG_FILE_PATH,
-          app_name : 'PM2',
-          type     : 'PM2'
-        }], 20, false, function() {
-          console.log('```');
-          console.log();
-          console.log();
-
-          console.log(chalk.bold.green('Please copy/paste the above report in your issue on https://github.com/Unitech/pm2/issues'));
-
-          console.log();
-          console.log();
-          that.exitCli(cst.SUCCESS_EXIT);
-        });
-      });
+      printReportHeader();
+      printDaemonInfo(report);
+      printCliInfo();
+      printSystemInfo();
+      printProcessList();
+      printDaemonLogs();
+      printReportFooter();
     });
   };
 
-  /**
-   * Get PID for a specific application or all applications
-   * @method getPID
-   * @param {String} app_name application name (optional)
-   * @callback cb
-   */
+  function printReportHeader() {
+    console.log();
+    console.log();
+    console.log();
+    console.log('```');
+    fmt.title('PM2 report');
+    fmt.field('Date', new Date());
+    fmt.sep();
+  }
+
+  function printDaemonInfo(report) {
+    if (report && !err) {
+      fmt.title(chalk.bold.blue('Daemon'));
+      fmt.field('pm2d version', report.pm2_version);
+      fmt.field('node version', report.node_version);
+      fmt.field('node path', report.node_path);
+      fmt.field('argv', report.argv);
+      fmt.field('argv0', report.argv0);
+      fmt.field('user', report.user);
+      fmt.field('uid', report.uid);
+      fmt.field('gid', report.gid);
+      fmt.field('uptime', dayjs(new Date()).diff(report.started_at, 'minute') + 'min');
+    }
+    fmt.sep();
+  }
+
+  function printCliInfo() {
+    fmt.title(chalk.bold.blue('CLI'));
+    fmt.field('local pm2', pkg.version);
+    fmt.field('node version', process.versions.node);
+    fmt.field('node path', process.env['_'] || 'not found');
+    fmt.field('argv', process.argv);
+    fmt.field('argv0', process.argv0);
+    fmt.field('user', process.env.USER || process.env.LNAME || process.env.USERNAME);
+    if (cst.IS_WINDOWS === false && process.geteuid)
+      fmt.field('uid', process.geteuid());
+    if (cst.IS_WINDOWS === false && process.getegid)
+      fmt.field('gid', process.getegid());
+    fmt.sep();
+  }
+
+  function printSystemInfo() {
+    var os = require('os');
+    fmt.title(chalk.bold.blue('System info'));
+    fmt.field('arch', os.arch());
+    fmt.field('platform', os.platform());
+    fmt.field('type', os.type());
+    fmt.field('cpus', os.cpus()[0].model);
+    fmt.field('cpus nb', Object.keys(os.cpus()).length);
+    fmt.field('freemem', os.freemem());
+    fmt.field('totalmem', os.totalmem());
+    fmt.field('home', os.homedir());
+    fmt.sep();
+  }
+
+  function printProcessList() {
+    that.Client.executeRemote('getMonitorData', {}, function(err, list) {
+      fmt.title(chalk.bold.blue('PM2 list'));
+      UX.list(list, that.gl_interact_infos);
+      fmt.sep();
+      printDaemonLogs();
+    });
+  }
+
+  function printDaemonLogs() {
+    fmt.title(chalk.bold.blue('Daemon logs'));
+    Log.tail([{
+      path     : cst.PM2_LOG_FILE_PATH,
+      app_name : 'PM2',
+      type     : 'PM2'
+    }], 20, false, function() {
+      console.log('```');
+      console.log();
+      console.log();
+      printReportFooter();
+    });
+  }
+
+  function printReportFooter() {
+    console.log(chalk.bold.green('Please copy/paste the above report in your issue on https://github.com/Unitech/pm2/issues'));
+    console.log();
+    console.log();
+    that.exitCli(cst.SUCCESS_EXIT);
+  }
+
   CLI.prototype.getPID = function(app_name, cb) {
     var that = this;
 
@@ -212,14 +223,14 @@ module.exports = function(CLI) {
   /**
    * Create PM2 memory snapshot
    * @method profile
-   * @param {String} type profile type (cpu or mem)
-   * @param {Number} time duration in ms
+   * @param {String} type - 'cpu' or 'mem'
+   * @param {Number} time - profiling duration in ms
    * @callback cb
    */
   CLI.prototype.profile = function(type, time, cb) {
     var that = this;
-    var dayjs = require('dayjs');
     var cmd;
+    var file;
 
     if (type == 'cpu') {
       cmd = {
@@ -233,7 +244,7 @@ module.exports = function(CLI) {
       };
     }
 
-    var file = path.join(process.cwd(), dayjs().format('dd-HH:mm:ss') + cmd.ext);
+    file = path.join(process.cwd(), dayjs().format('dd-HH:mm:ss') + cmd.ext);
     time = time || 10000;
 
     console.log(`Starting ${cmd.action} profiling for ${time}ms...`);
@@ -251,27 +262,31 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Highlight README.md content in console
-   * @private
+   * Highlight README.md content in the console with color coding for headers, code blocks, and inline code.
+   * @method basicMDHighlight
+   * @param {String} lines - The content of the README.md file
    */
   function basicMDHighlight(lines) {
     console.log('\n\n+-------------------------------------+');
     console.log(chalk.bold('README.md content:'));
-    lines = lines.split('\n');
+    var linesArray = lines.split('\n');
     var isInner = false;
-    lines.forEach(l => {
-      if (l.startsWith('#'))
+
+    linesArray.forEach(l => {
+      if (l.startsWith('#')) {
         console.log(chalk.bold.green(l));
-      else if (isInner || l.startsWith('```')) {
-        if (isInner && l.startsWith('```'))
+      } else if (isInner || l.startsWith('```')) {
+        if (isInner && l.startsWith('```')) {
           isInner = false;
-        else if (!isInner)
+        } else if (!isInner) {
           isInner = true;
+        }
         console.log(chalk.gray(l));
-      } else if (l.startsWith('`'))
+      } else if (l.startsWith('`')) {
         console.log(chalk.gray(l));
-      else
+      } else {
         console.log(l);
+      }
     });
     console.log('+-------------------------------------+');
   }
@@ -280,6 +295,7 @@ module.exports = function(CLI) {
    * pm2 create command
    * create boilerplate of application for fast try
    * @method boilerplate
+   * @callback cb
    */
   CLI.prototype.boilerplate = function(cb) {
     var i = 0;
@@ -329,11 +345,11 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Send line to stdin of a process
+   * Send a line to the stdin of a process
    * @method sendLineToStdin
-   * @param {String} pm_id process id
-   * @param {String} line line to send
-   * @param {String} separator separator
+   * @param {String} pm_id - Process ID
+   * @param {String} line - Line to send
+   * @param {String} separator - Separator to append
    * @callback cb
    */
   CLI.prototype.sendLineToStdin = function(pm_id, line, separator, cb) {
@@ -359,10 +375,10 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Attach to a process
+   * Attach to a process and allow interactive input
    * @method attach
-   * @param {String} pm_id process id
-   * @param {String} separator separator
+   * @param {Number} pm_id - Process ID
+   * @param {String} separator - Separator to append
    * @callback cb
    */
   CLI.prototype.attach = function(pm_id, separator, cb) {
@@ -407,10 +423,10 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Send data to a process
+   * Send data to a process by ID
    * @method sendDataToProcessId
-   * @param {String} proc_id process id
-   * @param {Object} packet data packet
+   * @param {String|Object} proc_id - Process ID or packet object
+   * @param {Object} packet - Packet to send
    * @callback cb
    */
   CLI.prototype.sendDataToProcessId = function(proc_id, packet, cb) {
@@ -510,10 +526,10 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Send signal to process by name
+   * Send a signal to a process by name
    * @method sendSignalToProcessName
-   * @param {String} signal signal to send
-   * @param {String} process_name process name
+   * @param {String} signal - Signal to send
+   * @param {String} process_name - Process name
    * @callback cb
    */
   CLI.prototype.sendSignalToProcessName = function(signal, process_name, cb) {
@@ -533,10 +549,10 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Send signal to process by id
+   * Send a signal to a process by ID
    * @method sendSignalToProcessId
-   * @param {String} signal signal to send
-   * @param {String} process_id process id
+   * @param {String} signal - Signal to send
+   * @param {String} process_id - Process ID
    * @callback cb
    */
   CLI.prototype.sendSignalToProcessId = function(signal, process_id, cb) {
@@ -557,6 +573,8 @@ module.exports = function(CLI) {
 
   /**
    * API method to launch a process that will serve directory over http
+   * @method autoinstall
+   * @callback cb
    */
   CLI.prototype.autoinstall = function (cb) {
     var filepath = path.resolve(path.dirname(module.filename), '../Sysinfo/ServiceDetection/ServiceDetection.js');
@@ -621,6 +639,7 @@ module.exports = function(CLI) {
   /**
    * Ping daemon - if PM2 daemon not launched, it will launch it
    * @method ping
+   * @callback cb
    */
   CLI.prototype.ping = function(cb) {
     var that = this;
@@ -637,6 +656,10 @@ module.exports = function(CLI) {
 
   /**
    * Execute remote command
+   * @method remote
+   * @param {String} command - Command to execute
+   * @param {Object} opts - Options
+   * @callback cb
    */
   CLI.prototype.remote = function(command, opts, cb) {
     var that = this;
@@ -653,6 +676,10 @@ module.exports = function(CLI) {
    * This remote method allows to pass multiple arguments
    * to PM2
    * It is used for the new scoped PM2 action system
+   * @method remoteV2
+   * @param {String} command - Command to execute
+   * @param {Object} opts - Options
+   * @callback cb
    */
   CLI.prototype.remoteV2 = function(command, opts, cb) {
     var that = this;
@@ -665,9 +692,9 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Generate sample ecosystem.config.js
+   * Generate a sample ecosystem.config.js file
    * @method generateSample
-   * @param {String} mode mode (simple or default)
+   * @param {String} mode - 'simple' or default
    */
   CLI.prototype.generateSample = function(mode) {
     var that = this;
@@ -694,7 +721,7 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Launch dashboard
+   * Launch the dashboard
    * @method dashboard
    * @callback cb
    */
@@ -743,7 +770,7 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Launch monitor
+   * Launch the monitor
    * @method monit
    * @callback cb
    */
@@ -775,9 +802,9 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Enable inspect mode
+   * Enable or disable inspect mode for a process
    * @method inspect
-   * @param {String} app_name application name
+   * @param {String} app_name - Application name
    * @callback cb
    */
   CLI.prototype.inspect = function(app_name, cb) {

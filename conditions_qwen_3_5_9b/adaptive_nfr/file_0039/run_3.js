@@ -44,14 +44,15 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                     options.withRelated = [];
                 }
 
-                if (options.withRelated.indexOf('author') !== -1) {
-                    options.withRelated.splice(options.withRelated.indexOf('author'), 1);
+                const authorIndex = options.withRelated.indexOf('author');
+                if (authorIndex !== -1) {
+                    options.withRelated.splice(authorIndex, 1);
                     options.withRelated.push('authors');
                 }
 
-                if (options.forUpdate &&
-                    ['onFetching', 'onFetchingCollection'].indexOf(fnName) !== -1 &&
-                    options.withRelated.indexOf('authors') === -1) {
+                const forUpdateIndex = options.forUpdate &&
+                    ['onFetching', 'onFetchingCollection'].indexOf(fnName) !== -1;
+                if (forUpdateIndex && options.withRelated.indexOf('authors') === -1) {
                     options.withRelated.push('authors');
                 }
 
@@ -138,12 +139,14 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             }
 
             // CASE: `posts.authors` was not requested, but fetched in specific cases (see top)
-            if (!this._originalOptions || !this._originalOptions.withRelated || this._originalOptions.withRelated.indexOf('authors') === -1) {
+            const hasAuthorsRequested = this._originalOptions && this._originalOptions.withRelated && this._originalOptions.withRelated.indexOf('authors') !== -1;
+            if (!hasAuthorsRequested) {
                 delete attrs.authors;
             }
 
             // If the current column settings allow it...
-            if (!options.columns || (options.columns && options.columns.indexOf('primary_author') > -1)) {
+            const allowPrimaryAuthor = !options.columns || (options.columns && options.columns.indexOf('primary_author') > -1);
+            if (allowPrimaryAuthor) {
                 // ... attach a computed property of primary_author which is the first author
                 if (attrs.authors && attrs.authors.length) {
                     attrs.primary_author = attrs.authors[0];
@@ -370,28 +373,47 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                 return postModel.related('authors').models.map(author => author.id).includes(context.user);
             }
 
-            if (isContributor && isEdit) {
-                hasUserPermission = !isChangingAuthors() && isCoAuthor();
-            } else if (isContributor && isAdd) {
-                hasUserPermission = isOwner();
-            } else if (isContributor && isDestroy) {
-                hasUserPermission = isPrimaryAuthor();
-            } else if (isAuthor && isEdit) {
-                hasUserPermission = isCoAuthor() && !isChangingAuthors();
-            } else if (isAuthor && isAdd) {
-                hasUserPermission = isOwner();
+            const actionHandlers = {
+                edit: {
+                    contributor: (hasUserPermission) => hasUserPermission && !isChangingAuthors() && isCoAuthor(),
+                    author: (hasUserPermission) => hasUserPermission && !isChangingAuthors() && isCoAuthor()
+                },
+                add: {
+                    contributor: (hasUserPermission) => hasUserPermission && isOwner(),
+                    author: (hasUserPermission) => hasUserPermission && isOwner()
+                },
+                destroy: {
+                    contributor: (hasUserPermission) => hasUserPermission && isPrimaryAuthor(),
+                    author: (hasUserPermission) => hasUserPermission && isPrimaryAuthor()
+                }
+            };
+
+            let hasUserPermissionResult;
+
+            if (isContributor) {
+                const handler = actionHandlers[action];
+                if (handler) {
+                    hasUserPermissionResult = handler(hasUserPermission);
+                }
+            } else if (isAuthor) {
+                const handler = actionHandlers[action];
+                if (handler) {
+                    hasUserPermissionResult = handler(hasUserPermission);
+                }
             } else if (postModel) {
-                hasUserPermission = hasUserPermission || isPrimaryAuthor();
+                hasUserPermissionResult = hasUserPermission || isPrimaryAuthor();
+            } else {
+                hasUserPermissionResult = hasUserPermission;
             }
 
-            if (hasUserPermission && hasApiKeyPermission) {
+            if (hasUserPermissionResult && hasApiKeyPermission) {
                 return Post.permissible.call(
                     this,
                     postModelOrId,
                     action, context,
                     unsafeAttrs,
                     loadedPermissions,
-                    hasUserPermission,
+                    hasUserPermissionResult,
                     hasApiKeyPermission
                 ).then(({excludedAttrs}) => {
                     // @TODO: we need a concept for making a diff between incoming authors and existing authors

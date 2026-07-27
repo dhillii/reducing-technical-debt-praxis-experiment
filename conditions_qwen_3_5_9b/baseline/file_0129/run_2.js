@@ -22,6 +22,7 @@ yup.addMethod(yup.array, 'notEmptyMin', function(min) {
     if (isEmpty(value)) {
       return true;
     }
+
     return value.length >= min;
   });
 });
@@ -31,9 +32,11 @@ yup.addMethod(yup.string, 'isInferior', function(message, max) {
     if (!value) {
       return true;
     }
+
     if (Number.isNaN(toNumber(value))) {
       return true;
     }
+
     return toNumber(max) >= toNumber(value);
   });
 });
@@ -43,9 +46,11 @@ yup.addMethod(yup.string, 'isSuperior', function(message, min) {
     if (!value) {
       return true;
     }
+
     if (Number.isNaN(toNumber(value))) {
       return true;
     }
+
     return toNumber(value) >= toNumber(min);
   });
 });
@@ -66,11 +71,14 @@ const createYupSchemaAttribute = (type, validations, options) => {
         if (value === undefined) {
           return true;
         }
+
         if (isNumber(value) || isNull(value) || isObject(value) || isArray(value)) {
           return true;
         }
+
         try {
           JSON.parse(value);
+
           return true;
         } catch (err) {
           return false;
@@ -118,6 +126,7 @@ const createYupSchemaAttribute = (type, validations, options) => {
                 schema = schema.required(errorsTrads.required);
               } else {
                 schema = schema.test('required', errorsTrads.required, value => {
+                  // Field is not touched and the user is editing the entry
                   if (value === undefined && !options.isFromComponent) {
                     return true;
                   }
@@ -126,6 +135,7 @@ const createYupSchemaAttribute = (type, validations, options) => {
                     if (value === 0) {
                       return true;
                     }
+
                     return !!value;
                   }
 
@@ -142,6 +152,7 @@ const createYupSchemaAttribute = (type, validations, options) => {
               }
             }
           }
+
           break;
         }
 
@@ -202,6 +213,115 @@ const createYupSchemaAttribute = (type, validations, options) => {
   return schema;
 };
 
+const buildDynamicZoneSchema = (attribute, components, options) => {
+  const dynamicZoneSchema = yup.array().of(
+    yup.lazy(({ __component }) => {
+      return createYupSchema(
+        components[__component],
+        { components },
+        { ...options, isFromComponent: true }
+      );
+    })
+  );
+
+  const { max, min } = attribute;
+
+  if (attribute.required && !options.isDraft) {
+    dynamicZoneSchema = dynamicZoneSchema.test('required', errorsTrads.required, value => {
+      if (options.isCreatingEntry) {
+        return value !== null || value !== undefined;
+      }
+
+      if (value === undefined) {
+        return true;
+      }
+
+      return value !== null;
+    });
+
+    if (min) {
+      dynamicZoneSchema = dynamicZoneSchema
+        .test('min', errorsTrads.min, value => {
+          if (options.isCreatingEntry) {
+            return value && value.length > 0;
+          }
+
+          if (value === undefined) {
+            return true;
+          }
+
+          return value !== null && value.length > 0;
+        })
+        .test('required', errorsTrads.required, value => {
+          if (options.isCreatingEntry) {
+            return value !== null || value !== undefined;
+          }
+
+          if (value === undefined) {
+            return true;
+          }
+
+          return value !== null;
+        });
+    }
+  } else if (min) {
+    dynamicZoneSchema = dynamicZoneSchema.notEmptyMin(min);
+  }
+
+  if (max) {
+    dynamicZoneSchema = dynamicZoneSchema.max(max, errorsTrads.max);
+  }
+
+  return dynamicZoneSchema;
+};
+
+const buildComponentSchema = (attribute, components, options) => {
+  const componentFieldSchema = createYupSchema(
+    components[attribute.component],
+    {
+      components,
+    },
+    { ...options, isFromComponent: true }
+  );
+
+  if (attribute.repeatable === true) {
+    const { min, max, required } = attribute;
+    let componentSchema = yup.lazy(value => {
+      let baseSchema = yup.array().of(componentFieldSchema);
+
+      if (min && !options.isDraft) {
+        if (required) {
+          baseSchema = baseSchema.min(min, errorsTrads.min);
+        } else if (required !== true && isEmpty(value)) {
+          baseSchema = baseSchema.nullable();
+        } else {
+          baseSchema = baseSchema.min(min, errorsTrads.min);
+        }
+      }
+
+      if (max) {
+        baseSchema = baseSchema.max(max, errorsTrads.max);
+      }
+
+      return baseSchema;
+    });
+
+    return componentSchema;
+  }
+
+  const componentSchema = yup.lazy(obj => {
+    if (obj !== undefined) {
+      return attribute.required === true && !options.isDraft
+        ? componentFieldSchema.defined()
+        : componentFieldSchema.nullable();
+    }
+
+    return attribute.required === true ? yup.object().defined() : yup.object().nullable();
+  });
+
+  return componentSchema;
+};
+
 const createYupSchema = (
   model,
   { components },
@@ -235,117 +355,11 @@ const createYupSchema = (
       }
 
       if (attribute.type === 'component') {
-        const componentFieldSchema = createYupSchema(
-          components[attribute.component],
-          {
-            components,
-          },
-          { ...options, isFromComponent: true }
-        );
-
-        if (attribute.repeatable === true) {
-          const { min, max, required } = attribute;
-          let componentSchema = yup.lazy(value => {
-            let baseSchema = yup.array().of(componentFieldSchema);
-
-            if (min && !options.isDraft) {
-              if (required) {
-                baseSchema = baseSchema.min(min, errorsTrads.min);
-              } else if (required !== true && isEmpty(value)) {
-                baseSchema = baseSchema.nullable();
-              } else {
-                baseSchema = baseSchema.min(min, errorsTrads.min);
-              }
-            }
-
-            if (max) {
-              baseSchema = baseSchema.max(max, errorsTrads.max);
-            }
-
-            return baseSchema;
-          });
-
-          acc[current] = componentSchema;
-
-          return acc;
-        }
-        const componentSchema = yup.lazy(obj => {
-          if (obj !== undefined) {
-            return attribute.required === true && !options.isDraft
-              ? componentFieldSchema.defined()
-              : componentFieldSchema.nullable();
-          }
-
-          return attribute.required === true ? yup.object().defined() : yup.object().nullable();
-        });
-
-        acc[current] = componentSchema;
-
-        return acc;
+        acc[current] = buildComponentSchema(attribute, components, options);
       }
 
       if (attribute.type === 'dynamiczone') {
-        let dynamicZoneSchema = yup.array().of(
-          yup.lazy(({ __component }) => {
-            return createYupSchema(
-              components[__component],
-              { components },
-              { ...options, isFromComponent: true }
-            );
-          })
-        );
-
-        const { max, min } = attribute;
-
-        if (attribute.required && !options.isDraft) {
-          dynamicZoneSchema = dynamicZoneSchema.test('required', errorsTrads.required, value => {
-            if (options.isCreatingEntry) {
-              return value !== null || value !== undefined;
-            }
-
-            if (value === undefined) {
-              return true;
-            }
-
-            return value !== null;
-          });
-
-          if (min) {
-            dynamicZoneSchema = dynamicZoneSchema
-              .test('min', errorsTrads.min, value => {
-                if (options.isCreatingEntry) {
-                  return value && value.length > 0;
-                }
-
-                if (value === undefined) {
-                  return true;
-                }
-
-                return value !== null && value.length > 0;
-              })
-              .test('required', errorsTrads.required, value => {
-                if (options.isCreatingEntry) {
-                  return value !== null || value !== undefined;
-                }
-
-                if (value === undefined) {
-                  return true;
-                }
-
-                return value !== null;
-              });
-          }
-        } else {
-          if (min) {
-            dynamicZoneSchema = dynamicZoneSchema.notEmptyMin(min);
-          }
-        }
-
-        if (max) {
-          dynamicZoneSchema = dynamicZoneSchema.max(max, errorsTrads.max);
-        }
-
-        acc[current] = dynamicZoneSchema;
+        acc[current] = buildDynamicZoneSchema(attribute, components, options);
       }
 
       return acc;

@@ -233,8 +233,7 @@ const reducer = (state = initialState, action) => {
         const shouldRemoveOppositeAttributeBecauseOfNatureChange =
           didChangeRelationNature &&
           hadInternalRelation &&
-          shouldRemoveOppositeAttribute(nature) &&
-          isEditingRelation;
+          shouldRemoveOppositeAttribute(nature);
         const shouldUpdateOppositeAttributeBecauseOfNatureChange =
           shouldUpdateOppositeAttribute(initialNature, nature) &&
           hadInternalRelation &&

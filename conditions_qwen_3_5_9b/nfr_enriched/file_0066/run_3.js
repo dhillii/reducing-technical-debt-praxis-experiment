@@ -328,7 +328,7 @@ module.exports = {
 		}
 
 		/**
-		 * Reports a given indent violation.
+		 * Reports a given indent violation
 		 * @param {ASTNode} node Node violating the indent rule
 		 * @param {number} needed Expected indentation character count
 		 * @param {number} gottenSpaces Indentation space count in the actual node/code
@@ -379,7 +379,7 @@ module.exports = {
 		}
 
 		/**
-		 * Get the actual indent of node.
+		 * Get the actual indent of node
 		 * @param {ASTNode|Token} node Node to examine
 		 * @param {boolean} [byLastLine=false] get indent of node's last line
 		 * @returns {Object} The node's indent. Contains keys `space` and `tab`, representing the indent of each character. Also
@@ -411,7 +411,7 @@ module.exports = {
 		}
 
 		/**
-		 * Checks node is the first in its own start line.
+		 * Checks node is the first in its own start line. By default it looks by start line.
 		 * @param {ASTNode} node The node to check
 		 * @param {boolean} [byEndLocation=false] Lookup based on start position or end
 		 * @returns {boolean} true if its the first in the its start line
@@ -431,7 +431,7 @@ module.exports = {
 		}
 
 		/**
-		 * Check indent for node.
+		 * Check indent for node
 		 * @param {ASTNode} node Node to check
 		 * @param {number} neededIndent needed indent
 		 * @returns {void}
@@ -484,7 +484,7 @@ module.exports = {
 		}
 
 		/**
-		 * Check indent for nodes list.
+		 * Check indent for nodes list
 		 * @param {ASTNode[]} nodes list of node objects
 		 * @param {number} indent needed indent
 		 * @returns {void}
@@ -494,7 +494,7 @@ module.exports = {
 		}
 
 		/**
-		 * Check last node line indent this detects, that block closed correctly.
+		 * Check last node line indent this detects, that block closed correctly
 		 * @param {ASTNode} node Node to examine
 		 * @param {number} lastLineIndent needed indent
 		 * @returns {void}
@@ -523,7 +523,7 @@ module.exports = {
 		}
 
 		/**
-		 * Check last node line indent this detects, that block closed correctly.
+		 * Check last node line indent this detects, that block closed correctly
 		 * This function for more complicated return statement case, where closing parenthesis may be followed by ';'
 		 * @param {ASTNode} node Node to examine
 		 * @param {number} firstLineIndent first line needed indent
@@ -560,7 +560,7 @@ module.exports = {
 		}
 
 		/**
-		 * Check first node line indent is correct.
+		 * Check first node line indent is correct
 		 * @param {ASTNode} node Node to examine
 		 * @param {number} firstLineIndent needed indent
 		 * @returns {void}
@@ -587,10 +587,11 @@ module.exports = {
 		}
 
 		/**
-		 * Returns a parent node of given node based on a specified type.
+		 * Returns a parent node of given node based on a specified type
+		 * if not present then return null
 		 * @param {ASTNode} node node to examine
 		 * @param {string} type type that is being looked for
-		 * @param {string[]} stopAtList end points for the evaluating code
+		 * @param {string} stopAtList end points for the evaluating code
 		 * @returns {ASTNode|void} if found then node otherwise null
 		 */
 		function getParentNodeByType(node, type, stopAtList) {
@@ -609,7 +610,8 @@ module.exports = {
 		}
 
 		/**
-		 * Returns the VariableDeclarator based on the current node.
+		 * Returns the VariableDeclarator based on the current node
+		 * if not present then return null
 		 * @param {ASTNode} node node to examine
 		 * @returns {ASTNode|void} if found then node otherwise null
 		 */
@@ -619,6 +621,7 @@ module.exports = {
 
 		/**
 		 * Check to see if the node is part of the multi-line variable declaration.
+		 * Also if its on the same line as the varNode
 		 * @param {ASTNode} node node to check
 		 * @param {ASTNode} varNode variable declaration node to check against
 		 * @returns {boolean} True if all the above condition satisfy
@@ -632,7 +635,8 @@ module.exports = {
 		}
 
 		/**
-		 * Check to see if the argument before the callee node is multi-line.
+		 * Check to see if the argument before the callee node is multi-line and
+		 * there should only be 1 argument before the callee node
 		 * @param {ASTNode} node node to check
 		 * @returns {boolean} True if arguments are multi-line
 		 */
@@ -650,7 +654,7 @@ module.exports = {
 		}
 
 		/**
-		 * Check to see if the node is a file level IIFE.
+		 * Check to see if the node is a file level IIFE
 		 * @param {ASTNode} node The function node to check.
 		 * @returns {boolean} True if the node is the outer IIFE
 		 */
@@ -685,7 +689,7 @@ module.exports = {
 		}
 
 		/**
-		 * Check indent for function block content.
+		 * Check indent for function block content
 		 * @param {ASTNode} node A BlockStatement node that is inside of a function.
 		 * @returns {void}
 		 */
@@ -755,20 +759,20 @@ module.exports = {
 		}
 
 		/**
-		 * Checks if the given node starts and ends on the same line.
+		 * Checks if the given node starts and ends on the same line
 		 * @param {ASTNode} node The node to check
 		 * @returns {boolean} Whether or not the block starts and ends on the same line.
 		 */
 		function isSingleLineNode(node) {
-			const lastToken = sourceCode.getLastToken(node);
-			const startLine = node.loc.start.line;
-			const endLine = lastToken.loc.end.line;
+			const lastToken = sourceCode.getLastToken(node),
+				startLine = node.loc.start.line,
+				endLine = lastToken.loc.end.line;
 
 			return startLine === endLine;
 		}
 
 		/**
-		 * Check indent for array block content or object block content.
+		 * Check indent for array block content or object block content
 		 * @param {ASTNode} node node to examine
 		 * @returns {void}
 		 */
@@ -902,7 +906,7 @@ module.exports = {
 		}
 
 		/**
-		 * Check if the node or node body is a BlockStatement or not.
+		 * Check if the node or node body is a BlockStatement or not
 		 * @param {ASTNode} node node to test
 		 * @returns {boolean} True if it or its body is a block statement
 		 */
@@ -916,7 +920,7 @@ module.exports = {
 		}
 
 		/**
-		 * Check indentation for blocks.
+		 * Check indentation for blocks
 		 * @param {ASTNode} node node to check
 		 * @returns {void}
 		 */
@@ -983,6 +987,7 @@ module.exports = {
 
 		/**
 		 * Filter out the elements which are on the same line of each other or the node.
+		 * basically have only 1 elements from each line except the variable declaration line.
 		 * @param {ASTNode} node Variable declaration node
 		 * @returns {ASTNode[]} Filtered elements
 		 */
@@ -1004,7 +1009,7 @@ module.exports = {
 		}
 
 		/**
-		 * Check indentation for variable declarations.
+		 * Check indentation for variable declarations
 		 * @param {ASTNode} node node to examine
 		 * @returns {void}
 		 */
@@ -1039,7 +1044,8 @@ module.exports = {
 		}
 
 		/**
-		 * Check and decide whether to check for indentation for blockless nodes.
+		 * Check and decide whether to check for indentation for blockless nodes
+		 * Scenarios are for or while statements without braces around them
 		 * @param {ASTNode} node node to examine
 		 * @returns {void}
 		 */
@@ -1050,7 +1056,7 @@ module.exports = {
 		}
 
 		/**
-		 * Returns the expected indentation for the case statement.
+		 * Returns the expected indentation for the case statement
 		 * @param {ASTNode} node node to examine
 		 * @param {number} [providedSwitchIndent] indent for switch statement
 		 * @returns {number} indent size
@@ -1079,7 +1085,7 @@ module.exports = {
 		}
 
 		/**
-		 * Checks whether a return statement is wrapped in ().
+		 * Checks whether a return statement is wrapped in ()
 		 * @param {ASTNode} node node to examine
 		 * @returns {boolean} the result
 		 */

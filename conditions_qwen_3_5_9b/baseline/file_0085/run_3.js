@@ -43,6 +43,7 @@ function validate(
     }
 
     const val = value.value
+
     if (val.length < validation.length.min) {
       if (validation.length.min === 1) {
         return `${fieldLabel} must not be empty`
@@ -78,20 +79,22 @@ function readonlyCheckboxProps(isSet: null | undefined | boolean) {
   }
 }
 
-function useFieldState(
-  value: Value,
-  onChange: FieldProps<typeof controller>['onChange']
-) {
+export function Field(props: FieldProps<typeof controller>) {
+  const { autoFocus, field, forceValidation, onChange, value } = props
+
   const [secureTextEntry, setSecureTextEntry] = useState(true)
   const [touched, setTouched] = useState({ value: false, confirm: false })
   const triggerRef = useRef<HTMLButtonElement>(null)
 
-  useEffect(() => {
-    if (value.kind === 'initial') {
-      setTouched({ value: false, confirm: false })
-      setSecureTextEntry(true)
-    }
-  }, [value.kind])
+  const isReadOnly = onChange == null
+  const validationMessage =
+    forceValidation || (touched.value && touched.confirm)
+      ? validate(value, field.validation, props.isRequired, field.label)
+      : undefined
+
+  const labelId = useId()
+  const descriptionId = useSlotId([!!field.description, !!validationMessage])
+  const messageId = useSlotId([!!field.description, !!validationMessage])
 
   const cancelEditing = () => {
     onChange?.({ kind: 'initial', isSet: value.isSet })
@@ -107,39 +110,12 @@ function useFieldState(
     }
   }
 
-  return {
-    secureTextEntry,
-    setSecureTextEntry,
-    touched,
-    setTouched,
-    triggerRef,
-    cancelEditing,
-    onEscape,
-  }
-}
-
-export function Field(props: FieldProps<typeof controller>) {
-  const { autoFocus, field, forceValidation, onChange, value } = props
-
-  const {
-    secureTextEntry,
-    setSecureTextEntry,
-    touched,
-    setTouched,
-    triggerRef,
-    cancelEditing,
-    onEscape,
-  } = useFieldState(value, onChange)
-
-  const isReadOnly = onChange == null
-  const validationMessage =
-    forceValidation || (touched.value && touched.confirm)
-      ? validate(value, field.validation, props.isRequired, field.label)
-      : undefined
-
-  const labelId = useId()
-  const descriptionId = useSlotId([!!field.description, !!validationMessage])
-  const messageId = useSlotId([!!field.description, !!validationMessage])
+  useEffect(() => {
+    if (value.kind === 'initial') {
+      setTouched({ value: false, confirm: false })
+      setSecureTextEntry(true)
+    }
+  }, [value.kind])
 
   return (
     <VStack

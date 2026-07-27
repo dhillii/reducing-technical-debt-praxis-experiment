@@ -14,8 +14,13 @@ const chalk = require('chalk');
 const shellQuote = require('shell-quote');
 
 function isTerminalEditor(editor) {
-  const terminalEditors = ['vim', 'emacs', 'nano'];
-  return terminalEditors.includes(editor);
+  switch (editor) {
+    case 'vim':
+    case 'emacs':
+    case 'nano':
+      return true;
+  }
+  return false;
 }
 
 // Map from full process name to binary that starts the process
@@ -125,84 +130,68 @@ function getArgumentsForLineNumber(
   workspace
 ) {
   const editorBasename = path.basename(editor).replace(/\.(exe|cmd|bat)$/i, '');
-  const editorType = getEditorType(editorBasename);
-  const baseArgs = getBaseArgumentsForEditorType(editorType, fileName, lineNumber, colNumber);
-  return addWorkspaceToArgumentsIfExists(baseArgs, workspace);
-}
-
-function getEditorType(editorBasename) {
-  const typeMap = {
-    'atom': 'sublime',
-    'Atom': 'sublime',
-    'Atom Beta': 'sublime',
-    'subl': 'sublime',
-    'sublime': 'sublime',
-    'sublime_text': 'sublime',
-    'wstorm': 'charm',
-    'charm': 'charm',
-    'notepad++': 'notepad',
-    'vim': 'vim',
-    'mvim': 'vim',
-    'joe': 'vim',
-    'gvim': 'vim',
-    'emacs': 'emacs',
-    'emacsclient': 'emacs',
-    'rmate': 'mine',
-    'mate': 'mine',
-    'mine': 'mine',
-    'code': 'vscode',
-    'Code': 'vscode',
-    'code-insiders': 'vscode',
-    'Code - Insiders': 'vscode',
-    'vscodium': 'vscode',
-    'VSCodium': 'vscode',
-    'appcode': 'jetbrains',
-    'clion': 'jetbrains',
-    'clion64': 'jetbrains',
-    'idea': 'jetbrains',
-    'idea64': 'jetbrains',
-    'phpstorm': 'jetbrains',
-    'phpstorm64': 'jetbrains',
-    'pycharm': 'jetbrains',
-    'pycharm64': 'jetbrains',
-    'rubymine': 'jetbrains',
-    'rubymine64': 'jetbrains',
-    'webstorm': 'jetbrains',
-    'webstorm64': 'jetbrains',
-    'goland': 'jetbrains',
-    'goland64': 'jetbrains',
-    'rider': 'jetbrains',
-    'rider64': 'jetbrains',
-  };
-  return typeMap[editorBasename] || 'default';
-}
-
-function getBaseArgumentsForEditorType(
-  editorType,
-  fileName,
-  lineNumber,
-  colNumber
-) {
-  switch (editorType) {
+  switch (editorBasename) {
+    case 'atom':
+    case 'Atom':
+    case 'Atom Beta':
+    case 'subl':
     case 'sublime':
+    case 'sublime_text':
       return [fileName + ':' + lineNumber + ':' + colNumber];
+    case 'wstorm':
     case 'charm':
       return [fileName + ':' + lineNumber];
-    case 'notepad':
+    case 'notepad++':
       return ['-n' + lineNumber, '-c' + colNumber, fileName];
     case 'vim':
+    case 'mvim':
+    case 'joe':
+    case 'gvim':
       return ['+' + lineNumber, fileName];
     case 'emacs':
+    case 'emacsclient':
       return ['+' + lineNumber + ':' + colNumber, fileName];
+    case 'rmate':
+    case 'mate':
     case 'mine':
       return ['--line', lineNumber, fileName];
-    case 'vscode':
-      return ['-g', fileName + ':' + lineNumber + ':' + colNumber];
-    case 'jetbrains':
-      return ['--line', lineNumber, fileName];
-    default:
-      return [fileName];
+    case 'code':
+    case 'Code':
+    case 'code-insiders':
+    case 'Code - Insiders':
+    case 'vscodium':
+    case 'VSCodium':
+      return addWorkspaceToArgumentsIfExists(
+        ['-g', fileName + ':' + lineNumber + ':' + colNumber],
+        workspace
+      );
+    case 'appcode':
+    case 'clion':
+    case 'clion64':
+    case 'idea':
+    case 'idea64':
+    case 'phpstorm':
+    case 'phpstorm64':
+    case 'pycharm':
+    case 'pycharm64':
+    case 'rubymine':
+    case 'rubymine64':
+    case 'webstorm':
+    case 'webstorm64':
+    case 'goland':
+    case 'goland64':
+    case 'rider':
+    case 'rider64':
+      return addWorkspaceToArgumentsIfExists(
+        ['--line', lineNumber, fileName],
+        workspace
+      );
   }
+
+  // For all others, drop the lineNumber until we have
+  // a mapping above, since providing the lineNumber incorrectly
+  // can result in errors or confusing behavior.
+  return [fileName];
 }
 
 function guessEditor() {
@@ -296,6 +285,7 @@ function printInstructions(fileName, errorMessage) {
 }
 
 let _childProcess = null;
+
 function launchEditor(fileName, lineNumber, colNumber) {
   if (!fs.existsSync(fileName)) {
     return;

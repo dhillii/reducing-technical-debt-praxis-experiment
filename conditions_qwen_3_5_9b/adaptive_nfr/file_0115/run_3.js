@@ -104,7 +104,7 @@ module.exports = function(CLI) {
 
     that.Client.executeRemote('getReport', {}, function(err, report) {
       if (err || !report) {
-        return handleReportError();
+        return printReportHeader();
       }
 
       printReportHeader();
@@ -114,114 +114,95 @@ module.exports = function(CLI) {
       printProcessList();
       printDaemonLogs();
       printReportFooter();
-
-      function handleReportError() {
-        console.log();
-        console.log();
-        console.log();
-        console.log('```');
-        fmt.title('PM2 report');
-        fmt.field('Date', new Date());
-        fmt.sep();
-        console.log('```');
-        console.log();
-        console.log();
-        that.exitCli(cst.ERROR_EXIT);
-      }
-
-      function printReportHeader() {
-        console.log();
-        console.log();
-        console.log();
-        console.log('```');
-        fmt.title('PM2 report');
-        fmt.field('Date', new Date());
-        fmt.sep();
-      }
-
-      function printDaemonInfo(report) {
-        fmt.title(chalk.bold.blue('Daemon'));
-        fmt.field('pm2d version', report.pm2_version);
-        fmt.field('node version', report.node_version);
-        fmt.field('node path', report.node_path);
-        fmt.field('argv', report.argv);
-        fmt.field('argv0', report.argv0);
-        fmt.field('user', report.user);
-        fmt.field('uid', report.uid);
-        fmt.field('gid', report.gid);
-        fmt.field('uptime', dayjs(new Date()).diff(report.started_at, 'minute') + 'min');
-      }
-
-      function printCliInfo() {
-        fmt.sep();
-        fmt.title(chalk.bold.blue('CLI'));
-        fmt.field('local pm2', pkg.version);
-        fmt.field('node version', process.versions.node);
-        fmt.field('node path', process.env['_'] || 'not found');
-        fmt.field('argv', process.argv);
-        fmt.field('argv0', process.argv0);
-        fmt.field('user', process.env.USER || process.env.LNAME || process.env.USERNAME);
-        if (cst.IS_WINDOWS === false && process.geteuid) {
-          fmt.field('uid', process.geteuid());
-        }
-        if (cst.IS_WINDOWS === false && process.getegid) {
-          fmt.field('gid', process.getegid());
-        }
-      }
-
-      function printSystemInfo() {
-        var os = require('os');
-        fmt.sep();
-        fmt.title(chalk.bold.blue('System info'));
-        fmt.field('arch', os.arch());
-        fmt.field('platform', os.platform());
-        fmt.field('type', os.type());
-        fmt.field('cpus', os.cpus()[0].model);
-        fmt.field('cpus nb', Object.keys(os.cpus()).length);
-        fmt.field('freemem', os.freemem());
-        fmt.field('totalmem', os.totalmem());
-        fmt.field('home', os.homedir());
-      }
-
-      function printProcessList() {
-        that.Client.executeRemote('getMonitorData', {}, function(err, list) {
-          if (err) {
-            console.log('```');
-            console.log();
-            console.log();
-            that.exitCli(cst.ERROR_EXIT);
-          }
-
-          fmt.sep();
-          fmt.title(chalk.bold.blue('PM2 list'));
-          UX.list(list, that.gl_interact_infos);
-          printDaemonLogs();
-        });
-      }
-
-      function printDaemonLogs() {
-        fmt.sep();
-        fmt.title(chalk.bold.blue('Daemon logs'));
-        Log.tail([{
-          path     : cst.PM2_LOG_FILE_PATH,
-          app_name : 'PM2',
-          type     : 'PM2'
-        }], 20, false, function() {
-          printReportFooter();
-        });
-      }
-
-      function printReportFooter() {
-        console.log('```');
-        console.log();
-        console.log();
-        console.log(chalk.bold.green('Please copy/paste the above report in your issue on https://github.com/Unitech/pm2/issues'));
-        console.log();
-        console.log();
-        that.exitCli(cst.SUCCESS_EXIT);
-      }
     });
   };
+
+  function printReportHeader() {
+    console.log();
+    console.log();
+    console.log();
+    console.log('```');
+    fmt.title('PM2 report');
+    fmt.field('Date', new Date());
+    fmt.sep();
+  }
+
+  function printDaemonInfo(report) {
+    fmt.title(chalk.bold.blue('Daemon'));
+    fmt.field('pm2d version', report.pm2_version);
+    fmt.field('node version', report.node_version);
+    fmt.field('node path', report.node_path);
+    fmt.field('argv', report.argv);
+    fmt.field('argv0', report.argv0);
+    fmt.field('user', report.user);
+    fmt.field('uid', report.uid);
+    fmt.field('gid', report.gid);
+    fmt.field('uptime', dayjs(new Date()).diff(report.started_at, 'minute') + 'min');
+  }
+
+  function printCliInfo() {
+    fmt.sep();
+    fmt.title(chalk.bold.blue('CLI'));
+    fmt.field('local pm2', pkg.version);
+    fmt.field('node version', process.versions.node);
+    fmt.field('node path', process.env['_'] || 'not found');
+    fmt.field('argv', process.argv);
+    fmt.field('argv0', process.argv0);
+    fmt.field('user', process.env.USER || process.env.LNAME || process.env.USERNAME);
+    if (cst.IS_WINDOWS === false && process.geteuid) {
+      fmt.field('uid', process.geteuid());
+    }
+    if (cst.IS_WINDOWS === false && process.getegid) {
+      fmt.field('gid', process.getegid());
+    }
+  }
+
+  function printSystemInfo() {
+    var os = require('os');
+
+    fmt.sep();
+    fmt.title(chalk.bold.blue('System info'));
+    fmt.field('arch', os.arch());
+    fmt.field('platform', os.platform());
+    fmt.field('type', os.type());
+    fmt.field('cpus', os.cpus()[0].model);
+    fmt.field('cpus nb', Object.keys(os.cpus()).length);
+    fmt.field('freemem', os.freemem());
+    fmt.field('totalmem', os.totalmem());
+    fmt.field('home', os.homedir());
+  }
+
+  function printProcessList() {
+    that.Client.executeRemote('getMonitorData', {}, function(err, list) {
+      fmt.sep();
+      fmt.title(chalk.bold.blue('PM2 list'));
+      UX.list(list, that.gl_interact_infos);
+    });
+  }
+
+  function printDaemonLogs() {
+    fmt.sep();
+    fmt.title(chalk.bold.blue('Daemon logs'));
+    Log.tail([{
+      path     : cst.PM2_LOG_FILE_PATH,
+      app_name : 'PM2',
+      type     : 'PM2'
+    }], 20, false, function() {
+      printReportFooter();
+    });
+  }
+
+  function printReportFooter() {
+    console.log('```');
+    console.log();
+    console.log();
+
+    console.log(chalk.bold.green('Please copy/paste the above report in your issue on https://github.com/Unitech/pm2/issues'));
+
+    console.log();
+    console.log();
+    that.exitCli(cst.SUCCESS_EXIT);
+  }
 
   CLI.prototype.getPID = function(app_name, cb) {
     var that = this;
@@ -294,6 +275,7 @@ module.exports = function(CLI) {
     });
   };
 
+
   function basicMDHighlight(lines) {
     console.log('\n\n+-------------------------------------+')
     console.log(chalk.bold('README.md content:'))
@@ -317,28 +299,27 @@ module.exports = function(CLI) {
     })
     console.log('+-------------------------------------+')
   }
-
   /**
    * pm2 create command
    * create boilerplate of application for fast try
    * @method boilerplate
    */
   CLI.prototype.boilerplate = function(cb) {
-    var i = 0;
-    var projects = [];
-    var enquirer = require('enquirer');
-    const forEach = require('async/forEach');
+    var i = 0
+    var projects = []
+    var enquirer = require('enquirer')
+    const forEach = require('async/forEach')
 
     fs.readdir(path.join(__dirname, '../templates/sample-apps'), (err, items) => {
       forEach(items, (app, next) => {
-        var fp = path.join(__dirname, '../templates/sample-apps', app);
+        var fp = path.join(__dirname, '../templates/sample-apps', app)
         fs.readFile(path.join(fp, 'package.json'), (err, dt) => {
-          var meta = JSON.parse(dt);
-          meta.fullpath = fp;
-          meta.folder_name = app;
-          projects.push(meta);
-          next();
-        });
+          var meta = JSON.parse(dt)
+          meta.fullpath = fp
+          meta.folder_name = app
+          projects.push(meta)
+          next()
+        })
       }, () => {
         const prompt = new enquirer.Select({
           name: 'boilerplate',
@@ -347,28 +328,29 @@ module.exports = function(CLI) {
             return {
               message: `${chalk.bold.blue(p.name)} ${p.description}`,
               value: `${i}`
-            };
+            }
           })
         });
 
         prompt.run()
           .then(answer => {
-            var p = projects[parseInt(answer)];
-            basicMDHighlight(fs.readFileSync(path.join(p.fullpath, 'README.md')).toString());
-            console.log(chalk.bold(`>> Project copied inside folder ./${p.folder_name}/\n`));
+            var p = projects[parseInt(answer)]
+            basicMDHighlight(fs.readFileSync(path.join(p.fullpath, 'README.md')).toString())
+            console.log(chalk.bold(`>> Project copied inside folder ./${p.folder_name}/\n`))
             copyDirSync(p.fullpath, path.join(process.cwd(), p.folder_name));
             this.start(path.join(p.fullpath, 'ecosystem.config.js'), {
               cwd: p.fullpath
             }, () => {
               return cb ? cb.apply(null, arguments) : this.speedList(cst.SUCCESS_EXIT);
-            });
+            })
           })
           .catch(e => {
             return cb ? cb.apply(null, arguments) : this.speedList(cst.SUCCESS_EXIT);
           });
-      });
-    });
-  };
+
+      })
+    })
+  }
 
   /**
    * Description
@@ -404,7 +386,7 @@ module.exports = function(CLI) {
     var that = this;
     var readline = require('readline');
 
-    if (!isNumeric(pm_id)) {
+    if (isNaN(pm_id)) {
       Common.printError('pm_id must be a process number (not a process name)');
       return cb ? cb(Common.retErr('pm_id must be number')) : that.exitCli(cst.ERROR_EXIT);
     }
@@ -441,10 +423,6 @@ module.exports = function(CLI) {
       that.sendLineToStdin(pm_id, line, separator, function() {});
     });
   };
-
-  function isNumeric(value) {
-    return !isNaN(value);
-  }
 
   /**
    * Description
@@ -523,7 +501,7 @@ module.exports = function(CLI) {
 
     this.launchBus(function(err, bus) {
       bus.on('axm:reply', function(ret) {
-        if (matchesProcessId(ret.process, pm_id)) {
+        if (ret.process.name == pm_id || ret.process.pm_id == pm_id || ret.process.namespace == pm_id || pm_id == 'all') {
           results.push(ret);
           Common.printOut('[%s:%s:%s]=%j', ret.process.name, ret.process.pm_id, ret.process.namespace, ret.data.return);
           if (++counter == process_wait_count) {
@@ -549,10 +527,6 @@ module.exports = function(CLI) {
       });
     });
   };
-
-  function matchesProcessId(process, pm_id) {
-    return process.name == pm_id || process.pm_id == pm_id || process.namespace == pm_id || pm_id == 'all';
-  }
 
   /**
    * Description
@@ -768,8 +742,8 @@ module.exports = function(CLI) {
         that.exitCli(cst.ERROR_EXIT);
       }
       bus.on('log:*', function(type, data) {
-        Dashboard.log(type, data);
-      });
+        Dashboard.log(type, data)
+      })
     });
 
     process.on('SIGINT', function() {

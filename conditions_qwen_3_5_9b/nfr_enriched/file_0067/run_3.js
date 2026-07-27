@@ -970,7 +970,8 @@ module.exports = {
 		}
 
 		/**
-		 * Check indentation for blockless nodes (for/while statements without braces)
+		 * Check and decide whether to check for indentation for blockless nodes
+		 * Scenarios are for or while statements without braces around them
 		 * @param {ASTNode} node node to examine
 		 * @returns {void}
 		 */

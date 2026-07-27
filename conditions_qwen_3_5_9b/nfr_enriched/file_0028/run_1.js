@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/ember';
 import Component from '@glimmer/component';
-import React, {Suspense, useState, useRef} from 'react';
+import React, {Suspense} from 'react';
 import ghostPaths from 'ghost-admin/utils/ghost-paths';
 import moment from 'moment-timezone';
 import {action} from '@ember/object';
@@ -42,7 +42,7 @@ export const fileTypes = {
 
 function LockIcon({...props}) {
     return (
-        <svg xmlns="http://www.worg/2000/svg" viewBox="0 0 16 16" {...props}>
+        <svg xmlns="http://www.wwww.w3.org/2000/svg" viewBox="0 0 16 16" {...props}>
             <g transform="matrix(0.6666666666666666,0,0,0.6666666666666666,0,0)">
                 <path fill="currentColor" d="M19.5,9.5h-.75V6.75a6.75,6.75,0,0,0-13.5,0V9.5H4.5a2,2,0,0,0-2,2V22a2,2,0,0,0,2,2h15a2,2,0,0,0,2-2V11.5A2,2,0,0,0,19.5,9.5Zm-7.5,9a2,2,0,1,1,2-2A2,2,0,0,1,12,18.5ZM16.25,9a.5.5,0,0,1-.5.5H8.25a.5.5,0,0,1-.5-.5V6.75a4.25,4.25,0,0,1,8.5,0Z"></path>
             </g>
@@ -52,7 +52,7 @@ function LockIcon({...props}) {
 
 function DollarIcon({...props}) {
     return (
-        <svg xmlns="http://www.worg/2000/svg" height="24" width="24" viewBox="0 0 24 24" {...props}>
+        <svg xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24" {...props}>
             <g fill="currentColor" class="nc-icon-wrapper">
                 <path
                     d="M13,10.265V5.013a9.722,9.722,0,0,1,2.6.722l1.342.662,1.327-2.69-1.345-.663A12.4,12.4,0,0,0,13,1.989V0H11V1.983c-3.537.306-5.773,2.3-5.773,5.264,0,3.726,3.174,4.85,5.773,5.577V18.09a15.77,15.77,0,0,1-4.24-.819l-1.411-.509L4.33,19.583l1.411.51A18.577,18.577,0,0,0,11,21.1V24h2V21.087c5.125-.431,5.708-3.776,5.708-5.264C18.708,12.129,15.587,10.993,13,10.265ZM8.227,7.247c0-1.6,1.6-2.1,2.773-2.249V9.69C9.1,9.092,8.227,8.523,8.227,7.247ZM13,18.072V13.4c1.857.591,2.708,1.161,2.708,2.422C15.708,16.382,15.7,17.769,13,18.072Z"
@@ -65,6 +65,7 @@ function DollarIcon({...props}) {
 
 export function decoratePostSearchResult(item, settings) {
     const date = moment.utc(item.publishedAt).tz(settings.timezone).format('D MMM YYYY');
+
     item.metaText = date;
 
     if (settings.membersEnabled && item.visibility) {
@@ -459,14 +460,14 @@ export default class KoenigLexicalEditor extends Component {
         const cardConfig = Object.assign({}, defaultCardConfig, props.cardConfig, {pinturaConfig: this.pinturaConfig});
 
         const useFileUpload = (type = 'image') => {
-            const [progress, setProgress] = useState(0);
-            const [isLoading, setLoading] = useState(false);
-            const [errors, setErrors] = useState([]);
-            const [filesNumber, setFilesNumber] = useState(0);
+            const [progress, setProgress] = React.useState(0);
+            const [isLoading, setLoading] = React.useState(false);
+            const [errors, setErrors] = React.useState([]);
+            const [filesNumber, setFilesNumber] = React.useState(0);
 
-            const progressTracker = useRef(new Map());
+            const progressTracker = React.useRef(new Map());
 
-            const updateProgress = () => {
+            function updateProgress() {
                 if (progressTracker.current.size === 0) {
                     setProgress(0);
                     return;
@@ -477,11 +478,11 @@ export default class KoenigLexicalEditor extends Component {
                 progressTracker.current.forEach(value => totalProgress += value);
 
                 setProgress(Math.round(totalProgress / progressTracker.current.size));
-            };
+            }
 
             // we only check the file extension by default because IE doesn't always
             // expose the mime-type, we'll rely on the API for final validation
-            const defaultValidator = (file) => {
+            function defaultValidator(file) {
                 // if type is file we don't need to validate since the card can accept any file type
                 if (type === 'file') {
                     return true;
@@ -504,7 +505,7 @@ export default class KoenigLexicalEditor extends Component {
                 }
 
                 return true;
-            };
+            }
 
             const validate = (files = []) => {
                 const validationResult = [];

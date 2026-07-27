@@ -35,6 +35,14 @@ function isCountKind(value: RelationshipValue): boolean {
   return value.kind === 'count'
 }
 
+function isTableDisplay(field: FieldProps<any>): boolean {
+  return field.display === 'table'
+}
+
+function isReadOnly(onChange?: (value: any) => void): boolean {
+  return onChange === undefined
+}
+
 function isManyKind(value: RelationshipValue): boolean {
   return value.kind === 'many'
 }
@@ -43,647 +51,11521 @@ function isOneKind(value: RelationshipValue): boolean {
   return value.kind === 'one'
 }
 
-function isReadOnly(onChange?: (value: RelationshipValue) => void): boolean {
-  return onChange === undefined
+function isCountOrTableDisplay(displayMode: string): boolean {
+  return displayMode === 'count' || displayMode === 'table'
 }
 
-function isTableDisplay(field: FieldProps['field']): boolean {
-  return field.display === 'table'
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
 }
 
-function isCountDisplay(field: FieldProps['field']): boolean {
-  return field.display === 'count'
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
 }
 
-function isSelectDisplay(field: FieldProps['field']): boolean {
-  return field.display === 'select'
+function isCountOrTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count' || displayMode === 'table'
 }
 
-function isTableDisplayMode(config: FieldControllerConfig<any>): boolean {
-  return config.fieldMeta.displayMode === 'table'
+function isManyMode(many: boolean): boolean {
+  return many
 }
 
-function isCountDisplayMode(config: FieldControllerConfig<any>): boolean {
-  return config.fieldMeta.displayMode === 'count'
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
 }
 
-function isSelectDisplayMode(config: FieldControllerConfig<any>): boolean {
-  return config.fieldMeta.displayMode === 'select'
+function isNullOrEmpty(value: any): boolean {
+  return value == null
 }
 
-function hasRefFieldKey(field: FieldProps['field']): boolean {
-  return !!field.refFieldKey
+function isNullOrUndefined(value: any): boolean {
+  return value == null
 }
 
-function hasRefListKey(field: FieldProps['field']): boolean {
-  return !!field.refListKey
+function isNotNull(value: any): boolean {
+  return value != null
 }
 
-function hasRefLabelField(field: FieldProps['field']): boolean {
-  return !!field.refLabelField
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
 }
 
-function hasRefSearchFields(field: FieldProps['field']): boolean {
-  return !!field.refSearchFields
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
 }
 
-function hasSelectFilter(field: FieldProps['field']): boolean {
-  return !!field.selectFilter
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
 }
 
-function hasSelectSort(field: FieldProps['field']): boolean {
-  return !!field.selectSort
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
 }
 
-function hasMany(config: FieldControllerConfig<any>): boolean {
-  return config.fieldMeta.many
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
 }
 
-function hasHideCreate(config: FieldControllerConfig<any>): boolean {
-  return config.fieldMeta.hideCreate
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
 }
 
-function hasRefFieldKeyInConfig(config: FieldControllerConfig<any>): boolean {
-  return !!config.fieldMeta.refFieldKey
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
 }
 
-function hasInitialSort(config: FieldControllerConfig<any>): boolean {
-  return !!config.fieldMeta.initialSort
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
 }
 
-function hasColumns(config: FieldControllerConfig<any>): boolean {
-  return !!config.fieldMeta.columns
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
 }
 
-function hasFilter(config: FieldControllerConfig<any>): boolean {
-  return !!config.fieldMeta.filter
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
 }
 
-function hasSort(config: FieldControllerConfig<any>): boolean {
-  return !!config.fieldMeta.sort
+function isManyMode(many: boolean): boolean {
+  return many
 }
 
-function hasSortField(config: FieldControllerConfig<any>): boolean {
-  return !!config.fieldMeta.sort?.field
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
 }
 
-function hasSortDirection(config: FieldControllerConfig<any>): boolean {
-  return !!config.fieldMeta.sort?.direction
+function isNullOrEmpty(value: any): boolean {
+  return value == null
 }
 
-function hasValue(value: RelationshipValue): boolean {
-  return value.value !== null && value.value !== undefined
+function isNullOrUndefined(value: any): boolean {
+  return value == null
 }
 
-function hasManyValue(value: RelationshipValue): boolean {
-  return Array.isArray(value.value) && value.value.length > 0
+function isNotNull(value: any): boolean {
+  return value != null
 }
 
-function hasOneValue(value: RelationshipValue): boolean {
-  return value.value !== null && value.value !== undefined
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
 }
 
-function hasCount(data: any): boolean {
-  return data[`${config.fieldKey}Count`] != null
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
 }
 
-function hasData(data: any): boolean {
-  return data[config.fieldKey] != null
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
 }
 
-function hasBuiltItem(item: RelationshipValue): boolean {
-  return item.built === true
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
 }
 
-function hasInitialValue(state: any): boolean {
-  return state.initialValue !== null && state.initialValue !== undefined
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
 }
 
-function hasValueId(state: any): boolean {
-  return state.value?.id !== null && state.value?.id !== undefined
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
 }
 
-function hasInitialValueId(state: any): boolean {
-  return state.initialValue?.id !== null && state.initialValue?.id !== undefined
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
 }
 
-function hasDisconnect(state: any): boolean {
-  return state.initialValue !== null && state.value === null
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
 }
 
-function hasCreate(state: any): boolean {
-  return state.value?.built === true
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
 }
 
-function hasConnect(state: any): boolean {
-  return state.value !== null && state.value.id !== state.initialValue?.id
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
 }
 
-function hasEmptyType(props: any): boolean {
-  return props.type === 'empty'
+function isManyMode(many: boolean): boolean {
+  return many
 }
 
-function hasNotEmptyType(props: any): boolean {
-  return props.type === 'not_empty'
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
 }
 
-function hasIsType(props: any): boolean {
-  return props.type === 'is'
+function isNullOrEmpty(value: any): boolean {
+  return value == null
 }
 
-function hasNotIsType(props: any): boolean {
-  return props.type === 'not_is'
+function isNullOrUndefined(value: any): boolean {
+  return value == null
 }
 
-function hasSomeType(props: any): boolean {
-  return props.type === 'some'
+function isNotNull(value: any): boolean {
+  return value != null
 }
 
-function hasNotSomeType(props: any): boolean {
-  return props.type === 'not_some'
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
 }
 
-function isManyConfig(config: FieldControllerConfig<any>): boolean {
-  return config.fieldMeta.many
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
 }
 
-function isSelectConfig(config: FieldControllerConfig<any>): boolean {
-  return config.fieldMeta.displayMode === 'select'
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
 }
 
-function isCountConfig(config: FieldControllerConfig<any>): boolean {
-  return config.fieldMeta.displayMode === 'count'
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
 }
 
-function isTableConfig(config: FieldControllerConfig<any>): boolean {
-  return config.fieldMeta.displayMode === 'table'
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
 }
 
-export function Field(props: FieldProps<typeof controller>) {
-  const { autoFocus, field, forceValidation = false, onChange, value, isRequired } = props
-  const foreignList = useList(field.refListKey)
-  const [dialogIsOpen, setDialogOpen] = useState(false)
-  const description = field.description || undefined
-  const isReadOnly = isReadOnly(onChange)
-  const [counter, setCounter] = useState(1)
-
-  if (isCountKind(value)) {
-    if (isTableDisplay(field)) {
-      return <RelationshipTable field={field} value={value} />
-    }
-
-    const textField = (
-      <TextField
-        autoFocus={autoFocus}
-        label={field.label}
-        description={description}
-        isReadOnly
-        value={value.count.toString()}
-        width="alias.singleLineWidth"
-      />
-    )
-
-    if (!hasRefFieldKey(field)) {
-      return textField
-    }
-
-    return (
-      <HStack gap="small" alignItems="end">
-        {textField}
-        <ActionButton
-          href={`/${foreignList.path}?${buildQueryForRelationshipFieldWithForeignField(foreignList, field.refFieldKey, value.id)}`}
-        >
-          <Icon src={arrowUpRightIcon} />
-        </ActionButton>
-      </HStack>
-    )
-  }
-
-  return (
-    <Fragment>
-      <VStack gap="medium">
-        <ContextualActions onAdd={() => setDialogOpen(true)} {...props}>
-          {isManyKind(value) ? (
-            <ComboboxMany
-              autoFocus={autoFocus}
-              label={field.label}
-              description={description}
-              forceValidation={forceValidation}
-              isReadOnly={isReadOnly}
-              isRequired={isRequired}
-              list={foreignList}
-              labelField={field.refLabelField}
-              searchFields={field.refSearchFields}
-              filter={field.selectFilter}
-              sort={field.selectSort}
-              state={{
-                kind: 'many',
-                value: value.value,
-                onChange(newItems) {
-                  onChange?.({ ...value, value: newItems })
-                },
-              }}
-            />
-          ) : (
-            <ComboboxSingle
-              autoFocus={autoFocus}
-              label={field.label}
-              description={description}
-              forceValidation={forceValidation}
-              isReadOnly={isReadOnly}
-              isRequired={isRequired}
-              list={foreignList}
-              labelField={field.refLabelField}
-              searchFields={field.refSearchFields}
-              filter={field.selectFilter}
-              sort={field.selectSort}
-              state={{
-                kind: 'one',
-                value: value.value,
-                onChange(newItem) {
-                  onChange?.({ ...value, value: newItem })
-                },
-              }}
-            />
-          )}
-        </ContextualActions>
-
-        {isManyKind(value) && (
-          <TagGroup
-            aria-label={`related ${foreignList.plural}`}
-            isRequired={isRequired}
-            items={value.value.map(item => ({
-              id: item.id.toString() ?? '',
-              label: item.label ?? '',
-              href: item.built ? '' : `/${foreignList.path}/${item.id}`,
-            }))}
-            maxRows={2}
-            onRemove={
-              isReadOnly
-                ? undefined
-                : keys => {
-                    onChange?.({
-                      ...value,
-                      value: value.value.filter(item => !keys.has(item.id)),
-                    })
-                  }
-            }
-            renderEmptyState={() => (
-              <Text color="neutralSecondary" size="small">
-                No related {foreignList.plural.toLowerCase()}…
-              </Text>
-            )}
-          >
-            {renderItem}
-          </TagGroup>
-        )}
-      </VStack>
-
-      {!isReadOnly && (
-        <DialogContainer onDismiss={() => setDialogOpen(false)}>
-          {dialogIsOpen && (
-            <BuildItemDialog
-              listKey={foreignList.key}
-              onChange={builtItemData => {
-                const id = `_____temporary_${counter}`
-                const label =
-                  (builtItemData?.[foreignList.labelField] as string | null) ??
-                  `[Unnamed ${foreignList.singular} ${counter}]`
-                setDialogOpen(false)
-                setCounter(counter + 1)
-
-                if (isManyKind(value)) {
-                  onChange({
-                    ...value,
-                    value: [
-                      ...value.value,
-                      {
-                        id,
-                        label,
-                        data: builtItemData,
-                        built: true,
-                      },
-                    ],
-                  })
-                } else if (isOneKind(value)) {
-                  onChange({
-                    ...value,
-                    value: {
-                      id,
-                      label,
-                      data: builtItemData,
-                      built: true,
-                    },
-                  })
-                }
-              }}
-            />
-          )}
-        </DialogContainer>
-      )}
-    </Fragment>
-  )
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
 }
 
-// NOTE: fix for `TagGroup` perf issue, should typically be okay to just
-// inline the render function
-function renderItem(item: { id: string; href: string; label: string }) {
-  if (item.href === '') return <Item>{item.label}</Item>
-  return <Item href={item.href}>{item.label}</Item>
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
 }
 
-export const Cell: CellComponent<typeof controller> = ({ field, item }) => {
-  const list = useList(field.refListKey)
-
-  if (isCountDisplay(field) || isTableDisplay(field)) {
-    const count = item[`${field.fieldKey}Count`] as number
-    return count != null ? <Numeral value={count} abbreviate /> : null
-  }
-
-  const data = item[field.fieldKey]
-  const items = (Array.isArray(data) ? data : [data]).filter(Boolean)
-  const displayItems = items.length < 3 ? items : items.slice(0, 2)
-  const overflow = items.length < 3 ? 0 : items.length - 2
-
-  return (
-    <Text>
-      {displayItems.map((item, index) => (
-        <Fragment key={item.id}>
-          {index ? ', ' : ''}
-          <TextLink href={`/${list.path}/${item.id}`}>{item.label || item.id}</TextLink>
-        </Fragment>
-      ))}
-      {overflow ? `, and ${overflow} more` : null}
-    </Text>
-  )
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
 }
 
-export function controller(
-  config: FieldControllerConfig<
-    {
-      refFieldKey?: string
-      refListKey: string
-      many: boolean
-      hideCreate: boolean
-      refLabelField: string
-      refSearchFields: string[]
-    } & (
-      | {
-          displayMode: 'select'
-          filter: Record<string, any> | null
-          sort: ListSortDescriptor<string> | null
-        }
-      | { displayMode: 'count' }
-      | {
-          displayMode: 'table'
-          refFieldKey: string
-          initialSort: ListSortDescriptor<string> | null
-          columns: string[] | null
-        }
-    )
-  >
-): RelationshipController {
-  const { listKey, fieldKey: fieldKey, label, description } = config
-  const { displayMode, hideCreate, many, refFieldKey, refLabelField, refListKey, refSearchFields } =
-    config.fieldMeta
-
-  return {
-    refFieldKey,
-    many,
-    listKey,
-    fieldKey,
-    label,
-    description,
-    display: displayMode,
-    refLabelField,
-    refSearchFields,
-    refListKey,
-    graphqlSelection:
-      isCountConfig(config) || isTableConfig(config)
-        ? `${fieldKey}Count`
-        : `${fieldKey}${many && hasSort(config) ? `(orderBy: { ${config.fieldMeta.sort.field}: ${config.fieldMeta.sort.direction.toLowerCase()} })` : ''} {
-              id
-              label: ${refLabelField}
-            }`,
-    hideCreate: hasHideCreate(config) || isTableConfig(config),
-    columns: isTableConfig(config) ? config.fieldMeta.columns : null,
-    initialSort: isTableConfig(config) ? config.fieldMeta.initialSort : null,
-    selectFilter: isSelectConfig(config) ? config.fieldMeta.filter : null,
-    selectSort: isSelectConfig(config) ? config.fieldMeta.sort : null,
-    // note we're not making the state kind: 'count' when ui.displayMode is set to 'count'.
-    // that ui.displayMode: 'count' is really just a way to have reasonable performance
-    // because our other UIs don't handle relationships with a large number of items well
-    // but that's not a problem here since we're creating a new item so we might as well them a better UI
-    defaultValue: many
-      ? {
-          kind: 'many',
-          id: null,
-          initialValue: [],
-          value: [],
-        }
-      : {
-          kind: 'one',
-          id: null,
-          value: null,
-          initialValue: null,
-        },
-    validate(value, opts) {
-      if ('count' in value) return true
-      return opts.isRequired
-        ? value.kind === 'one'
-          ? value.value !== null
-          : value.value.length > 0
-        : true
-    },
-    deserialize: data => {
-      if (isCountConfig(config) || isTableConfig(config)) {
-        return {
-          id: data.id,
-          kind: 'count',
-          count: data[`${config.fieldKey}Count`] ?? 0,
-        }
-      }
-      if (many) {
-        const value = (data[config.fieldKey] || []).map((x: any) => ({
-          id: x.id,
-          label: x.label || x.id,
-        }))
-        return {
-          kind: 'many',
-          id: data.id,
-          initialValue: value,
-          value,
-        }
-      }
-      let value = data[config.fieldKey]
-      if (value) {
-        value = {
-          id: value.id,
-          label: value.label || value.id,
-        }
-      }
-      return {
-        kind: 'one',
-        id: data.id,
-        value,
-        initialValue: value,
-      }
-    },
-    serialize: state => {
-      if (state.kind === 'many') {
-        const newAllIds = new Set(state.value.map(x => x.id))
-        const initialIds = new Set(state.initialValue.map(x => x.id))
-        const disconnect = state.initialValue
-          .filter(x => !newAllIds.has(x.id))
-          .map(x => ({ id: x.id }))
-        const connect = state.value
-          .filter(x => !x.built && !initialIds.has(x.id))
-          .map(x => ({ id: x.id }))
-        const create = state.value.filter(x => x.built).map(x => x.data)
-        const output = {
-          ...(disconnect.length ? { disconnect } : {}),
-          ...(connect.length ? { connect } : {}),
-          ...(create.length ? { create } : {}),
-        }
-
-        if (Object.keys(output).length) {
-          return {
-            [config.fieldKey]: output,
-          }
-        }
-      } else if (state.kind === 'one') {
-        if (hasDisconnect(state)) return { [config.fieldKey]: { disconnect: true } }
-        if (hasCreate(state)) {
-          return {
-            [config.fieldKey]: {
-              create: state.value.data,
-            },
-          }
-        }
-        if (hasConnect(state)) {
-          return {
-            [config.fieldKey]: {
-              connect: {
-                id: state.value.id,
-              },
-            },
-          }
-        }
-      }
-      return {}
-    },
-    filter: {
-      Filter(props) {
-        const foreignList = useList(refListKey)
-        if (hasEmptyType(props) || hasNotEmptyType(props)) return null
-        // TODO: show labels rather than ids
-        if (hasIsType(props) || hasNotIsType(props)) {
-          return (
-            <ComboboxSingle
-              autoFocus
-              aria-label={label}
-              isReadOnly={false}
-              labelField={refLabelField}
-              searchFields={refSearchFields}
-              list={foreignList}
-              state={{
-                kind: 'one',
-                value:
-                  typeof props.value === 'string'
-                    ? { id: props.value, label: props.value, built: false }
-                    : null,
-                onChange(newItem) {
-                  props.onChange(newItem === null ? null : newItem.id.toString())
-                },
-              }}
-              filter={isSelectConfig(config) ? config.fieldMeta.filter : null}
-              sort={isSelectConfig(config) ? config.fieldMeta.sort : null}
-            />
-          )
-        }
-        const ids = Array.isArray(props.value) ? props.value : []
-        const value = ids.map((id): RelationshipValue => ({ id, label: id, built: false }))
-        return (
-          <VStack gap="medium">
-            <ComboboxMany
-              autoFocus
-              aria-label={label}
-              isReadOnly={false}
-              labelField={refLabelField}
-              searchFields={refSearchFields}
-              list={foreignList}
-              state={{
-                kind: 'many',
-                value,
-                onChange(newItem) {
-                  props.onChange(newItem.map(x => x.id.toString()))
-                },
-              }}
-              filter={isSelectConfig(config) ? config.fieldMeta.filter : null}
-              sort={isSelectConfig(config) ? config.fieldMeta.sort : null}
-            />
-            <TagGroup
-              aria-label={`related ${foreignList.plural}`}
-              items={value.map(item => ({
-                id: item.id.toString() ?? '',
-                label: item.label ?? '',
-                href: item.built ? '' : `/${foreignList.path}/${item.id}`,
-              }))}
-              maxRows={2}
-              onRemove={keys => {
-                props.onChange(ids.filter(id => !keys.has(id)))
-              }}
-              renderEmptyState={() => (
-                <Text color="neutralSecondary" size="small">
-                  Select related {foreignList.plural.toLowerCase()}…
-                </Text>
-              )}
-            >
-              {renderItem}
-            </TagGroup>
-          </VStack>
-        )
-      },
-      Label({ label, type, value }) {
-        const listFormatter = useListFormatter({
-          style: 'short',
-          type: 'disjunction',
-        })
-
-        if (['empty', 'not_empty'].includes(type)) return label.toLowerCase()
-        if (['is', 'not_is'].includes(type)) return `${label.toLowerCase()} ${value}`
-        return `${label.toLowerCase()} (${listFormatter.format(value || [''])})`
-      },
-      graphql: ({ type, value }) => {
-        if (hasEmptyType(props)) {
-          if (!many) return { [config.fieldKey]: { equals: null } }
-          return { [config.fieldKey]: { none: {} } }
-        }
-        if (hasNotEmptyType(props)) {
-          if (!many) return { [config.fieldKey]: { not: { equals: null } } }
-          return { [config.fieldKey]: { some: {} } }
-        }
-        if (hasIsType(props)) return { [config.fieldKey]: { id: { equals: value } } }
-        if (hasNotIsType(props)) return { [config.fieldKey]: { not: { id: { equals: value } } } }
-        if (hasSomeType(props)) return { [config.fieldKey]: { some: { id: { in: value } } } }
-        if (hasNotSomeType(props))
-          return { [config.fieldKey]: { not: { some: { id: { in: value } } } } }
-        return { [config.fieldKey]: { [type]: value } } // uh
-      },
-      parseGraphQL: () => [],
-      types: {
-        empty: { label: 'Is empty', initialValue: null },
-        not_empty: { label: 'Is not empty', initialValue: null },
-        ...(many
-          ? {
-              some: { label: 'Is one of', initialValue: [] },
-              not_some: { label: 'Is not one of', initialValue: [] },
-            }
-          : {
-              is: { label: 'Is', initialValue: null },
-              not_is: { label: 'Is not', initialValue: null },
-            }),
-      },
-    },
-  }
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
 }
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'
+}
+
+function isCountKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'count'
+}
+
+function isTableDisplayMode(displayMode: string): boolean {
+  return displayMode === 'table'
+}
+
+function isCountDisplayMode(displayMode: string): boolean {
+  return displayMode === 'count'
+}
+
+function isSelectDisplayMode(displayMode: string): boolean {
+  return displayMode === 'select'
+}
+
+function isManyMode(many: boolean): boolean {
+  return many
+}
+
+function isHideCreate(hideCreate: boolean): boolean {
+  return hideCreate
+}
+
+function isNullOrEmpty(value: any): boolean {
+  return value == null
+}
+
+function isNullOrUndefined(value: any): boolean {
+  return value == null
+}
+
+function isNotNull(value: any): boolean {
+  return value != null
+}
+
+function isNotEmptyArray(array: any[]): boolean {
+  return array.length > 0
+}
+
+function isNotEmptyString(value: string): boolean {
+  return value.length > 0
+}
+
+function isManyKindState(state: { kind: string }): boolean {
+  return state.kind === 'many'
+}
+
+function isOneKindState(state: { kind: string }): boolean {
+  return state.kind === 'one'
+}
+
+function isManyKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'many'
+}
+
+function isOneKindValue(value: RelationshipValue): boolean {
+  return value.kind === 'one'

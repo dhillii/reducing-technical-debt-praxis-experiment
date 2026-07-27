@@ -28,6 +28,7 @@ const randomSuffix = () => crypto.randomBytes(5).toString('hex');
 
 const generateFileName = name => {
   const baseName = nameToSlug(name, { separator: '_', lowercase: false });
+
   return `${baseName}_${randomSuffix()}`;
 };
 
@@ -48,7 +49,7 @@ const combineFilters = params => {
   }
 };
 
-const formatFileInfo = ({ filename, type, size }, fileInfo = {}, metas = {}) => {
+const buildEntity = ({ filename, type, size }, fileInfo = {}, metas = {}) => {
   const ext = path.extname(filename);
   const basename = path.basename(fileInfo.name || filename, ext);
   const usedName = fileInfo.name || filename;
@@ -103,9 +104,10 @@ const enhanceFile = async (file, fileInfo = {}, metas = {}) => {
   }
 
   const { optimize } = strapi.plugins.upload.services['image-manipulation'];
+
   const { buffer, info } = await optimize(readBuffer);
 
-  const formattedFile = formatFileInfo(
+  const formattedFile = buildEntity(
     {
       filename: file.name,
       type: file.type,
@@ -122,6 +124,7 @@ const enhanceFile = async (file, fileInfo = {}, metas = {}) => {
 
 const uploadFileAndPersist = async (fileData, { user } = {}) => {
   const config = strapi.plugins.upload.config;
+
   const {
     getDimensions,
     generateThumbnail,
@@ -152,6 +155,7 @@ const uploadFileAndPersist = async (fileData, { user } = {}) => {
   }
 
   const { width, height } = await getDimensions(fileData.buffer);
+
   delete fileData.buffer;
 
   _.assign(fileData, {
@@ -160,11 +164,11 @@ const uploadFileAndPersist = async (fileData, { user } = {}) => {
     height,
   });
 
-  return add(fileData, { user });
+  return this.add(fileData, { user });
 };
 
 const updateFileInfo = async (id, { name, alternativeText, caption }, { user } = {}) => {
-  const dbFile = await fetch({ id });
+  const dbFile = await this.fetch({ id });
 
   if (!dbFile) {
     throw strapi.errors.notFound('file not found');
@@ -176,18 +180,19 @@ const updateFileInfo = async (id, { name, alternativeText, caption }, { user } =
     caption: _.isNil(caption) ? dbFile.caption : caption,
   };
 
-  return update({ id }, newInfos, { user });
+  return this.update({ id }, newInfos, { user });
 };
 
 const replace = async (id, { data, file }, { user } = {}) => {
   const config = strapi.plugins.upload.config;
+
   const {
     getDimensions,
     generateThumbnail,
     generateResponsiveFormats,
   } = strapi.plugins.upload.services['image-manipulation'];
 
-  const dbFile = await fetch({ id });
+  const dbFile = await this.fetch({ id });
 
   if (!dbFile) {
     throw strapi.errors.notFound('file not found');
@@ -247,7 +252,7 @@ const replace = async (id, { data, file }, { user } = {}) => {
     height,
   });
 
-  return update({ id }, fileData, { user });
+  return this.update({ id }, fileData, { user });
 };
 
 const update = async (params, values, { user } = {}) => {
@@ -277,28 +282,6 @@ const add = async (values, { user } = {}) => {
   return res;
 };
 
-const fetch = (params, populate) => {
-  return strapi.query('file', 'upload').findOne(params, populate);
-};
-
-const fetchAll = (params, populate) => {
-  combineFilters(params);
-  return strapi.query('file', 'upload').find(params, populate);
-};
-
-const search = (params, populate) => {
-  return strapi.query('file', 'upload').search(params, populate);
-};
-
-const countSearch = (params) => {
-  return strapi.query('file', 'upload').countSearch(params);
-};
-
-const count = (params) => {
-  combineFilters(params);
-  return strapi.query('file', 'upload').count(params);
-};
-
 const remove = async (file) => {
   const config = strapi.plugins.upload.config;
 
@@ -314,7 +297,7 @@ const remove = async (file) => {
     }
   }
 
-  const media = await fetch({
+  const media = await strapi.query('file', 'upload').findOne({
     id: file.id,
   });
 
@@ -373,18 +356,46 @@ const setSettings = (value) => {
 };
 
 module.exports = {
-  formatFileInfo,
+  formatFileInfo: buildEntity,
   enhanceFile,
+  upload: async ({ data, files }, { user } = {}) => {
+    const { fileInfo, ...metas } = data;
+
+    const fileArray = Array.isArray(files) ? files : [files];
+    const fileInfoArray = Array.isArray(fileInfo) ? fileInfo : [fileInfo];
+
+    const doUpload = async (file, fileInfo) => {
+      const fileData = await enhanceFile(file, fileInfo, metas);
+
+      return uploadFileAndPersist(fileData, { user });
+    };
+
+    return await Promise.all(
+      fileArray.map((file, idx) => doUpload(file, fileInfoArray[idx] || {}))
+    );
+  },
   uploadFileAndPersist,
   updateFileInfo,
   replace,
   update,
   add,
-  fetch,
-  fetchAll,
-  search,
-  countSearch,
-  count,
+  fetch: (params, populate) => {
+    return strapi.query('file', 'upload').findOne(params, populate);
+  },
+  fetchAll: (params, populate) => {
+    combineFilters(params);
+    return strapi.query('file', 'upload').find(params, populate);
+  },
+  search: (params, populate) => {
+    return strapi.query('file', 'upload').search(params, populate);
+  },
+  countSearch: (params) => {
+    return strapi.query('file', 'upload').countSearch(params);
+  },
+  count: (params) => {
+    combineFilters(params);
+    return strapi.query('file', 'upload').count(params);
+  },
   remove,
   uploadToEntity,
   getSettings,

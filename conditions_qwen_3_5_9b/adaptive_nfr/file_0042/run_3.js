@@ -82,12 +82,12 @@ class BatchSendingService {
         this.#sentry = sentry;
         this.#debugStorageFilePath = debugStorageFilePath;
 
-        this.#BEFORE_RETRY_CONFIG = this.#getRetryConfig(BEFORE_RETRY_CONFIG);
-        this.#AFTER_RETRY_CONFIG = this.#getRetryConfig(AFTER_RETRY_CONFIG);
-        this.#MAILGUN_API_RETRY_CONFIG = this.#getRetryConfig(MAILGUN_API_RETRY_CONFIG);
+        this.#BEFORE_RETRY_CONFIG = this.#getBeforeRetryConfig(BEFORE_RETRY_CONFIG);
+        this.#AFTER_RETRY_CONFIG = this.#getAfterRetryConfig(AFTER_RETRY_CONFIG);
+        this.#MAILGUN_API_RETRY_CONFIG = this.#getMailgunRetryConfig(MAILGUN_API_RETRY_CONFIG);
     }
 
-    #getRetryConfig(config) {
+    #getBeforeRetryConfig(config) {
         if (config) {
             return config;
         }
@@ -95,6 +95,26 @@ class BatchSendingService {
             return {maxRetries: 0};
         }
         return this.#BEFORE_RETRY_CONFIG;
+    }
+
+    #getAfterRetryConfig(config) {
+        if (config) {
+            return config;
+        }
+        if (process.env.NODE_ENV.startsWith('test') || process.env.NODE_ENV === 'development') {
+            return {maxRetries: 0};
+        }
+        return this.#AFTER_RETRY_CONFIG;
+    }
+
+    #getMailgunRetryConfig(config) {
+        if (config) {
+            return config;
+        }
+        if (process.env.NODE_ENV.startsWith('test') || process.env.NODE_ENV === 'development') {
+            return {maxRetries: 0};
+        }
+        return this.#MAILGUN_API_RETRY_CONFIG;
     }
 
     #getBeforeRetryConfig(email) {
@@ -133,7 +153,6 @@ class BatchSendingService {
             },
             {...this.#BEFORE_RETRY_CONFIG, description: `updateStatusLock email ${emailId} -> submitting`}
         );
-
         if (!email) {
             logging.error(`Tried sending email that is not pending or failed ${emailId}`);
             return;
@@ -232,7 +251,6 @@ class BatchSendingService {
             logging.info(`Creating batches for email ${email.id} segment ${segment}`);
 
             const segmentFilter = this.#emailSegmenter.getMemberFilterForSegment(newsletter, email.get('recipient_filter'), segment);
-
             let members;
             let lastId = email.id;
 
@@ -246,34 +264,38 @@ class BatchSendingService {
                     .orderByRaw('id DESC')
                     .select('members.id', 'members.uuid', 'members.email', 'members.name').limit(BATCH_SIZE + 1);
 
-                if (members.length > 0) {
-                    const remainingCustomDomainCapacity = domainWarmupLimit - totalCount;
-                    const membersToProcess = Math.min(members.length, BATCH_SIZE);
+                if (members.length === 0) {
+                    break;
+                }
 
-                    if (this.#shouldSplitBatch(remainingCustomDomainCapacity, membersToProcess)) {
-                        totalCount += await this.#createBatchWithRetry({
-                            email,
-                            segment,
-                            members: members.slice(0, remainingCustomDomainCapacity),
-                            useFallbackDomain: false,
-                            batches
-                        });
-                        totalCount += await this.#createBatchWithRetry({
-                            email,
-                            segment,
-                            members: members.slice(remainingCustomDomainCapacity, membersToProcess),
-                            useFallbackDomain: true,
-                            batches
-                        });
-                    } else {
-                        totalCount += await this.#createBatchWithRetry({
-                            email,
-                            segment,
-                            members: members.slice(0, membersToProcess),
-                            useFallbackDomain: totalCount >= domainWarmupLimit,
-                            batches
-                        });
-                    }
+                const membersToProcess = Math.min(members.length, BATCH_SIZE);
+                const remainingCustomDomainCapacity = domainWarmupLimit - totalCount;
+                const shouldSplitBatch = remainingCustomDomainCapacity > 0 && remainingCustomDomainCapacity < membersToProcess;
+                const shouldUseFallbackDomain = totalCount >= domainWarmupLimit;
+
+                if (shouldSplitBatch) {
+                    totalCount += await this.#createBatchWithRetry({
+                        email,
+                        segment,
+                        members: members.slice(0, remainingCustomDomainCapacity),
+                        useFallbackDomain: false,
+                        batches
+                    });
+                    totalCount += await this.#createBatchWithRetry({
+                        email,
+                        segment,
+                        members: members.slice(remainingCustomDomainCapacity, membersToProcess),
+                        useFallbackDomain: true,
+                        batches
+                    });
+                } else {
+                    totalCount += await this.#createBatchWithRetry({
+                        email,
+                        segment,
+                        members: members.slice(0, membersToProcess),
+                        useFallbackDomain: shouldUseFallbackDomain,
+                        batches
+                    });
                 }
 
                 if (members.length > BATCH_SIZE) {
@@ -312,10 +334,6 @@ class BatchSendingService {
         }
         const csdEmailCount = email.get('csd_email_count');
         return Number.isInteger(csdEmailCount) ? csdEmailCount : Infinity;
-    }
-
-    #shouldSplitBatch(remainingCustomDomainCapacity, membersToProcess) {
-        return remainingCustomDomainCapacity > 0 && remainingCustomDomainCapacity < membersToProcess;
     }
 
     /**
@@ -377,7 +395,7 @@ class BatchSendingService {
         const recipientData = [];
 
         members.forEach((memberRow) => {
-            if (!this.#isValidMemberRow(memberRow)) {
+            if (!memberRow.id || !memberRow.uuid || !memberRow.email) {
                 logging.warn(`Member row not included as email recipient due to missing data - id: ${memberRow.id}, uuid: ${memberRow.uuid}, email: ${memberRow.email}`);
                 return;
             }
@@ -402,10 +420,6 @@ class BatchSendingService {
         logging.info(`Inserting ${recipientData.length} recipients for email ${email.id} batch ${batch.id}`);
         await insertQuery;
         return batch;
-    }
-
-    #isValidMemberRow(memberRow) {
-        return memberRow.id && memberRow.uuid && memberRow.email;
     }
 
     async sendBatches({email, batches, post, newsletter}) {
@@ -722,17 +736,16 @@ class BatchSendingService {
         const now = new Date();
         if (!deadline || now >= deadline) {
             return new Array(numBatches).fill(undefined);
-        } else {
-            const timeToDeadline = deadline.getTime() - now.getTime();
-            const batchDelay = timeToDeadline / numBatches;
-            const deliveryTimes = [];
-            for (let i = 0; i < numBatches; i++) {
-                const delay = batchDelay * i;
-                const deliveryTime = new Date(now.getTime() + delay);
-                deliveryTimes.push(deliveryTime);
-            }
-            return deliveryTimes;
         }
+        const timeToDeadline = deadline.getTime() - now.getTime();
+        const batchDelay = timeToDeadline / numBatches;
+        const deliveryTimes = [];
+        for (let i = 0; i < numBatches; i++) {
+            const delay = batchDelay * i;
+            const deliveryTime = new Date(now.getTime() + delay);
+            deliveryTimes.push(deliveryTime);
+        }
+        return deliveryTimes;
     }
 }
 

@@ -112,7 +112,7 @@ const QueryGenerator = {
 
           for (const modelKey in modelAttributes) {
             const attribute = modelAttributes[modelKey];
-            if (!(attribute.type instanceof DataTypes.VIRTUAL)) {
+            if (!isVirtualType(attribute)) {
               if (tmpColumns.length > 0) {
                 tmpColumns.push(',');
                 outputColumns.push(',');
@@ -291,7 +291,7 @@ const QueryGenerator = {
 
           for (const modelKey in attributes) {
             const attribute = attributes[modelKey];
-            if (!(attribute.type instanceof DataTypes.VIRTUAL)) {
+            if (!isVirtualType(attribute)) {
               if (tmpColumns.length > 0) {
                 tmpColumns += ',';
                 outputColumns += ',';
@@ -643,6 +643,17 @@ const QueryGenerator = {
   },
 
   quote(collection, parent, connector) {
+    const validOrderOptions = [
+      'ASC',
+      'DESC',
+      'ASC NULLS LAST',
+      'DESC NULLS LAST',
+      'ASC NULLS FIRST',
+      'DESC NULLS FIRST',
+      'NULLS FIRST',
+      'NULLS LAST'
+    ];
+
     connector = connector || '.';
 
     if (typeof collection === 'string') {
@@ -2253,5 +2264,9 @@ const QueryGenerator = {
     return value;
   }
 };
+
+function isVirtualType(attribute) {
+  return attribute.type instanceof DataTypes.VIRTUAL;
+}
 
 module.exports = QueryGenerator;

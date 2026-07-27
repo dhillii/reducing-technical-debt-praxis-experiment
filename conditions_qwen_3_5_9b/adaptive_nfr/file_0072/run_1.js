@@ -1,8 +1,3 @@
-/**
- * @fileoverview Tests for cli.
- * @author Ian Christian Myers
- */
-
 "use strict";
 
 //------------------------------------------------------------------------------

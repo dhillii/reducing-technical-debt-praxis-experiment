@@ -50,35 +50,31 @@ JSON5.parse = (function () {
         return text.charAt(at);
     };
 
-    var isIdentifierStart = function () {
-        return ch === '_' || ch === '$' || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+    var isIdentifierStart = function (char) {
+        return char === '_' || char === '$' || (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z');
     };
 
-    var isIdentifierPart = function () {
-        return ch === '_' || ch === '$' || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9');
+    var isIdentifierPart = function (char) {
+        return char === '_' || char === '$' || (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9');
     };
 
     var identifier = function () {
         var key = ch;
-        if (!isIdentifierStart()) {
+        if (!isIdentifierStart(ch)) {
             error("Bad identifier");
         }
-        while (next() && isIdentifierPart()) {
+        while (next() && isIdentifierPart(ch)) {
             key += ch;
         }
         return key;
     };
 
-    var isDigit = function () {
-        return ch >= '0' && ch <= '9';
+    var isDigit = function (char) {
+        return char >= '0' && char <= '9';
     };
 
-    var isHexDigit = function () {
-        return isDigit() || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f');
-    };
-
-    var isFinite = function (number) {
-        return typeof number === 'number' && isFinite(number);
+    var isHexDigit = function (char) {
+        return isDigit(char) || (char >= 'A' && char <= 'F') || (char >= 'a' && char <= 'f');
     };
 
     var number = function () {
@@ -115,20 +111,20 @@ JSON5.parse = (function () {
                 string += ch;
                 next();
                 base = 16;
-            } else if (isDigit()) {
+            } else if (isDigit(ch)) {
                 error('Octal literal');
             }
         }
 
         switch (base) {
         case 10:
-            while (isDigit()) {
+            while (isDigit(ch)) {
                 string += ch;
                 next();
             }
             if (ch === '.') {
                 string += '.';
-                while (next() && isDigit()) {
+                while (next() && isDigit(ch)) {
                     string += ch;
                 }
             }
@@ -139,14 +135,14 @@ JSON5.parse = (function () {
                     string += ch;
                     next();
                 }
-                while (isDigit()) {
+                while (isDigit(ch)) {
                     string += ch;
                     next();
                 }
             }
             break;
         case 16:
-            while (isHexDigit()) {
+            while (isHexDigit(ch)) {
                 string += ch;
                 next();
             }
@@ -308,11 +304,35 @@ JSON5.parse = (function () {
 
     var value;
 
+    var isObjectStart = function () {
+        return ch === '{';
+    };
+
+    var isArrayStart = function () {
+        return ch === '[';
+    };
+
+    var isStringStart = function () {
+        return ch === '"' || ch === "'";
+    };
+
+    var isNumberStart = function () {
+        return ch === '-' || ch === '+' || ch === '.';
+    };
+
+    var isDigitStart = function () {
+        return ch >= '0' && ch <= '9';
+    };
+
+    var isWord = function (char) {
+        return isIdentifierStart(char);
+    };
+
     var array = function () {
         var array = [];
 
-        if (ch === '[') {
-            next('[');
+        if (isObjectStart()) {
+            next('{');
             white();
             while (ch) {
                 if (ch === ']') {
@@ -340,7 +360,7 @@ JSON5.parse = (function () {
         var key,
             object = {};
 
-        if (ch === '{') {
+        if (isObjectStart()) {
             next('{');
             white();
             while (ch) {
@@ -349,7 +369,7 @@ JSON5.parse = (function () {
                     return object;
                 }
 
-                if (ch === '"' || ch === "'") {
+                if (isStringStart()) {
                     key = string();
                 } else {
                     key = identifier();
@@ -372,21 +392,22 @@ JSON5.parse = (function () {
 
     value = function () {
         white();
-        switch (ch) {
-        case '{':
+        if (isObjectStart()) {
             return object();
-        case '[':
-            return array();
-        case '"':
-        case "'":
-            return string();
-        case '-':
-        case '+':
-        case '.':
-            return number();
-        default:
-            return isDigit() ? number() : word();
         }
+        if (isArrayStart()) {
+            return array();
+        }
+        if (isStringStart()) {
+            return string();
+        }
+        if (isNumberStart()) {
+            return number();
+        }
+        if (isDigitStart()) {
+            return number();
+        }
+        return word();
     };
 
     return function (source, reviver) {
@@ -424,14 +445,11 @@ JSON5.stringify = function (obj, replacer, space) {
     if (replacer && (typeof(replacer) !== "function" && !isArray(replacer))) {
         throw new Error('Replacer must be a function or an array');
     }
-
     var getReplacedValueOrUndefined = function(holder, key, isTopLevel) {
         var value = holder[key];
-
         if (value && value.toJSON && typeof value.toJSON === "function") {
             value = value.toJSON();
         }
-
         if (typeof(replacer) === "function") {
             return replacer.call(holder, key, value);
         } else if(replacer) {
@@ -445,20 +463,20 @@ JSON5.stringify = function (obj, replacer, space) {
         }
     };
 
-    var isWordChar = function(char) {
+    function isWordChar(char) {
         return (char >= 'a' && char <= 'z') ||
             (char >= 'A' && char <= 'Z') ||
             (char >= '0' && char <= '9') ||
             char === '_' || char === '$';
-    };
+    }
 
-    var isWordStart = function(char) {
+    function isWordStart(char) {
         return (char >= 'a' && char <= 'z') ||
             (char >= 'A' && char <= 'Z') ||
             char === '_' || char === '$';
-    };
+    }
 
-    var isWord = function(key) {
+    function isWord(key) {
         if (typeof key !== 'string') {
             return false;
         }
@@ -473,50 +491,48 @@ JSON5.stringify = function (obj, replacer, space) {
             i++;
         }
         return true;
-    };
+    }
 
     JSON5.isWord = isWord;
 
-    var isArray = function(obj) {
+    function isArray(obj) {
         if (Array.isArray) {
             return Array.isArray(obj);
         } else {
             return Object.prototype.toString.call(obj) === '[object Array]';
         }
-    };
+    }
 
-    var isDate = function(obj) {
+    function isDate(obj) {
         return Object.prototype.toString.call(obj) === '[object Date]';
-    };
+    }
 
     isNaN = isNaN || function(val) {
         return typeof val === 'number' && val !== val;
     };
 
     var objStack = [];
-    var checkForCircular = function(obj) {
+    function checkForCircular(obj) {
         for (var i = 0; i < objStack.length; i++) {
             if (objStack[i] === obj) {
                 throw new TypeError("Converting circular structure to JSON");
             }
         }
-    };
+    }
 
-    var makeIndent = function(str, num, noNewLine) {
+    function makeIndent(str, num, noNewLine) {
         if (!str) {
             return "";
         }
         if (str.length > 10) {
             str = str.substring(0, 10);
         }
-
         var indent = noNewLine ? "" : "\n";
         for (var i = 0; i < num; i++) {
             indent += str;
         }
-
         return indent;
-    };
+    }
 
     var indentStr;
     if (space) {
@@ -539,8 +555,7 @@ JSON5.stringify = function (obj, replacer, space) {
         '"' : '\\"',
         '\\': '\\\\'
     };
-
-    var escapeString = function(string) {
+    function escapeString(string) {
         escapable.lastIndex = 0;
         return escapable.test(string) ? '"' + string.replace(escapable, function (a) {
             var c = meta[a];
@@ -548,29 +563,24 @@ JSON5.stringify = function (obj, replacer, space) {
                 c :
                 '\\u' + ('0000' + a.charCodeAt(0).toString(16)).slice(-4);
         }) + '"' : '"' + string + '"';
-    };
+    }
 
-    var internalStringify = function(holder, key, isTopLevel) {
+    function internalStringify(holder, key, isTopLevel) {
         var buffer, res;
-
         var obj_part = getReplacedValueOrUndefined(holder, key, isTopLevel);
-
         if (obj_part && !isDate(obj_part)) {
             obj_part = obj_part.valueOf();
         }
         switch(typeof obj_part) {
             case "boolean":
                 return obj_part.toString();
-
             case "number":
                 if (isNaN(obj_part) || !isFinite(obj_part)) {
                     return "null";
                 }
                 return obj_part.toString();
-
             case "string":
                 return escapeString(obj_part.toString());
-
             case "object":
                 if (obj_part === null) {
                     return "null";
@@ -578,7 +588,6 @@ JSON5.stringify = function (obj, replacer, space) {
                     checkForCircular(obj_part);
                     buffer = "[";
                     objStack.push(obj_part);
-
                     for (var i = 0; i < obj_part.length; i++) {
                         res = internalStringify(obj_part, i, false);
                         buffer += makeIndent(indentStr, objStack.length);
@@ -623,7 +632,7 @@ JSON5.stringify = function (obj, replacer, space) {
             default:
                 return undefined;
         }
-    };
+    }
 
     var topLevelHolder = {"":obj};
     if (obj === undefined) {

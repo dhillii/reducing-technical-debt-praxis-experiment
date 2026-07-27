@@ -47,8 +47,8 @@ class PopupContent extends React.Component {
     }
 
     sendContainerHeightChangeEvent() {
-        // Method intentionally left empty as per original implementation.
-        // If height change event handling is required, it should be implemented here.
+        // Method intentionally left empty as per current implementation requirements.
+        // If future logic requires height change handling, it should be implemented here.
     }
 
     componentDidUpdate() {

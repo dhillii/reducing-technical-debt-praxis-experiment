@@ -36,3835 +36,4116 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
         if (res.ok) {
             return res.json();
         } else {
-            throw new Error(errorMessage || 'Request failed');
+            const humanError = HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
+            }
+            throw new Error(errorMessage);
         }
     }
 
-    function handleTextResponse(res, errorMessage) {
+    function handleResponseText(res, errorMessage) {
         if (res.ok) {
             return res.text();
         } else {
-            throw new Error(errorMessage || 'Request failed');
+            const humanError = HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
+            }
+            throw new Error(errorMessage);
         }
     }
 
-    function handleOptionalResponse(res, errorMessage) {
-        if (!res.ok || res.status === 204) {
-            return null;
+    function handleResponseJson(res, errorMessage) {
+        if (res.ok) {
+            return res.json();
+        } else {
+            const humanError = HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
+            }
+            throw new Error(errorMessage);
         }
-        return res.json();
     }
 
-    function handleOptionalTextResponse(res, errorMessage) {
-        if (!res.ok || res.status === 204) {
-            return null;
+    function handleResponseWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
+            const humanError = HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
+            }
+            throw new Error(errorMessage);
         }
-        return res.text();
     }
 
-    function handleOptionalJsonResponse(res, errorMessage) {
-        if (!res.ok) {
-            return null;
+    function handleResponseWithFallbackJson(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
+            const humanError = HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
+            }
+            throw new Error(errorMessage);
         }
-        return res.json();
     }
 
-    function handleOptionalTextOrJsonResponse(res, errorMessage) {
-        if (!res.ok) {
-            return null;
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
+    function handleResponseWithFallbackText(res, errorMessage) {
+        if (res.ok) {
+            return res.text();
+        } else {
+            const humanError = HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalError(res, errorMessage) {
-        if (!res.ok) {
-            throw new Error(errorMessage || 'Request failed');
+    function handleResponseWithFallbackJsonOrText(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
+            const humanError = HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
+            }
+            throw new Error(errorMessage);
         }
-        return res.json();
     }
 
-    function handleOptionalErrorWithFallback(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        return res.json();
     }
 
-    function handleOptionalErrorWithFallbackText(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        return res.text();
     }
 
-    function handleOptionalErrorWithFallbackJson(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        return res.json();
     }
 
-    function handleOptionalErrorWithFallbackJsonOrText(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmpty(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNull(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrow(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrError(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
             }
-            throw new Error(errorMessage || 'Request failed');
+            throw new Error(errorMessage);
         }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
-            }
-        }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatch(res, errorMessage) {
-        if (!res.ok) {
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }
+            }
+            return {};
+        } else {
             const humanError = HumanReadableError.fromApiResponse(res);
             if (humanError) {
                 throw humanError;
-            }
-            throw new Error(errorMessage || 'Request failed');
-        }
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        if (contentType.includes('application/json')) {
-            try {
-                return res.json();
-            } catch (e) {
-                // fall through to response used pre-OTC
             }
+            throw new Error(errorMessage);
         }
-        return {};
     }
 
-    function handleOptionalErrorWithFallbackJsonOrTextOrEmptyOrNullOrCatchOrThrowOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOrCatchOr
+    function handleResponseWithFallbackJsonOrTextOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallbackOrErrorWithFallback(res, errorMessage) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
+                }

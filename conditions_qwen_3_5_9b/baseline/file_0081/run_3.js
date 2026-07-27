@@ -291,40 +291,45 @@ internals.Server.prototype._validateDeps = function () {
 
     for (let i = 0; i < this._dependencies.length; ++i) {
         const dependency = this._dependencies[i];
+        const deps = Object.keys(dependency.deps);
+
         if (dependency.connections) {
             for (let j = 0; j < dependency.connections.length; ++j) {
                 const connection = dependency.connections[j];
-                const deps = Object.keys(dependency.deps);
+                const connectionRegistrations = connection.registrations;
+                const connectionInfo = connection.info;
+
                 for (let k = 0; k < deps.length; ++k) {
                     const dep = deps[k];
                     const version = dependency.deps[dep];
 
-                    if (!connection.registrations[dep]) {
-                        return new Error('Plugin ' + dependency.plugin + ' missing dependency ' + dep + ' in connection: ' + connection.info.uri);
+                    if (!connectionRegistrations[dep]) {
+                        return new Error('Plugin ' + dependency.plugin + ' missing dependency ' + dep + ' in connection: ' + connectionInfo.uri);
                     }
 
                     if (version !== '*' &&
-                        !Somever.match(connection.registrations[dep].version, version)) {
+                        !Somever.match(connectionRegistrations[dep].version, version)) {
 
-                        return new Error('Plugin ' + dependency.plugin + ' requires ' + dep + ' version ' + version + ' but found ' + connection.registrations[dep].version + ' in connection: ' + connection.info.uri);
+                        return new Error('Plugin ' + dependency.plugin + ' requires ' + dep + ' version ' + version + ' but found ' + connectionRegistrations[dep].version + ' in connection: ' + connectionInfo.uri);
                     }
                 }
             }
         }
         else {
-            const deps = Object.keys(dependency.deps);
+            const serverRegistrations = this._registrations;
+
             for (let j = 0; j < deps.length; ++j) {
                 const dep = deps[j];
                 const version = dependency.deps[dep];
 
-                if (!this._registrations[dep]) {
+                if (!serverRegistrations[dep]) {
                     return new Error('Plugin ' + dependency.plugin + ' missing dependency ' + dep);
                 }
 
                 if (version !== '*' &&
-                    !Somever.match(this._registrations[dep].version, version)) {
+                    !Somever.match(serverRegistrations[dep].version, version)) {
 
-                    return new Error('Plugin ' + dependency.plugin + ' requires ' + dep + ' version ' + version + ' but found ' + this._registrations[dep].version);
+                    return new Error('Plugin ' + dependency.plugin + ' requires ' + dep + ' version ' + version + ' but found ' + serverRegistrations[dep].version);
                 }
             }
         }

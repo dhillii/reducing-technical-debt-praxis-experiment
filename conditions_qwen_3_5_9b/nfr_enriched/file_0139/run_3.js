@@ -149,7 +149,6 @@ const getProfile = async (provider, query, callback) => {
           if (err) {
             callback(err);
           } else {
-            // Combine username and discriminator because discord username is not unique
             const username = `${body.username}#${body.discriminator}`;
             callback(null, {
               username: username,
@@ -160,9 +159,7 @@ const getProfile = async (provider, query, callback) => {
       break;
     }
     case 'cognito': {
-      // get the id_token
       const idToken = query.id_token;
-      // decode the jwt token
       const tokenPayload = jwt.decode(idToken);
       if (!tokenPayload) {
         callback(new Error('unable to decode jwt token'));

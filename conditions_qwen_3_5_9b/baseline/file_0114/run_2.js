@@ -57,7 +57,7 @@ var API = module.exports = function(opts) {
   if (opts.pm2_home) {
     // Override default conf file
     this.pm2_home        = opts.pm2_home;
-    conf = util._extend(conf, path_structure(this.pm2_home));
+    var conf = util._extend(conf, path_structure(this.pm2_home));
   }
   else if (opts.independent == true && conf.IS_WINDOWS === false) {
     // Create an unique pm2 instance
@@ -69,7 +69,7 @@ var API = module.exports = function(opts) {
     // It will go as in proc
     if (typeof(opts.daemon_mode) == 'undefined')
       this.daemon_mode = false;
-    conf = util._extend(conf, path_structure(this.pm2_home));
+    var conf = util._extend(conf, path_structure(this.pm2_home));
   }
 
   this._conf = conf;

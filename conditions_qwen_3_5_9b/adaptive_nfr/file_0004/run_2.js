@@ -197,6 +197,71 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         }
     }
 
+    const getModalSizeClasses = (size: ModalSize) => {
+        switch (size) {
+            case 'sm':
+                return 'max-w-[480px]';
+            case 'md':
+                return 'max-w-[720px]';
+            case 'lg':
+                return 'max-w-[1020px]';
+            case 'xl':
+                return 'max-w-[1240px]0';
+            case 'full':
+                return 'h-full';
+            case 'bleed':
+                return 'h-full';
+            default:
+                return '';
+        }
+    };
+
+    const getBackdropPaddingClasses = (size: ModalSize) => {
+        switch (size) {
+            case 'sm':
+            case 'md':
+                return 'p-4 md:p-[8vmin]';
+            case 'lg':
+            case 'xl':
+            case 'full':
+            case 'bleed':
+                return 'p-4 md:p-[3vmin]';
+            default:
+                return 'p-4 md:p-[8vmin]';
+        }
+    };
+
+    const getPaddingClasses = (size: ModalSize, padding: boolean) => {
+        if (!padding) {
+            return 'p-0';
+        }
+        switch (size) {
+            case 'sm':
+            case 'md':
+                return 'p-8';
+            case 'lg':
+                return 'p-7';
+            case 'xl':
+            case 'full':
+            case 'bleed':
+                return 'p-10';
+            default:
+                return 'p-8';
+        }
+    };
+
+    const getHeaderClasses = (size: ModalSize, padding: boolean) => {
+        const basePadding = getPaddingClasses(size, padding);
+        const baseInset = size === 'sm' || size === 'md' ? '-inset-x-8' : '-inset-x-10';
+        const topOffset = size === 'xl' ? '-top-10' : '';
+        return clsx(
+            (!topRightContent || topRightContent === 'close') ? '' : 'flex items-center justify-between gap-5',
+            basePadding,
+            baseInset,
+            topOffset
+        );
+    };
+
     let modalClasses = clsx(
         'relative z-50 flex max-h-[100%] w-full flex-col justify-between overflow-x-hidden bg-white dark:bg-black',
         align === 'center' && 'mx-auto',
@@ -227,69 +292,17 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         );
     }
 
-    const sizeConfig = {
-        sm: {
-            modal: 'max-w-[480px]',
-            backdrop: 'p-4 md:p-[8vmin]',
-            padding: 'p-8',
-            header: '-inset-x-8'
-        },
-        md: {
-            modal: 'max-w-[720px]',
-            backdrop: 'p-4 md:p-[8vmin]',
-            padding: 'p-8',
-            header: '-inset-x-8'
-        },
-        lg: {
-            modal: 'max-w-[1020px]',
-            backdrop: 'p-4 md:p-[4vmin]',
-            padding: 'p-7',
-            header: '-inset-x-8'
-        },
-        xl: {
-            modal: 'max-w-[1240px]0',
-            backdrop: 'p-4 md:p-[3vmin]',
-            padding: 'p-10',
-            header: '-inset-x-10 -top-10'
-        },
-        full: {
-            modal: 'h-full',
-            backdrop: 'p-4 md:p-[3vmin]',
-            padding: 'p-10',
-            header: '-inset-x-10'
-        },
-        bleed: {
-            modal: 'h-full',
-            backdrop: 'p-4 md:p-[3vmin]',
-            padding: 'p-10',
-            header: '-inset-x-10'
-        }
-    };
-
-    const sizeConfigKey = sizeConfig[size] || sizeConfig['bleed'];
-
     modalClasses = clsx(
         modalClasses,
-        sizeConfigKey.modal
+        getModalSizeClasses(size)
     );
+
     backdropClasses = clsx(
         backdropClasses,
-        sizeConfigKey.backdrop
-    );
-    paddingClasses = sizeConfigKey.padding;
-    headerClasses = clsx(
-        headerClasses,
-        sizeConfigKey.header
+        getBackdropPaddingClasses(size)
     );
 
-    if (!padding) {
-        paddingClasses = 'p-0';
-    }
-
-    modalClasses = clsx(
-        modalClasses
-    );
-
+    paddingClasses = getPaddingClasses(size, padding);
     headerClasses = clsx(
         headerClasses,
         paddingClasses,

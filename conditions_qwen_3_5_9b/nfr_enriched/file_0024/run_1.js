@@ -201,23 +201,30 @@ const findFirstActualPoint = (mrrData: MrrHistoryItem[], dateFrom: string): MrrH
 };
 
 // Helper to determine the starting MRR value based on data availability and range type
-const getStartingMrr = (mrrData: MrrHistoryItem[], dateFrom: string, totalMrr: number): number => {
+const getStartingMrr = (
+    mrrData: MrrHistoryItem[], 
+    dateFrom: string, 
+    totalMrr: number, 
+    isFromBeginning: boolean
+): number => {
     const firstActualPoint = findFirstActualPoint(mrrData, dateFrom);
-    const isFromBeginning = isFromBeginningRange(dateFrom);
+    const actualStartDate = moment(dateFrom).format('YYYY-MM-DD');
 
     if (firstActualPoint) {
-        if (moment(firstActualPoint.date).isSame(moment(dateFrom).format('YYYY-MM-DD'), 'day')) {
+        if (moment(firstActualPoint.date).isSame(actualStartDate, 'day')) {
             return firstActualPoint.mrr;
         } else {
             if (isFromBeginning) {
                 return 0;
+            } else {
+                return totalMrr;
             }
-            return totalMrr;
         }
     } else if (isFromBeginning) {
         return 0;
+    } else {
+        return totalMrr;
     }
-    return totalMrr;
 };
 
 // Helper to calculate MRR change percentage and direction

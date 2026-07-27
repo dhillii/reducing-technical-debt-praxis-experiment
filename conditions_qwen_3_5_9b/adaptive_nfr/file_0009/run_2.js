@@ -148,16 +148,16 @@ export const OffersIndexModal = () => {
 
     const paidActiveTiers = getPaidActiveTiers(allTiers || []);
 
-    const shouldShowHeader = (tab: string, offers: any[]): boolean => {
+    const shouldShowHeaderRow = (tab: string, offers: any[]): boolean => {
         return (tab === 'active' && offers.length > 0) || (tab === 'archived' && offers.length > 0);
     };
 
-    const getHeaderContent = (tab: string, offers: any[]): JSX.Element => {
-        const count = tab === 'active' ? offers.length : offers.length;
-        const singular = count !== 1 ? 'offers' : 'offer';
+    const getHeaderRowContent = (tab: string, offers: any[]): React.ReactNode => {
+        const count = offers.length;
+        const singular = count === 1 ? '' : 's';
         return (
             <tr className='border-b border-b-grey-300 dark:border-grey-800'>
-                <th className='px-5 py-2.5 pl-0 text-xs font-normal text-grey-700'>{count} {singular}</th>
+                <th className='px-5 py-2.5 pl-0 text-xs font-normal text-grey-700'>{count} {tab === 'active' ? 'offer' : 'offer'}{singular}</th>
                 <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Terms</th>
                 <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Price</th>
                 <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Redemptions</th>
@@ -174,7 +174,24 @@ export const OffersIndexModal = () => {
         return tab === 'archived' && offers.length === 0 && !isFetchingOffers;
     };
 
-    const getOfferRow = (offer: any, isTierArchived: boolean): JSX.Element => {
+    const getFilteredOffers = (tab: string): any[] => {
+        return sortedOffers.filter((offer) => {
+            const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
+            if (tab === 'active') {
+                return offer.status === 'active' && offerTier && offerTier.active === true;
+            }
+            return offer.status === 'archived' || (offerTier && offerTier.active === false);
+        });
+    };
+
+    const getOfferRow = (offer: any): React.ReactNode => {
+        const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
+        if (!offerTier) {
+            return null;
+        }
+
+        const isTierArchived = offerTier?.active === false;
+
         const {discountOffer, originalPriceWithCurrency, updatedPriceWithCurrency} = getOfferDiscount(offer.type, offer.amount, offer.cadence, offer.currency || 'USD', offerTier);
 
         return (
@@ -194,28 +211,13 @@ export const OffersIndexModal = () => {
 
     const listLayoutOutput = <div className='overflow-x-auto'>
         <table className='m-0 w-full'>
-            {shouldShowHeader(selectedTab, selectedTab === 'active' ? activeOffers : archivedOffers) ?
-                getHeaderContent(selectedTab, selectedTab === 'active' ? activeOffers : archivedOffers) :
+            {shouldShowHeaderRow(selectedTab, selectedTab === 'active' ? activeOffers : archivedOffers) ?
+                getHeaderRowContent(selectedTab, selectedTab === 'active' ? activeOffers : archivedOffers) :
                 null
             }
-            {(selectedTab === 'active' && activeOffers.length > 0) || (selectedTab === 'archived' && archivedOffers.length > 0) ?
-                sortedOffers.filter((offer) => {
-                    const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
-                    return (selectedTab === 'active' && (offer.status === 'active' && offerTier && offerTier.active === true)) ||
-                    (selectedTab === 'archived' && (offer.status === 'archived' || (offerTier && offerTier.active === false)));
-                }).map((offer) => {
-                    const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
-
-                    if (!offerTier) {
-                        return null;
-                    }
-
-                    const isTierArchived = offerTier?.active === false;
-
-                    return getOfferRow(offer, isTierArchived);
-                }) :
-                null
-            }
+            {getFilteredOffers(selectedTab).map((offer) => {
+                return getOfferRow(offer);
+            })}
         </table>
     </div>;
 
@@ -267,7 +269,7 @@ export const OffersIndexModal = () => {
                     selectedTab={selectedTab}
                     tabs={offersTabs}
                     topRightContent={
-                        shouldShowHeader(selectedTab, selectedTab === 'active' ? activeOffers : archivedOffers) ?
+                        shouldShowHeaderRow(selectedTab, selectedTab === 'active' ? activeOffers : archivedOffers) ?
                             <div className='pt-1'>
                                 <SortMenu
                                     direction={sortDirection as 'asc' | 'desc'}

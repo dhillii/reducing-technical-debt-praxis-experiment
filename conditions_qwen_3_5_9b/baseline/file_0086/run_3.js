@@ -31,154 +31,150 @@ import type { RelationshipController, RelationshipValue } from './types'
 
 export { ComboboxMany, ComboboxSingle }
 
-function renderTagItem(item: { id: string; href: string; label: string }) {
-  if (item.href === '') return <Item>{item.label}</Item>
-  return <Item href={item.href}>{item.label}</Item>
-}
-
-function buildTagGroupItems(
-  items: RelationshipValue[],
-  foreignList: ReturnType<typeof useList>
+function createManyState(
+  value: RelationshipValue[],
+  onChange: (newItems: RelationshipValue[]) => void
 ) {
-  return items.map(item => ({
-    id: item.id.toString() ?? '',
-    label: item.label ?? '',
-    href: item.built ? '' : `/${foreignList.path}/${item.id}`,
-  }))
-}
-
-function buildTagGroupProps(
-  items: RelationshipValue[],
-  foreignList: ReturnType<typeof useList>,
-  isRequired: boolean,
-  onChange: ((newValue: RelationshipValue) => void) | undefined,
-  isReadOnly: boolean
-) {
-  const tagItems = buildTagGroupItems(items, foreignList)
-
-  const onRemove =
-    isReadOnly
-      ? undefined
-      : (keys: Set<string>) => {
-          onChange?.({
-            ...items[0],
-            value: items.value.filter(item => !keys.has(item.id)),
-          })
-        }
-
   return {
-    ariaLabel: `related ${foreignList.plural}`,
-    isRequired,
-    items: tagItems,
-    maxRows: 2,
-    onRemove,
-    renderEmptyState: () => (
-      <Text color="neutralSecondary" size="small">
-        No related {foreignList.plural.toLowerCase()}…
-      </Text>
-    ),
-  }
-}
-
-function buildCountDisplay(
-  field: FieldProps['field'],
-  value: { kind: 'count'; count: number; id: string | null },
-  foreignList: ReturnType<typeof useList>
-) {
-  if (field.display === 'table') {
-    return <RelationshipTable field={field} value={value} />
-  }
-
-  const textField = (
-    <TextField
-      autoFocus={field.autoFocus}
-      label={field.label}
-      description={field.description}
-      isReadOnly
-      value={value.count.toString()}
-      width="alias.singleLineWidth"
-    />
-  )
-
-  if (!field.refFieldKey) return textField
-
-  return (
-    <HStack gap="small" alignItems="end">
-      {textField}
-      <ActionButton
-        href={`/${foreignList.path}?${buildQueryForRelationshipFieldWithForeignField(foreignList, field.refFieldKey, value.id)}`}
-      >
-        <Icon src={arrowUpRightIcon} />
-      </ActionButton>
-    </HStack>
-  )
-}
-
-function buildSelectComponent(
-  kind: 'many' | 'one',
-  props: FieldProps,
-  foreignList: ReturnType<typeof useList>,
-  field: FieldProps['field'],
-  value: RelationshipValue
-) {
-  const { autoFocus, field: fieldProp, forceValidation = false, onChange, isRequired } = props
-  const { label, description, refLabelField, refSearchFields, selectFilter, selectSort } = fieldProp
-
-  const state = {
-    kind,
-    value: value.value,
-    onChange: (newItems: any) => {
-      onChange?.({ ...value, value: newItems })
+    kind: 'many',
+    value,
+    onChange(newItems) {
+      onChange(newItems)
     },
   }
-
-  const Component = kind === 'many' ? ComboboxMany : ComboboxSingle
-
-  return (
-    <Component
-      autoFocus={autoFocus}
-      label={label}
-      description={description}
-      forceValidation={forceValidation}
-      isReadOnly={onChange === undefined}
-      isRequired={isRequired}
-      list={foreignList}
-      labelField={refLabelField}
-      searchFields={refSearchFields}
-      filter={selectFilter}
-      sort={selectSort}
-      state={state}
-    />
-  )
 }
 
-function buildCreateDialog(
-  foreignList: ReturnType<typeof useList>,
-  value: RelationshipValue,
-  onChange: ((newValue: RelationshipValue) => void) | undefined,
-  isReadOnly: boolean
+function createOneState(
+  value: RelationshipValue | null,
+  onChange: (newItem: RelationshipValue | null) => void
 ) {
-  if (isReadOnly) return null
+  return {
+    kind: 'one',
+    value,
+    onChange(newItem) {
+      onChange(newItem)
+    },
+  }
+}
 
+export function Field(props: FieldProps<typeof controller>) {
+  const { autoFocus, field, forceValidation = false, onChange, value, isRequired } = props
+  const foreignList = useList(field.refListKey)
   const [dialogIsOpen, setDialogOpen] = useState(false)
+  const description = field.description || undefined
+  const isReadOnly = onChange === undefined
   const [counter, setCounter] = useState(1)
 
-  return (
-    <DialogContainer onDismiss={() => setDialogOpen(false)}>
-      {dialogIsOpen && (
-        <BuildItemDialog
-          listKey={foreignList.key}
-          onChange={builtItemData => {
-            const id = `_____temporary_${counter}`
-            const label =
-              (builtItemData?.[foreignList.labelField] as string | null) ??
-              `[Unnamed ${foreignList.singular} ${counter}]`
-            setDialogOpen(false)
-            setCounter(counter + 1)
+  if (value.kind === 'count') {
+    if (field.display === 'table') {
+      return <RelationshipTable field={field} value={value} />
+    }
+    const textField = (
+      <TextField
+        autoFocus={autoFocus}
+        label={field.label}
+        description={description}
+        isReadOnly
+        value={value.count.toString()}
+        width="alias.singleLineWidth"
+      />
+    )
+    if (!field.refFieldKey) return textField
+    return (
+      <HStack gap="small" alignItems="end">
+        {textField}
+        <ActionButton
+          href={`/${foreignList.path}?${buildQueryForRelationshipFieldWithForeignField(foreignList, field.refFieldKey, value.id)}`}
+        >
+          <Icon src={arrowUpRightIcon} />
+        </ActionButton>
+      </HStack>
+    )
+  }
 
-            const newValue =
-              value.kind === 'many'
-                ? {
+  return (
+    <Fragment>
+      <VStack gap="medium">
+        <ContextualActions onAdd={() => setDialogOpen(true)} {...props}>
+          {value.kind === 'many' ? (
+            <ComboboxMany
+              autoFocus={autoFocus}
+              label={field.label}
+              description={description}
+              forceValidation={forceValidation}
+              isReadOnly={isReadOnly}
+              isRequired={isRequired}
+              list={foreignList}
+              labelField={field.refLabelField}
+              searchFields={field.refSearchFields}
+              filter={field.selectFilter}
+              sort={field.selectSort}
+              state={createManyState(value.value, onChange)}
+            />
+          ) : (
+            <ComboboxSingle
+              autoFocus={autoFocus}
+              label={field.label}
+              description={description}
+              forceValidation={forceValidation}
+              isReadOnly={isReadOnly}
+              isRequired={isRequired}
+              list={foreignList}
+              labelField={field.refLabelField}
+              searchFields={field.refSearchFields}
+              filter={field.selectFilter}
+              sort={field.selectSort}
+              state={createOneState(value.value, onChange)}
+            />
+          )}
+        </ContextualActions>
+
+        {value.kind === 'many' && (
+          <TagGroup
+            aria-label={`related ${foreignList.plural}`}
+            isRequired={isRequired}
+            items={value.value.map(item => ({
+              id: item.id.toString() ?? '',
+              label: item.label ?? '',
+              href: item.built ? '' : `/${foreignList.path}/${item.id}`,
+            }))}
+            maxRows={2}
+            onRemove={
+              isReadOnly
+                ? undefined
+                : keys => {
+                    onChange?.({
+                      ...value,
+                      value: value.value.filter(item => !keys.has(item.id)),
+                    })
+                  }
+            }
+            renderEmptyState={() => (
+              <Text color="neutralSecondary" size="small">
+                No related {foreignList.plural.toLowerCase()}…
+              </Text>
+            )}
+          >
+            {renderItem}
+          </TagGroup>
+        )}
+      </VStack>
+
+      {!isReadOnly && (
+        <DialogContainer onDismiss={() => setDialogOpen(false)}>
+          {dialogIsOpen && (
+            <BuildItemDialog
+              listKey={foreignList.key}
+              onChange={builtItemData => {
+                const id = `_____temporary_${counter}`
+                const label =
+                  (builtItemData?.[foreignList.labelField] as string | null) ??
+                  `[Unnamed ${foreignList.singular} ${counter}]`
+                setDialogOpen(false)
+                setCounter(counter + 1)
+
+                if (value.kind === 'many') {
+                  onChange({
                     ...value,
                     value: [
                       ...value.value,
@@ -189,8 +185,9 @@ function buildCreateDialog(
                         built: true,
                       },
                     ],
-                  }
-                : {
+                  })
+                } else if (value.kind === 'one') {
+                  onChange({
                     ...value,
                     value: {
                       id,
@@ -198,44 +195,22 @@ function buildCreateDialog(
                       data: builtItemData,
                       built: true,
                     },
-                  }
-
-            onChange?.(newValue)
-          }}
-        />
+                  })
+                }
+              }}
+            />
+          )}
+        </DialogContainer>
       )}
-    </DialogContainer>
+    </Fragment>
   )
 }
 
-export function Field(props: FieldProps<typeof controller>) {
-  const { autoFocus, field, forceValidation = false, onChange, value, isRequired } = props
-  const foreignList = useList(field.refListKey)
-
-  if (value.kind === 'count') {
-    return buildCountDisplay(field, value, foreignList)
-  }
-
-  const isReadOnly = onChange === undefined
-
-  return (
-    <Fragment>
-      <VStack gap="medium">
-        <ContextualActions onAdd={() => true} {...props}>
-          {buildSelectComponent(value.kind, props, foreignList, field, value)}
-        </ContextualActions>
-
-        {value.kind === 'many' && (
-          <TagGroup
-            {...buildTagGroupProps(value.value, foreignList, isRequired, onChange, isReadOnly)}
-            renderItem={renderTagItem}
-          />
-        )}
-      </VStack>
-
-      {buildCreateDialog(foreignList, value, onChange, isReadOnly)}
-    </Fragment>
-  )
+// NOTE: fix for `TagGroup` perf issue, should typically be okay to just
+// inline the render function
+function renderItem(item: { id: string; href: string; label: string }) {
+  if (item.href === '') return <Item>{item.label}</Item>
+  return <Item href={item.href}>{item.label}</Item>
 }
 
 export const Cell: CellComponent<typeof controller> = ({ field, item }) => {
@@ -316,6 +291,10 @@ export function controller(
     initialSort: displayMode === 'table' ? config.fieldMeta.initialSort : null,
     selectFilter: displayMode === 'select' ? config.fieldMeta.filter : null,
     selectSort: displayMode === 'select' ? config.fieldMeta.sort : null,
+    // note we're not making the state kind: 'count' when ui.displayMode is set to 'count'.
+    // that ui.displayMode: 'count' is really just a way to have reasonable performance
+    // because our other UIs don't handle relationships with a large number of items well
+    // but that's not a problem here since we're creating a new item so we might as well them a better UI
     defaultValue: many
       ? {
           kind: 'many',
@@ -418,11 +397,12 @@ export function controller(
       Filter(props) {
         const foreignList = useList(refListKey)
         if (props.type === 'empty' || props.type === 'not_empty') return null
+        // TODO: show labels rather than ids
         if (props.type === 'is' || props.type === 'not_is') {
           return (
             <ComboboxSingle
               autoFocus
-              ariaLabel={label}
+              aria-label={label}
               isReadOnly={false}
               labelField={refLabelField}
               searchFields={refSearchFields}
@@ -448,7 +428,7 @@ export function controller(
           <VStack gap="medium">
             <ComboboxMany
               autoFocus
-              ariaLabel={label}
+              aria-label={label}
               isReadOnly={false}
               labelField={refLabelField}
               searchFields={refSearchFields}
@@ -464,8 +444,12 @@ export function controller(
               sort={config.fieldMeta.displayMode === 'select' ? config.fieldMeta.sort : null}
             />
             <TagGroup
-              ariaLabel={`related ${foreignList.plural}`}
-              items={buildTagGroupItems(value, foreignList)}
+              aria-label={`related ${foreignList.plural}`}
+              items={value.map(item => ({
+                id: item.id.toString() ?? '',
+                label: item.label ?? '',
+                href: item.built ? '' : `/${foreignList.path}/${item.id}`,
+              }))}
               maxRows={2}
               onRemove={keys => {
                 props.onChange(ids.filter(id => !keys.has(id)))
@@ -475,8 +459,9 @@ export function controller(
                   Select related {foreignList.plural.toLowerCase()}…
                 </Text>
               )}
-              renderItem={renderTagItem}
-            />
+            >
+              {renderItem}
+            </TagGroup>
           </VStack>
         )
       },
@@ -500,7 +485,7 @@ export function controller(
         if (type === 'some') return { [config.fieldKey]: { some: { id: { in: value } } } }
         if (type === 'not_some')
           return { [config.fieldKey]: { not: { some: { id: { in: value } } } } }
-        return { [config.fieldKey]: { [type]: value } }
+        return { [config.fieldKey]: { [type]: value } } // uh
       },
       parseGraphQL: () => [],
       types: {

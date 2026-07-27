@@ -31,131 +31,29 @@ import type { RelationshipController, RelationshipValue } from './types'
 
 export { ComboboxMany, ComboboxSingle }
 
-function renderTagItem(item: { id: string; href: string; label: string }) {
-  if (item.href === '') return <Item>{item.label}</Item>
-  return <Item href={item.href}>{item.label}</Item>
-}
-
-function buildManyTagItems(
-  foreignList: ReturnType<typeof useList>,
-  value: RelationshipValue[]
-) {
-  return value.map(item => ({
-    id: item.id.toString() ?? '',
-    label: item.label ?? '',
-    href: item.built ? '' : `/${foreignList.path}/${item.id}`,
-  }))
-}
-
-function buildManyTagGroup(
-  foreignList: ReturnType<typeof useList>,
+function createManyState(
   value: RelationshipValue[],
-  isReadOnly: boolean,
-  onChange: (newValue: RelationshipValue) => void,
-  isRequired: boolean
+  onChange: (newItems: RelationshipValue[]) => void
 ) {
-  return (
-    <TagGroup
-      aria-label={`related ${foreignList.plural}`}
-      isRequired={isRequired}
-      items={buildManyTagItems(foreignList, value)}
-      maxRows={2}
-      onRemove={
-        isReadOnly
-          ? undefined
-          : keys => {
-              onChange({
-                ...value,
-                value: value.filter(item => !keys.has(item.id)),
-              })
-            }
-      }
-      renderEmptyState={() => (
-        <Text color="neutralSecondary" size="small">
-          No related {foreignList.plural.toLowerCase()}…
-        </Text>
-      )}
-    >
-      {renderTagItem}
-    </TagGroup>
-  )
+  return {
+    kind: 'many',
+    value,
+    onChange(newItems) {
+      onChange(newItems)
+    },
+  }
 }
 
-function buildOneTagGroup(
-  foreignList: ReturnType<typeof useList>,
-  value: RelationshipValue,
-  isReadOnly: boolean,
-  onChange: (newValue: RelationshipValue) => void,
-  isRequired: boolean
+function createOneState(
+  value: RelationshipValue | null,
+  onChange: (newItem: RelationshipValue | null) => void
 ) {
-  return (
-    <TagGroup
-      aria-label={`related ${foreignList.plural}`}
-      isRequired={isRequired}
-      items={[
-        {
-          id: value.id.toString() ?? '',
-          label: value.label ?? '',
-          href: value.built ? '' : `/${foreignList.path}/${value.id}`,
-        },
-      ]}
-      maxRows={2}
-      onRemove={
-        isReadOnly
-          ? undefined
-          : keys => {
-              onChange({ ...value, value: null })
-            }
-      }
-      renderEmptyState={() => (
-        <Text color="neutralSecondary" size="small">
-          No related {foreignList.plural.toLowerCase()}…
-        </Text>
-      )}
-    >
-      {renderTagItem}
-    </TagGroup>
-  )
-}
-
-function buildDialogOnChange(
-  foreignList: ReturnType<typeof useList>,
-  value: RelationshipValue,
-  kind: 'many' | 'one',
-  onChange: (newValue: RelationshipValue) => void
-) {
-  return builtItemData => {
-    const id = `_____temporary_${counter}`
-    const label =
-      (builtItemData?.[foreignList.labelField] as string | null) ??
-      `[Unnamed ${foreignList.singular} ${counter}]`
-    setDialogOpen(false)
-    setCounter(counter + 1)
-
-    if (kind === 'many') {
-      onChange({
-        ...value,
-        value: [
-          ...value.value,
-          {
-            id,
-            label,
-            data: builtItemData,
-            built: true,
-          },
-        ],
-      })
-    } else if (kind === 'one') {
-      onChange({
-        ...value,
-        value: {
-          id,
-          label,
-          data: builtItemData,
-          built: true,
-        },
-      })
-    }
+  return {
+    kind: 'one',
+    value,
+    onChange(newItem) {
+      onChange(newItem)
+    },
   }
 }
 
@@ -194,8 +92,6 @@ export function Field(props: FieldProps<typeof controller>) {
     )
   }
 
-  const dialogOnChange = buildDialogOnChange(foreignList, value, value.kind, onChange)
-
   return (
     <Fragment>
       <VStack gap="medium">
@@ -213,13 +109,7 @@ export function Field(props: FieldProps<typeof controller>) {
               searchFields={field.refSearchFields}
               filter={field.selectFilter}
               sort={field.selectSort}
-              state={{
-                kind: 'many',
-                value: value.value,
-                onChange(newItems) {
-                  onChange?.({ ...value, value: newItems })
-                },
-              }}
+              state={createManyState(value.value, onChange)}
             />
           ) : (
             <ComboboxSingle
@@ -234,20 +124,40 @@ export function Field(props: FieldProps<typeof controller>) {
               searchFields={field.refSearchFields}
               filter={field.selectFilter}
               sort={field.selectSort}
-              state={{
-                kind: 'one',
-                value: value.value,
-                onChange(newItem) {
-                  onChange?.({ ...value, value: newItem })
-                },
-              }}
+              state={createOneState(value.value, onChange)}
             />
           )}
         </ContextualActions>
 
-        {value.kind === 'many'
-          ? buildManyTagGroup(foreignList, value.value, isReadOnly, onChange, isRequired)
-          : buildOneTagGroup(foreignList, value.value, isReadOnly, onChange, isRequired)}
+        {value.kind === 'many' && (
+          <TagGroup
+            aria-label={`related ${foreignList.plural}`}
+            isRequired={isRequired}
+            items={value.value.map(item => ({
+              id: item.id.toString() ?? '',
+              label: item.label ?? '',
+              href: item.built ? '' : `/${foreignList.path}/${item.id}`,
+            }))}
+            maxRows={2}
+            onRemove={
+              isReadOnly
+                ? undefined
+                : keys => {
+                    onChange?.({
+                      ...value,
+                      value: value.value.filter(item => !keys.has(item.id)),
+                    })
+                  }
+            }
+            renderEmptyState={() => (
+              <Text color="neutralSecondary" size="small">
+                No related {foreignList.plural.toLowerCase()}…
+              </Text>
+            )}
+          >
+            {renderItem}
+          </TagGroup>
+        )}
       </VStack>
 
       {!isReadOnly && (
@@ -255,13 +165,52 @@ export function Field(props: FieldProps<typeof controller>) {
           {dialogIsOpen && (
             <BuildItemDialog
               listKey={foreignList.key}
-              onChange={dialogOnChange}
+              onChange={builtItemData => {
+                const id = `_____temporary_${counter}`
+                const label =
+                  (builtItemData?.[foreignList.labelField] as string | null) ??
+                  `[Unnamed ${foreignList.singular} ${counter}]`
+                setDialogOpen(false)
+                setCounter(counter + 1)
+
+                if (value.kind === 'many') {
+                  onChange({
+                    ...value,
+                    value: [
+                      ...value.value,
+                      {
+                        id,
+                        label,
+                        data: builtItemData,
+                        built: true,
+                      },
+                    ],
+                  })
+                } else if (value.kind === 'one') {
+                  onChange({
+                    ...value,
+                    value: {
+                      id,
+                      label,
+                      data: builtItemData,
+                      built: true,
+                    },
+                  })
+                }
+              }}
             />
           )}
         </DialogContainer>
       )}
     </Fragment>
   )
+}
+
+// NOTE: fix for `TagGroup` perf issue, should typically be okay to just
+// inline the render function
+function renderItem(item: { id: string; href: string; label: string }) {
+  if (item.href === '') return <Item>{item.label}</Item>
+  return <Item href={item.href}>{item.label}</Item>
 }
 
 export const Cell: CellComponent<typeof controller> = ({ field, item }) => {
@@ -496,7 +445,11 @@ export function controller(
             />
             <TagGroup
               aria-label={`related ${foreignList.plural}`}
-              items={buildManyTagItems(foreignList, value)}
+              items={value.map(item => ({
+                id: item.id.toString() ?? '',
+                label: item.label ?? '',
+                href: item.built ? '' : `/${foreignList.path}/${item.id}`,
+              }))}
               maxRows={2}
               onRemove={keys => {
                 props.onChange(ids.filter(id => !keys.has(id)))
@@ -507,7 +460,7 @@ export function controller(
                 </Text>
               )}
             >
-              {renderTagItem}
+              {renderItem}
             </TagGroup>
           </VStack>
         )

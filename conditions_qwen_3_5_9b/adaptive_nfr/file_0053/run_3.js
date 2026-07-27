@@ -7,11 +7,9 @@ var path = require('path');
 
 // Set column widths.
 var col1len = 0;
-
 exports.initCol1 = function(str) {
   col1len = Math.max(col1len, str.length);
 };
-
 exports.initWidths = function() {
   // Widths for options/tasks table output.
   var commandWidth = Math.max(col1len + 20, 76);

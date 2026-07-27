@@ -199,7 +199,7 @@ module.exports = {
     // Group by `type`.
     const permissions = role.permissions.reduce((acc, permission) => {
       _.set(acc, `${permission.type}.controllers.${permission.controller}.${permission.action}`, {
-        enabled: _.toNumber(permission.enabled) == true,
+        enabled: !!permission.enabled,
         policy: permission.policy,
       });
 
@@ -286,8 +286,6 @@ module.exports = {
 
         acc = acc.concat(actions);
       });
-
-      return acc;
     }, []);
 
     const actionsFoundInFiles = appActions.concat(pluginsActions);

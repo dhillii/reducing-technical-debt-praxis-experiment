@@ -93,37 +93,53 @@ const InputModalStepper = ({
     goNext();
   };
 
-  const goBack = (elementName = null) => {
+  const shouldConfirmCloseWithFiles = () => {
     const hasFilesToUpload = !isEmpty(filesToUpload);
+    const currentStepIsUpload = currentStep === 'upload';
+    const currentStepIsBrowse = currentStep === 'browse';
+    const hasBackButtonDestination = backButtonDestination;
 
-    // Redirect the user to the list modal from the upload one
-    if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
-      if (hasFilesToUpload) {
-        // eslint-disable-next-line no-alert
-        const confirm = globalThis.confirm(
-          formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-        );
-
-        if (!confirm) {
-          return;
-        }
-      }
-
-      goTo(backButtonDestination);
-      handleClearFilesToUploadAndDownload();
-
-      return;
+    if (hasFilesToUpload && currentStepIsUpload && hasBackButtonDestination) {
+      return true;
     }
 
-    if (
-      elementName === 'backButton' &&
-      backButtonDestination &&
-      currentStep === 'browse' &&
-      hasFilesToUpload
-    ) {
-      goTo(backButtonDestination);
+    if (hasFilesToUpload && currentStepIsBrowse && hasBackButtonDestination) {
+      return true;
+    }
 
-      return;
+    return false;
+  };
+
+  const handleBackButtonNavigation = (elementName = null) => {
+    const hasFilesToUpload = !isEmpty(filesToUpload);
+    const currentStepIsUpload = currentStep === 'upload';
+    const currentStepIsBrowse = currentStep === 'browse';
+    const hasBackButtonDestination = backButtonDestination;
+
+    if (elementName === 'backButton' && hasBackButtonDestination) {
+      if (currentStepIsUpload) {
+        if (hasFilesToUpload) {
+          // eslint-disable-next-line no-alert
+          const confirm = globalThis.confirm(
+            formatMessage({ id: getTrad('window.confirm.close-modal.files') })
+          );
+
+          if (!confirm) {
+            return;
+          }
+        }
+
+        goTo(backButtonDestination);
+        handleClearFilesToUploadAndDownload();
+
+        return;
+      }
+
+      if (currentStepIsBrowse && hasFilesToUpload) {
+        goTo(backButtonDestination);
+
+        return;
+      }
     }
 
     goTo(prev);
@@ -171,7 +187,7 @@ const InputModalStepper = ({
   const handleGoToAddBrowseFiles = () => {
     handleCleanFilesError();
 
-    goBack();
+    handleBackButtonNavigation();
   };
 
   const handleSubmitEditNewFile = e => {
@@ -289,8 +305,32 @@ const InputModalStepper = ({
     }
   };
 
+  const shouldConfirmCloseModal = () => {
+    const currentStepIsList = currentStep === 'list';
+    const currentStepIsEdit = currentStep === 'edit';
+    const hasUnsavedChangesList = !isEqual(selectedFiles, initialSelectedFiles);
+    const hasUnsavedChangesEditFile = initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit);
+    const hasUnsavedChangesEditSelection = currentStepIsEdit && selectedFiles.length > 0;
+
+    if (currentStepIsList && hasUnsavedChangesList) {
+      return true;
+    }
+
+    if (currentStepIsEdit && hasUnsavedChangesEditFile) {
+      return true;
+    }
+
+    if (currentStepIsEdit && hasUnsavedChangesEditSelection) {
+      return true;
+    }
+
+    return false;
+  };
+
   const handleToggle = () => {
-    if (filesToUploadLength > 0) {
+    const hasFilesToUpload = !isEmpty(filesToUpload);
+
+    if (hasFilesToUpload) {
       // eslint-disable-next-line no-alert
       const confirm = globalThis.confirm(
         formatMessage({ id: getTrad('window.confirm.close-modal.files') })
@@ -301,11 +341,7 @@ const InputModalStepper = ({
       }
     }
 
-    if (
-      (currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles)) ||
-      (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
-      (currentStep === 'edit' && selectedFiles.length > 0)
-    ) {
+    if (shouldConfirmCloseModal()) {
       // eslint-disable-next-line no-alert
       const confirm = globalThis.confirm(
         formatMessage({ id: getTrad('window.confirm.close-modal.file') })
@@ -329,7 +365,7 @@ const InputModalStepper = ({
       <Modal isOpen={isOpen} onToggle={handleToggle} onClosed={handleCloseModal}>
         {/* header title */}
         <ModalHeader
-          goBack={goBack}
+          goBack={handleBackButtonNavigation}
           HeaderComponent={HeaderComponent}
           headerBreadcrumbs={headerBreadcrumbs}
           withBackButton={withBackButton}

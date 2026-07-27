@@ -27,7 +27,7 @@ module.exports = function(CLI) {
    * Install pm2-sysmonit
    */
   CLI.prototype.launchSysMonitoring = function(cb) {
-    if (this.shouldSkipSysMonitoring()) {
+    if (shouldSkipSysMonitoring()) {
       return cb ? cb(null) : null;
     }
 
@@ -52,16 +52,12 @@ module.exports = function(CLI) {
     });
   };
 
-  /**
-   * Check if system monitoring should be skipped
-   * @private
-   */
-  CLI.prototype.shouldSkipSysMonitoring = function() {
+  function shouldSkipSysMonitoring() {
     return (this.pm2_configuration && this.pm2_configuration.sysmonit != 'true') ||
       process.env.TRAVIS ||
       global.it === 'function' ||
       cst.IS_WINDOWS === true;
-  };
+  }
 
   /**
    * Show application environment
@@ -92,9 +88,8 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Get version of the daemonized PM2
-   * @method getVersion
-   * @callback cb
+   * Generate and display a comprehensive PM2 report including daemon info, CLI info, system info, and process list.
+   * @method report
    */
   CLI.prototype.report = function() {
     var that = this;
@@ -175,10 +170,10 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Get PID for a specific application or all applications
+   * Get PID(s) for a specific application name or all applications if name is not provided.
    * @method getPID
-   * @param {String} app_name application name (optional)
-   * @callback cb
+   * @param {string|null} app_name Application name to filter by, or null for all
+   * @param {function} cb Callback function
    */
   CLI.prototype.getPID = function(app_name, cb) {
     var that = this;
@@ -212,9 +207,9 @@ module.exports = function(CLI) {
   /**
    * Create PM2 memory snapshot
    * @method profile
-   * @param {String} type 'cpu' or 'mem'
-   * @param {Number} time duration in ms
-   * @callback cb
+   * @param {string} type Type of profile ('cpu' or 'mem')
+   * @param {number} time Duration in milliseconds
+   * @param {function} cb Callback function
    */
   CLI.prototype.profile = function(type, time, cb) {
     var that = this;
@@ -251,8 +246,9 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Highlight README.md content in console
-   * @private
+   * Highlight README.md content in the console with color coding for headers, code blocks, and inline code.
+   * @method basicMDHighlight
+   * @param {string} lines Content of the README.md file
    */
   function basicMDHighlight(lines) {
     console.log('\n\n+-------------------------------------+');
@@ -280,6 +276,7 @@ module.exports = function(CLI) {
    * pm2 create command
    * create boilerplate of application for fast try
    * @method boilerplate
+   * @param {function} cb Callback function
    */
   CLI.prototype.boilerplate = function(cb) {
     var i = 0;
@@ -329,12 +326,12 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Send line to stdin of a process
+   * Send a line of text to the stdin of a specific process.
    * @method sendLineToStdin
-   * @param {String} pm_id process id
-   * @param {String} line line to send
-   * @param {String} separator separator
-   * @callback cb
+   * @param {number} pm_id Process ID
+   * @param {string} line Text to send
+   * @param {string|null} separator Separator to append to the line
+   * @param {function} cb Callback function
    */
   CLI.prototype.sendLineToStdin = function(pm_id, line, separator, cb) {
     var that = this;
@@ -359,11 +356,11 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Attach to a process
+   * Attach to a process and allow interactive input.
    * @method attach
-   * @param {String} pm_id process id
-   * @param {String} separator separator
-   * @callback cb
+   * @param {number} pm_id Process ID
+   * @param {string|null} separator Separator to append to input lines
+   * @param {function} cb Callback function
    */
   CLI.prototype.attach = function(pm_id, separator, cb) {
     var that = this;
@@ -407,11 +404,11 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Send data to a process
+   * Send data to a specific process ID.
    * @method sendDataToProcessId
-   * @param {String} proc_id process id
-   * @param {Object} packet data packet
-   * @callback cb
+   * @param {number|string} proc_id Process ID
+   * @param {object} packet Data packet to send
+   * @param {function} cb Callback function
    */
   CLI.prototype.sendDataToProcessId = function(proc_id, packet, cb) {
     var that = this;
@@ -435,15 +432,15 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Used for custom actions, allows to trigger function inside an app
-   * To expose a function you need to use keymetrics/pmx
-   *
+   * Used for custom actions, allows to trigger function inside an app.
+   * To expose a function you need to use keymetrics/pmx.
    * @method msgProcess
-   * @param {Object} opts
-   * @param {String} id           process id
-   * @param {String} action_name  function name to trigger
-   * @param {Object} [opts.opts]  object passed as first arg of the function
-   * @param {String} [uuid]       optional unique identifier when logs are emitted
+   * @param {Object} opts Options object
+   * @param {String} opts.id process id
+   * @param {String} opts.action_name function name to trigger
+   * @param {Object} [opts.opts] object passed as first arg of the function
+   * @param {String} [opts.uuid] optional unique identifier when logs are emitted
+   * @param {function} cb Callback function
    */
   CLI.prototype.msgProcess = function(opts, cb) {
     var that = this;
@@ -452,14 +449,13 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Trigger a PMX custom action in target application
-   * Custom actions allows to interact with an application
-   *
+   * Trigger a PMX custom action in target application.
+   * Custom actions allow to interact with an application.
    * @method trigger
-   * @param  {String|Number} pm_id       process id or application name
-   * @param  {String}        action_name name of the custom action to trigger
-   * @param  {Mixed}         params      parameter to pass to target action
-   * @param  {Function}      cb          callback
+   * @param {String|Number} pm_id process id or application name
+   * @param {String} action_name name of the custom action to trigger
+   * @param {Mixed} params parameter to pass to target action
+   * @param {Function} cb callback
    */
   CLI.prototype.trigger = function(pm_id, action_name, params, cb) {
     if (typeof(params) === 'function') {
@@ -510,11 +506,11 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Send signal to process by name
+   * Send a signal to a process by name.
    * @method sendSignalToProcessName
-   * @param {String} signal signal name
-   * @param {String} process_name process name
-   * @callback cb
+   * @param {string} signal Signal to send
+   * @param {string} process_name Process name
+   * @param {function} cb Callback function
    */
   CLI.prototype.sendSignalToProcessName = function(signal, process_name, cb) {
     var that = this;
@@ -533,11 +529,11 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Send signal to process by id
+   * Send a signal to a process by ID.
    * @method sendSignalToProcessId
-   * @param {String} signal signal name
-   * @param {String} process_id process id
-   * @callback cb
+   * @param {string} signal Signal to send
+   * @param {number} process_id Process ID
+   * @param {function} cb Callback function
    */
   CLI.prototype.sendSignalToProcessId = function(signal, process_id, cb) {
     var that = this;
@@ -556,7 +552,9 @@ module.exports = function(CLI) {
   };
 
   /**
-   * API method to launch a process that will serve directory over http
+   * API method to launch a process that will serve directory over http.
+   * @method autoinstall
+   * @param {function} cb Callback function
    */
   CLI.prototype.autoinstall = function (cb) {
     var filepath = path.resolve(path.dirname(module.filename), '../Sysinfo/ServiceDetection/ServiceDetection.js');
@@ -571,8 +569,7 @@ module.exports = function(CLI) {
   };
 
   /**
-   * API method to launch a process that will serve directory over http
-   *
+   * API method to launch a process that will serve directory over http.
    * @param {Object} opts options
    * @param {String} opts.path path to be served
    * @param {Number} opts.port port on which http will bind
@@ -581,6 +578,7 @@ module.exports = function(CLI) {
    * @param {String} opts.basicAuthPassword basic auth password
    * @param {Object} commander commander object
    * @param {Function} cb optional callback
+   * @method serve
    */
   CLI.prototype.serve = function (target_path, port, opts, commander, cb) {
     var that = this;
@@ -619,8 +617,9 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Ping daemon - if PM2 daemon not launched, it will launch it
+   * Ping daemon - if PM2 daemon not launched, it will launch it.
    * @method ping
+   * @param {function} cb Callback function
    */
   CLI.prototype.ping = function(cb) {
     var that = this;
@@ -636,7 +635,11 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Execute remote command
+   * Execute remote command.
+   * @method remote
+   * @param {string} command Command to execute
+   * @param {object} opts Options object
+   * @param {function} cb Callback function
    */
   CLI.prototype.remote = function(command, opts, cb) {
     var that = this;
@@ -650,9 +653,12 @@ module.exports = function(CLI) {
   };
 
   /**
-   * This remote method allows to pass multiple arguments
-   * to PM2
-   * It is used for the new scoped PM2 action system
+   * This remote method allows to pass multiple arguments to PM2.
+   * It is used for the new scoped PM2 action system.
+   * @method remoteV2
+   * @param {string} command Command to execute
+   * @param {object} opts Options object
+   * @param {function} cb Callback function
    */
   CLI.prototype.remoteV2 = function(command, opts, cb) {
     var that = this;
@@ -665,9 +671,9 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Generate sample ecosystem.config.js
+   * Generate a sample ecosystem.config.js file.
    * @method generateSample
-   * @param {String} mode 'simple' or default
+   * @param {string} mode Mode ('simple' or default)
    */
   CLI.prototype.generateSample = function(mode) {
     var that = this;
@@ -694,9 +700,9 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Launch dashboard
+   * Launch the PM2 dashboard.
    * @method dashboard
-   * @callback cb
+   * @param {function} cb Callback function (should not be called programmatically)
    */
   CLI.prototype.dashboard = function(cb) {
     var that = this;
@@ -743,9 +749,9 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Launch monitor
+   * Launch the PM2 monitor.
    * @method monit
-   * @callback cb
+   * @param {function} cb Callback function (should not be called programmatically)
    */
   CLI.prototype.monit = function(cb) {
     var that = this;
@@ -775,10 +781,10 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Enable inspect mode
+   * Enable or disable Chrome DevTools Protocol (inspect) mode for a specific application.
    * @method inspect
-   * @param {String} app_name application name
-   * @callback cb
+   * @param {string} app_name Application name
+   * @param {function} cb Callback function
    */
   CLI.prototype.inspect = function(app_name, cb) {
     const that = this;

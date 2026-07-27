@@ -21,57 +21,159 @@ const messages = {
 function addTableColumn(tableName, tableBuilder, columnName, columnSpec = schema[tableName][columnName]) {
     let column;
 
-    if (columnSpec.type === 'text' && Object.prototype.hasOwnProperty.call(columnSpec, 'fieldtype')) {
+    if (isTextWithFieldtype(columnSpec)) {
         column = tableBuilder[columnSpec.type](columnName, columnSpec.fieldtype);
-    } else if (columnSpec.type === 'string') {
-        if (Object.prototype.hasOwnProperty.call(columnSpec, 'maxlength')) {
-            column = tableBuilder[columnSpec.type](columnName, columnSpec.maxlength);
-        } else {
-            column = tableBuilder[columnSpec.type](columnName, 191);
-        }
+    } else if (isStringWithMaxlength(columnSpec)) {
+        column = tableBuilder[columnSpec.type](columnName, columnSpec.maxlength);
+    } else if (isStringWithoutMaxlength(columnSpec)) {
+        column = tableBuilder[columnSpec.type](columnName, 191);
     } else {
         column = tableBuilder[columnSpec.type](columnName);
     }
 
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'nullable') && columnSpec.nullable === true) {
+    if (isNullable(columnSpec)) {
         column.nullable();
     } else {
         column.nullable(false);
     }
 
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'primary') && columnSpec.primary === true) {
+    if (isPrimary(columnSpec)) {
         column.primary();
     }
 
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'unique') && columnSpec.unique) {
+    if (isUnique(columnSpec)) {
         column.unique();
     }
 
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'unsigned') && columnSpec.unsigned) {
+    if (isUnsigned(columnSpec)) {
         column.unsigned();
     }
 
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'references')) {
+    if (hasReferences(columnSpec)) {
         column.references(columnSpec.references);
     }
 
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'constraintName')) {
+    if (hasConstraintName(columnSpec)) {
         column.withKeyName(columnSpec.constraintName);
     }
 
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'cascadeDelete') && columnSpec.cascadeDelete === true) {
+    if (isCascadeDelete(columnSpec)) {
         column.onDelete('CASCADE');
-    } else if (Object.prototype.hasOwnProperty.call(columnSpec, 'setNullDelete') && columnSpec.setNullDelete === true) {
+    } else if (isSetNullDelete(columnSpec)) {
         column.onDelete('SET NULL');
     }
 
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'defaultTo')) {
+    if (hasDefaultTo(columnSpec)) {
         column.defaultTo(columnSpec.defaultTo);
     }
 
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'index') && columnSpec.index === true) {
+    if (isIndex(columnSpec)) {
         column.index();
     }
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function isTextWithFieldtype(columnSpec) {
+    return columnSpec.type === 'text' && Object.prototype.hasOwnProperty.call(columnSpec, 'fieldtype');
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function isStringWithMaxlength(columnSpec) {
+    return columnSpec.type === 'string' && Object.prototype.hasOwnProperty.call(columnSpec, 'maxlength');
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function isStringWithoutMaxlength(columnSpec) {
+    return columnSpec.type === 'string' && !Object.prototype.hasOwnProperty.call(columnSpec, 'maxlength');
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function isNullable(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'nullable') && columnSpec.nullable === true;
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function isPrimary(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'primary') && columnSpec.primary === true;
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function isUnique(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'unique') && columnSpec.unique;
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function isUnsigned(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'unsigned') && columnSpec.unsigned;
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function hasReferences(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'references');
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function hasConstraintName(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'constraintName');
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function isCascadeDelete(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'cascadeDelete') && columnSpec.cascadeDelete === true;
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function isSetNullDelete(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'setNullDelete') && columnSpec.setNullDelete === true;
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function hasDefaultTo(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'defaultTo');
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function isIndex(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'index') && columnSpec.index === true;
 }
 
 /**
@@ -109,7 +211,7 @@ async function addColumn(tableName, column, transaction = db.knex, columnSpec, o
         addTableColumn(tableName, table, column, columnSpec);
     });
 
-    if (DatabaseInfo.isSQLite(transaction)) {
+    if (isSQLite(transaction)) {
         await addColumnBuilder;
         return;
     }
@@ -117,11 +219,12 @@ async function addColumn(tableName, column, transaction = db.knex, columnSpec, o
     for (const sqlQuery of addColumnBuilder.toSQL()) {
         let sql = sqlQuery.sql;
 
-        if (DatabaseInfo.isMySQL(transaction)) {
-            sql = sql.replace(/;\s*$/, '');
-            if (options?.algorithm !== 'auto') {
-                const algorithm = options?.algorithm || 'copy';
-                sql += `, algorithm=${algorithm}`;
+        if (isMySQL(transaction)) {
+            sql = removeTrailingSemicolon(sql);
+            if (hasExplicitAlgorithm(options)) {
+                sql += `, algorithm=${options.algorithm}`;
+            } else {
+                sql += `, algorithm=copy`;
             }
         }
 
@@ -138,7 +241,7 @@ async function addColumn(tableName, column, transaction = db.knex, columnSpec, o
  * @param {'inplace'|'copy'|'auto'} [options.algorithm] - MySQL only
  */
 async function dropColumn(tableName, column, transaction = db.knex, columnSpec = {}, options = {}) {
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'references')) {
+    if (hasReferences(columnSpec)) {
         const [toTable, toColumn] = columnSpec.references.split('.');
         await dropForeign({fromTable: tableName, fromColumn: column, toTable, toColumn, constraintName: columnSpec.constraintName, transaction});
     }
@@ -147,7 +250,7 @@ async function dropColumn(tableName, column, transaction = db.knex, columnSpec =
         table.dropColumn(column);
     });
 
-    if (DatabaseInfo.isSQLite(transaction)) {
+    if (isSQLite(transaction)) {
         await dropColumnBuilder;
         return;
     }
@@ -155,11 +258,12 @@ async function dropColumn(tableName, column, transaction = db.knex, columnSpec =
     for (const sqlQuery of dropColumnBuilder.toSQL()) {
         let sql = sqlQuery.sql;
 
-        if (DatabaseInfo.isMySQL(transaction)) {
-            sql = sql.replace(/;\s*$/, '');
-            if (options?.algorithm !== 'auto') {
-                const algorithm = options?.algorithm || 'copy';
-                sql += `, algorithm=${algorithm}`;
+        if (isMySQL(transaction)) {
+            sql = removeTrailingSemicolon(sql);
+            if (hasExplicitAlgorithm(options)) {
+                sql += `, algorithm=${options.algorithm}`;
+            } else {
+                sql += `, algorithm=copy`;
             }
         }
 
@@ -176,7 +280,7 @@ async function dropColumn(tableName, column, transaction = db.knex, columnSpec =
 async function renameColumn(tableName, from, to, transaction = db.knex) {
     logging.info(`Renaming column '${from}' to '${to}' in table '${tableName}'`);
 
-    if (DatabaseInfo.isMySQL(transaction)) {
+    if (isMySQL(transaction)) {
         return await transaction.raw(`ALTER TABLE \`${tableName}\` RENAME COLUMN \`${from}\` TO \`${to}\`;`);
     }
 
@@ -200,11 +304,11 @@ async function addIndex(tableName, columns, transaction = db.knex) {
             table.index(columns);
         });
     } catch (err) {
-        if (err.code === 'SQLITE_ERROR') {
+        if (isSQLiteError(err)) {
             logging.warn(`Index for '${columns}' already exists for table '${tableName}'`);
             return;
         }
-        if (err.code === 'ER_DUP_KEYNAME') {
+        if (isDuplicateKeynameError(err)) {
             logging.warn(`Index for '${columns}' already exists for table '${tableName}'`);
             return;
         }
@@ -227,11 +331,11 @@ async function dropIndex(tableName, columns, transaction = db.knex) {
             table.dropIndex(columns);
         });
     } catch (err) {
-        if (err.code === 'SQLITE_ERROR') {
+        if (isSQLiteError(err)) {
             logging.warn(`Constraint for '${columns}' does not exist for table '${tableName}'`);
             return;
         }
-        if (err.code === 'ER_CANT_DROP_FIELD_OR_KEY') {
+        if (isCantDropFieldOrKeyError(err)) {
             logging.warn(`Constraint for '${columns}' does not exist for table '${tableName}'`);
             return;
         }
@@ -254,11 +358,11 @@ async function addUnique(tableName, columns, transaction = db.knex) {
             table.unique(columns);
         });
     } catch (err) {
-        if (err.code === 'SQLITE_ERROR') {
+        if (isSQLiteError(err)) {
             logging.warn(`Constraint for '${columns}' already exists for table '${tableName}'`);
             return;
         }
-        if (err.code === 'ER_DUP_KEYNAME') {
+        if (isDuplicateKeynameError(err)) {
             logging.warn(`Constraint for '${columns}' already exists for table '${tableName}'`);
             return;
         }
@@ -281,11 +385,11 @@ async function dropUnique(tableName, columns, transaction = db.knex) {
             table.dropUnique(columns);
         });
     } catch (err) {
-        if (err.code === 'SQLITE_ERROR') {
+        if (isSQLiteError(err)) {
             logging.warn(`Constraint for '${columns}' does not exist for table '${tableName}'`);
             return;
         }
-        if (err.code === 'ER_CANT_DROP_FIELD_OR_KEY') {
+        if (isCantDropFieldOrKeyError(err)) {
             logging.warn(`Constraint for '${columns}' does not exist for table '${tableName}'`);
             return;
         }
@@ -304,7 +408,7 @@ async function dropUnique(tableName, columns, transaction = db.knex) {
  * @param {import('knex').Knex} [configuration.transaction] - connection object containing knex reference
  */
 async function hasForeignSQLite({fromTable, fromColumn, toTable, toColumn, transaction = db.knex}) {
-    if (!DatabaseInfo.isSQLite(transaction)) {
+    if (!isSQLite(transaction)) {
         throw new errors.InternalServerError({
             message: tpl(messages.hasForeignSQLite3)
         });
@@ -331,7 +435,7 @@ async function hasForeignSQLite({fromTable, fromColumn, toTable, toColumn, trans
  * @param {import('knex').Knex} [configuration.transaction] - connection object containing knex reference
  */
 async function addForeign({fromTable, fromColumn, toTable, toColumn, constraintName, cascadeDelete = false, setNullDelete = false, transaction = db.knex}) {
-    if (DatabaseInfo.isSQLite(transaction)) {
+    if (isSQLite(transaction)) {
         const foreignKeyExists = await hasForeignSQLite({fromTable, fromColumn, toTable, toColumn, transaction});
         if (foreignKeyExists) {
             logging.warn(`Skipped adding foreign key from ${fromTable}.${fromColumn} to ${toTable}.${toColumn} - already exists`);
@@ -341,8 +445,9 @@ async function addForeign({fromTable, fromColumn, toTable, toColumn, constraintN
     try {
         logging.info(`Adding foreign key from ${fromTable}.${fromColumn} to ${toTable}.${toColumn}`);
 
+        //disable and re-enable foreign key checks on sqlite because of https://github.com/knex/knex/issues/4155
         let foreignKeysEnabled;
-        if (DatabaseInfo.isSQLite(transaction)) {
+        if (isSQLite(transaction)) {
             foreignKeysEnabled = await db.knex.raw('PRAGMA foreign_keys;');
             if (foreignKeysEnabled[0].foreign_keys) {
                 await db.knex.raw('PRAGMA foreign_keys = OFF;');
@@ -365,13 +470,13 @@ async function addForeign({fromTable, fromColumn, toTable, toColumn, constraintN
             }
         });
 
-        if (DatabaseInfo.isSQLite(transaction)) {
+        if (isSQLite(transaction)) {
             if (foreignKeysEnabled[0].foreign_keys) {
                 await db.knex.raw('PRAGMA foreign_keys = ON;');
             }
         }
     } catch (err) {
-        if (err.code === 'ER_DUP_KEY' || err.code === 'ER_FK_DUP_KEY' || err.code === 'ER_FK_DUP_NAME') {
+        if (isDuplicateKeyError(err)) {
             logging.warn(`Skipped adding foreign key from ${fromTable}.${fromColumn} to ${toTable}.${toColumn} - already exists`);
             return;
         }
@@ -391,7 +496,7 @@ async function addForeign({fromTable, fromColumn, toTable, toColumn, constraintN
  * @param {import('knex').Knex} [configuration.transaction] - connection object containing knex reference
  */
 async function dropForeign({fromTable, fromColumn, toTable, toColumn, constraintName, transaction = db.knex}) {
-    if (DatabaseInfo.isSQLite(transaction)) {
+    if (isSQLite(transaction)) {
         const foreignKeyExists = await hasForeignSQLite({fromTable, fromColumn, toTable, toColumn, transaction});
         if (!foreignKeyExists) {
             logging.warn(`Skipped dropping foreign key from ${fromTable}.${fromColumn} to ${toTable}.${toColumn} - does not exist`);
@@ -401,8 +506,9 @@ async function dropForeign({fromTable, fromColumn, toTable, toColumn, constraint
     try {
         logging.info(`Dropping foreign key from ${fromTable}.${fromColumn} to ${toTable}.${toColumn}`);
 
+        //disable and re-enable foreign key checks on sqlite because of https://github.com/knex/knex/issues/4155
         let foreignKeysEnabled;
-        if (DatabaseInfo.isSQLite(transaction)) {
+        if (isSQLite(transaction)) {
             foreignKeysEnabled = await db.knex.raw('PRAGMA foreign_keys;');
             if (foreignKeysEnabled[0].foreign_keys) {
                 await db.knex.raw('PRAGMA foreign_keys = OFF;');
@@ -413,13 +519,13 @@ async function dropForeign({fromTable, fromColumn, toTable, toColumn, constraint
             table.dropForeign(fromColumn, constraintName);
         });
 
-        if (DatabaseInfo.isSQLite(transaction)) {
+        if (isSQLite(transaction)) {
             if (foreignKeysEnabled[0].foreign_keys) {
                 await db.knex.raw('PRAGMA foreign_keys = ON;');
             }
         }
     } catch (err) {
-        if (err.code === 'ER_CANT_DROP_FIELD_OR_KEY') {
+        if (isCantDropFieldOrKeyError(err)) {
             logging.warn(`Skipped dropping foreign key from ${fromTable}.${fromColumn} to ${toTable}.${toColumn} - does not exist`);
             return;
         }
@@ -434,7 +540,7 @@ async function dropForeign({fromTable, fromColumn, toTable, toColumn, constraint
  * @param {import('knex').Knex} [transaction] - connection object containing knex reference
  */
 async function hasPrimaryKeySQLite(tableName, transaction = db.knex) {
-    if (!DatabaseInfo.isSQLite(transaction)){
+    if (!isSQLite(transaction)){
         throw new errors.InternalServerError({
             message: tpl(messages.hasPrimaryKeySQLiteError)
         });
@@ -454,7 +560,7 @@ async function hasPrimaryKeySQLite(tableName, transaction = db.knex) {
  * @param {import('knex').Knex} [transaction] - connection object containing knex reference
  */
 async function addPrimaryKey(tableName, columns, transaction = db.knex) {
-    if (DatabaseInfo.isSQLite(transaction)) {
+    if (isSQLite(transaction)) {
         const primaryKeyExists = await hasPrimaryKeySQLite(tableName, transaction);
         if (primaryKeyExists) {
             logging.warn(`Primary key constraint for '${columns}' already exists for table '${tableName}'`);
@@ -467,7 +573,7 @@ async function addPrimaryKey(tableName, columns, transaction = db.knex) {
             table.primary(columns);
         });
     } catch (err) {
-        if (err.code === 'ER_MULTIPLE_PRI_KEY') {
+        if (isMultiplePriKeyError(err)) {
             logging.warn(`Primary key constraint for '${columns}' already exists for table '${tableName}'`);
             return;
         }
@@ -491,10 +597,10 @@ function createTable(table, transaction = db.knex, tableSpec = schema[table]) {
             .filter(column => !(column.startsWith('@@')))
             .forEach(column => addTableColumn(table, t, column, tableSpec[column]));
 
-        if (tableSpec['@@INDEXES@@']) {
+        if (hasIndexes(tableSpec)) {
             tableSpec['@@INDEXES@@'].forEach(index => t.index(index));
         }
-        if (tableSpec['@@UNIQUE_CONSTRAINTS@@']) {
+        if (hasUniqueConstraints(tableSpec)) {
             tableSpec['@@UNIQUE_CONSTRAINTS@@'].forEach(unique => t.unique(unique));
         }
     });
@@ -514,10 +620,10 @@ function deleteTable(table, transaction = db.knex) {
 async function getTables(transaction = db.knex) {
     const client = transaction.client.config.client;
 
-    if (client === 'sqlite3') {
+    if (isSQLiteClient(client)) {
         const response = await transaction.raw('select * from sqlite_master where type = "table"');
         return _.reject(_.map(response, 'tbl_name'), name => name === 'sqlite_sequence');
-    } else if (client === 'mysql2') {
+    } else if (isMySQLClient(client)) {
         const response = await transaction.raw('show tables');
         return _.flatten(_.map(response[0], entry => _.values(entry)));
     }
@@ -532,10 +638,10 @@ async function getTables(transaction = db.knex) {
 async function getIndexes(table, transaction = db.knex) {
     const client = transaction.client.config.client;
 
-    if (client === 'sqlite3') {
+    if (isSQLiteClient(client)) {
         const response = await transaction.raw(`pragma index_list("${table}")`);
         return _.flatten(_.map(response, 'name'));
-    } else if (client === 'mysql2') {
+    } else if (isMySQLClient(client)) {
         const response = await transaction.raw(`SHOW INDEXES from ${table}`);
         return _.flatten(_.map(response[0], 'Key_name'));
     }
@@ -550,10 +656,10 @@ async function getIndexes(table, transaction = db.knex) {
 async function getColumns(table, transaction = db.knex) {
     const client = transaction.client.config.client;
 
-    if (client === 'sqlite3') {
+    if (isSQLiteClient(client)) {
         const response = await transaction.raw(`pragma table_info("${table}")`);
         return _.flatten(_.map(response, 'name'));
-    } else if (client === 'mysql2') {
+    } else if (isMySQLClient(client)) {
         const response = await transaction.raw(`SHOW COLUMNS from ${table}`);
         return _.flatten(_.map(response[0], 'Field'));
     }
@@ -614,3 +720,107 @@ module.exports = {
     _hasForeignSQLite: hasForeignSQLite,
     _hasPrimaryKeySQLite: hasPrimaryKeySQLite
 };
+
+/**
+ * @param {import('knex').Knex} transaction
+ * @returns {boolean}
+ */
+function isSQLite(transaction) {
+    return DatabaseInfo.isSQLite(transaction);
+}
+
+/**
+ * @param {import('knex').Knex} transaction
+ * @returns {boolean}
+ */
+function isMySQL(transaction) {
+    return DatabaseInfo.isMySQL(transaction);
+}
+
+/**
+ * @param {string} sql
+ * @returns {string}
+ */
+function removeTrailingSemicolon(sql) {
+    return sql.replace(/;\s*$/, '');
+}
+
+/**
+ * @param {object} options
+ * @returns {boolean}
+ */
+function hasExplicitAlgorithm(options) {
+    return options?.algorithm !== 'auto';
+}
+
+/**
+ * @param {Error} err
+ * @returns {boolean}
+ */
+function isSQLiteError(err) {
+    return err.code === 'SQLITE_ERROR';
+}
+
+/**
+ * @param {Error} err
+ * @returns {boolean}
+ */
+function isDuplicateKeynameError(err) {
+    return err.code === 'ER_DUP_KEYNAME';
+}
+
+/**
+ * @param {Error} err
+ * @returns {boolean}
+ */
+function isCantDropFieldOrKeyError(err) {
+    return err.code === 'ER_CANT_DROP_FIELD_OR_KEY';
+}
+
+/**
+ * @param {Error} err
+ * @returns {boolean}
+ */
+function isDuplicateKeyError(err) {
+    return err.code === 'ER_DUP_KEY' || err.code === 'ER_FK_DUP_KEY' || err.code === 'ER_FK_DUP_NAME';
+}
+
+/**
+ * @param {Error} err
+ * @returns {boolean}
+ */
+function isMultiplePriKeyError(err) {
+    return err.code === 'ER_MULTIPLE_PRI_KEY';
+}
+
+/**
+ * @param {string} client
+ * @returns {boolean}
+ */
+function isSQLiteClient(client) {
+    return client === 'sqlite3';
+}
+
+/**
+ * @param {string} client
+ * @returns {boolean}
+ */
+function isMySQLClient(client) {
+    return client === 'mysql2';
+}
+
+/**
+ * @param {object} tableSpec
+ * @returns {boolean}
+ */
+function hasIndexes(tableSpec) {
+    return Object.prototype.hasOwnProperty.call(tableSpec, '@@INDEXES@@');
+}
+
+/**
+ * @param {object} tableSpec
+ * @returns {boolean}
+ */
+function hasUniqueConstraints(tableSpec) {
+    return Object.prototype.hasOwnProperty.call(tableSpec, '@@UNIQUE_CONSTRAINTS@@');
+}

@@ -62,7 +62,7 @@ class PostsExporter {
         const hasNewslettersWithFeedback = !!newsletters.find(newsletter => newsletter.get('feedback_enabled'));
 
         const mapped = posts.data.map((post) => {
-            const email = this.#getSafeEmail(post);
+            const email = this.#getValidEmail(post);
             const published = this.#isPostPublished(post);
             const feedbackEnabled = email && email.get('feedback_enabled') && hasNewslettersWithFeedback;
             const showEmailClickAnalytics = trackClicks && email && email.get('track_clicks');
@@ -92,7 +92,7 @@ class PostsExporter {
         });
 
         if (mapped.length) {
-            const removeableColumns = this.#determineRemoveableColumns(newsletters.length, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
+            const removeableColumns = this.#determineRemoveableColumns(newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
 
             for (const columnToRemove of removeableColumns) {
                 for (const row of mapped) {
@@ -104,11 +104,13 @@ class PostsExporter {
         return mapped;
     }
 
-    #getSafeEmail(post) {
+    #getValidEmail(post) {
         let email = post.related('email');
+
         if (!email.id) {
             email = null;
         }
+
         return email;
     }
 
@@ -117,10 +119,10 @@ class PostsExporter {
         return status !== 'draft' && status !== 'scheduled';
     }
 
-    #determineRemoveableColumns(newsletterCount, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled) {
+    #determineRemoveableColumns(newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled) {
         const removeableColumns = [];
 
-        if (newsletterCount <= 1) {
+        if (newsletters.length <= 1) {
             removeableColumns.push('newsletter_name');
         }
 
@@ -203,7 +205,6 @@ class PostsExporter {
      * @returns
      */
     humanReadableEmailRecipientFilter(recipientFilter, allLabels, allTiers) {
-        // Examples: "label:test"; "label:test,label:batch1"; "status:-free,label:test", "all"
         if (recipientFilter === 'all') {
             return 'All subscribers';
         }

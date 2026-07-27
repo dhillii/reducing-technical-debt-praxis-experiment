@@ -41,20 +41,36 @@ const LIFECYCLES = {
 class Strapi {
   constructor(opts = {}) {
     this.reload = this.reload();
+
+    // Expose `koa`.
     this.app = new Koa();
     this.router = new Router();
+
     this.initServer();
+
+    // Logger.
     this.log = logger;
-    this.utils = { models };
+
+    // Utils.
+    this.utils = {
+      models,
+    };
+
     this.dir = opts.dir || process.cwd();
+
     this.admin = {};
     this.plugins = {};
     this.config = loadConfiguration(this.dir, opts);
     this.app.proxy = this.config.get('server.proxy');
+
     this.isLoaded = false;
+
+    // internal services.
     this.fs = createStrapiFs(this);
     this.eventHub = createEventHub();
+
     this.requireProjectBootstrap();
+
     createUpdateNotifier(this).notify();
   }
 
@@ -66,11 +82,13 @@ class Strapi {
     if (!this.requestHandler) {
       this.requestHandler = this.app.callback();
     }
+
     return this.requestHandler(req, res);
   }
 
   requireProjectBootstrap() {
     const bootstrapPath = path.resolve(this.dir, 'config/functions/bootstrap.js');
+
     if (fse.existsSync(bootstrapPath)) {
       require(bootstrapPath);
     }
@@ -106,6 +124,7 @@ class Strapi {
 
   logFirstStartupMessage() {
     this.logStats();
+
     console.log(chalk.bold('One more thing...'));
     console.log(
       chalk.grey('Create your first administrator 💻 by going to the administration panel at:')
@@ -113,14 +132,17 @@ class Strapi {
     console.log();
 
     const addressTable = new CLITable();
+
     const adminUrl = getAbsoluteAdminUrl(strapi.config);
     addressTable.push([chalk.bold(adminUrl)]);
+
     console.log(`${addressTable.toString()}`);
     console.log();
   }
 
   logStartupMessage() {
     this.logStats();
+
     console.log(chalk.bold('Welcome back!'));
 
     if (this.config.serveAdminPanel === true) {
@@ -138,24 +160,30 @@ class Strapi {
 
   initServer() {
     this.server = http.createServer(this.handleRequest.bind(this));
+    // handle port in use cleanly
     this.server.on('error', err => {
       if (err.code === 'EADDRINUSE') {
         return this.stopWithError(`The port ${err.port} is already used by another application.`);
       }
+
       this.log.error(err);
     });
 
+    // Close current connections to fully destroy the server
     const connections = {};
+
     this.server.on('connection', conn => {
       const key = conn.remoteAddress + ':' + conn.remotePort;
       connections[key] = conn;
-      conn.on('close', () => {
+
+      conn.on('close', function() {
         delete connections[key];
       });
     });
 
     this.server.destroy = cb => {
       this.server.close(cb);
+
       for (let key in connections) {
         connections[key].destroy();
       }
@@ -167,7 +195,10 @@ class Strapi {
       if (!this.isLoaded) {
         await this.load();
       }
+
       this.app.use(this.router.routes()).use(this.router.allowedMethods());
+
+      // Launch server.
       this.listen(cb);
     } catch (err) {
       this.stopWithError(err);
@@ -178,6 +209,7 @@ class Strapi {
     if (_.has(this, 'server.destroy')) {
       await new Promise(res => this.server.destroy(res));
     }
+
     await Promise.all(
       Object.values(this.plugins).map(plugin => {
         if (_.has(plugin, 'destroy') && typeof plugin.destroy === 'function') {
@@ -185,22 +217,33 @@ class Strapi {
         }
       })
     );
+
     if (_.has(this, 'admin')) {
       await this.admin.destroy();
     }
+
     this.eventHub.removeAllListeners();
+
     if (_.has(this, 'db')) {
       await this.db.destroy();
     }
+
     this.telemetry.destroy();
+
     delete global.strapi;
   }
 
+  /**
+   * Add behaviors to the server
+   */
   async listen(cb) {
     const onListen = async err => {
       if (err) return this.stopWithError(err);
 
+      // Is the project initialised?
       const isInitialised = await utils.isInitialised(this);
+
+      // Should the startup message be displayed?
       const hideStartupMessage = process.env.STRAPI_HIDE_STARTUP_MESSAGE
         ? process.env.STRAPI_HIDE_STARTUP_MESSAGE === 'true'
         : false;
@@ -213,8 +256,10 @@ class Strapi {
         }
       }
 
+      // Get database clients
       const databaseClients = _.map(this.config.get('connections'), _.property('settings.client'));
 
+      // Emit started event.
       await this.telemetry.send('didStartServer', {
         database: databaseClients,
         plugins: this.config.installedPlugins,
@@ -258,12 +303,16 @@ class Strapi {
   }
 
   stop(exitCode = 1) {
+    // Destroy server and available connections.
     if (_.has(this, 'server.destroy')) {
       this.server.destroy();
     }
+
     if (this.config.autoReload) {
       process.send('stop');
     }
+
+    // Kill process
     process.exit(exitCode);
   }
 
@@ -278,6 +327,7 @@ class Strapi {
     });
 
     const modules = await loadModules(this);
+
     this.api = modules.api;
     this.admin = modules.admin;
     this.components = modules.components;
@@ -287,12 +337,14 @@ class Strapi {
 
     await bootstrap(this);
 
+    // init webhook runner
     this.webhookRunner = createWebhookRunner({
       eventHub: this.eventHub,
       logger: this.log,
       configuration: this.config.get('server.webhooks', {}),
     });
 
+    // Init core store
     this.models['core_store'] = coreStoreModel(this.config);
     this.models['strapi_webhooks'] = webhookModel(this.config);
 
@@ -320,6 +372,7 @@ class Strapi {
 
     this.telemetry = createTelemetry(this);
 
+    // Initialize hooks and middlewares.
     await initializeMiddlewares.call(this);
     await initializeHooks.call(this);
 
@@ -342,6 +395,7 @@ class Strapi {
 
     const reload = function() {
       if (state.shouldReload > 0) {
+        // Reset the reloading state
         state.shouldReload -= 1;
         reload.isReloading = false;
         return;
@@ -357,6 +411,7 @@ class Strapi {
       configurable: true,
       enumerable: true,
       set: value => {
+        // Special state when the reloader is disabled temporarly (see GraphQL plugin example).
         if (state.isWatching === false && value === true) {
           state.shouldReload += 1;
         }
@@ -378,14 +433,17 @@ class Strapi {
       if (!fn) {
         return;
       }
+
       return fn();
     };
 
     const configPath = `functions.${lifecycleName}`;
 
+    // plugins
     await Promise.all(
       Object.keys(this.plugins).map(plugin => {
         const pluginFunc = _.get(this.plugins[plugin], `config.${configPath}`);
+
         return execLifecycle(pluginFunc).catch(err => {
           strapi.log.error(`${lifecycleName} function in plugin "${plugin}" failed`);
           strapi.log.error(err);
@@ -394,8 +452,10 @@ class Strapi {
       })
     );
 
+    // user
     await execLifecycle(_.get(this.config, configPath));
 
+    // admin
     const adminFunc = _.get(this.admin.config, configPath);
     return execLifecycle(adminFunc).catch(err => {
       strapi.log.error(`${lifecycleName} function in admin failed`);

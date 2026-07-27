@@ -37,7 +37,7 @@ const hexToRgba = (hex: string, alpha: number) => {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
-const getBackgroundColor = (backgroundColor: ProfileCardProps['backgroundColor'], accentColor?: string) => {
+const getBackgroundColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
     switch (backgroundColor) {
     case 'light':
         return '#fff';
@@ -50,7 +50,7 @@ const getBackgroundColor = (backgroundColor: ProfileCardProps['backgroundColor']
     }
 };
 
-const getTextColor = (backgroundColor: ProfileCardProps['backgroundColor']) => {
+const getTextColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
     switch (backgroundColor) {
     case 'light':
         return '#15171a';
@@ -63,7 +63,7 @@ const getTextColor = (backgroundColor: ProfileCardProps['backgroundColor']) => {
     }
 };
 
-const getGradient = (backgroundColor: ProfileCardProps['backgroundColor'], accentColor?: string) => {
+const getGradient = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
     switch (backgroundColor) {
     case 'light':
         return `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`;
@@ -76,7 +76,7 @@ const getGradient = (backgroundColor: ProfileCardProps['backgroundColor'], accen
     }
 };
 
-const getDotsPatternColor = (backgroundColor: ProfileCardProps['backgroundColor'], accentColor?: string) => {
+const getDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
     switch (backgroundColor) {
     case 'light':
         return hexToRgba('#15171a', 0.025);

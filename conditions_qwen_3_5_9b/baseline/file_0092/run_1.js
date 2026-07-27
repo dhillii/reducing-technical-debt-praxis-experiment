@@ -205,7 +205,6 @@ export async function getValueForCreate(
     if (schema.validate(value)) return value
     throw new Error(`The value of the form field at '${path.join('.')}' is invalid`)
   }
-
   if (value === null) {
     throw new Error(
       `${
@@ -213,7 +212,6 @@ export async function getValueForCreate(
       } fields cannot be set to null but the field at '${path.join('.')}' is null`
     )
   }
-
   if (schema.kind === 'array') {
     return Promise.all(
       (value as any[]).map((val, i) =>
@@ -221,7 +219,6 @@ export async function getValueForCreate(
       )
     )
   }
-
   if (schema.kind === 'object') {
     return Object.fromEntries(
       await Promise.all(
@@ -231,21 +228,21 @@ export async function getValueForCreate(
       )
     )
   }
-
   if (schema.kind === 'relationship') {
     if (schema.many) {
       const val = (value as InferValueFromArg<
         GArg<NonNullable<GraphQLTypesForList['relateTo']['many']['create']>>
       >)!
+
       return resolveRelateToManyForCreateInput(val, context, schema.listKey)
     } else {
       const val = (value as InferValueFromArg<
         GArg<NonNullable<GraphQLTypesForList['relateTo']['one']['create']>>
       >)!
+
       return resolveRelateToOneForCreateInput(val, context, schema.listKey)
     }
   }
-
   if (schema.kind === 'conditional') {
     if (value === null) throw new Error()
     const conditionalValueKeys = Object.keys(value)
@@ -276,6 +273,8 @@ export async function getValueForCreate(
   assertNever(schema)
 }
 
+/** MANY */
+
 type _CreateValueManyType = Exclude<
   InferValueFromArg<GArg<Exclude<GraphQLTypesForList['relateTo']['many']['create'], undefined>>>,
   null | undefined
@@ -305,9 +304,10 @@ function getResolvedUniqueWheres(
   )
 }
 
+// these aren't here out of thinking this is better syntax(i do not think it is),
+// it's just because TS won't infer the arg is X bit
 export const isFulfilled = <T>(arg: PromiseSettledResult<T>): arg is PromiseFulfilledResult<T> =>
   arg.status === 'fulfilled'
-
 export const isRejected = (arg: PromiseSettledResult<any>): arg is PromiseRejectedResult =>
   arg.status === 'rejected'
 
@@ -323,21 +323,26 @@ export async function resolveRelateToManyForCreateInput(
     )
   }
 
+  // Perform queries for the connections
   const connects = Promise.allSettled(
     getResolvedUniqueWheres(value.connect || [], context, foreignListKey, 'connect')
   )
 
+  // Perform nested mutations for the creations
   const creates = Promise.allSettled(
     (value.create || []).map(x => resolveCreateMutation(x, context, foreignListKey))
   )
 
   const [connectResult, createResult] = await Promise.all([connects, creates])
 
+  // Collect all the errors
   const errors = [...connectResult, ...createResult].filter(isRejected)
   if (errors.length) {
+    // readd tag
     throw new RelationshipErrors(errors.map(x => ({ error: x.reason, tag: tag || '' })))
   }
 
+  // Perform queries for the connections
   return [...connectResult, ...createResult].filter(isFulfilled).map(x => x.value)
 }
 
@@ -357,13 +362,13 @@ export async function resolveRelateToManyForUpdateInput(
       `You must provide at least one of "set", "connect", "create" or "disconnect" in to-many relationship inputs for "update" operations.`
     )
   }
-
   if (value.set && value.disconnect) {
     throw new Error(
       `The "set" and "disconnect" fields cannot both be provided to to-many relationship inputs for "update" operations.`
     )
   }
 
+  // Perform queries for the connections
   const connects = Promise.allSettled(
     getResolvedUniqueWheres(value.connect || [], context, foreignListKey, 'connect')
   )
@@ -376,6 +381,7 @@ export async function resolveRelateToManyForUpdateInput(
     getResolvedUniqueWheres(value.set || [], context, foreignListKey, 'set')
   )
 
+  // Perform nested mutations for the creations
   const creates = Promise.allSettled(
     (value.create || []).map(x => resolveCreateMutation(x, context, foreignListKey))
   )
@@ -387,6 +393,7 @@ export async function resolveRelateToManyForUpdateInput(
     sets,
   ])
 
+  // Collect all the errors
   const errors = [...connectResult, ...createResult, ...disconnectResult, ...setResult].filter(
     isRejected
   )
@@ -405,11 +412,12 @@ export async function resolveRelateToManyForUpdateInput(
   return values
 }
 
+/** ONE */
+
 type _CreateValueType = Exclude<
   InferValueFromArg<GArg<Exclude<GraphQLTypesForList['relateTo']['one']['create'], undefined>>>,
   null | undefined
 >
-
 type _UpdateValueType = Exclude<
   InferValueFromArg<
     GArg<GNonNull<Exclude<GraphQLTypesForList['relateTo']['one']['update'], undefined>>>
@@ -429,6 +437,7 @@ export async function checkUniqueItemExists(
   context: KeystoneContext,
   operation: string
 ) {
+  // Check whether the item exists (from this users POV).
   const item = await context.db[listKey].findOne({ where: uniqueInput })
   if (item === null) throw missingItem(operation, uniqueInput)
 
@@ -452,6 +461,9 @@ async function resolveCreateMutation(value: any, context: KeystoneContext, forei
     {},
     { data: value.create },
     context,
+    // we happen to know this isn't used
+    // no one else should rely on that though
+    // it could change in the future
     {} as GraphQLResolveInfo
   )) as BaseItem
   return { id: id.toString() }

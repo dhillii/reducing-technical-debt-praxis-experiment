@@ -657,22 +657,15 @@ function FreeProductCard({products, handleChooseSignup, error}) {
     const {site, action} = useContext(AppContext);
     const {selectedProduct, setSelectedProduct} = useContext(ProductsContext);
 
-    let cardClass = selectedProduct === 'free' ? 'gh-portal-product-card free checked' : 'gh-portal-product-card free';
+    const cardClass = selectedProduct === 'free' ? 'gh-portal-product-card free checked' : 'gh-portal-product-card free';
     const product = getFreeProduct({site});
     let freeProductDescription = getFreeTierDescription({site});
 
-    let disabled = (action === 'signup:running') ? true : false;
+    const isDisabled = action === 'signup:running' || isCookiesDisabled();
 
-    if (isCookiesDisabled()) {
-        disabled = true;
-    }
-
-    // @TODO: doublecheck this!
     let currencySymbol = '$';
     if (products && products[1]) {
         currencySymbol = getCurrencySymbol(products[1].monthlyPrice.currency);
-    } else {
-        currencySymbol = '$';
     }
 
     const hasOnlyFree = hasOnlyFreeProduct({site});
@@ -721,11 +714,11 @@ function FreeProductCard({products, handleChooseSignup, error}) {
                             <button
                                 data-test-button='select-tier'
                                 className='gh-portal-btn'
-                                disabled={disabled}
+                                disabled={isDisabled}
                                 onClick={(e) => {
                                     handleChooseSignup(e, 'free');
                                 }}>
-                                {((selectedProduct === 'free' && disabled) ? <LoaderIcon className='gh-portal-loadingicon' /> : t('Choose'))}
+                                {((selectedProduct === 'free' && isDisabled) ? <LoaderIcon className='gh-portal-loadingicon' /> : t('Choose'))}
                             </button>
                             {error && <div className="gh-portal-error-message">{error}</div>}
                         </div>
@@ -754,7 +747,7 @@ function ProductCardButton({selectedProduct, product, disabled, noOfProducts, tr
         );
     }
 
-    return (noOfProducts > 1 ? t('Choose') : t('Continue'));
+    return noOfProducts > 1 ? t('Choose') : t('Continue');
 }
 
 function ProductCard({product, products, selectedInterval, handleChooseSignup, error}) {
@@ -767,11 +760,7 @@ function ProductCard({product, products, selectedInterval, handleChooseSignup, e
         return d.type === 'paid';
     })?.length;
 
-    let disabled = (['signup:running', 'checkoutPlan:running'].includes(action)) ? true : false;
-
-    if (isCookiesDisabled()) {
-        disabled = true;
-    }
+    const isDisabled = ['signup:running', 'checkoutPlan:running'].includes(action) || isCookiesDisabled();
 
     let productDescription = product.description;
     if ((!product.benefits || !product.benefits.length) && !productDescription) {
@@ -798,14 +787,14 @@ function ProductCard({product, products, selectedInterval, handleChooseSignup, e
                     <div className='gh-portal-btn-product'>
                         <button
                             data-test-button='select-tier'
-                            disabled={disabled}
+                            disabled={isDisabled}
                             className='gh-portal-btn'
                             onClick={(e) => {
                                 const selectedPrice = getSelectedPrice({products, selectedInterval, selectedProduct: product.id});
                                 handleChooseSignup(e, selectedPrice.id);
                             }}>
                             <ProductCardButton
-                                {...{selectedProduct, product, disabled, noOfProducts, trialDays}}
+                                {...{selectedProduct, product, disabled: isDisabled, noOfProducts, trialDays}}
                             />
                         </button>
                         {error && <div className="gh-portal-error-message">{error}</div>}

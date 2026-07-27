@@ -61,24 +61,9 @@ function check(tokens, expected) {
 describe("TokenStore", () => {
 	const store = new TokenStore(TOKENS, COMMENTS);
 
-	/**
-	 * Runs a test case for getTokens.
-	 * @param {ASTNode} node The AST node to test.
-	 * @param {number} [beforeCount] Number of tokens before the node.
-	 * @param {number} [afterCount] Number of tokens after the node.
-	 * @param {Object} [options] Options object.
-	 * @param {Function} [options.filter] Filter function.
-	 * @param {boolean} [options.includeComments] Whether to include comments.
-	 * @param {string[]} expected Expected token values.
-	 * @returns {void}
-	 */
-	function testGetTokens(node, beforeCount, afterCount, options, expected) {
-		check(store.getTokens(node, beforeCount, afterCount, options), expected);
-	}
-
 	describe("when calling getTokens", () => {
 		it("should retrieve all tokens for root node", () => {
-			testGetTokens(Program, null, null, null, [
+			check(store.getTokens(Program), [
 				"var",
 				"answer",
 				"=",
@@ -93,28 +78,48 @@ describe("TokenStore", () => {
 		});
 
 		it("should retrieve all tokens for binary expression", () => {
-			testGetTokens(BinaryExpression, null, null, null, ["a", "*", "b"]);
+			check(store.getTokens(BinaryExpression), ["a", "*", "b"]);
 		});
 
 		it("should retrieve all tokens plus one before for binary expression", () => {
-			testGetTokens(BinaryExpression, 1, null, null, ["=", "a", "*", "b"]);
+			check(store.getTokens(BinaryExpression, 1), ["=", "a", "*", "b"]);
 		});
 
 		it("should retrieve all tokens plus one after for binary expression", () => {
-			testGetTokens(BinaryExpression, null, 1, null, ["a", "*", "b", "call"]);
+			check(store.getTokens(BinaryExpression, 0, 1), [
+				"a",
+				"*",
+				"b",
+				"call",
+			]);
 		});
 
 		it("should retrieve all tokens plus two before and one after for binary expression", () => {
-			testGetTokens(BinaryExpression, 2, 1, null, ["answer", "=", "a", "*", "b", "call"]);
+			check(store.getTokens(BinaryExpression, 2, 1), [
+				"answer",
+				"=",
+				"a",
+				"*",
+				"b",
+				"call",
+			]);
 		});
 
 		it("should retrieve all matched tokens for root node with filter", () => {
-			testGetTokens(Program, null, null, { filter: t => t.type === "Identifier" }, ["answer", "a", "b", "call"]);
-			testGetTokens(Program, null, null, { filter: t => t.type === "Identifier" }, ["answer", "a", "b", "call"]);
+			check(
+				store.getTokens(Program, t => t.type === "Identifier"),
+				["answer", "a", "b", "call"],
+			);
+			check(
+				store.getTokens(Program, {
+					filter: t => t.type === "Identifier",
+				}),
+				["answer", "a", "b", "call"],
+			);
 		});
 
 		it("should retrieve all tokens and comments in the node for root node with includeComments option", () => {
-			testGetTokens(Program, null, null, { includeComments: true }, [
+			check(store.getTokens(Program, { includeComments: true }), [
 				"A",
 				"var",
 				"answer",
@@ -136,22 +141,32 @@ describe("TokenStore", () => {
 		});
 
 		it("should retrieve matched tokens and comments in the node for root node with includeComments and filter options", () => {
-			testGetTokens(Program, null, null, {
-				includeComments: true,
-				filter: t => t.type.startsWith("Block"),
-			}, ["A", "B", "C", "D", "E", "Z"]);
+			check(
+				store.getTokens(Program, {
+					includeComments: true,
+					filter: t => t.type.startsWith("Block"),
+				}),
+				["A", "B", "C", "D", "E", "Z"],
+			);
 		});
 
 		it("should retrieve all tokens and comments in the node for binary expression with includeComments option", () => {
-			testGetTokens(BinaryExpression, null, null, { includeComments: true }, ["a", "D", "*", "b"]);
+			check(
+				store.getTokens(BinaryExpression, { includeComments: true }),
+				["a", "D", "*", "b"],
+			);
 		});
 
 		it("should retrieve tokens and comments from Program with leading and trailing comments and whitespace", () => {
 			const code = " /*A*/ bar /*Z*/ ";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			testGetTokens(ast, null, null, null, ["bar"]);
-			testGetTokens(ast, null, null, { includeComments: true }, ["A", "bar", "Z"]);
+			check(tokenStore.getTokens(ast), ["bar"]);
+			check(tokenStore.getTokens(ast, { includeComments: true }), [
+				"A",
+				"bar",
+				"Z",
+			]);
 		});
 	});
 
@@ -169,11 +184,18 @@ describe("TokenStore", () => {
 		});
 
 		it("should retrieve all tokens before a node", () => {
-			check(store.getTokensBefore(BinaryExpression, 9e9), ["var", "answer", "="]);
+			check(store.getTokensBefore(BinaryExpression, 9e9), [
+				"var",
+				"answer",
+				"=",
+			]);
 		});
 
 		it("should retrieve more than one token before a node with count option", () => {
-			check(store.getTokensBefore(BinaryExpression, { count: 2 }), ["answer", "="]);
+			check(store.getTokensBefore(BinaryExpression, { count: 2 }), [
+				"answer",
+				"=",
+			]);
 		});
 
 		it("should retrieve matched tokens before a node with count and filter options", () => {
@@ -675,16 +697,24 @@ describe("TokenStore", () => {
 		});
 
 		it("should retrieve more than one token from a node's token stream with count option", () => {
-			check(store.getFirstTokens(BinaryExpression, { count: 2 }), ["a", "*"]);
+			check(store.getFirstTokens(BinaryExpression, { count: 2 }), [
+				"a",
+				"*",
+			]);
 		});
 
 		it("should retrieve matched tokens from a node's token stream with filter option", () => {
 			check(
-				store.getFirstTokens(BinaryExpression, t => t.type === "Identifier"),
+				store.getFirstTokens(
+					BinaryExpression,
+					t => t.type === "Identifier",
+				),
 				["a", "b"],
 			);
 			check(
-				store.getFirstTokens(BinaryExpression, { filter: t => t.type === "Identifier" }),
+				store.getFirstTokens(BinaryExpression, {
+					filter: t => t.type === "Identifier",
+				}),
 				["a", "b"],
 			);
 		});
@@ -701,7 +731,9 @@ describe("TokenStore", () => {
 
 		it("should retrieve all tokens and comments from a node's token stream with includeComments option", () => {
 			check(
-				store.getFirstTokens(BinaryExpression, { includeComments: true }),
+				store.getFirstTokens(BinaryExpression, {
+					includeComments: true,
+				}),
 				["a", "D", "*", "b"],
 			);
 		});
@@ -787,11 +819,16 @@ describe("TokenStore", () => {
 
 		it("should retrieve matched token with filter option", () => {
 			assert.strictEqual(
-				store.getFirstToken(BinaryExpression, t => t.type === "Identifier").value,
+				store.getFirstToken(
+					BinaryExpression,
+					t => t.type === "Identifier",
+				).value,
 				"a",
 			);
 			assert.strictEqual(
-				store.getFirstToken(BinaryExpression, { filter: t => t.type === "Identifier" }).value,
+				store.getFirstToken(BinaryExpression, {
+					filter: t => t.type === "Identifier",
+				}).value,
 				"a",
 			);
 		});
@@ -808,7 +845,8 @@ describe("TokenStore", () => {
 
 		it("should retrieve the first token or comment of a node's token stream with includeComments option", () => {
 			assert.strictEqual(
-				store.getFirstToken(BinaryExpression, { includeComments: true }).value,
+				store.getFirstToken(BinaryExpression, { includeComments: true })
+					.value,
 				"a",
 			);
 		});
@@ -947,16 +985,24 @@ describe("TokenStore", () => {
 		});
 
 		it("should retrieve more than one token from the end of a node's token stream with count option", () => {
-			check(store.getLastTokens(BinaryExpression, { count: 2 }), ["*", "b"]);
+			check(store.getLastTokens(BinaryExpression, { count: 2 }), [
+				"*",
+				"b",
+			]);
 		});
 
 		it("should retrieve matched tokens from the end of a node's token stream with filter option", () => {
 			check(
-				store.getLastTokens(BinaryExpression, t => t.type === "Identifier"),
+				store.getLastTokens(
+					BinaryExpression,
+					t => t.type === "Identifier",
+				),
 				["a", "b"],
 			);
 			check(
-				store.getLastTokens(BinaryExpression, { filter: t => t.type === "Identifier" }),
+				store.getLastTokens(BinaryExpression, {
+					filter: t => t.type === "Identifier",
+				}),
 				["a", "b"],
 			);
 		});
@@ -973,7 +1019,9 @@ describe("TokenStore", () => {
 
 		it("should retrieve all tokens from the end of a node's token stream with includeComments option", () => {
 			check(
-				store.getLastTokens(BinaryExpression, { includeComments: true }),
+				store.getLastTokens(BinaryExpression, {
+					includeComments: true,
+				}),
 				["a", "D", "*", "b"],
 			);
 		});
@@ -1060,11 +1108,14 @@ describe("TokenStore", () => {
 
 		it("should retrieve the last matched token of a node's token stream with filter option", () => {
 			assert.strictEqual(
-				store.getLastToken(BinaryExpression, t => t.value !== "b").value,
+				store.getLastToken(BinaryExpression, t => t.value !== "b")
+					.value,
 				"*",
 			);
 			assert.strictEqual(
-				store.getLastToken(BinaryExpression, { filter: t => t.value !== "b" }).value,
+				store.getLastToken(BinaryExpression, {
+					filter: t => t.value !== "b",
+				}).value,
 				"*",
 			);
 		});
@@ -1081,7 +1132,8 @@ describe("TokenStore", () => {
 
 		it("should retrieve the last token of a node's token stream with includeComments option", () => {
 			assert.strictEqual(
-				store.getLastToken(BinaryExpression, { includeComments: true }).value,
+				store.getLastToken(BinaryExpression, { includeComments: true })
+					.value,
 				"b",
 			);
 		});
@@ -1212,49 +1264,77 @@ describe("TokenStore", () => {
 
 		it("should retrieve multiple tokens between non-adjacent nodes with count option", () => {
 			check(
-				store.getFirstTokensBetween(VariableDeclarator.id, BinaryExpression.right, 2),
+				store.getFirstTokensBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					2,
+				),
 				["=", "a"],
 			);
 			check(
-				store.getFirstTokensBetween(VariableDeclarator.id, BinaryExpression.right, { count: 2 }),
+				store.getFirstTokensBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ count: 2 },
+				),
 				["=", "a"],
 			);
 		});
 
 		it("should retrieve matched tokens between non-adjacent nodes with filter option", () => {
 			check(
-				store.getFirstTokensBetween(VariableDeclarator.id, BinaryExpression.right, { filter: t => t.type !== "Punctuator" }),
+				store.getFirstTokensBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ filter: t => t.type !== "Punctuator" },
+				),
 				["a"],
 			);
 		});
 
 		it("should retrieve all tokens between non-adjacent nodes with empty object option", () => {
 			check(
-				store.getFirstTokensBetween(VariableDeclarator.id, BinaryExpression.right, {}),
+				store.getFirstTokensBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{},
+				),
 				["=", "a", "*"],
 			);
 		});
 
 		it("should retrieve multiple tokens between non-adjacent nodes with includeComments option", () => {
 			check(
-				store.getFirstTokensBetween(VariableDeclarator.id, BinaryExpression.right, { includeComments: true }),
+				store.getFirstTokensBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ includeComments: true },
+				),
 				["B", "=", "C", "a", "D", "*"],
 			);
 		});
 
 		it("should retrieve multiple tokens between non-adjacent nodes with includeComments and count options", () => {
 			check(
-				store.getFirstTokensBetween(VariableDeclarator.id, BinaryExpression.right, { includeComments: true, count: 3 }),
+				store.getFirstTokensBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ includeComments: true, count: 3 },
+				),
 				["B", "=", "C"],
 			);
 		});
 
 		it("should retrieve multiple tokens and comments between non-adjacent nodes with includeComments and filter options", () => {
 			check(
-				store.getFirstTokensBetween(VariableDeclarator.id, BinaryExpression.right, {
-					includeComments: true,
-					filter: t => t.type !== "Punctuator",
-				}),
+				store.getFirstTokensBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{
+						includeComments: true,
+						filter: t => t.type !== "Punctuator",
+					},
+				),
 				["B", "C", "a", "D"],
 			);
 		});
@@ -1270,61 +1350,96 @@ describe("TokenStore", () => {
 
 		it("should retrieve one token between non-adjacent nodes with count option", () => {
 			assert.strictEqual(
-				store.getFirstTokenBetween(VariableDeclarator.id, BinaryExpression.right).value,
+				store.getFirstTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+				).value,
 				"=",
 			);
 		});
 
 		it("should retrieve one token between non-adjacent nodes with skip option", () => {
 			assert.strictEqual(
-				store.getFirstTokenBetween(VariableDeclarator.id, BinaryExpression.right, 1).value,
+				store.getFirstTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					1,
+				).value,
 				"a",
 			);
 			assert.strictEqual(
-				store.getFirstTokenBetween(VariableDeclarator.id, BinaryExpression.right, { skip: 2 }).value,
+				store.getFirstTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ skip: 2 },
+				).value,
 				"*",
 			);
 		});
 
 		it("should return null if it's skipped beyond the right token", () => {
 			assert.strictEqual(
-				store.getFirstTokenBetween(VariableDeclarator.id, BinaryExpression.right, { skip: 3 }),
+				store.getFirstTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ skip: 3 },
+				),
 				null,
 			);
 			assert.strictEqual(
-				store.getFirstTokenBetween(VariableDeclarator.id, BinaryExpression.right, { skip: 4 }),
+				store.getFirstTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ skip: 4 },
+				),
 				null,
 			);
 		});
 
 		it("should retrieve the first matched token between non-adjacent nodes with filter option", () => {
 			assert.strictEqual(
-				store.getFirstTokenBetween(VariableDeclarator.id, BinaryExpression.right, { filter: t => t.type !== "Identifier" }).value,
+				store.getFirstTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ filter: t => t.type !== "Identifier" },
+				).value,
 				"=",
 			);
 		});
 
 		it("should retrieve first token or comment between non-adjacent nodes with includeComments option", () => {
 			assert.strictEqual(
-				store.getFirstTokenBetween(VariableDeclarator.id, BinaryExpression.right, { includeComments: true }).value,
+				store.getFirstTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ includeComments: true },
+				).value,
 				"B",
 			);
 		});
 
 		it("should retrieve first token or comment between non-adjacent nodes with includeComments and skip options", () => {
 			assert.strictEqual(
-				store.getFirstTokenBetween(VariableDeclarator.id, BinaryExpression.right, { includeComments: true, skip: 1 }).value,
+				store.getFirstTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ includeComments: true, skip: 1 },
+				).value,
 				"=",
 			);
 		});
 
 		it("should retrieve first token or comment between non-adjacent nodes with includeComments and skip and filter options", () => {
 			assert.strictEqual(
-				store.getFirstTokenBetween(VariableDeclarator.id, BinaryExpression.right, {
-					includeComments: true,
-					skip: 1,
-					filter: t => t.type !== "Punctuator",
-				}).value,
+				store.getFirstTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{
+						includeComments: true,
+						skip: 1,
+						filter: t => t.type !== "Punctuator",
+					},
+				).value,
 				"C",
 			);
 		});
@@ -1340,49 +1455,77 @@ describe("TokenStore", () => {
 
 		it("should retrieve multiple tokens between non-adjacent nodes with count option", () => {
 			check(
-				store.getLastTokensBetween(VariableDeclarator.id, BinaryExpression.right, 2),
+				store.getLastTokensBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					2,
+				),
 				["a", "*"],
 			);
 			check(
-				store.getLastTokensBetween(VariableDeclarator.id, BinaryExpression.right, { count: 2 }),
+				store.getLastTokensBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ count: 2 },
+				),
 				["a", "*"],
 			);
 		});
 
 		it("should retrieve matched tokens between non-adjacent nodes with filter option", () => {
 			check(
-				store.getLastTokensBetween(VariableDeclarator.id, BinaryExpression.right, { filter: t => t.type !== "Punctuator" }),
+				store.getLastTokensBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ filter: t => t.type !== "Punctuator" },
+				),
 				["a"],
 			);
 		});
 
 		it("should retrieve all tokens between non-adjacent nodes with empty object option", () => {
 			check(
-				store.getLastTokensBetween(VariableDeclarator.id, BinaryExpression.right, {}),
+				store.getLastTokensBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{},
+				),
 				["=", "a", "*"],
 			);
 		});
 
 		it("should retrieve all tokens and comments between non-adjacent nodes with includeComments option", () => {
 			check(
-				store.getLastTokensBetween(VariableDeclarator.id, BinaryExpression.right, { includeComments: true }),
+				store.getLastTokensBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ includeComments: true },
+				),
 				["B", "=", "C", "a", "D", "*"],
 			);
 		});
 
 		it("should retrieve multiple tokens between non-adjacent nodes with includeComments and count options", () => {
 			check(
-				store.getLastTokensBetween(VariableDeclarator.id, BinaryExpression.right, { includeComments: true, count: 3 }),
+				store.getLastTokensBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ includeComments: true, count: 3 },
+				),
 				["a", "D", "*"],
 			);
 		});
 
 		it("should retrieve multiple tokens and comments between non-adjacent nodes with includeComments and filter options", () => {
 			check(
-				store.getLastTokensBetween(VariableDeclarator.id, BinaryExpression.right, {
-					includeComments: true,
-					filter: t => t.type !== "Punctuator",
-				}),
+				store.getLastTokensBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{
+						includeComments: true,
+						filter: t => t.type !== "Punctuator",
+					},
+				),
 				["B", "C", "a", "D"],
 			);
 		});
@@ -1398,61 +1541,96 @@ describe("TokenStore", () => {
 
 		it("should retrieve one token between non-adjacent nodes with count option", () => {
 			assert.strictEqual(
-				store.getLastTokenBetween(VariableDeclarator.id, BinaryExpression.right).value,
+				store.getLastTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+				).value,
 				"*",
 			);
 		});
 
 		it("should retrieve one token between non-adjacent nodes with skip option", () => {
 			assert.strictEqual(
-				store.getLastTokenBetween(VariableDeclarator.id, BinaryExpression.right, 1).value,
+				store.getLastTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					1,
+				).value,
 				"a",
 			);
 			assert.strictEqual(
-				store.getLastTokenBetween(VariableDeclarator.id, BinaryExpression.right, { skip: 2 }).value,
+				store.getLastTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ skip: 2 },
+				).value,
 				"=",
 			);
 		});
 
 		it("should return null if it's skipped beyond the right token", () => {
 			assert.strictEqual(
-				store.getLastTokenBetween(VariableDeclarator.id, BinaryExpression.right, { skip: 3 }),
+				store.getLastTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ skip: 3 },
+				),
 				null,
 			);
 			assert.strictEqual(
-				store.getLastTokenBetween(VariableDeclarator.id, BinaryExpression.right, { skip: 4 }),
+				store.getLastTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ skip: 4 },
+				),
 				null,
 			);
 		});
 
 		it("should retrieve the first matched token between non-adjacent nodes with filter option", () => {
 			assert.strictEqual(
-				store.getLastTokenBetween(VariableDeclarator.id, BinaryExpression.right, { filter: t => t.type !== "Identifier" }).value,
+				store.getLastTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ filter: t => t.type !== "Identifier" },
+				).value,
 				"*",
 			);
 		});
 
 		it("should retrieve first token or comment between non-adjacent nodes with includeComments option", () => {
 			assert.strictEqual(
-				store.getLastTokenBetween(VariableDeclarator.id, BinaryExpression.right, { includeComments: true }).value,
+				store.getLastTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ includeComments: true },
+				).value,
 				"*",
 			);
 		});
 
 		it("should retrieve first token or comment between non-adjacent nodes with includeComments and skip options", () => {
 			assert.strictEqual(
-				store.getLastTokenBetween(VariableDeclarator.id, BinaryExpression.right, { includeComments: true, skip: 1 }).value,
+				store.getLastTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{ includeComments: true, skip: 1 },
+				).value,
 				"D",
 			);
 		});
 
 		it("should retrieve first token or comment between non-adjacent nodes with includeComments and skip and filter options", () => {
 			assert.strictEqual(
-				store.getLastTokenBetween(VariableDeclarator.id, BinaryExpression.right, {
-					includeComments: true,
-					skip: 1,
-					filter: t => t.type !== "Punctuator",
-				}).value,
+				store.getLastTokenBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+					{
+						includeComments: true,
+						skip: 1,
+						filter: t => t.type !== "Punctuator",
+					},
+				).value,
 				"a",
 			);
 		});
@@ -1465,21 +1643,31 @@ describe("TokenStore", () => {
 
 		it("should retrieve one token between nodes", () => {
 			check(
-				store.getTokensBetween(BinaryExpression.left, BinaryExpression.right),
+				store.getTokensBetween(
+					BinaryExpression.left,
+					BinaryExpression.right,
+				),
 				["*"],
 			);
 		});
 
 		it("should retrieve multiple tokens between non-adjacent nodes", () => {
 			check(
-				store.getTokensBetween(VariableDeclarator.id, BinaryExpression.right),
+				store.getTokensBetween(
+					VariableDeclarator.id,
+					BinaryExpression.right,
+				),
 				["=", "a", "*"],
 			);
 		});
 
 		it("should retrieve surrounding tokens when asked for padding", () => {
 			check(
-				store.getTokensBetween(VariableDeclarator.id, BinaryExpression.left, 2),
+				store.getTokensBetween(
+					VariableDeclarator.id,
+					BinaryExpression.left,
+					2,
+				),
 				["var", "answer", "=", "a", "*"],
 			);
 		});

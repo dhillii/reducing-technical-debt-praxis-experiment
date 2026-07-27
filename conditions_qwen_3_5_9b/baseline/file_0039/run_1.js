@@ -162,20 +162,15 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
          *
          * @TODO: Add a feature to bookshelf-relations to configure if relations can be added or should be matched only.
          */
-        matchAuthors(model, options) {
-            let ownerUser;
-            const ops = [];
-
-            ops.push(() => {
+        matchAuthors: function matchAuthors(model, options) {
+            const getOwnerUser = () => {
                 return ghostBookshelf
                     .model('User')
                     .getOwnerUser(Object.assign({}, _.pick(options, 'transacting')))
-                    .then((_ownerUser) => {
-                        ownerUser = _ownerUser;
-                    });
-            });
+                    .then((_ownerUser) => _ownerUser);
+            };
 
-            ops.push(() => {
+            const processAuthors = (ownerUser) => {
                 const authors = model.get('authors');
                 const authorsToSet = [];
 
@@ -208,9 +203,9 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                 })).then(() => {
                     model.set('authors', authorsToSet);
                 });
-            });
+            };
 
-            return sequence(ops);
+            return getOwnerUser().then(processAuthors);
         }
     }, {
         /**

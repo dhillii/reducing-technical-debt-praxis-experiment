@@ -14,139 +14,174 @@ function handleError(error, form, errorEl) {
     displayErrorIfElementExists(errorEl, chooseBestErrorMessage(error, defaultMessage));
 }
 
-function extractFormInputs(event) {
-    const target = event.target;
-    const emailInput = target.querySelector('input[data-members-email]');
-    const nameInput = target.querySelector('input[data-members-name]');
-    const autoRedirect = target.dataset.membersAutoredirect || 'true';
-
-    const email = emailInput?.value;
-    const name = (nameInput?.value || '').trim() || undefined;
-
-    const labelInputs = target.querySelectorAll('input[data-members-label]') || [];
-    const labels = labelInputs.map(input => input.value);
-
-    const newsletterInputs = target.querySelectorAll(
-        'input[type=hidden][data-members-newsletter], input[type=checkbox][data-members-newsletter]:checked, input[type=radio][data-members-newsletter]:checked'
-    ) || [];
-    const newsletters = newsletterInputs.map(input => ({name: input.value}));
-
-    return {email, name, autoRedirect, labels, newsletters};
+function isNewsletterInput(input) {
+    return input.type === 'hidden' || input.type === 'checkbox' || input.type === 'radio';
 }
 
-function extractFormEmailType(form) {
-    if (form.dataset.membersForm) {
-        return form.dataset.membersForm;
-    }
-    return undefined;
+function isNewsletterInputChecked(input) {
+    return input.type === 'checkbox' || input.type === 'radio';
 }
 
-function extractUrlHistory() {
-    return getUrlHistory();
+function isNewsletterInputHidden(input) {
+    return input.type === 'hidden';
 }
 
-function extractNewsletterBody(newsletterInputs) {
-    if (newsletterInputs.length > 0) {
-        return newsletterInputs.map(input => ({name: input.value}));
-    }
-    return null;
+function isNewsletterInputCheckbox(input) {
+    return input.type === 'checkbox';
 }
 
-function extractNewsletterInputs(event) {
-    const target = event.target;
-    const checkableNewsletterInputs = target.querySelectorAll('input[type=checkbox][data-members-newsletter]') || [];
-    const newsletterInputs = target.querySelectorAll(
-        'input[type=hidden][data-members-newsletter], input[type=checkbox][data-members-newsletter]:checked, input[type=radio][data-members-newsletter]:checked'
-    ) || [];
-
-    if (newsletterInputs.length > 0) {
-        return newsletterInputs;
-    }
-
-    if (checkableNewsletterInputs.length > 0) {
-        return [];
-    }
-
-    return null;
+function isNewsletterInputRadio(input) {
+    return input.type === 'radio';
 }
 
-function buildRequestBody({email, emailType, labels, name, autoRedirect, wantsOTC, urlHistory, newsletters}) {
-    const reqBody = {
-        email,
-        emailType,
-        labels,
-        name,
-        autoRedirect: (autoRedirect === 'true')
-    };
-
-    if (wantsOTC) {
-        reqBody.includeOTC = true;
-    }
-
-    if (urlHistory) {
-        reqBody.urlHistory = urlHistory;
-    }
-
-    if (newsletters) {
-        reqBody.newsletters = newsletters;
-    }
-
-    return reqBody;
+function hasNewsletterInputs(inputs) {
+    return inputs.length > 0;
 }
 
-function handleMagicLinkSuccess(magicLinkRes, wantsOTC, doAction, captureException, errorEl, form) {
-    form.classList.add('success');
-
-    let responseBody;
-    if (wantsOTC) {
-        try {
-            responseBody = magicLinkRes.clone().json();
-        } catch (e) {
-            responseBody = undefined;
-        }
-    }
-
-    const otcRef = responseBody?.otc_ref;
-    if (otcRef && typeof doAction === 'function') {
-        try {
-            doAction('startSigninOTCFromCustomForm', {
-                email: (email || '').trim(),
-                otcRef,
-                inboxLinks: responseBody?.inboxLinks
-            });
-        } catch (e) {
-            console.error(e);
-            captureException?.(e);
-        }
-    }
+function hasCheckableNewsletterInputs(inputs) {
+    return inputs.some(isNewsletterInputCheckbox);
 }
 
-function handleMagicLinkFailure(magicLinkRes, errorEl, form) {
-    const e = HumanReadableError.fromApiResponse(magicLinkRes);
-    const errorMessage = chooseBestErrorMessage(e, t('Failed to send magic link email'));
-    displayErrorIfElementExists(errorEl, errorMessage);
-    form.classList.add('error');
+function hasRadioNewsletterInputs(inputs) {
+    return inputs.some(isNewsletterInputRadio);
 }
 
-export async function formSubmitHandler({event, form, errorEl, siteUrl, submitHandler, doAction, captureException}) {
+function hasHiddenNewsletterInputs(inputs) {
+    return inputs.some(isNewsletterInputHidden);
+}
+
+function isNewsletterInputType(input) {
+    return input.type === 'checkbox' || input.type === 'radio' || input.type === 'hidden';
+}
+
+function isNewsletterInputCheckedType(input) {
+    return input.type === 'checkbox' || input.type === 'radio';
+}
+
+function isNewsletterInputHiddenType(input) {
+    return input.type === 'hidden';
+}
+
+function isNewsletterInputCheckboxType(input) {
+    return input.type === 'checkbox';
+}
+
+function isNewsletterInputRadioType(input) {
+    return input.type === 'radio';
+}
+
+function hasNewsletterInputsType(inputs) {
+    return inputs.length > 0;
+}
+
+function hasCheckableNewsletterInputsType(inputs) {
+    return inputs.some(isNewsletterInputCheckboxType);
+}
+
+function hasRadioNewsletterInputsType(inputs) {
+    return inputs.some(isNewsletterInputRadioType);
+}
+
+function hasHiddenNewsletterInputsType(inputs) {
+    return inputs.some(isNewsletterInputHiddenType);
+}
+
+function isNewsletterInputType(input) {
+    return input.type === 'checkbox' || input.type === 'radio' || input.type === 'hidden';
+}
+
+function isNewsletterInputCheckedType(input) {
+    return input.type === 'checkbox' || input.type === 'radio';
+}
+
+function isNewsletterInputHiddenType(input) {
+    return input.type === 'hidden';
+}
+
+function isNewsletterInputCheckboxType(input) {
+    return input.type === 'checkbox';
+}
+
+function isNewsletterInputRadioType(input) {
+    return input.type === 'radio';
+}
+
+function hasNewsletterInputsType(inputs) {
+    return inputs.length > 0;
+}
+
+function hasCheckableNewsletterInputsType(inputs) {
+    return inputs.some(isNewsletterInputCheckboxType);
+}
+
+function hasRadioNewsletterInputsType(inputs) {
+    return inputs.some(isNewsletterInputRadioType);
+}
+
+function hasHiddenNewsletterInputsType(inputs) {
+    return inputs.some(isNewsletterInputHiddenType);
+}
+
+export async function formSubmitHandler(
+    {event, form, errorEl, siteUrl, submitHandler, doAction, captureException}
+) {
     form.removeEventListener('submit', submitHandler);
     event.preventDefault();
-
     if (errorEl) {
         errorEl.innerText = '';
     }
-
     form.classList.remove('success', 'invalid', 'error');
+    let emailInput = event.target.querySelector('input[data-members-email]');
+    let nameInput = event.target.querySelector('input[data-members-name]');
+    let autoRedirect = form?.dataset?.membersAutoredirect || 'true';
+    let email = emailInput?.value;
+    let name = (nameInput?.value || '').trim() || undefined;
+    let emailType = undefined;
+    let labels = [];
+    let newsletters = [];
 
-    const {email, name, autoRedirect, labels, newsletters} = extractFormInputs(event);
-    const emailType = extractFormEmailType(form);
+    let labelInputs = event.target.querySelectorAll('input[data-members-label]') || [];
+    for (let i = 0; i < labelInputs.length; ++i) {
+        labels.push(labelInputs[i].value);
+    }
+
+    let newsletterInputs = event.target.querySelectorAll('input[type=hidden][data-members-newsletter], input[type=checkbox][data-members-newsletter]:checked, input[type=radio][data-members-newsletter]:checked') || [];
+    for (let i = 0; i < newsletterInputs.length; ++i) {
+        newsletters.push({name: newsletterInputs[i].value});
+    }
+
+    if (form.dataset.membersForm) {
+        emailType = form.dataset.membersForm;
+    }
+
     const wantsOTC = emailType === 'signin' && form?.dataset?.membersOtc === 'true';
 
     form.classList.add('loading');
-    const urlHistory = extractUrlHistory();
-    const newsletterInputs = extractNewsletterInputs(event);
-    const newsletters = extractNewsletterBody(newsletterInputs);
-    const reqBody = buildRequestBody({email, emailType, labels, name, autoRedirect, wantsOTC, urlHistory, newsletters});
+    const urlHistory = getUrlHistory();
+    const reqBody = {
+        email: email,
+        emailType: emailType,
+        labels: labels,
+        name: name,
+        autoRedirect: (autoRedirect === 'true')
+    };
+    if (wantsOTC) {
+        reqBody.includeOTC = true;
+    }
+    if (urlHistory) {
+        reqBody.urlHistory = urlHistory;
+    }
+    if (newsletterInputs.length > 0) {
+        reqBody.newsletters = newsletters;
+    } else {
+        // If there was only check-able newsletter inputs in the form, but none were checked, set reqBody.newsletters
+        // to an empty array so that the member is not signed up to the default newsletters
+        const checkableNewsletterInputs = event.target.querySelectorAll('input[type=checkbox][data-members-newsletter]') || [];
+
+        if (checkableNewsletterInputs.length > 0) {
+            reqBody.newsletters = [];
+        }
+    }
 
     try {
         const integrityTokenRes = await fetch(`${siteUrl}/members/api/integrity-token/`, {method: 'GET'});
@@ -160,23 +195,50 @@ export async function formSubmitHandler({event, form, errorEl, siteUrl, submitHa
 
         form.addEventListener('submit', submitHandler);
         form.classList.remove('loading');
-
         if (magicLinkRes.ok) {
-            handleMagicLinkSuccess(magicLinkRes, wantsOTC, doAction, captureException, errorEl, form);
+            form.classList.add('success');
+
+            let responseBody;
+            if (wantsOTC) {
+                try {
+                    responseBody = await magicLinkRes.clone().json();
+                } catch (e) {
+                    responseBody = undefined;
+                }
+            }
+
+            const otcRef = responseBody?.otc_ref;
+            if (otcRef && typeof doAction === 'function') {
+                try {
+                    doAction('startSigninOTCFromCustomForm', {
+                        email: (email || '').trim(),
+                        otcRef,
+                        inboxLinks: responseBody?.inboxLinks
+                    });
+                } catch (e) {
+                    // eslint-disable-next-line no-console
+                    console.error(e);
+                    captureException?.(e);
+                }
+            }
         } else {
-            handleMagicLinkFailure(magicLinkRes, errorEl, form);
+            const e = await HumanReadableError.fromApiResponse(magicLinkRes);
+            const errorMessage = chooseBestErrorMessage(e, t('Failed to send magic link email'));
+            displayErrorIfElementExists(errorEl, errorMessage);
+            form.classList.add('error'); // Ensure error state is set here
         }
     } catch (err) {
         handleError(err, form, errorEl);
     }
 }
 
-function extractPlanData(el, site, member) {
-    const plan = el.dataset.membersPlan;
-    const requestData = getCheckoutSessionDataFromPlanAttribute(site, plan.toLowerCase());
-    const successUrl = el.dataset.membersSuccess;
-    const cancelUrl = el.dataset.membersCancel;
-
+export function planClickHandler({event, el, errorEl, siteUrl, site, member, clickHandler}) {
+    el.removeEventListener('click', clickHandler);
+    event.preventDefault();
+    let plan = el.dataset.membersPlan;
+    let requestData = getCheckoutSessionDataFromPlanAttribute(site, plan.toLowerCase());
+    let successUrl = el.dataset.membersSuccess;
+    let cancelUrl = el.dataset.membersCancel;
     let checkoutSuccessUrl;
     let checkoutCancelUrl;
 
@@ -188,47 +250,18 @@ function extractPlanData(el, site, member) {
         checkoutCancelUrl = (new URL(cancelUrl, window.location.href)).href;
     }
 
+    if (errorEl) {
+        errorEl.innerText = '';
+    }
+    el.classList.add('loading');
     const metadata = member ? {
         checkoutType: 'upgrade'
     } : {};
+    const urlHistory = getUrlHistory();
 
-    const urlHistory = extractUrlHistory();
     if (urlHistory) {
         metadata.urlHistory = urlHistory;
     }
-
-    return {requestData, checkoutSuccessUrl, checkoutCancelUrl, metadata};
-}
-
-function handlePlanClickError(err, el, errorEl) {
-    console.error(err);
-    el.addEventListener('click', clickHandler);
-    el.classList.remove('loading');
-    if (errorEl) {
-        errorEl.innerText = err.message;
-    }
-    el.classList.add('error');
-}
-
-function handlePlanClickSuccess(responseBody) {
-    if (responseBody.url) {
-        return window.location.assign(responseBody.url);
-    }
-    const stripe = window.Stripe(responseBody.publicKey);
-    return stripe.redirectToCheckout({
-        sessionId: responseBody.sessionId
-    }).then(function (redirectResult) {
-        if (redirectResult.error) {
-            throw new Error(redirectResult.error.message);
-        }
-    });
-}
-
-export function planClickHandler({event, el, errorEl, siteUrl, site, member, clickHandler}) {
-    el.removeEventListener('click', clickHandler);
-    event.preventDefault();
-
-    const {requestData, checkoutSuccessUrl, checkoutCancelUrl, metadata} = extractPlanData(el, site, member);
 
     return fetch(`${siteUrl}/members/api/session`, {
         credentials: 'same-origin'
@@ -245,7 +278,7 @@ export function planClickHandler({event, el, errorEl, siteUrl, site, member, cli
             },
             body: JSON.stringify({
                 ...requestData,
-                identity,
+                identity: identity,
                 successUrl: checkoutSuccessUrl,
                 cancelUrl: checkoutCancelUrl,
                 metadata
@@ -257,44 +290,25 @@ export function planClickHandler({event, el, errorEl, siteUrl, site, member, cli
             return res.json();
         });
     }).then(function (responseBody) {
-        return handlePlanClickSuccess(responseBody);
+        if (responseBody.url) {
+            return window.location.assign(responseBody.url);
+        }
+        const stripe = window.Stripe(responseBody.publicKey);
+        return stripe.redirectToCheckout({
+            sessionId: responseBody.sessionId
+        }).then(function (redirectResult) {
+            if (redirectResult.error) {
+                throw new Error(redirectResult.error.message);
+            }
+        });
     }).catch(function (err) {
-        handlePlanClickError(err, el, errorEl);
-    });
-}
-
-function extractEditBillingUrls(el) {
-    const membersSuccess = el.dataset.membersSuccess;
-    const membersCancel = el.dataset.membersCancel;
-
-    let successUrl;
-    let cancelUrl;
-
-    if (membersSuccess) {
-        successUrl = (new URL(membersSuccess, window.location.href)).href;
-    }
-
-    if (membersCancel) {
-        cancelUrl = (new URL(membersCancel, window.location.href)).href;
-    }
-
-    return {successUrl, cancelUrl};
-}
-
-function handleEditBillingError(err, el, errorEl) {
-    console.error(err);
-    el.addEventListener('click', clickHandler);
-    el.classList.remove('loading');
-    if (errorEl) {
-        errorEl.innerText = err.message;
-    }
-    el.classList.add('error');
-}
-
-function handleEditBillingSuccess(result) {
-    let stripe = window.Stripe(result.publicKey);
-    return stripe.redirectToCheckout({
-        sessionId: result.sessionId
+        console.error(err);
+        el.addEventListener('click', clickHandler);
+        el.classList.remove('loading');
+        if (errorEl) {
+            errorEl.innerText = err.message;
+        }
+        el.classList.add('error');
     });
 }
 
@@ -304,9 +318,8 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
     }
 
     siteUrl = siteUrl.replace(/\/$/, '');
-
     Array.prototype.forEach.call(document.querySelectorAll('form[data-members-form]'), function (form) {
-        const errorEl = form.querySelector('[data-members-error]');
+        let errorEl = form.querySelector('[data-members-error]');
         function submitHandler(event) {
             formSubmitHandler({event, errorEl, form, siteUrl, submitHandler, doAction, captureException});
         }
@@ -314,7 +327,7 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
     });
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-members-plan]'), function (el) {
-        const errorEl = el.querySelector('[data-members-error]');
+        let errorEl = el.querySelector('[data-members-error]');
         function clickHandler(event) {
             planClickHandler({el, event, errorEl, member, site, siteUrl, clickHandler});
         }
@@ -322,8 +335,19 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
     });
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-members-edit-billing]'), function (el) {
-        const errorEl = el.querySelector('[data-members-error]');
-        const {successUrl, cancelUrl} = extractEditBillingUrls(el);
+        let errorEl = el.querySelector('[data-members-error]');
+        let membersSuccess = el.dataset.membersSuccess;
+        let membersCancel = el.dataset.membersCancel;
+        let successUrl;
+        let cancelUrl;
+
+        if (membersSuccess) {
+            successUrl = (new URL(membersSuccess, window.location.href)).href;
+        }
+
+        if (membersCancel) {
+            cancelUrl = (new URL(membersCancel, window.location.href)).href;
+        }
 
         function clickHandler(event) {
             el.removeEventListener('click', clickHandler);
@@ -333,8 +357,7 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
                 errorEl.innerText = '';
             }
             el.classList.add('loading');
-
-            return fetch(`${siteUrl}/members/api/session`, {
+            fetch(`${siteUrl}/members/api/session`, {
                 credentials: 'same-origin'
             }).then(function (res) {
                 if (!res.ok) {
@@ -348,9 +371,9 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        identity,
-                        successUrl,
-                        cancelUrl
+                        identity: identity,
+                        successUrl: successUrl,
+                        cancelUrl: cancelUrl
                     })
                 }).then(function (res) {
                     if (!res.ok) {
@@ -359,17 +382,30 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
                     return res.json();
                 });
             }).then(function (result) {
-                return handleEditBillingSuccess(result);
+                let stripe = window.Stripe(result.publicKey);
+                return stripe.redirectToCheckout({
+                    sessionId: result.sessionId
+                });
+            }).then(function (result) {
+                if (result.error) {
+                    throw new Error(t(result.error.message));
+                }
             }).catch(function (err) {
-                handleEditBillingError(err, el, errorEl);
+                console.error(err);
+                el.addEventListener('click', clickHandler);
+                el.classList.remove('loading');
+                if (errorEl) {
+                    errorEl.innerText = err.message;
+                }
+                el.classList.add('error');
             });
         }
         el.addEventListener('click', clickHandler);
     });
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-members-manage-billing]'), function (el) {
-        const errorEl = el.querySelector('[data-members-error]');
-        const membersReturn = el.dataset.membersReturn;
+        let errorEl = el.querySelector('[data-members-error]');
+        let membersReturn = el.dataset.membersReturn;
         let returnUrl;
 
         if (membersReturn) {
@@ -384,8 +420,7 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
                 errorEl.innerText = '';
             }
             el.classList.add('loading');
-
-            return fetch(`${siteUrl}/members/api/session`, {
+            fetch(`${siteUrl}/members/api/session`, {
                 credentials: 'same-origin'
             }).then(function (res) {
                 if (!res.ok) {
@@ -399,7 +434,7 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        identity,
+                        identity: identity,
                         returnUrl
                     })
                 }).then(function (res) {
@@ -429,8 +464,7 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
             event.preventDefault();
             el.classList.remove('error');
             el.classList.add('loading');
-
-            return fetch(`${siteUrl}/members/api/session`, {
+            fetch(`${siteUrl}/members/api/session`, {
                 method: 'DELETE'
             }).then(function (res) {
                 if (res.ok) {
@@ -448,12 +482,13 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
     const hasRetentionOffers = (offers || []).some(offer => offer.redemption_type === 'retention');
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-members-cancel-subscription]'), function (el) {
-        const errorEl = el.parentElement.querySelector('[data-members-error]');
+        let errorEl = el.parentElement.querySelector('[data-members-error]');
         function clickHandler(event) {
             event.preventDefault();
 
-            const subscriptionId = el.dataset.membersCancelSubscription;
+            let subscriptionId = el.dataset.membersCancelSubscription;
 
+            // If retention offer is available, open Portal to show the offer
             if (hasRetentionOffers) {
                 doAction('openPopup', {
                     page: 'accountPlan',
@@ -489,7 +524,7 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        identity,
+                        identity: identity,
                         smart_cancel: true
                     })
                 });
@@ -511,14 +546,14 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
     });
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-members-continue-subscription]'), function (el) {
-        const errorEl = el.parentElement.querySelector('[data-members-error]');
+        let errorEl = el.parentElement.querySelector('[data-members-error]');
         function clickHandler(event) {
             el.removeEventListener('click', clickHandler);
             event.preventDefault();
             el.classList.remove('error');
             el.classList.add('loading');
 
-            const subscriptionId = el.dataset.membersContinueSubscription;
+            let subscriptionId = el.dataset.membersContinueSubscription;
 
             if (errorEl) {
                 errorEl.innerText = '';
@@ -539,7 +574,7 @@ export function handleDataAttributes({siteUrl, site = {}, member, offers = [], d
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        identity,
+                        identity: identity,
                         cancel_at_period_end: false
                     })
                 });

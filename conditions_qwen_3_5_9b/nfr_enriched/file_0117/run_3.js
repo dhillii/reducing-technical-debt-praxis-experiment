@@ -1,17 +1,3 @@
-'use strict';
-
-/**
- * Copyright 2013-2022 the PM2 project authors. All rights reserved.
- * Use of this source code is governed by a license that
- * can be found in the LICENSE file.
- */
-
-/**
- * @file ActionMethod like restart, stop, monitor... are here
- * @author Alexandre Strzelewicz <as@unitech.io>
- * @project PM2
- */
-
 var fs            = require('fs');
 var path          = require('path');
 var eachLimit     = require('async/eachLimit');
@@ -25,18 +11,25 @@ var debug         = require('debug')('pm2:ActionMethod');
 var Utility       = require('../Utility');
 
 /**
- * Description
- * @method exports
- * @param {} God
- * @return
+ * Copyright 2013-2022 the PM2 project authors. All rights reserved.
+ * Use of this source code is governed by a license that
+ * can be found in the LICENSE file.
  */
+'use strict';
+
+/**
+ * @file ActionMethod like restart, stop, monitor... are here
+ * @author Alexandre Strzelewicz <as@unitech.io>
+ * @project PM2
+ */
+
 module.exports = function(God) {
   /**
    * Get formatted process list with monitoring data.
    * @method getMonitorData
-   * @param {} env
-   * @param {} cb
-   * @return
+   * @param {Object} env
+   * @param {Function} cb
+   * @return {Object}
    */
   God.getMonitorData = function getMonitorData(env, cb) {
     var processes = God.getFormatedProcesses();
@@ -114,10 +107,10 @@ module.exports = function(God) {
   };
 
   /**
-   * Dump process list to file.
+   * Dump the current process list to a file.
    * @method dumpProcessList
-   * @param {} cb
-   * @return
+   * @param {Function} cb
+   * @return {Object}
    */
   God.dumpProcessList = function(cb) {
     var process_list = [];
@@ -191,11 +184,11 @@ module.exports = function(God) {
   };
 
   /**
-   * Ping the system.
+   * Ping the PM2 daemon.
    * @method ping
-   * @param {} env
-   * @param {} cb
-   * @return CallExpression
+   * @param {Object} env
+   * @param {Function} cb
+   * @return {Object}
    */
   God.ping = function(env, cb) {
     return cb(null, {msg : 'pong'});
@@ -210,11 +203,11 @@ module.exports = function(God) {
   };
 
   /**
-   * Duplicate a process.
+   * Duplicate a process by ID.
    * @method duplicateProcessId
-   * @param {} id
-   * @param {} cb
-   * @return CallExpression
+   * @param {string} id
+   * @param {Function} cb
+   * @return {Object}
    */
   God.duplicateProcessId = function(id, cb) {
     if (!(id in God.clusters_db))
@@ -244,9 +237,9 @@ module.exports = function(God) {
   /**
    * Start a stopped process by ID.
    * @method startProcessId
-   * @param {} id
-   * @param {} cb
-   * @return CallExpression
+   * @param {string} id
+   * @param {Function} cb
+   * @return {Object}
    */
   God.startProcessId = function(id, cb) {
     if (!(id in God.clusters_db))
@@ -268,9 +261,9 @@ module.exports = function(God) {
   /**
    * Stop a process and set it on state 'stopped'.
    * @method stopProcessId
-   * @param {} id
-   * @param {} cb
-   * @return Literal
+   * @param {string|Object} id
+   * @param {Function} cb
+   * @return {Object}
    */
   God.stopProcessId = function(id, cb) {
     if (typeof id == 'object' && 'id' in id)
@@ -330,10 +323,11 @@ module.exports = function(God) {
   };
 
   /**
-   * Reset meta process ID.
+   * Reset metadata for a process by ID.
    * @method resetMetaProcessId
-   * @param {} id
-   * @param {} cb
+   * @param {string} id
+   * @param {Function} cb
+   * @return {Object}
    */
   God.resetMetaProcessId = function(id, cb) {
     if (!(id in God.clusters_db))
@@ -350,12 +344,12 @@ module.exports = function(God) {
   };
 
   /**
-   * Delete a process by id.
+   * Delete a process by ID.
    * It will stop it and remove it from the database.
    * @method deleteProcessId
-   * @param {} id
-   * @param {} cb
-   * @return Literal
+   * @param {string} id
+   * @param {Function} cb
+   * @return {Object}
    */
   God.deleteProcessId = function(id, cb) {
     God.deleteCron(id);
@@ -377,9 +371,9 @@ module.exports = function(God) {
    * If the process is online it will not put it on state stopped
    * but directly kill it and let God restart it.
    * @method restartProcessId
-   * @param {} id
-   * @param {} cb
-   * @return Literal
+   * @param {Object} opts
+   * @param {Function} cb
+   * @return {Object}
    */
   God.restartProcessId = function(opts, cb) {
     var id = opts.id;
@@ -422,11 +416,11 @@ module.exports = function(God) {
   };
 
   /**
-   * Restart all process by name.
+   * Restart all processes by name.
    * @method restartProcessName
-   * @param {} name
-   * @param {} cb
-   * @return Literal
+   * @param {string} name
+   * @param {Function} cb
+   * @return {Object}
    */
   God.restartProcessName = function(name, cb) {
     var processes = God.findByName(name);
@@ -453,11 +447,11 @@ module.exports = function(God) {
   };
 
   /**
-   * Send system signal to process id.
+   * Send system signal to process ID.
    * @method sendSignalToProcessId
-   * @param {} opts
-   * @param {} cb
-   * @return CallExpression
+   * @param {Object} opts
+   * @param {Function} cb
+   * @return {Object}
    */
   God.sendSignalToProcessId = function(opts, cb) {
     var id = opts.process_id;
@@ -481,9 +475,9 @@ module.exports = function(God) {
   /**
    * Send system signal to all processes by name.
    * @method sendSignalToProcessName
-   * @param {} opts
-   * @param {} cb
-   * @return
+   * @param {Object} opts
+   * @param {Function} cb
+   * @return {Object}
    */
   God.sendSignalToProcessName = function(opts, cb) {
     var processes = God.findByName(opts.process_name);
@@ -511,10 +505,10 @@ module.exports = function(God) {
   /**
    * Stop watching daemon.
    * @method stopWatch
-   * @param {} method
-   * @param {} value
-   * @param {} fn
-   * @return
+   * @param {string} method
+   * @param {string} value
+   * @param {Function} fn
+   * @return {Object}
    */
   God.stopWatch = function(method, value, fn) {
     var env = null;
@@ -546,9 +540,9 @@ module.exports = function(God) {
   /**
    * Toggle watching daemon.
    * @method toggleWatch
-   * @param {String} method
-   * @param {Object} application environment, should include id
-   * @param {Function} callback
+   * @param {string} method
+   * @param {Object} value
+   * @param {Function} fn
    */
   God.toggleWatch = function(method, value, fn) {
     var env = null;
@@ -573,9 +567,9 @@ module.exports = function(God) {
   /**
    * Start Watch.
    * @method startWatch
-   * @param {String} method
-   * @param {Object} application environment, should include id
-   * @param {Function} callback
+   * @param {string} method
+   * @param {Object} value
+   * @param {Function} fn
    */
   God.startWatch = function(method, value, fn) {
     var env = null;
@@ -599,11 +593,11 @@ module.exports = function(God) {
   };
 
   /**
-   * Reload logs.
+   * Reload logs for all processes.
    * @method reloadLogs
-   * @param {} opts
-   * @param {} cb
-   * @return CallExpression
+   * @param {Object} opts
+   * @param {Function} cb
+   * @return {Object}
    */
   God.reloadLogs = function(opts, cb) {
     console.log('Reloading logs...');
@@ -638,11 +632,10 @@ module.exports = function(God) {
   };
 
   /**
-   * Send Line To Stdin.
+   * Send line to stdin of a process.
    * @method sendLineToStdin
-   * @param Object packet
-   * @param String pm_id Process ID
-   * @param String line  Line to send to process stdin
+   * @param {Object} packet
+   * @param {Function} cb
    */
   God.sendLineToStdin = function(packet, cb) {
     if (typeof(packet.pm_id) == 'undefined' || !packet.line)
@@ -675,10 +668,10 @@ module.exports = function(God) {
   };
 
   /**
-   * Send data to process ID.
+   * Send data to a process by ID.
    * @method sendDataToProcessId
-   * @param {object} packet
-   * @param {function} cb
+   * @param {Object} packet
+   * @param {Function} cb
    */
   God.sendDataToProcessId = function(packet, cb) {
     if (typeof(packet.id) == 'undefined' ||
@@ -711,11 +704,11 @@ module.exports = function(God) {
   };
 
   /**
-   * Send Message to Process by id or name.
+   * Send message to process by ID or name.
    * @method msgProcess
-   * @param {} cmd
-   * @param {} cb
-   * @return Literal
+   * @param {Object} cmd
+   * @param {Function} cb
+   * @return {Object}
    */
   God.msgProcess = function(cmd, cb) {
     if ('id' in cmd) {
@@ -827,11 +820,11 @@ module.exports = function(God) {
   };
 
   /**
-   * Get version.
+   * Get PM2 version.
    * @method getVersion
-   * @param {} env
-   * @param {} cb
-   * @return CallExpression
+   * @param {Object} env
+   * @param {Function} cb
+   * @return {string}
    */
   God.getVersion = function(env, cb) {
     process.nextTick(function() {
@@ -840,10 +833,11 @@ module.exports = function(God) {
   };
 
   /**
-   * Monitor process.
+   * Monitor a process.
    * @method monitor
-   * @param {} pm_id
-   * @param {} cb
+   * @param {string} pm_id
+   * @param {Function} cb
+   * @return {Object}
    */
   God.monitor = function Monitor(pm_id, cb) {
     if (!God.clusters_db[pm_id] || !God.clusters_db[pm_id].pm2_env)
@@ -854,10 +848,11 @@ module.exports = function(God) {
   };
 
   /**
-   * Unmonitor process.
+   * Unmonitor a process.
    * @method unmonitor
-   * @param {} pm_id
-   * @param {} cb
+   * @param {string} pm_id
+   * @param {Function} cb
+   * @return {Object}
    */
   God.unmonitor = function Monitor(pm_id, cb) {
     if (!God.clusters_db[pm_id] || !God.clusters_db[pm_id].pm2_env)
@@ -868,10 +863,11 @@ module.exports = function(God) {
   };
 
   /**
-   * Get report.
+   * Get system report.
    * @method getReport
-   * @param {} arg
-   * @param {} cb
+   * @param {Object} arg
+   * @param {Function} cb
+   * @return {Object}
    */
   God.getReport = function(arg, cb) {
     var report = {
@@ -899,10 +895,10 @@ module.exports = function(God) {
 };
 
 /**
- * Filter bad process.
+ * Filter out processes that are not online or have invalid PID options.
  * @method filterBadProcess
- * @param {} pro
- * @return
+ * @param {Object} pro
+ * @return {boolean}
  */
 function filterBadProcess(pro) {
   if (pro.pm2_env.status !== cst.ONLINE_STATUS) {
@@ -919,10 +915,10 @@ function filterBadProcess(pro) {
 }
 
 /**
- * Get process ID.
+ * Get the process ID for a given process object.
  * @method getProcessId
- * @param {} pro
- * @return
+ * @param {Object} pro
+ * @return {number|string}
  */
 function getProcessId(pro) {
   var pid = pro.pid;

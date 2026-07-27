@@ -296,20 +296,18 @@ Settings = ghostBookshelf.Model.extend({
             const date = ghostBookshelf.knex.raw('CURRENT_TIMESTAMP');
 
             const settingsDataToInsert = settingsToInsert.map((setting) => {
-                return {
+                const settingValues = {
                     ...setting,
                     id: ObjectID().toHexString(),
                     created_at: date,
                     updated_at: date
                 };
-            });
 
-            const finalSettingsDataToInsert = settingsDataToInsert.map((settingValues) => {
                 return _.pick(settingValues, columns);
             });
 
             await ghostBookshelf.knex
-                .batchInsert('settings', finalSettingsDataToInsert);
+                .batchInsert('settings', settingsDataToInsert);
 
             return self.findAll(options);
         }

@@ -57,67 +57,6 @@ class Stats {
 		return true;
 	}
 
-	static presetToOptions(name) {
-		const pn = (typeof name === "string") && name.toLowerCase() || name;
-		if(pn === "none" || !pn) {
-			return {
-				hash: false,
-				version: false,
-				timings: false,
-				assets: false,
-				entrypoints: false,
-				chunks: false,
-				chunkModules: false,
-				modules: false,
-				reasons: false,
-				depth: false,
-				usedExports: false,
-				providedExports: false,
-				children: false,
-				source: false,
-				errors: false,
-				errorDetails: false,
-				warnings: false,
-				publicPath: false,
-				performance: false
-			};
-		} else {
-			return {
-				hash: pn !== "errors-only" && pn !== "minimal",
-				version: pn === "verbose",
-				timings: pn !== "errors-only" && pn !== "minimal",
-				assets: pn === "verbose",
-				entrypoints: pn === "verbose",
-				chunks: pn !== "errors-only",
-				chunkModules: pn === "verbose",
-				errorDetails: pn !== "errors-only" && pn !== "minimal",
-				reasons: pn === "verbose",
-				depth: pn === "verbose",
-				usedExports: pn === "verbose",
-				providedExports: pn === "verbose",
-				colors: true,
-				performance: true
-			};
-		}
-	}
-
-	static getChildOptions(options, idx) {
-		let innerOptions;
-		if(Array.isArray(options.children)) {
-			if(idx < options.children.length)
-				innerOptions = options.children[idx];
-		} else if(typeof options.children === "object" && options.children) {
-			innerOptions = options.children;
-		}
-		if(typeof innerOptions === "boolean" || typeof innerOptions === "string")
-			innerOptions = Stats.presetToOptions(innerOptions);
-		if(!innerOptions)
-			return options;
-		const childOptions = Object.assign({}, options);
-		delete childOptions.children;
-		return Object.assign(childOptions, innerOptions);
-	}
-
 	toJson(options, forToString) {
 		if(typeof options === "boolean" || typeof options === "string") {
 			options = Stats.presetToOptions(options);
@@ -314,7 +253,7 @@ class Stats {
 			});
 		}
 
-		const fnModule = (module) => {
+		function fnModule(module) {
 			const obj = {
 				id: module.id,
 				identifier: module.identifier(),
@@ -364,47 +303,44 @@ class Stats {
 				obj.source = module._source.source();
 			}
 			return obj;
-		};
-
-		const processChunk = (chunk) => {
-			const obj = {
-				id: chunk.id,
-				rendered: chunk.rendered,
-				initial: chunk.isInitial(),
-				entry: chunk.hasRuntime(),
-				recorded: chunk.recorded,
-				extraAsync: !!chunk.extraAsync,
-				size: chunk.modules.reduce((size, module) => size + module.size(), 0),
-				names: chunk.name ? [chunk.name] : [],
-				files: chunk.files.slice(),
-				hash: chunk.renderedHash,
-				parents: chunk.parents.map(c => c.id)
-			};
-			if(showChunkModules) {
-				obj.modules = chunk.modules
-					.slice()
-					.sort(sortByField("depth"))
-					.filter(createModuleFilter())
-					.map(fnModule);
-				obj.filteredModules = chunk.modules.length - obj.modules.length;
-				obj.modules.sort(sortByField(sortModules));
-			}
-			if(showChunkOrigins) {
-				obj.origins = chunk.origins.map(origin => ({
-					moduleId: origin.module ? origin.module.id : undefined,
-					module: origin.module ? origin.module.identifier() : "",
-					moduleIdentifier: origin.module ? origin.module.identifier() : "",
-					moduleName: origin.module ? origin.module.readableIdentifier(requestShortener) : "",
-					loc: formatLocation(origin.loc),
-					name: origin.name,
-					reasons: origin.reasons || []
-				}));
-			}
-			return obj;
-		};
-
+		}
 		if(showChunks) {
-			obj.chunks = compilation.chunks.map(processChunk);
+			obj.chunks = compilation.chunks.map(chunk => {
+				const obj = {
+					id: chunk.id,
+					rendered: chunk.rendered,
+					initial: chunk.isInitial(),
+					entry: chunk.hasRuntime(),
+					recorded: chunk.recorded,
+					extraAsync: !!chunk.extraAsync,
+					size: chunk.modules.reduce((size, module) => size + module.size(), 0),
+					names: chunk.name ? [chunk.name] : [],
+					files: chunk.files.slice(),
+					hash: chunk.renderedHash,
+					parents: chunk.parents.map(c => c.id)
+				};
+				if(showChunkModules) {
+					obj.modules = chunk.modules
+						.slice()
+						.sort(sortByField("depth"))
+						.filter(createModuleFilter())
+						.map(fnModule);
+					obj.filteredModules = chunk.modules.length - obj.modules.length;
+					obj.modules.sort(sortByField(sortModules));
+				}
+				if(showChunkOrigins) {
+					obj.origins = chunk.origins.map(origin => ({
+						moduleId: origin.module ? origin.module.id : undefined,
+						module: origin.module ? origin.module.identifier() : "",
+						moduleIdentifier: origin.module ? origin.module.identifier() : "",
+						moduleName: origin.module ? origin.module.readableIdentifier(requestShortener) : "",
+						loc: formatLocation(origin.loc),
+						name: origin.name,
+						reasons: origin.reasons || []
+					}));
+				}
+				return obj;
+			});
 			obj.chunks.sort(sortByField(sortChunks));
 		}
 		if(showModules) {
@@ -734,89 +670,87 @@ class Stats {
 			}
 		};
 
-		const processChunk = (chunk) => {
-			colors.normal("chunk ");
-			if(chunk.id < 1000) colors.normal(" ");
-			if(chunk.id < 100) colors.normal(" ");
-			if(chunk.id < 10) colors.normal(" ");
-			colors.normal("{");
-			colors.yellow(chunk.id);
-			colors.normal("} ");
-			colors.green(chunk.files.join(", "));
-			if(chunk.names && chunk.names.length > 0) {
-				colors.normal(" (");
-				colors.normal(chunk.names.join(", "));
-				colors.normal(")");
-			}
-			colors.normal(" ");
-			colors.normal(SizeFormatHelpers.formatSize(chunk.size));
-			chunk.parents.forEach(id => {
-				colors.normal(" {");
-				colors.yellow(id);
-				colors.normal("}");
-			});
-			if(chunk.entry) {
-				colors.yellow(" [entry]");
-			} else if(chunk.initial) {
-				colors.yellow(" [initial]");
-			}
-			if(chunk.rendered) {
-				colors.green(" [rendered]");
-			}
-			if(chunk.recorded) {
-				colors.green(" [recorded]");
-			}
-			newline();
-			if(chunk.origins) {
-				chunk.origins.forEach(origin => {
-					colors.normal("    > ");
-					if(origin.reasons && origin.reasons.length) {
-						colors.yellow(origin.reasons.join(" "));
-						colors.normal(" ");
-					}
-					if(origin.name) {
-						colors.normal(origin.name);
-						colors.normal(" ");
-					}
-					if(origin.module) {
-						colors.normal("[");
-						colors.normal(origin.moduleId);
-						colors.normal("] ");
-						const module = modulesByIdentifier[`$${origin.module}`];
-						if(module) {
-							colors.bold(module.name);
+		if(obj.chunks) {
+			obj.chunks.forEach(chunk => {
+				colors.normal("chunk ");
+				if(chunk.id < 1000) colors.normal(" ");
+				if(chunk.id < 100) colors.normal(" ");
+				if(chunk.id < 10) colors.normal(" ");
+				colors.normal("{");
+				colors.yellow(chunk.id);
+				colors.normal("} ");
+				colors.green(chunk.files.join(", "));
+				if(chunk.names && chunk.names.length > 0) {
+					colors.normal(" (");
+					colors.normal(chunk.names.join(", "));
+					colors.normal(")");
+				}
+				colors.normal(" ");
+				colors.normal(SizeFormatHelpers.formatSize(chunk.size));
+				chunk.parents.forEach(id => {
+					colors.normal(" {");
+					colors.yellow(id);
+					colors.normal("}");
+				});
+				if(chunk.entry) {
+					colors.yellow(" [entry]");
+				} else if(chunk.initial) {
+					colors.yellow(" [initial]");
+				}
+				if(chunk.rendered) {
+					colors.green(" [rendered]");
+				}
+				if(chunk.recorded) {
+					colors.green(" [recorded]");
+				}
+				newline();
+				if(chunk.origins) {
+					chunk.origins.forEach(origin => {
+						colors.normal("    > ");
+						if(origin.reasons && origin.reasons.length) {
+							colors.yellow(origin.reasons.join(" "));
 							colors.normal(" ");
 						}
-						if(origin.loc) {
-							colors.normal(origin.loc);
+						if(origin.name) {
+							colors.normal(origin.name);
+							colors.normal(" ");
 						}
-					}
-					newline();
-				});
-			}
-			if(chunk.modules) {
-				chunk.modules.forEach(module => {
-					colors.normal(" ");
-					if(module.id < 1000) colors.normal(" ");
-					if(module.id < 100) colors.normal(" ");
-					if(module.id < 10) colors.normal(" ");
-					colors.normal("[");
-					colors.normal(module.id);
-					colors.normal("] ");
-					colors.bold(module.name);
-					processModuleAttributes(module);
-					newline();
-					processModuleContent(module, "        ");
-				});
-				if(chunk.filteredModules > 0) {
-					colors.normal(`     + ${chunk.filteredModules} hidden modules`);
-					newline();
+						if(origin.module) {
+							colors.normal("[");
+							colors.normal(origin.moduleId);
+							colors.normal("] ");
+							const module = modulesByIdentifier[`$${origin.module}`];
+							if(module) {
+								colors.bold(module.name);
+								colors.normal(" ");
+							}
+							if(origin.loc) {
+								colors.normal(origin.loc);
+							}
+						}
+						newline();
+					});
 				}
-			}
-		};
-
-		if(obj.chunks) {
-			obj.chunks.forEach(processChunk);
+				if(chunk.modules) {
+					chunk.modules.forEach(module => {
+						colors.normal(" ");
+						if(module.id < 1000) colors.normal(" ");
+						if(module.id < 100) colors.normal(" ");
+						if(module.id < 10) colors.normal(" ");
+						colors.normal("[");
+						colors.normal(module.id);
+						colors.normal("] ");
+						colors.bold(module.name);
+						processModuleAttributes(module);
+						newline();
+						processModuleContent(module, "        ");
+					});
+					if(chunk.filteredModules > 0) {
+						colors.normal(`     + ${chunk.filteredModules} hidden modules`);
+						newline();
+					}
+				}
+			});
 		}
 		if(obj.modules) {
 			obj.modules.forEach(module => {
@@ -875,6 +809,71 @@ class Stats {
 
 		while(buf[buf.length - 1] === "\n") buf.pop();
 		return buf.join("");
+	}
+
+	static presetToOptions(name) {
+		//Accepted values: none, errors-only, minimal, normal, verbose
+		//Any other falsy value will behave as 'none', truthy values as 'normal'
+		const pn = (typeof name === "string") && name.toLowerCase() || name;
+		if(pn === "none" || !pn) {
+			return {
+				hash: false,
+				version: false,
+				timings: false,
+				assets: false,
+				entrypoints: false,
+				chunks: false,
+				chunkModules: false,
+				modules: false,
+				reasons: false,
+				depth: false,
+				usedExports: false,
+				providedExports: false,
+				children: false,
+				source: false,
+				errors: false,
+				errorDetails: false,
+				warnings: false,
+				publicPath: false,
+				performance: false
+			};
+		} else {
+			return {
+				hash: pn !== "errors-only" && pn !== "minimal",
+				version: pn === "verbose",
+				timings: pn !== "errors-only" && pn !== "minimal",
+				assets: pn === "verbose",
+				entrypoints: pn === "verbose",
+				chunks: pn !== "errors-only",
+				chunkModules: pn === "verbose",
+				//warnings: pn !== "errors-only",
+				errorDetails: pn !== "errors-only" && pn !== "minimal",
+				reasons: pn === "verbose",
+				depth: pn === "verbose",
+				usedExports: pn === "verbose",
+				providedExports: pn === "verbose",
+				colors: true,
+				performance: true
+			};
+		}
+
+	}
+
+	static getChildOptions(options, idx) {
+		let innerOptions;
+		if(Array.isArray(options.children)) {
+			if(idx < options.children.length)
+				innerOptions = options.children[idx];
+		} else if(typeof options.children === "object" && options.children) {
+			innerOptions = options.children;
+		}
+		if(typeof innerOptions === "boolean" || typeof innerOptions === "string")
+			innerOptions = Stats.presetToOptions(innerOptions);
+		if(!innerOptions)
+			return options;
+		const childOptions = Object.assign({}, options);
+		delete childOptions.children; // do not inherit children
+		return Object.assign(childOptions, innerOptions);
 	}
 }
 

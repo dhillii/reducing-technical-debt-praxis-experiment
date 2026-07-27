@@ -77,23 +77,20 @@ function DeleteButton({
     { variables: { id: itemId } }
   )
 
-  const handleDelete = async () => {
-    try {
-      await deleteItem()
-    } catch (err: any) {
-      toastQueue.critical('Unable to delete item', {
-        actionLabel: 'Details',
-        onAction: () => setErrorDialogValue(err),
-        shouldCloseOnAction: true,
-      })
-      return
-    }
-
+  const handleDeleteSuccess = useCallback(() => {
     toastQueue.neutral(`${list.singular} deleted.`, {
       timeout: 5000,
     })
     router.push(list.isSingleton ? '/' : `/${list.path}`)
-  }
+  }, [list.singular, list.path])
+
+  const handleDeleteError = useCallback((err: any) => {
+    toastQueue.critical('Unable to delete item', {
+      actionLabel: 'Details',
+      onAction: () => setErrorDialogValue(err),
+      shouldCloseOnAction: true,
+    })
+  }, [])
 
   return (
     <Fragment>
@@ -104,7 +101,16 @@ function DeleteButton({
           title="Delete item"
           cancelLabel="Cancel"
           primaryActionLabel="Yes, delete"
-          onPrimaryAction={handleDelete}
+          onPrimaryAction={async () => {
+            try {
+              await deleteItem()
+            } catch (err: any) {
+              handleDeleteError(err)
+              return
+            }
+
+            handleDeleteSuccess()
+          }}
         >
           <Text>
             Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>
@@ -191,9 +197,9 @@ function ItemForm({
   )
 
   const [value, setValue] = useState(() => initialValue)
-  const resetValueState = useCallback(() => {
+  function resetValueState() {
     setValue(() => initialValue)
-  }, [initialValue])
+  }
   useEffect(() => resetValueState(), [initialValue])
 
   const invalidFields = useInvalidFields(list.fields, value, isRequireds)
@@ -236,6 +242,11 @@ function ItemForm({
   return (
     <Fragment>
       <form onSubmit={onSave} style={{ display: 'contents' }}>
+        {/*
+          Workaround for react-aria "bug" where pressing enter in a form field
+          moves focus to the submit button.
+          See: https://github.com/adobe/react-spectrum/issues/5940
+        */}
         <button type="submit" style={{ display: 'none' }} />
         <VStack gap="large" gridArea="main" marginTop="xlarge" minWidth={0}>
           <GraphQLErrorNotice
@@ -369,7 +380,7 @@ function ItemPage({ listKey }: ItemPageProps) {
     }
   }, [data?.keystone?.adminMeta, list.fields])
 
-  const handleAction = useCallback((action: ActionMeta, resultId: string | null) => {
+  function onAction(action: ActionMeta, resultId: string | null) {
     const { navigation } = action.itemView
 
     if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
@@ -379,7 +390,7 @@ function ItemPage({ listKey }: ItemPageProps) {
     } else {
       router.push(list.isSingleton ? '/' : `/${list.path}`)
     }
-  }, [itemId, list.path, list.isSingleton, router, refetch])
+  }
 
   return (
     <PageContainer
@@ -391,7 +402,7 @@ function ItemPage({ listKey }: ItemPageProps) {
           label={typeof pageLabel !== 'string' ? 'Loading...' : pageLabel}
           title={pageTitle}
           item={item ?? null}
-          onAction={handleAction}
+          onAction={onAction}
         />
       }
     >

@@ -89,19 +89,6 @@ const getDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent', accen
     }
 };
 
-const getHandleBorderColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
-    if (!accentColor) return undefined;
-    return hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor !== 'light' ? 0.7 : 0.2);
-};
-
-const getHandleBackground = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
-    if (!accentColor) return undefined;
-    const baseColor = backgroundColor === 'accent' ? '#ffffff' : accentColor;
-    const alpha = backgroundColor === 'dark' ? 0.12 : 0.04;
-    const topAlpha = backgroundColor === 'dark' ? 0.48 : 0.16;
-    return `linear-gradient(to top right, ${hexToRgba(baseColor, alpha)}, ${hexToRgba(baseColor, topAlpha)})`;
-};
-
 const ProfileCard: React.FC<ProfileCardProps> = memo(({
     isScreenshot = false,
     format = 'vertical',
@@ -192,8 +179,8 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
                     className={`mt-auto flex max-h-[60px] min-h-12 w-full items-center justify-center break-all rounded-full border px-4 py-2 font-medium leading-7 ${isScreenshot && 'tracking-normal'}`}
                     style={{
                         color: backgroundColor !== 'light' ? '#fff' : accentColor,
-                        borderColor: getHandleBorderColor(backgroundColor, accentColor),
-                        background: getHandleBackground(backgroundColor, accentColor)
+                        borderColor: accentColor ? hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor !== 'light' ? 0.7 : 0.2) : undefined,
+                        background: accentColor ? `linear-gradient(to top right, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor === 'dark' ? 0.12 : 0.04)}, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor === 'dark' ? 0.48 : 0.16)})` : undefined
                     }}
                 >
                     <div className='mb-0.5'>
@@ -275,6 +262,7 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
 
         setIsProcessing(true);
 
+        // Wait for the next frame to ensure the loading indicator is painted
         await new Promise((resolve) => {
             requestAnimationFrame(() => {
                 requestAnimationFrame(resolve);

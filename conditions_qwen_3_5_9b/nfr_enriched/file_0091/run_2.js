@@ -11,11 +11,10 @@ import {
 
 function getAlignmentFromElement(element: globalThis.Element): 'center' | 'end' | undefined {
   const parent = element.parentElement
-  const alignment = parent?.getAttribute('data-align')
+  const alignment = parent?.dataset.align
   if (alignment === 'center' || alignment === 'end') {
     return alignment
   }
-
   if (element instanceof HTMLElement) {
     const textAlign = element.style.textAlign
     if (textAlign === 'center') {
@@ -27,7 +26,7 @@ function getAlignmentFromElement(element: globalThis.Element): 'center' | 'end' 
   }
 }
 
-const HEADINGS: Record<string, (Node & { type: 'heading' })['level'] | undefined> = {
+const headings: Record<string, (Node & { type: 'heading' })['level'] | undefined> = {
   H1: 1,
   H2: 2,
   H3: 3,
@@ -58,7 +57,6 @@ function getMarksFromElementAttributes(element: globalThis.HTMLElement): Set<Mar
   if (markFromNodeName) {
     marks.add(markFromNodeName)
   }
-
   const { fontWeight, textDecoration, verticalAlign } = style
 
   if (textDecoration === 'underline') {
@@ -66,11 +64,9 @@ function getMarksFromElementAttributes(element: globalThis.HTMLElement): Set<Mar
   } else if (textDecoration === 'line-through') {
     marks.add('strikethrough')
   }
-
   if (nodeName === 'SPAN' && element.classList.contains('code')) {
     marks.add('code')
   }
-
   if (nodeName === 'B' && fontWeight !== 'normal') {
     marks.add('bold')
   } else if (
@@ -82,21 +78,18 @@ function getMarksFromElementAttributes(element: globalThis.HTMLElement): Set<Mar
   ) {
     marks.add('bold')
   }
-
   if (style.fontStyle === 'italic') {
     marks.add('italic')
   }
-
   if (verticalAlign === 'super') {
     marks.add('superscript')
   } else if (verticalAlign === 'sub') {
     marks.add('subscript')
   }
-
   return marks
 }
 
-export function deserializeHTML(html: string): DeserializedNode[] {
+export function deserializeHTML(html: string) {
   const parsed = new DOMParser().parseFromString(html, 'text/html')
   return fixNodesForBlockChildren(deserializeNodes(parsed.body.childNodes))
 }
@@ -113,7 +106,6 @@ export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
     }
     return getInlineNodes(text)
   }
-
   if (el.nodeName === 'BR') {
     return getInlineNodes('\n')
   }
@@ -179,7 +171,7 @@ export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
       return [{ type: 'paragraph', textAlign: getAlignmentFromElement(el), children }]
     }
 
-    const headingLevel = HEADINGS[nodeName]
+    const headingLevel = headings[nodeName]
 
     if (typeof headingLevel === 'number') {
       return [
@@ -215,33 +207,27 @@ function fixNodesForBlockChildren(deserializedNodes: DeserializedNode[]): Deseri
   if (!deserializedNodes.length) {
     return [{ text: '' }]
   }
-
   if (deserializedNodes.some(isBlock)) {
     const result: DeserializedNode[] = []
     let queuedInlines: InlineFromExternalPaste[] = []
-
-    const flushInlines = (): void => {
+    const flushInlines = () => {
       if (queuedInlines.length) {
         result.push({ type: 'paragraph', children: queuedInlines })
         queuedInlines = []
       }
     }
-
     for (const node of deserializedNodes) {
       if (isBlock(node)) {
         flushInlines()
         result.push(node)
         continue
       }
-
       if (Node.string(node).trim() !== '') {
         queuedInlines.push(node)
       }
     }
-
     flushInlines()
     return result as DeserializedNodes
   }
-
   return deserializedNodes as DeserializedNodes
 }

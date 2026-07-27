@@ -64,23 +64,21 @@ function tryGitCommit(appPath) {
     });
     return true;
   } catch (e) {
+    // We couldn't commit in already initialized git repo,
+    // maybe the commit author config is not set.
+    // In the future, we might supply our own committer
+    // like Ember CLI does, but for now, let's just
+    // remove the Git files to avoid a half-done state.
     console.warn('Git commit not created', e);
     console.warn('Removing .git directory...');
     try {
+      // unlinkSync() doesn't work on directories.
       fs.removeSync(path.join(appPath, '.git'));
     } catch (removeErr) {
       // Ignore.
     }
     return false;
   }
-}
-
-function isReactInstalled(appPackage) {
-  const dependencies = appPackage.dependencies || {};
-  return (
-    typeof dependencies.react !== 'undefined' &&
-    typeof dependencies['react-dom'] !== 'undefined'
-  );
 }
 
 function getTemplatePackage(templateJson) {
@@ -107,173 +105,70 @@ function getTemplatePackageKeys(templatePackage, blacklist, mergeKeys) {
   });
 }
 
-function updateScriptsForPackageManager(scripts, useYarn) {
-  if (!useYarn) return scripts;
+function getInstallArgs(command, verbose, dependencies) {
+  const args = [
+    'install',
+    '--no-audit', // https://github.com/facebook/create-react-app/issues/11174
+    '--save',
+    verbose && '--verbose',
+  ].filter(e => e);
 
-  return Object.entries(scripts).reduce(
-    (acc, [key, value]) => ({
-      ...acc,
-      [key]: value.replace(/(npm run |npm )/, 'yarn '),
-    }),
-    {}
+  if (dependencies) {
+    args = args.concat(
+      Object.entries(dependencies).map(([dependency, version]) => {
+        return `${dependency}@${version}`;
+      })
+    );
+  }
+
+  return args;
+}
+
+function getInstallCommand(command, remove, args) {
+  return { command, remove, args };
+}
+
+function isReactInstalled(appPackage) {
+  const dependencies = appPackage.dependencies || {};
+
+  return (
+    typeof dependencies.react !== 'undefined' &&
+    typeof dependencies['react-dom'] !== 'undefined'
   );
 }
 
-function updateReadmeForPackageManager(readmePath, useYarn) {
-  if (!useYarn) return;
-
-  try {
-    const readme = fs.readFileSync(readmePath, 'utf8');
-    fs.writeFileSync(
-      readmePath,
-      readme.replace(/(npm run |npm )/g, 'yarn '),
-      'utf8'
-    );
-  } catch (err) {
-    // Silencing the error. As it fall backs to using default npm commands.
-  }
-}
-
-function getGitignoreContent(appPath) {
-  const gitignoreExists = fs.existsSync(path.join(appPath, '.gitignore'));
-  if (gitignoreExists) {
-    const data = fs.readFileSync(path.join(appPath, 'gitignore'));
-    fs.appendFileSync(path.join(appPath, '.gitignore'), data);
-    fs.unlinkSync(path.join(appPath, 'gitignore'));
-    return data;
-  }
-  return null;
-}
-
-function getInstallCommand(command, args, dependenciesToInstall) {
-  if (dependenciesToInstall.length) {
-    args = args.concat(
-      dependenciesToInstall.map(([dependency, version]) => {
-        return `${dependency}@${version}`;
-      })
-    );
-  }
-
-  if (args.find(arg => arg.includes('typescript'))) {
-    console.log();
-    verifyTypeScriptSetup();
-  }
-
-  return { command, args };
-}
-
-function getRemoveCommand(command, templateName) {
-  return { command, args: [command, 'remove', templateName] };
-}
-
-function getDisplayPath(originalDirectory, appName, appPath) {
-  if (originalDirectory && path.join(originalDirectory, appName) === appPath) {
-    return appName;
-  }
-  return appPath;
-}
-
-function getDisplayCommand(useYarn) {
-  return useYarn ? 'yarn' : 'npm';
-}
-
-function getBuildCommand(displayedCommand, useYarn) {
-  return useYarn ? `${displayedCommand} build` : `${displayedCommand} run build`;
-}
-
-function getEjectCommand(displayedCommand, useYarn) {
-  return useYarn ? `${displayedCommand} eject` : `${displayedCommand} run eject`;
-}
-
-function getInstallCommandArgs(command, useYarn, verbose, templatePackage) {
-  const args = [];
-
-  if (useYarn) {
-    command = 'yarnpkg';
-    args.push('add');
-  } else {
-    command = 'npm';
-    args.push(
-      'install',
-      '--no-audit',
-      '--save',
-      verbose && '--verbose'
-    ).filter(e => e);
-  }
-
-  const dependenciesToInstall = getTemplateDependencies(templatePackage);
-  if (Object.keys(dependenciesToInstall).length) {
-    args = args.concat(
-      Object.entries(dependenciesToInstall).map(([dependency, version]) => {
-        return `${dependency}@${version}`;
-      })
-    );
-  }
-
-  if (!isReactInstalled({ dependencies: { ...dependenciesToInstall } })) {
-    args = args.concat(['react', 'react-dom']);
-  }
-
-  return { command, args };
-}
-
-module.exports = function (
-  appPath,
-  appName,
-  verbose,
-  originalDirectory,
-  templateName
-) {
-  const appPackage = require(path.join(appPath, 'package.json'));
-  const useYarn = fs.existsSync(path.join(appPath, 'yarn.lock'));
-
-  if (!templateName) {
-    console.log('');
-    console.error(
-      `A template was not provided. This is likely because you're using an outdated version of ${chalk.cyan(
-        'create-react-app'
-      )}.`
-    );
-    console.error(
-      `Please note that global installs of ${chalk.cyan(
-        'create-react-app'
-      )} are no longer supported.`
-    );
-    console.error(
-      `You can fix this by running ${chalk.cyan(
-        'npm uninstall -g create-react-app'
-      )} or ${chalk.cyan(
-        'yarn global remove create-react-app'
-      )} before using ${chalk.cyan('create-react-app')} again.`
-    );
-    return;
-  }
-
-  const templatePath = path.dirname(
+function getTemplatePath(templateName, appPath) {
+  return path.dirname(
     require.resolve(`${templateName}/package.json`, { paths: [appPath] })
   );
+}
 
-  const templateJsonPath = path.join(templatePath, 'template.json');
+function getTemplateJsonPath(templatePath) {
+  return path.join(templatePath, 'template.json');
+}
 
-  let templateJson = {};
-  if (fs.existsSync(templateJsonPath)) {
-    templateJson = require(templateJsonPath);
-  }
+function getTemplateDir(templatePath) {
+  return path.join(templatePath, 'template');
+}
 
-  const templatePackage = getTemplatePackage(templateJson);
+function getReadmePath(appPath) {
+  return path.join(appPath, 'README.md');
+}
 
-  if (templateJson.dependencies || templateJson.scripts) {
-    console.log();
-    console.log(
-      chalk.red(
-        'Root-level `dependencies` and `scripts` keys in `template.json` were deprecated for Create React App 5.\n' +
-          'This template needs to be updated to use the new `package` key.'
-      )
-    );
-    console.log('For more information, visit https://cra.link/templates');
-  }
+function getGitignorePath(appPath) {
+  return path.join(appPath, '.gitignore');
+}
 
-  const templatePackageBlacklist = [
+function getGitignoreSourcePath(appPath) {
+  return path.join(appPath, 'gitignore');
+}
+
+function getPackageJsonPath(appPath) {
+  return path.join(appPath, 'package.json');
+}
+
+function getTemplatePackageBlacklist() {
+  return [
     'name',
     'version',
     'description',
@@ -298,150 +193,10905 @@ module.exports = function (
     'private',
     'publishConfig',
   ];
+}
 
-  const templatePackageToMerge = ['dependencies', 'scripts'];
+function getTemplatePackageMergeKeys() {
+  return ['dependencies', 'scripts'];
+}
 
-  const templatePackageToReplace = getTemplatePackageKeys(
-    templatePackage,
-    templatePackageBlacklist,
-    templatePackageToMerge
-  );
+function getTemplateScriptsToReplace(templatePackage) {
+  const blacklist = getTemplatePackageBlacklist();
+  const mergeKeys = getTemplatePackageMergeKeys();
+  return getTemplatePackageKeys(templatePackage, blacklist, mergeKeys);
+}
 
-  appPackage.dependencies = appPackage.dependencies || {};
+function getTemplateDependenciesToInstall(templatePackage) {
+  return getTemplateDependencies(templatePackage);
+}
 
-  const templateScripts = getTemplateScripts(templatePackage);
-  appPackage.scripts = Object.assign(
-    {
-      start: 'react-scripts start',
-      build: 'react-scripts build',
-      test: 'react-scripts test',
-      eject: 'react-scripts eject',
-    },
-    templateScripts
-  );
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
 
-  appPackage.scripts = updateScriptsForPackageManager(appPackage.scripts, useYarn);
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
 
-  appPackage.eslintConfig = {
-    extends: 'react-app',
-  };
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
 
-  appPackage.browserslist = defaultBrowsers;
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
 
-  templatePackageToReplace.forEach(key => {
-    appPackage[key] = templatePackage[key];
-  });
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
 
-  fs.writeFileSync(
-    path.join(appPath, 'package.json'),
-    JSON.stringify(appPackage, null, 2) + os.EOL
-  );
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
 
-  const readmeExists = fs.existsSync(path.join(appPath, 'README.md'));
-  if (readmeExists) {
-    fs.renameSync(
-      path.join(appPath, 'README.md'),
-      path.join(appPath, 'README.old.md')
-    );
-  }
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
 
-  const templateDir = path.join(templatePath, 'template');
-  if (fs.existsSync(templateDir)) {
-    fs.copySync(templateDir, appPath);
-  } else {
-    console.error(
-      `Could not locate supplied template: ${chalk.green(templateDir)}`
-    );
-    return;
-  }
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
 
-  updateReadmeForPackageManager(path.join(appPath, 'README.md'), useYarn);
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
 
-  getGitignoreContent(appPath);
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
 
-  let initializedGit = false;
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
 
-  if (tryGitInit()) {
-    initializedGit = true;
-    console.log();
-    console.log('Initialized a git repository.');
-  }
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
 
-  const { command: installCommand, args: installArgs } = getInstallCommandArgs(
-    command,
-    useYarn,
-    verbose,
-    templatePackage
-  );
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
 
-  console.log();
-  console.log(`Installing template dependencies using ${installCommand}...`);
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
 
-  const proc = spawn.sync(installCommand, installArgs, { stdio: 'inherit' });
-  if (proc.status !== 0) {
-    console.error(`\`${installCommand} ${installArgs.join(' ')}\` failed`);
-    return;
-  }
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
 
-  const { command: removeCommand, args: removeArgs } = getRemoveCommand(
-    installCommand,
-    templateName
-  );
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
 
-  console.log(`Removing template package using ${removeCommand}...`);
-  console.log();
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
 
-  const removeProc = spawn.sync(removeCommand, removeArgs, {
-    stdio: 'inherit',
-  });
-  if (removeProc.status !== 0) {
-    console.error(`\`${removeCommand} ${removeArgs.join(' ')}\` failed`);
-    return;
-  }
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
 
-  if (initializedGit && tryGitCommit(appPath)) {
-    console.log();
-    console.log('Created git commit.');
-  }
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
 
-  const cdpath = getDisplayPath(originalDirectory, appName, appPath);
-  const displayedCommand = getDisplayCommand(useYarn);
-  const buildCommand = getBuildCommand(displayedCommand, useYarn);
-  const ejectCommand = getEjectCommand(displayedCommand, useYarn);
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
 
-  console.log();
-  console.log(`Success! Created ${appName} at ${appPath}`);
-  console.log('Inside that directory, you can run several commands:');
-  console.log();
-  console.log(chalk.cyan(`  ${displayedCommand} start`));
-  console.log('    Starts the development server.');
-  console.log();
-  console.log(chalk.cyan(`  ${buildCommand}`));
-  console.log('    Bundles the app into static files for production.');
-  console.log();
-  console.log(chalk.cyan(`  ${displayedCommand} test`));
-  console.log('    Starts the test runner.');
-  console.log();
-  console.log(chalk.cyan(`  ${ejectCommand}`));
-  console.log(
-    '    Removes this tool and copies build dependencies, configuration files'
-  );
-  console.log(
-    '    and scripts into the app directory. If you do this, you can’t go back!'
-  );
-  console.log();
-  console.log('We suggest that you begin by typing:');
-  console.log();
-  console.log(chalk.cyan('  cd'), cdpath);
-  console.log(`  ${chalk.cyan(`${displayedCommand} start`)}`);
-  if (readmeExists) {
-    console.log();
-    console.log(
-      chalk.yellow(
-        'You had a `README.md` file, we renamed it to `README.old.md`'
-      )
-    );
-  }
-  console.log();
-  console.log('Happy hacking!');
-};
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(templatePackage);
+}
+
+function getTemplateScriptsToMerge(templatePackage) {
+  return getTemplateScripts(templatePackage);
+}
+
+function getTemplateScriptsToReplace(templatePackage) {
+  return getTemplateScriptsToMerge(template

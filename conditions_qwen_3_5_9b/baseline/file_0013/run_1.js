@@ -64,7 +64,7 @@ async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {s
         }
     };
 
-    let afterReplyId: string | undefined = comment.replies && comment.replies.length > 0
+    let afterReplyId: string | undefined = comment.replies?.length > 0
         ? comment.replies[comment.replies.length - 1]?.id
         : undefined;
 
@@ -342,7 +342,7 @@ async function editComment({state, api, data: {comment, parent}}: {state: Editab
     // Replace the comment in the state with the new one
     return {
         comments: state.comments.map((c) => {
-            if (parent && parent.id === c.id) {
+            if (parent?.id === c.id) {
                 return {
                     ...c,
                     replies: c.replies.map((r) => {

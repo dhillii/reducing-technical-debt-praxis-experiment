@@ -334,29 +334,40 @@ module.exports = class StripeAPI {
 
             // Multiple customers found, return the one with the most recent subscription
             if (customers.length > 1) {
-                let latestCustomer = customers[0];
-                let latestSubscriptionTime = 0;
-
-                for (let customer of customers) {
-                    // skip customers with no subscriptions
-                    if (!customer.subscriptions || !customer.subscriptions.data || customer.subscriptions.data.length === 0) {
-                        continue;
-                    }
-
-                    // find the customer with the most recent subscription
-                    for (let subscription of customer.subscriptions.data) {
-                        if (subscription.current_period_end && subscription.current_period_end > latestSubscriptionTime) {
-                            latestSubscriptionTime = subscription.current_period_end;
-                            latestCustomer = customer;
-                        }
-                    }
-                }
-
-                return latestCustomer.id;
+                return this._findCustomerWithLatestSubscription(customers);
             }
         } catch (err) {
             debug(`getCustomerByEmail(${email}) -> ${err.type}:${err.message}`);
         }
+    }
+
+    /**
+     * Finds the customer with the most recent subscription among the provided list.
+     * Skips customers with no subscriptions.
+     *
+     * @param {Array} customers
+     * @returns {string} The ID of the customer with the latest subscription
+     */
+    _findCustomerWithLatestSubscription(customers) {
+        let latestCustomer = customers[0];
+        let latestSubscriptionTime = 0;
+
+        for (let customer of customers) {
+            // skip customers with no subscriptions
+            if (!customer.subscriptions || !customer.subscriptions.data || customer.subscriptions.data.length === 0) {
+                continue;
+            }
+
+            // find the customer with the most recent subscription
+            for (let subscription of customer.subscriptions.data) {
+                if (subscription.current_period_end && subscription.current_period_end > latestSubscriptionTime) {
+                    latestSubscriptionTime = subscription.current_period_end;
+                    latestCustomer = customer;
+                }
+            }
+        }
+
+        return latestCustomer.id;
     }
 
     /**
@@ -420,7 +431,7 @@ module.exports = class StripeAPI {
             debug(`createWebhook(${url}) -> Success`);
             return webhook;
         } catch (err) {
-            debug(`deleteWebhook(${id}) -> ${err.type}`);
+            debug(`createWebhook(${url}) -> ${err.type}`);
             throw err;
         }
     }

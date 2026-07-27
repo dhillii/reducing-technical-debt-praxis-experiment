@@ -504,26 +504,23 @@ class SignupPage extends React.Component {
     }
 
     /**
-     * Determines the tabIndex for form fields based on their type and configuration.
+     * Determines the tabIndex for a form field based on its type and configuration.
      * @param {Object} field - The field configuration object.
      * @returns {number} The calculated tabIndex value.
      */
     getFieldTabIndex(field) {
-        if (field.hidden) {
-            return -1;
+        if (field.tabIndex !== undefined) {
+            return field.tabIndex;
         }
-        if (field.autoFocus) {
-            return 0;
+        if (field.type === 'email') {
+            return 2;
         }
-        return 1;
+        if (field.type === 'text' && field.name === 'name') {
+            return 1;
+        }
+        return -1;
     }
 
-    /**
-     * Constructs the input fields array based on the current state and portal configuration.
-     * @param {Object} state - The current component state.
-     * @param {Array} fieldNames - Optional filter for specific field names.
-     * @returns {Array} An array of field configuration objects.
-     */
     getInputFields({state, fieldNames}) {
         const {site: {portal_name: portalName}} = this.context;
 
@@ -536,6 +533,7 @@ class SignupPage extends React.Component {
                 label: t('Email'),
                 name: 'email',
                 required: true,
+                tabIndex: 2,
                 errorMessage: errors.email || ''
             },
             {
@@ -546,6 +544,7 @@ class SignupPage extends React.Component {
                 label: t('Phone number'),
                 name: 'phonenumber',
                 required: false,
+                tabIndex: -1,
                 autoComplete: 'off',
                 hidden: true
             }
@@ -560,17 +559,11 @@ class SignupPage extends React.Component {
                 label: t('Name'),
                 name: 'name',
                 required: true,
+                tabIndex: 1,
                 errorMessage: errors.name || ''
             });
         }
-
-        fields.forEach(field => {
-            field.tabIndex = this.getFieldTabIndex(field);
-            if (field.name === 'email') {
-                field.autoFocus = true;
-            }
-        });
-
+        fields[0].autoFocus = true;
         if (fieldNames && fieldNames.length > 0) {
             return fields.filter((f) => {
                 return fieldNames.includes(f.name);
@@ -659,6 +652,7 @@ class SignupPage extends React.Component {
                 brandColor={brandColor}
                 label={label}
                 isRunning={isRunning}
+                tabIndex={3}
             />
         );
     }

@@ -31,7 +31,7 @@ function isCaseNode(node) {
 
 /**
  * Checks if a given node appears as the value of a PropertyDefinition node.
- * @param {ASTNode} node The node to check.
+ * @param {ASTNode} node THe node to check.
  * @returns {boolean} `true` if the node is a PropertyDefinition value,
  *      false if not.
  */

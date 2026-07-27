@@ -67,6 +67,16 @@ function getOutput(runningProcess) {
 	return awaitExit(runningProcess).then(() => ({ stdout, stderr }));
 }
 
+/**
+ * Creates the options object for a child process by merging default options with provided options.
+ * @param {Object} defaultOptions The default options to merge.
+ * @param {Object} [providedOptions] The options provided by the caller.
+ * @returns {Object} The merged options object.
+ */
+function createProcessOptions(defaultOptions, providedOptions) {
+	return { ...defaultOptions, ...providedOptions };
+}
+
 //------------------------------------------------------------------------------
 // Tests
 //------------------------------------------------------------------------------
@@ -81,100 +91,14 @@ describe("bin/eslint.js", () => {
 	 * @returns {ChildProcess} The resulting child process
 	 */
 	function runESLint(args, options) {
-		const baseOptions = { silent: true };
-		const mergedOptions = { ...baseOptions, ...options };
-
 		const newProcess = childProcess.fork(
 			EXECUTABLE_PATH,
 			args,
-			mergedOptions,
+			createProcessOptions({ silent: true }, options),
 		);
 
 		forkedProcesses.add(newProcess);
 		return newProcess;
-	}
-
-	/**
-	 * Runs ESLint with stdin input and asserts the exit code.
-	 * @param {string[]} args An array of arguments
-	 * @param {string} input The input to write to stdin
-	 * @param {number} expectedExitCode The expected exit code
-	 * @returns {Promise<void>} A Promise that resolves when the assertion is complete
-	 */
-	function assertStdinExitCode(args, input, expectedExitCode) {
-		const child = runESLint(args);
-
-		child.stdin.write(input);
-		child.stdin.end();
-		return assertExitCode(child, expectedExitCode);
-	}
-
-	/**
-	 * Runs ESLint with stdin input and asserts the exit code and output.
-	 * @param {string[]} args An array of arguments
-	 * @param {string} input The input to write to stdin
-	 * @param {number} expectedExitCode The expected exit code
-	 * @param {string} expectedStdout The expected stdout output
-	 * @param {string} expectedStderr The expected stderr output
-	 * @returns {Promise<void>} A Promise that resolves when the assertions are complete
-	 */
-	function assertStdinOutput(args, input, expectedExitCode, expectedStdout, expectedStderr) {
-		const child = runESLint(args);
-
-		child.stdin.write(input);
-		child.stdin.end();
-
-		const exitCodePromise = assertExitCode(child, expectedExitCode);
-		const outputPromise = getOutput(child).then(output => {
-			assert.strictEqual(output.stdout.trim(), expectedStdout);
-			assert.strictEqual(output.stderr, expectedStderr);
-		});
-
-		return Promise.all([exitCodePromise, outputPromise]);
-	}
-
-	/**
-	 * Runs ESLint with stdin input and asserts the exit code and stderr output.
-	 * @param {string[]} args An array of arguments
-	 * @param {string} input The input to write to stdin
-	 * @param {number} expectedExitCode The expected exit code
-	 * @param {RegExp} stderrRegex The regular expression to match against stderr
-	 * @returns {Promise<void>} A Promise that resolves when the assertions are complete
-	 */
-	function assertStdinStderr(args, input, expectedExitCode, stderrRegex) {
-		const child = runESLint(args);
-
-		child.stdin.write(input);
-		child.stdin.end();
-
-		const exitCodePromise = assertExitCode(child, expectedExitCode);
-		const outputPromise = getOutput(child).then(output => {
-			assert.match(output.stderr, stderrRegex);
-		});
-
-		return Promise.all([exitCodePromise, outputPromise]);
-	}
-
-	/**
-	 * Runs ESLint with stdin input and asserts the exit code and stderr output.
-	 * @param {string[]} args An array of arguments
-	 * @param {string} input The input to write to stdin
-	 * @param {number} expectedExitCode The expected exit code
-	 * @param {RegExp} stderrRegex The regular expression to match against stderr
-	 * @returns {Promise<void>} A Promise that resolves when the assertions are complete
-	 */
-	function assertStdinStderrWithMatch(args, input, expectedExitCode, stderrRegex) {
-		const child = runESLint(args);
-
-		child.stdin.write(input);
-		child.stdin.end();
-
-		const exitCodePromise = assertExitCode(child, expectedExitCode);
-		const outputPromise = getOutput(child).then(output => {
-			assert.include(output.stderr, stderrRegex);
-		});
-
-		return Promise.all([exitCodePromise, outputPromise]);
 	}
 
 	describe("reading from stdin", () => {
@@ -505,7 +429,7 @@ describe("bin/eslint.js", () => {
 					// Note: This doesn't actually verify that the cache file is used for anything.
 					assert.isTrue(
 						fs.existsSync(CACHE_PATH),
-						"Cache file should still exist after linting with --cache",
+						"Cache file should still exist after running ESLint with --cache",
 					);
 				});
 			});

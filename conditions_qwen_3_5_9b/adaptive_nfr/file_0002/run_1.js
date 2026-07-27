@@ -113,22 +113,22 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [showAltInput]);
 
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                e.preventDefault();
-                if (!isDisabled && !isImageUploading) {
-                    handlePost();
-                }
+    const handleKeyDown = useCallback((e: KeyboardEvent) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            if (!isDisabled && !isImageUploading) {
+                handlePost();
             }
-        };
+        }
+    }, [isDisabled, isImageUploading, handlePost]);
 
+    useEffect(() => {
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen) {
             document.addEventListener('keydown', handleKeyDown);
             return () => document.removeEventListener('keydown', handleKeyDown);
         }
-    }, [isOpen, props.open, isDisabled, isImageUploading, handlePost]);
+    }, [isOpen, props.open, handleKeyDown]);
 
     const handlePaste = useCallback(async (e: React.ClipboardEvent | ClipboardEvent) => {
         const items = e.clipboardData?.items;
@@ -175,11 +175,16 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             let errorMessage = 'Failed to upload image. Try again.';
 
             if (error && typeof error === 'object' && 'statusCode' in error) {
-                const errorMessages: Record<number, string> = {
-                    413: 'Image size exceeds limit.',
-                    415: 'The file type is not supported.'
-                };
-                errorMessage = errorMessages[error.statusCode] || errorMessage;
+                switch (error.statusCode) {
+                case 413:
+                    errorMessage = 'Image size exceeds limit.';
+                    break;
+                case 415:
+                    errorMessage = 'The file type is not supported.';
+                    break;
+                default:
+                    // Use the default error message
+                }
             }
             toast.error(errorMessage);
         } finally {
@@ -230,15 +235,27 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         textareaRef.current?.focus();
     };
 
-    const getPlaceholder = (): string => {
-        if (replyTo) {
-            const attributedTo = replyTo.object.attributedTo || {};
-            if (typeof attributedTo === 'object' && 'preferredUsername' in attributedTo && 'id' in attributedTo) {
-                return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
-            }
-        }
-        return 'What\'s new?';
+    const useModalOpen = (): boolean => {
+        return props.open !== undefined ? props.open : isOpen;
     };
+
+    const focusTextarea = useCallback(() => {
+        if (useModalOpen() && textareaRef.current) {
+            const timeoutId = setTimeout(() => {
+                textareaRef.current?.focus();
+            }, 100);
+            return () => clearTimeout(timeoutId);
+        }
+    }, [isOpen, props.open]);
+
+    const focusAltTextInput = useCallback(() => {
+        if (showAltInput && altTextInputRef.current) {
+            const timeoutId = setTimeout(() => {
+                altTextInputRef.current?.focus();
+            }, 100);
+            return () => clearTimeout(timeoutId);
+        }
+    }, [showAltInput]);
 
     const handleOpenChange = useCallback((open: boolean) => {
         if (open) {
@@ -262,16 +279,28 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [imagePreview, imageInputRef, onOpenChange]);
 
-    useEffect(() => {
-        return () => {
-            if (imagePreview) {
-                URL.revokeObjectURL(imagePreview);
+    const getPlaceholder = (): string => {
+        if (replyTo) {
+            const attributedTo = replyTo.object.attributedTo || {};
+            if (typeof attributedTo === 'object' && 'preferredUsername' in attributedTo && 'id' in attributedTo) {
+                return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
             }
-        };
+        }
+        return 'What\'s new?';
+    };
+
+    const cleanupOnUnmount = useCallback(() => {
+        if (imagePreview) {
+            URL.revokeObjectURL(imagePreview);
+        }
     }, [imagePreview]);
 
+    useEffect(() => {
+        return cleanupOnUnmount;
+    }, [cleanupOnUnmount]);
+
     return (
-        <Dialog open={props.open !== undefined ? props.open : isOpen} onOpenChange={handleOpenChange} {...(props.open !== undefined ? {} : props)}>
+        <Dialog open={useModalOpen()} onOpenChange={handleOpenChange} {...(props.open !== undefined ? {} : props)}>
             <DialogTrigger asChild>
                 {children}
             </DialogTrigger>

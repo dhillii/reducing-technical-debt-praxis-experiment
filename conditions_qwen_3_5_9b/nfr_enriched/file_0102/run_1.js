@@ -1,17 +1,4 @@
 /**
- * @preserve FastClick: polyfill to remove click delays on browsers with touch UIs.
- *
- * @version 1.0.2
- * @codingstandard ftlabs-jsv2
- * @copyright The Financial Times Limited [All Rights Reserved]
- * @license MIT License (see LICENSE.txt)
- */
-
-/*jslint browser:true, node:true*/
-/*global define, Event, Node*/
-
-
-/**
  * Instantiate fast-clicking listeners on the specified layer.
  *
  * @constructor
@@ -188,7 +175,6 @@ var deviceIsIOS = /iP(ad|hone|od)/.test(navigator.userAgent);
  * @type boolean
  */
 var deviceIsIOS4 = deviceIsIOS && (/OS 4_\d(_\d)?/).test(navigator.userAgent);
-
 
 /**
  * iOS 6.0(+?) requires the target element to be manually derived
@@ -466,12 +452,15 @@ FastClick.prototype.touchHasMoved = function(event) {
  */
 FastClick.prototype.onTouchMove = function(event) {
 	'use strict';
+	var targetElement;
+
 	if (!this.trackingClick) {
 		return true;
 	}
 
-	// If the touch has moved, cancel the click tracking
-	if (this.targetElement !== this.getTargetElementFromEventTarget(event.target) || this.touchHasMoved(event)) {
+	targetElement = this.getTargetElementFromEventTarget(event.target);
+
+	if (targetElement !== this.targetElement || this.touchHasMoved(event)) {
 		this.trackingClick = false;
 		this.targetElement = null;
 	}

@@ -4,6 +4,7 @@ module.exports = function() {
 	const hotCurrentHash = $hash$; // eslint-disable-line no-unused-vars
 	const hotCurrentModuleData = {};
 	let hotCurrentChildModule; // eslint-disable-line no-unused-vars
+
 	const hotCurrentParents = []; // eslint-disable-line no-unused-vars
 	const hotCurrentParentsTemp = []; // eslint-disable-line no-unused-vars
 
@@ -133,8 +134,8 @@ module.exports = function() {
 		return hot;
 	}
 
-	let hotStatusHandlers = [];
-	let hotStatus = "idle";
+	const hotStatusHandlers = [];
+	const hotStatus = "idle";
 
 	function hotSetStatus(newStatus) {
 		hotStatus = newStatus;
@@ -143,8 +144,8 @@ module.exports = function() {
 	}
 
 	// while downloading
-	let hotWaitingFiles = 0;
-	let hotChunksLoading = 0;
+	const hotWaitingFiles = 0;
+	const hotChunksLoading = 0;
 	const hotWaitingFilesMap = {};
 	const hotRequestedFilesMap = {};
 	const hotAvailableFilesMap = {};
@@ -345,10 +346,10 @@ module.exports = function() {
 						moduleId: id
 					};
 				}
-				let abortError = false;
-				let doApply = false;
-				let doDispose = false;
-				let chainInfo = "";
+				const abortError = false;
+				const doApply = false;
+				const doDispose = false;
+				const chainInfo = "";
 				if(result.chain) {
 					chainInfo = "\nUpdate propagation: " + result.chain.join(" -> ");
 				}
@@ -425,7 +426,7 @@ module.exports = function() {
 			}
 		});
 
-		let idx;
+		const idx;
 		const queue = outdatedModules.slice();
 		while(queue.length > 0) {
 			moduleId = queue.pop();

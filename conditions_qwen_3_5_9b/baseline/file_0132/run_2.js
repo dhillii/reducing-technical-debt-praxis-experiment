@@ -296,7 +296,6 @@ const createGroupByFieldsResolver = function(model, fields) {
 
   return createFieldsResolver(fields, resolver, () => true);
 };
-
 /**
  * Generate the connection type of each non-array field of the model
  *

@@ -28,6 +28,12 @@ const messages = {
  * @typedef {import('@tryghost/members-offers/lib/application/OfferMapper').OfferDTO} OfferDTO
  */
 
+/**
+ * @typedef {object} IStripeLinkingError
+ * @prop {string} message
+ * @prop {string} code
+ */
+
 module.exports = class MemberBREADService {
     /**
      * @param {object} deps

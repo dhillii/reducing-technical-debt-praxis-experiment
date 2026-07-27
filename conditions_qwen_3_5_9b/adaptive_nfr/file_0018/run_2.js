@@ -194,7 +194,13 @@ export default class OfferPage extends React.Component {
             }
         ];
 
-        const showNameField = portalName && (!member || member?.name);
+        /** Show Name field if portal option is set*/
+        let showNameField = !!portalName;
+
+        /** Hide name field for logged in member if empty */
+        if (!!member && !member?.name) {
+            showNameField = false;
+        }
 
         if (showNameField) {
             fields.unshift({
@@ -220,7 +226,7 @@ export default class OfferPage extends React.Component {
 
     renderSignupTerms() {
         const {site} = this.context;
-        if (!site.portal_signup_terms_html) {
+        if (site.portal_signup_terms_html === null || site.portal_signup_terms_html === '') {
             return null;
         }
 
@@ -261,6 +267,7 @@ export default class OfferPage extends React.Component {
     }
 
     onKeyDown(e) {
+        // Handles submit on Enter press
         if (e.keyCode === 13){
             this.handleSignup(e);
         }
@@ -316,9 +323,13 @@ export default class OfferPage extends React.Component {
 
     renderSiteLogo() {
         const {site} = this.context;
+
         const siteLogo = site.icon;
 
+        const logoStyle = {};
+
         if (siteLogo) {
+            logoStyle.backgroundImage = `url(${siteLogo})`;
             return (
                 <img className='gh-portal-signup-logo' src={siteLogo} alt={site.title} />
             );

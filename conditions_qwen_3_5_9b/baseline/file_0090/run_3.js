@@ -6,52 +6,38 @@ import { getKeysForArrayValue, setKeysForArrayValue } from './preview-props'
 
 type PathToChildFieldWithOption = { path: ReadonlyPropPath; options: ChildField['options'] }
 
-function isLeafKind(kind: ComponentSchema['kind']): boolean {
-  return kind === 'form' || kind === 'relationship' || kind === 'child'
-}
-
-function isTerminalKind(kind: ComponentSchema['kind']): boolean {
-  return kind === 'child' || kind === 'form' || kind === 'relationship'
-}
-
 export function findChildPropPathsForProp(
   value: any,
   schema: ComponentSchema,
   path: ReadonlyPropPath
 ): PathToChildFieldWithOption[] {
-  if (isLeafKind(schema.kind)) {
-    return []
+  switch (schema.kind) {
+    case 'form':
+    case 'relationship':
+      return []
+    case 'child':
+      return [{ path: path, options: schema.options }]
+    case 'conditional':
+      return findChildPropPathsForProp(
+        value.value,
+        schema.values[value.discriminant],
+        path.concat('value')
+      )
+    case 'object': {
+      const paths: PathToChildFieldWithOption[] = []
+      Object.keys(schema.fields).forEach(key => {
+        paths.push(...findChildPropPathsForProp(value[key], schema.fields[key], path.concat(key)))
+      })
+      return paths
+    }
+    case 'array': {
+      const paths: PathToChildFieldWithOption[] = []
+      ;(value as any[]).forEach((val, i) => {
+        paths.push(...findChildPropPathsForProp(val, schema.element, path.concat(i)))
+      })
+      return paths
+    }
   }
-
-  if (schema.kind === 'child') {
-    return [{ path: path, options: schema.options }]
-  }
-
-  if (schema.kind === 'conditional') {
-    return findChildPropPathsForProp(
-      value.value,
-      schema.values[value.discriminant],
-      path.concat('value')
-    )
-  }
-
-  if (schema.kind === 'object') {
-    const paths: PathToChildFieldWithOption[] = []
-    Object.keys(schema.fields).forEach(key => {
-      paths.push(...findChildPropPathsForProp(value[key], schema.fields[key], path.concat(key)))
-    })
-    return paths
-  }
-
-  if (schema.kind === 'array') {
-    const paths: PathToChildFieldWithOption[] = []
-    ;(value as any[]).forEach((val, i) => {
-      paths.push(...findChildPropPathsForProp(val, schema.element, path.concat(i)))
-    })
-    return paths
-  }
-
-  assertNever(schema)
 }
 
 export function findChildPropPaths(
@@ -91,85 +77,20 @@ export type DocumentFeaturesForChildField =
       documentFeatures: DocumentFeaturesForNormalization
     }
 
-function mergeInlineMarks(
-  editorInlineMarks: DocumentFeatures['formatting']['inlineMarks'],
-  optionsInlineMarks: ChildField['options']['formatting']['inlineMarks']
-): Record<Mark, boolean> {
-  if (optionsInlineMarks === 'inherit') {
-    return editorInlineMarks
-  }
-
-  const result: Record<Mark, boolean> = {}
-  Object.keys(editorInlineMarks).forEach(mark => {
-    result[mark as Mark] = !!optionsInlineMarks?.[mark as Mark]
-  })
-  return result as Record<Mark, boolean>
-}
-
-function buildInlineFeatures(
-  options: ChildField['options']
-): {
-  links: boolean
-  relationships: boolean
-  softBreaks: boolean
-} {
-  return {
-    links: options.links === 'inherit',
-    relationships: options.relationships === 'inherit',
-    softBreaks: options.formatting?.softBreaks === 'inherit',
-  }
-}
-
-function buildBlockFeatures(
-  editorDocumentFeatures: DocumentFeatures,
-  options: ChildField['options']
-): DocumentFeaturesForNormalization {
-  const commonFeatures = buildInlineFeatures(options)
-
-  return {
-    layouts: [],
-    dividers: options.dividers === 'inherit' ? editorDocumentFeatures.dividers : false,
-    formatting: {
-      alignment:
-        options.formatting?.alignment === 'inherit'
-          ? editorDocumentFeatures.formatting.alignment
-          : {
-              center: false,
-              end: false,
-            },
-      blockTypes:
-        options.formatting?.blockTypes === 'inherit'
-          ? editorDocumentFeatures.formatting.blockTypes
-          : {
-              blockquote: false,
-              code: false,
-            },
-      headingLevels:
-        options.formatting?.headingLevels === 'inherit'
-          ? editorDocumentFeatures.formatting.headingLevels
-          : options.formatting?.headingLevels || [],
-      listTypes:
-        options.formatting?.listTypes === 'inherit'
-          ? editorDocumentFeatures.formatting.listTypes
-          : {
-              ordered: false,
-              unordered: false,
-            },
-    },
-    links: commonFeatures.links,
-    relationships: commonFeatures.relationships,
-  }
-}
-
 export function getDocumentFeaturesForChildField(
   editorDocumentFeatures: DocumentFeatures,
   options: ChildField['options']
 ): DocumentFeaturesForChildField {
-  const inlineMarks = mergeInlineMarks(
-    editorDocumentFeatures.formatting.inlineMarks,
-    options.formatting?.inlineMarks
-  )
+  const inlineMarksFromOptions = options.formatting?.inlineMarks
 
+  const inlineMarks =
+    inlineMarksFromOptions === 'inherit'
+      ? 'inherit'
+      : (Object.fromEntries(
+          Object.keys(editorDocumentFeatures.formatting.inlineMarks).map(mark => {
+            return [mark as Mark, !!(inlineMarksFromOptions || {})[mark as Mark]]
+          })
+        ) as Record<Mark, boolean>)
   if (options.kind === 'inline') {
     return {
       kind: 'inline',
@@ -181,13 +102,44 @@ export function getDocumentFeaturesForChildField(
       softBreaks: options.formatting?.softBreaks === 'inherit',
     }
   }
-
   return {
     kind: 'block',
     inlineMarks,
     softBreaks: options.formatting?.softBreaks === 'inherit',
+    documentFeatures: {
+      layouts: [],
+      dividers: options.dividers === 'inherit' ? editorDocumentFeatures.dividers : false,
+      formatting: {
+        alignment:
+          options.formatting?.alignment === 'inherit'
+            ? editorDocumentFeatures.formatting.alignment
+            : {
+                center: false,
+                end: false,
+              },
+        blockTypes:
+          options.formatting?.blockTypes === 'inherit'
+            ? editorDocumentFeatures.formatting.blockTypes
+            : {
+                blockquote: false,
+                code: false,
+              },
+        headingLevels:
+          options.formatting?.headingLevels === 'inherit'
+            ? editorDocumentFeatures.formatting.headingLevels
+            : options.formatting?.headingLevels || [],
+        listTypes:
+          options.formatting?.listTypes === 'inherit'
+            ? editorDocumentFeatures.formatting.listTypes
+            : {
+                ordered: false,
+                unordered: false,
+              },
+      },
+      links: options.links === 'inherit',
+      relationships: options.relationships === 'inherit',
+    },
     componentBlocks: options.componentBlocks === 'inherit',
-    documentFeatures: buildBlockFeatures(editorDocumentFeatures, options),
   }
 }
 
@@ -197,7 +149,7 @@ function getSchemaAtPropPathInner(
   schema: ComponentSchema
 ): undefined | ComponentSchema {
   if (path.length === 0) return schema
-  if (isTerminalKind(schema.kind)) return
+  if (schema.kind === 'child' || schema.kind === 'form' || schema.kind === 'relationship') return
   if (schema.kind === 'conditional') {
     const key = path.shift()
     if (key === 'discriminant')
@@ -231,11 +183,8 @@ export function getSchemaAtPropPath(
 }
 
 export function clientSideValidateProp(schema: ComponentSchema, value: unknown): boolean {
-  if (isTerminalKind(schema.kind)) {
-    if (schema.kind === 'form') return schema.validate(value)
-    return true
-  }
-
+  if (schema.kind === 'child' || schema.kind === 'relationship') return true
+  if (schema.kind === 'form') return schema.validate(value)
   if (typeof value !== 'object' || value === null) return false
 
   switch (schema.kind) {
@@ -264,16 +213,15 @@ export function clientSideValidateProp(schema: ComponentSchema, value: unknown):
   return false
 }
 
-function traverseAncestors(
+export function getAncestorSchemas(
   rootSchema: ComponentSchema,
   path: ReadonlyPropPath,
   value: unknown
-): ComponentSchema[] {
+) {
   const ancestors: ComponentSchema[] = []
   const currentPath = [...path]
   let currentProp = rootSchema
   let currentValue = value
-
   while (currentPath.length) {
     ancestors.push(currentProp)
     const key = currentPath.shift()!
@@ -286,21 +234,17 @@ function traverseAncestors(
     } else if (currentProp.kind === 'object') {
       currentValue = (currentValue as any)[key]
       currentProp = currentProp.fields[key]
-    } else if (isTerminalKind(currentProp.kind)) {
+    } else if (
+      currentProp.kind === 'child' ||
+      currentProp.kind === 'form' ||
+      currentProp.kind === 'relationship'
+    ) {
       throw new Error(`unexpected prop "${key}"`)
     } else {
       assertNever(currentProp)
     }
   }
   return ancestors
-}
-
-export function getAncestorSchemas(
-  rootSchema: ComponentSchema,
-  path: ReadonlyPropPath,
-  value: unknown
-) {
-  return traverseAncestors(rootSchema, path, value)
 }
 
 export type ReadonlyPropPath = readonly (string | number)[]
@@ -320,11 +264,10 @@ export function traverseProps(
   visitor: (schema: ComponentSchema, value: unknown, path: ReadonlyPropPath) => void,
   path: ReadonlyPropPath = []
 ) {
-  if (isTerminalKind(schema.kind)) {
+  if (schema.kind === 'form' || schema.kind === 'relationship' || schema.kind === 'child') {
     visitor(schema, value, path)
     return
   }
-
   if (schema.kind === 'object') {
     for (const [key, childProp] of Object.entries(schema.fields)) {
       traverseProps(childProp, (value as any)[key], visitor, [...path, key])
@@ -332,14 +275,12 @@ export function traverseProps(
     visitor(schema, value, path)
     return
   }
-
   if (schema.kind === 'array') {
     for (const [idx, val] of (value as unknown[]).entries()) {
       traverseProps(schema.element, val, visitor, path.concat(idx))
     }
     return visitor(schema, value, path)
   }
-
   if (schema.kind === 'conditional') {
     const discriminant: string | boolean = (value as any).discriminant
     visitor(schema, discriminant, path.concat('discriminant'))
@@ -352,7 +293,6 @@ export function traverseProps(
     visitor(schema, value, path)
     return
   }
-
   assertNever(schema)
 }
 
@@ -396,6 +336,7 @@ export function replaceValueAtPropPath(
   }
 
   assert(schema.kind !== 'form' && schema.kind !== 'relationship' && schema.kind !== 'child')
+
   assertNever(schema)
 }
 

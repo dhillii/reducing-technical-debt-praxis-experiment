@@ -25,211 +25,10 @@ const isPolymorphicAssoc = assoc => {
   return assoc.nature.toLowerCase().indexOf('morph') !== -1;
 };
 
-const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, definition }) => {
-  return function() {
-    const populatedPaths = this.getPopulatedPaths();
-    const {
-      publicationState,
-      _populateComponents = true,
-      _populateMorphRelations = true,
-    } = this.getOptions();
-
-    const getMatchQuery = assoc => {
-      const assocModel = strapi.db.getModelByAssoc(assoc);
-
-      const hasDraftAndPublish = contentTypesUtils.hasDraftAndPublish(assocModel);
-      if (hasDraftAndPublish && DP_PUB_STATES.includes(publicationState)) {
-        return populateQueries.publicationState[publicationState];
-      }
-
-      return undefined;
-    };
-
-    if (_populateMorphRelations) {
-      morphAssociations.forEach(association => {
-        const matchQuery = getMatchQuery(association);
-        const { alias, nature } = association;
-
-        if (['oneToManyMorph', 'manyToManyMorph'].includes(nature)) {
-          this.populate({ path: alias, match: matchQuery, options: { publicationState } });
-        } else if (populatedPaths.includes(alias)) {
-          _.set(this._mongooseOptions.populate, [alias, 'path'], `${alias}.ref`);
-          _.set(this._mongooseOptions.populate, [alias, 'options'], {
-            publicationState,
-          });
-
-          if (matchQuery !== undefined) {
-            _.set(this._mongooseOptions.populate, [alias, 'match'], matchQuery);
-          }
-        }
-      });
-    }
-
-    if (_populateComponents) {
-      componentAttributes.forEach(key => {
-        this.populate({ path: `${key}.ref`, options: { publicationState } });
-      });
-    }
-
-    if (definition.modelType === 'component') {
-      definition.associations
-        .filter(assoc => !isPolymorphicAssoc(assoc))
-        .filter(ast => ast.autoPopulate !== false)
-        .forEach(ast => {
-          this.populate({
-            path: ast.alias,
-            match: getMatchQuery(ast),
-            options: { publicationState, _populateComponents: false },
-          });
-        });
-    }
-  };
-};
-
-const buildRelation = ({ definition, model, instance, attribute, name }) => {
-  const { nature, verbose } =
-    utilsModels.getNature({
-      attribute,
-      attributeName: name,
-      modelName: model.toLowerCase(),
-    }) || {};
-
-  // Build associations key
-  utilsModels.defineAssociations(model.toLowerCase(), definition, attribute, name);
-
-  const getRef = (name, plugin) => {
-    return strapi.db.getModel(name, plugin).globalId;
-  };
-
-  const setField = (name, val) => {
-    definition.loadedModel[name] = val;
-  };
-
-  const { ObjectId } = instance.Schema.Types;
-
-  switch (verbose) {
-    case 'hasOne': {
-      const ref = getRef(attribute.model, attribute.plugin);
-
-      setField(name, { type: ObjectId, ref });
-
-      break;
-    }
-    case 'hasMany': {
-      const FK = _.find(definition.associations, {
-        alias: name,
-      });
-
-      const ref = getRef(attribute.collection, attribute.plugin);
-
-      if (FK) {
-        setField(name, {
-          type: 'virtual',
-          ref,
-          via: FK.via,
-          justOne: false,
-        });
-
-        // Set this info to be able to see if this field is a real database's field.
-        attribute.isVirtual = true;
-      } else {
-        setField(name, [{ type: ObjectId, ref }]);
-      }
-      break;
-    }
-    case 'belongsTo': {
-      const FK = _.find(definition.associations, {
-        alias: name,
-      });
-
-      const ref = getRef(attribute.model, attribute.plugin);
-
-      if (
-        FK &&
-        FK.nature !== 'oneToOne' &&
-        FK.nature !== 'manyToOne' &&
-        FK.nature !== 'oneWay' &&
-        FK.nature !== 'oneToMorph'
-      ) {
-        setField(name, {
-          type: 'virtual',
-          ref,
-          via: FK.via,
-          justOne: true,
-        });
-
-        // Set this info to be able to see if this field is a real database's field.
-        attribute.isVirtual = true;
-      } else {
-        setField(name, { type: ObjectId, ref });
-      }
-
-      break;
-    }
-    case 'belongsToMany': {
-      const ref = getRef(attribute.collection, attribute.plugin);
-
-      if (nature === 'manyWay') {
-        setField(name, [{ type: ObjectId, ref }]);
-      } else {
-        const FK = _.find(definition.associations, {
-          alias: name,
-        });
-
-        // One-side of the relationship has to be a virtual field to be bidirectional.
-        if ((FK && _.isUndefined(FK.via)) || attribute.dominant !== true) {
-          setField(name, {
-            type: 'virtual',
-            ref,
-            via: FK.via,
-          });
-
-          // Set this info to be able to see if this field is a real database's field.
-          attribute.isVirtual = true;
-        } else {
-          setField(name, [{ type: ObjectId, ref }]);
-        }
-      }
-      break;
-    }
-    case 'morphOne': {
-      const ref = getRef(attribute.model, attribute.plugin);
-      setField(name, { type: ObjectId, ref });
-      break;
-    }
-    case 'morphMany': {
-      const ref = getRef(attribute.collection, attribute.plugin);
-      setField(name, [{ type: ObjectId, ref }]);
-      break;
-    }
-
-    case 'belongsToMorph': {
-      setField(name, {
-        kind: String,
-        [attribute.filter]: String,
-        ref: { type: ObjectId, refPath: `${name}.kind` },
-      });
-      break;
-    }
-    case 'belongsToManyMorph': {
-      setField(name, [
-        {
-          kind: String,
-          [attribute.filter]: String,
-          ref: { type: ObjectId, refPath: `${name}.kind` },
-        },
-      ]);
-      break;
-    }
-    default:
-      break;
-  }
-};
-
 module.exports = async ({ models, target }, ctx) => {
   const { instance } = ctx;
 
-  const mountModel = model => {
+  function mountModel(model) {
     const definition = models[model];
     definition.orm = 'mongoose';
     definition.associations = [];
@@ -442,13 +241,12 @@ module.exports = async ({ models, target }, ctx) => {
                 break;
 
               case 'manyMorphToMany':
-              case 'manyMorphToOne': {
+              case 'manyMorphToOne':
                 returned[association.alias] = returned[association.alias].map(obj =>
                   refToStrapiRef(obj)
                 );
 
                 break;
-              }
               default:
             }
           }
@@ -536,7 +334,7 @@ module.exports = async ({ models, target }, ctx) => {
     target[model].updateRelations = relations.update;
     target[model].deleteRelations = relations.deleteRelations;
     target[model].privateAttributes = contentTypesUtils.getPrivateAttributes(target[model]);
-  };
+  }
 
   // Instantiate every models
   Object.keys(models).forEach(mountModel);
@@ -565,3 +363,204 @@ module.exports = async ({ models, target }, ctx) => {
 
 // noop migration to match migration API
 const migrateSchema = () => {};
+
+const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, definition }) => {
+  return function() {
+    const populatedPaths = this.getPopulatedPaths();
+    const {
+      publicationState,
+      _populateComponents = true,
+      _populateMorphRelations = true,
+    } = this.getOptions();
+
+    const getMatchQuery = assoc => {
+      const assocModel = strapi.db.getModelByAssoc(assoc);
+
+      const hasDraftAndPublish = contentTypesUtils.hasDraftAndPublish(assocModel);
+      if (hasDraftAndPublish && DP_PUB_STATES.includes(publicationState)) {
+        return populateQueries.publicationState[publicationState];
+      }
+
+      return undefined;
+    };
+
+    if (_populateMorphRelations) {
+      morphAssociations.forEach(association => {
+        const matchQuery = getMatchQuery(association);
+        const { alias, nature } = association;
+
+        if (['oneToManyMorph', 'manyToManyMorph'].includes(nature)) {
+          this.populate({ path: alias, match: matchQuery, options: { publicationState } });
+        } else if (populatedPaths.includes(alias)) {
+          _.set(this._mongooseOptions.populate, [alias, 'path'], `${alias}.ref`);
+          _.set(this._mongooseOptions.populate, [alias, 'options'], {
+            publicationState,
+          });
+
+          if (matchQuery !== undefined) {
+            _.set(this._mongooseOptions.populate, [alias, 'match'], matchQuery);
+          }
+        }
+      });
+    }
+
+    if (_populateComponents) {
+      componentAttributes.forEach(key => {
+        this.populate({ path: `${key}.ref`, options: { publicationState } });
+      });
+    }
+
+    if (definition.modelType === 'component') {
+      definition.associations
+        .filter(assoc => !isPolymorphicAssoc(assoc))
+        .filter(ast => ast.autoPopulate !== false)
+        .forEach(ast => {
+          this.populate({
+            path: ast.alias,
+            match: getMatchQuery(ast),
+            options: { publicationState, _populateComponents: false },
+          });
+        });
+    }
+  };
+};
+
+const buildRelation = ({ definition, model, instance, attribute, name }) => {
+  const { nature, verbose } =
+    utilsModels.getNature({
+      attribute,
+      attributeName: name,
+      modelName: model.toLowerCase(),
+    }) || {};
+
+  // Build associations key
+  utilsModels.defineAssociations(model.toLowerCase(), definition, attribute, name);
+
+  const getRef = (name, plugin) => {
+    return strapi.db.getModel(name, plugin).globalId;
+  };
+
+  const setField = (name, val) => {
+    definition.loadedModel[name] = val;
+  };
+
+  const { ObjectId } = instance.Schema.Types;
+
+  switch (verbose) {
+    case 'hasOne': {
+      const ref = getRef(attribute.model, attribute.plugin);
+
+      setField(name, { type: ObjectId, ref });
+
+      break;
+    }
+    case 'hasMany': {
+      const FK = _.find(definition.associations, {
+        alias: name,
+      });
+
+      const ref = getRef(attribute.collection, attribute.plugin);
+
+      if (FK) {
+        setField(name, {
+          type: 'virtual',
+          ref,
+          via: FK.via,
+          justOne: false,
+        });
+
+        // Set this info to be able to see if this field is a real database's field.
+        attribute.isVirtual = true;
+      } else {
+        setField(name, [{ type: ObjectId, ref }]);
+      }
+      break;
+    }
+    case 'belongsTo': {
+      const FK = _.find(definition.associations, {
+        alias: name,
+      });
+
+      const ref = getRef(attribute.model, attribute.plugin);
+
+      if (
+        FK &&
+        FK.nature !== 'oneToOne' &&
+        FK.nature !== 'manyToOne' &&
+        FK.nature !== 'oneWay' &&
+        FK.nature !== 'oneToMorph'
+      ) {
+        setField(name, {
+          type: 'virtual',
+          ref,
+          via: FK.via,
+          justOne: true,
+        });
+
+        // Set this info to be able to see if this field is a real database's field.
+        attribute.isVirtual = true;
+      } else {
+        setField(name, { type: ObjectId, ref });
+      }
+
+      break;
+    }
+    case 'belongsToMany': {
+      const ref = getRef(attribute.collection, attribute.plugin);
+
+      if (nature === 'manyWay') {
+        setField(name, [{ type: ObjectId, ref }]);
+      } else {
+        const FK = _.find(definition.associations, {
+          alias: name,
+        });
+
+        // One-side of the relationship has to be a virtual field to be bidirectional.
+        if ((FK && _.isUndefined(FK.via)) || attribute.dominant !== true) {
+          setField(name, {
+            type: 'virtual',
+            ref,
+            via: FK.via,
+          });
+
+          // Set this info to be able to see if this field is a real database's field.
+          attribute.isVirtual = true;
+        } else {
+          setField(name, [{ type: ObjectId, ref }]);
+        }
+      }
+      break;
+    }
+    case 'morphOne': {
+      const ref = getRef(attribute.model, attribute.plugin);
+      setField(name, { type: ObjectId, ref });
+      break;
+    }
+    case 'morphMany': {
+      const ref = getRef(attribute.collection, attribute.plugin);
+      setField(name, [{ type: ObjectId, ref }]);
+      break;
+    }
+
+    case 'belongsToMorph': {
+      setField(name, {
+        kind: String,
+        [attribute.filter]: String,
+        ref: { type: ObjectId, refPath: `${name}.kind` },
+      });
+      break;
+    }
+    case 'belongsToManyMorph': {
+      setField(name, [
+        {
+          kind: String,
+          [attribute.filter]: String,
+          ref: { type: ObjectId, refPath: `${name}.kind` },
+        },
+      ]);
+      break;
+    }
+    default:
+      break;
+  }
+};

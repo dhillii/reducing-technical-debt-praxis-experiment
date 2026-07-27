@@ -156,7 +156,7 @@ exports.cursor = {
 };
 
 /**
- * Check if diff should be shown for the given error.
+ * Determine if a diff should be shown for the given error.
  *
  * @param {Error} err
  * @return {boolean}
@@ -167,12 +167,12 @@ function shouldShowDiff (err) {
 }
 
 /**
- * Ensure actual and expected are strings for diffing.
+ * Ensure actual and expected values are strings for diffing.
  *
  * @param {Error} err
  * @api private
  */
-function ensureStringDiff (err) {
+function stringifyDiffObjs (err) {
   if (!utils.isString(err.actual) || !utils.isString(err.expected)) {
     err.actual = utils.stringify(err.actual);
     err.expected = utils.stringify(err.expected);
@@ -223,7 +223,7 @@ exports.list = function (failures) {
     }
     // explicitly show diff
     if (!exports.hideDiff && shouldShowDiff(err)) {
-      ensureStringDiff(err);
+      stringifyDiffObjs(err);
       fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
       var match = message.match(/^([^:]+): expected/);
       msg = '\n      ' + color('error message', match ? match[1] : msg);
@@ -309,7 +309,7 @@ function Base (runner) {
     stats.failures = stats.failures || 0;
     stats.failures++;
     if (shouldShowDiff(err)) {
-      ensureStringDiff(err);
+      stringifyDiffObjs(err);
     }
     test.err = err;
     failures.push(test);

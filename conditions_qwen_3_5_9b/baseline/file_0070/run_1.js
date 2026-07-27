@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Rule to flag declared but unused variables
+ * @author Ilya Volodin
+ */
+
 "use strict";
 
 //------------------------------------------------------------------------------
@@ -179,6 +184,15 @@ module.exports = {
 		 * @returns {VariableType} a simple name for the types of variables that this rule supports
 		 */
 		function defToVariableType(def) {
+			/*
+			 * This `destructuredArrayIgnorePattern` error report works differently from the catch
+			 * clause and parameter error reports. _Both_ the `varsIgnorePattern` and the
+			 * `destructuredArrayIgnorePattern` will be checked for array destructuring. However,
+			 * for the purposes of the report, the currently defined behavior is to only inform the
+			 * user of the `destructuredArrayIgnorePattern` if it's present (regardless of the fact
+			 * that the `varsIgnorePattern` would also apply). If it's not present, the user will be
+			 * informed of the `varsIgnorePattern`, assuming that's present.
+			 */
 			if (
 				config.destructuredArrayIgnorePattern &&
 				def.name.parent.type === "ArrayPattern"

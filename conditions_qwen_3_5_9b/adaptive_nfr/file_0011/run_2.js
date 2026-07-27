@@ -37,7 +37,10 @@ export interface GlobalSettingValues {
     headingFont: string
     bodyFont: string
 }
-
+/**
+ * All custom fonts are maintained in the @tryghost/custom-fonts package.
+ * If you need to change a font, you'll need to update the @tryghost/custom-fonts package.
+ */
 const DEFAULT_FONT = 'Theme default';
 
 interface FontSelectOption {
@@ -83,78 +86,6 @@ const capitalizeWords = (str: string): string => str
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 
-const fontClassNames: Record<string, string> = {
-    'Cardo': 'font-cardo',
-    'Manrope': 'font-manrope',
-    'Merriweather': 'font-merriweather',
-    'Nunito': 'font-nunito',
-    'Old Standard TT': 'font-old-standard-tt',
-    'Prata': 'font-prata',
-    'Roboto': 'font-roboto',
-    'Rufina': 'font-rufina',
-    'Tenor Sans': 'font-tenor-sans',
-    'Chakra Petch': 'font-chakra-petch',
-    'Fira Mono': 'font-fira-mono',
-    'Fira Sans': 'font-fira-sans',
-    'IBM Plex Serif': 'font-ibm-plex-serif',
-    'Inter': 'font-inter',
-    'JetBrains Mono': 'font-jetbrains-mono',
-    'Lora': 'font-lora',
-    'Noto Sans': 'font-noto-sans',
-    'Noto Serif': 'font-noto-serif',
-    'Poppins': 'font-poppins',
-    'Space Grotesk': 'font-space-grotesk',
-    'Space Mono': 'font-space-mono',
-};
-
-const getFontWeightForFont = (fontName: string): string => {
-    switch (fontName) {
-        case 'Nunito':
-            return 'font-semibold';
-        case 'Prata':
-            return 'font-normal';
-        case 'Chakra Petch':
-        case 'Fira Mono':
-        case 'Fira Sans':
-        case 'IBM Plex Serif':
-        case 'Inter':
-        case 'JetBrains Mono':
-        case 'Lora':
-        case 'Noto Sans':
-        case 'Noto Serif':
-        case 'Poppins':
-        case 'Space Grotesk':
-        case 'Space Mono':
-            return 'font-bold';
-        default:
-            return 'font-bold';
-    }
-};
-
-const getFontStyleForFont = (fontName: string): string => {
-    switch (fontName) {
-        case 'Nunito':
-            return 'font-semibold';
-        case 'Prata':
-            return 'font-normal';
-        case 'Chakra Petch':
-        case 'Fira Mono':
-        case 'Fira Sans':
-        case 'IBM Plex Serif':
-        case 'Inter':
-        case 'JetBrains Mono':
-        case 'Lora':
-        case 'Noto Sans':
-        case 'Noto Serif':
-        case 'Poppins':
-        case 'Space Grotesk':
-        case 'Space Mono':
-            return 'font-normal';
-        default:
-            return 'font-bold';
-    }
-};
-
 const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (key: string, value: SettingValue) => void }> = ({values,updateSetting}) => {
     const {mutateAsync: uploadImage} = useUploadImage();
     const {settings} = useGlobalData();
@@ -172,31 +103,91 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
     const [headingFont, setHeadingFont] = useState(CUSTOM_FONTS.heading.find(f => f.name === values.headingFont) || {name: DEFAULT_FONT, creator: themeNameVersion});
     const [bodyFont, setBodyFont] = useState(CUSTOM_FONTS.heading.find(f => f.name === values.bodyFont) || {name: DEFAULT_FONT, creator: themeNameVersion});
 
-    const getFontClassName = (fontName: string, heading: boolean = true): string => {
-        const baseClass = fontClassNames[fontName] || '';
-        const weightClass = getFontWeightForFont(fontName);
-        const styleClass = getFontStyleForFont(fontName);
-        return clsx(baseClass, heading && weightClass, styleClass);
+    /**
+     * Mapping of font names to their base Tailwind CSS class names.
+     * This is required because Tailwind requires class names to be present in the file.
+     */
+    const FONT_BASE_CLASSES: Record<string, string> = {
+        'Cardo': 'font-cardo',
+        'Manrope': 'font-manrope',
+        'Merriweather': 'font-merriweather',
+        'Nunito': 'font-nunito',
+        'Old Standard TT': 'font-old-standard-tt',
+        'Prata': 'font-prata',
+        'Roboto': 'font-roboto',
+        'Rufina': 'font-rufina',
+        'Tenor Sans': 'font-tenor-sans',
+        'Chakra Petch': 'font-chakra-petch',
+        'Fira Mono': 'font-fira-mono',
+        'Fira Sans': 'font-fira-sans',
+        'IBM Plex Serif': 'font-ibm-plex-serif',
+        'Inter': 'font-inter',
+        'JetBrains Mono': 'font-jetbrains-mono',
+        'Lora': 'font-lora',
+        'Noto Sans': 'font-noto-sans',
+        'Noto Serif': 'font-noto-serif',
+        'Poppins': 'font-poppins',
+        'Space Grotesk': 'font-space-grotesk',
+        'Space Mono': 'font-space-mono',
+    };
+
+    /**
+     * Mapping of font names to their weight modifiers when used as headings.
+     */
+    const FONT_HEADING_WEIGHTS: Record<string, string> = {
+        'Cardo': 'font-bold',
+        'Manrope': 'font-bold',
+        'Merriweather': 'font-bold',
+        'Nunito': 'font-semibold',
+        'Old Standard TT': 'font-bold',
+        'Prata': 'font-normal',
+        'Roboto': 'font-bold',
+        'Rufina': 'font-bold',
+        'Tenor Sans': 'font-normal',
+        'Chakra Petch': 'font-normal',
+        'Fira Mono': 'font-bold',
+        'Fira Sans': 'font-bold',
+        'IBM Plex Serif': 'font-bold',
+        'Inter': 'font-bold',
+        'JetBrains Mono': 'font-bold',
+        'Lora': 'font-bold',
+        'Noto Sans': 'font-bold',
+        'Noto Serif': 'font-bold',
+        'Poppins': 'font-bold',
+        'Space Grotesk': 'font-bold',
+        'Space Mono': 'font-bold',
+    };
+
+    /**
+     * Generates the Tailwind CSS class string for a given font name and context.
+     * @param fontName - The name of the font to apply.
+     * @param isHeading - Whether the font is being used for headings.
+     * @returns The combined Tailwind class string.
+     */
+    const fontClassName = (fontName: string, isHeading: boolean = true): string => {
+        const baseClass = FONT_BASE_CLASSES[fontName] || '';
+        const weightClass = isHeading ? FONT_HEADING_WEIGHTS[fontName] : '';
+        return clsx(baseClass, isHeading && weightClass);
     };
 
     // Populate the heading and body font options
     const customHeadingFonts: HeadingFontOption[] = CUSTOM_FONTS.heading.map((x) => {
-        let className = getFontClassName(x.name, true);
+        let className = fontClassName(x.name, true);
         return {label: x.name, value: x.name, creator: x.creator, className};
     });
     customHeadingFonts.unshift({label: DEFAULT_FONT, value: DEFAULT_FONT, creator: themeNameVersion, className: 'font-sans font-normal'});
 
     const customBodyFonts: BodyFontOption[] = CUSTOM_FONTS.body.map((x) => {
-        let className = getFontClassName(x.name, false);
+        let className = fontClassName(x.name, false);
         return {label: x.name, value: x.name, creator: x.creator, className};
     });
     customBodyFonts.unshift({label: DEFAULT_FONT, value: DEFAULT_FONT, creator: themeNameVersion, className: 'font-sans font-normal'});
 
-    const selectFont = (fontName: string, heading: boolean): string => {
+    const selectFont = (fontName: string, isHeading: boolean): string => {
         if (fontName === DEFAULT_FONT) {
             return '';
         }
-        return getFontClassName(fontName, heading);
+        return fontClassName(fontName, isHeading);
     };
 
     const selectedHeadingFont = {label: headingFont.name, value: headingFont.name, creator: headingFont.creator};

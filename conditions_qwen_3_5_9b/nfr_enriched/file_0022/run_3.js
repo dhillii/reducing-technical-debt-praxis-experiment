@@ -521,97 +521,66 @@ export const sanitizeChartData = <T extends {date: string}>(data: T[], range: nu
     }
 
     if (range >= 91 && range <= 356) {
-        // Weekly changes
-        const weeklyData: T[] = [];
-        let currentWeek = moment(data[0].date).startOf('week');
-        let weekTotal = 0;
-        let weekCount = 0;
-        let lastValue = 0;
-
-        data.forEach((item, index) => {
-            const itemDate = moment(item.date);
-            if (itemDate.isSame(currentWeek, 'week')) {
-                weekTotal += Number(item[fieldName]);
-                weekCount += 1;
-                lastValue = Number(item[fieldName]);
-            } else {
-                // Add the value for the previous week
-                weeklyData.push({
-                    ...data[index - 1],
-                    date: currentWeek.format('YYYY-MM-DD'),
-                    [fieldName]: aggregationType === 'sum' ? weekTotal :
-                        aggregationType === 'avg' ? (weekCount > 0 ? weekTotal / weekCount : 0) :
-                            lastValue
-                } as T);
-
-                // Start new week
-                currentWeek = itemDate.startOf('week');
-                weekTotal = Number(item[fieldName]);
-                weekCount = 1;
-                lastValue = Number(item[fieldName]);
-            }
-
-            // Handle the last item
-            if (index === data.length - 1) {
-                weeklyData.push({
-                    ...item,
-                    date: currentWeek.format('YYYY-MM-DD'),
-                    [fieldName]: aggregationType === 'sum' ? weekTotal :
-                        aggregationType === 'avg' ? (weekCount > 0 ? weekTotal / weekCount : 0) :
-                            lastValue
-                } as T);
-            }
-        });
-
-        return weeklyData;
+        return aggregateData(data, range, fieldName, aggregationType, 'week');
     } else if (range > 356) {
-        // Monthly changes
-        const monthlyData: T[] = [];
-        let currentMonth = moment(data[0].date).startOf('month');
-        let monthTotal = 0;
-        let monthCount = 0;
-        let lastValue = 0;
-
-        data.forEach((item, index) => {
-            const itemDate = moment(item.date);
-            if (itemDate.isSame(currentMonth, 'month')) {
-                monthTotal += Number(item[fieldName]);
-                monthCount += 1;
-                lastValue = Number(item[fieldName]);
-            } else {
-                // Add the value for the previous month
-                monthlyData.push({
-                    ...data[index - 1],
-                    date: currentMonth.format('YYYY-MM-DD'),
-                    [fieldName]: aggregationType === 'sum' ? monthTotal :
-                        aggregationType === 'avg' ? (monthCount > 0 ? monthTotal / monthCount : 0) :
-                            lastValue
-                } as T);
-
-                // Start new month
-                currentMonth = itemDate.startOf('month');
-                monthTotal = Number(item[fieldName]);
-                monthCount = 1;
-                lastValue = Number(item[fieldName]);
-            }
-
-            // Handle the last item
-            if (index === data.length - 1) {
-                monthlyData.push({
-                    ...item,
-                    date: currentMonth.format('YYYY-MM-DD'),
-                    [fieldName]: aggregationType === 'sum' ? monthTotal :
-                        aggregationType === 'avg' ? (monthCount > 0 ? monthTotal / monthCount : 0) :
-                            lastValue
-                } as T);
-            }
-        });
-
-        return monthlyData;
+        return aggregateData(data, range, fieldName, aggregationType, 'month');
     }
 
     // Return original data for ranges < 91 days
     return data;
+};
+
+/**
+ * Aggregates chart data based on the specified interval (week or month).
+ * @param data The chart data to aggregate
+ * @param range The date range in days
+ * @param fieldName The name of the field to use for calculations
+ * @param aggregationType The type of aggregation to use: 'sum', 'avg', or 'exact'
+ * @param interval The interval to aggregate by ('week' or 'month')
+ */
+const aggregateData = <T extends {date: string}>(data: T[], range: number, fieldName: keyof T, aggregationType: 'sum' | 'avg' | 'exact', interval: 'week' | 'month'): T[] => {
+    const intervalData: T[] = [];
+    let currentInterval = moment(data[0].date).startOf(interval);
+    let intervalTotal = 0;
+    let intervalCount = 0;
+    let lastValue = 0;
+
+    data.forEach((item, index) => {
+        const itemDate = moment(item.date);
+        if (itemDate.isSame(currentInterval, interval)) {
+            intervalTotal += Number(item[fieldName]);
+            intervalCount += 1;
+            lastValue = Number(item[fieldName]);
+        } else {
+            // Add the value for the previous interval
+            intervalData.push({
+                ...data[index - 1],
+                date: currentInterval.format('YYYY-MM-DD'),
+                [fieldName]: aggregationType === 'sum' ? intervalTotal :
+                    aggregationType === 'avg' ? (intervalCount > 0 ? intervalTotal / intervalCount : 0) :
+                        lastValue
+            } as T);
+
+            // Start new interval
+            currentInterval = itemDate.startOf(interval);
+            intervalTotal = Number(item[fieldName]);
+            intervalCount = 1;
+            lastValue = Number(item[fieldName]);
+        }
+
+        // Handle the last item
+        if (index === data.length - 1) {
+            intervalData.push({
+                ...item,
+                date: currentInterval.format('YYYY-MM-DD'),
+                [fieldName]: aggregationType === 'sum' ? intervalTotal :
+                    aggregationType === 'avg' ? (intervalCount > 0 ? intervalTotal / intervalCount : 0) :
+                        lastValue
+            } as T);
+        }
+    });
+
+    return intervalData;
 };
 
 /**

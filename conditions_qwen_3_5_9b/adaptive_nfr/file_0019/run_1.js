@@ -503,6 +503,24 @@ class SignupPage extends React.Component {
         return selectedPriceId;
     }
 
+    /**
+     * Determines the tabIndex for a form field based on its type and configuration.
+     * @param {Object} field - The form field configuration object.
+     * @returns {number} The calculated tabIndex value.
+     */
+    getFieldTabIndex(field) {
+        if (field.tabIndex !== undefined) {
+            return field.tabIndex;
+        }
+        if (field.type === 'email') {
+            return 2;
+        }
+        if (field.type === 'text' && field.name === 'name') {
+            return 1;
+        }
+        return -1;
+    }
+
     getInputFields({state, fieldNames}) {
         const {site: {portal_name: portalName}} = this.context;
 

@@ -60,11 +60,7 @@ function closeNotification() {
     };
 }
 
-function signout({api, state}) {
-    return signoutInternal({api, state});
-}
-
-async function signoutInternal({api, state}) {
+async function signout({api, state}) {
     try {
         await api.member.signout();
         return {
@@ -81,11 +77,7 @@ async function signoutInternal({api, state}) {
     }
 }
 
-function signin({data, api, state}) {
-    return signinInternal({data, api, state});
-}
-
-async function signinInternal({data, api, state}) {
+async function signin({data, api, state}) {
     try {
         const integrityToken = await api.member.getIntegrityToken();
         const payload = {
@@ -141,22 +133,18 @@ function startSigninOTCFromCustomForm({data, state}) {
 
 async function verifyOTC({data, api}) {
     const genericErrorMessage = t('Failed to verify code, please try again');
-    return verifyOTCInternal({data, api, genericErrorMessage});
-}
 
-async function verifyOTCInternal({data, api, genericErrorMessage}) {
     try {
         const integrityToken = await api.member.getIntegrityToken();
         const response = await api.member.verifyOTC({...data, integrityToken});
 
         if (response.redirectUrl) {
             return window.location.assign(response.redirectUrl);
-        } else {
-            return {
-                action: 'verifyOTC:failed',
-                actionErrorMessage: chooseBestErrorMessage(response.errors?.[0], genericErrorMessage)
-            };
         }
+        return {
+            action: 'verifyOTC:failed',
+            actionErrorMessage: chooseBestErrorMessage(response.errors?.[0], genericErrorMessage)
+        };
     } catch (e) {
         return {
             action: 'verifyOTC:failed',
@@ -165,11 +153,7 @@ async function verifyOTCInternal({data, api, genericErrorMessage}) {
     }
 }
 
-function signup({data, state, api}) {
-    return signupInternal({data, state, api});
-}
-
-async function signupInternal({data, state, api}) {
+async function signup({data, state, api}) {
     try {
         let {plan, tierId, cadence, email, name, newsletters, offerId} = data;
         name = name?.trim();
@@ -210,11 +194,7 @@ async function signupInternal({data, state, api}) {
     }
 }
 
-function checkoutPlan({data, state, api}) {
-    return checkoutPlanInternal({data, state, api});
-}
-
-async function checkoutPlanInternal({data, state, api}) {
+async function checkoutPlan({data, state, api}) {
     try {
         let {plan, offerId, tierId, cadence} = data;
         if (!tierId || !cadence) {
@@ -240,11 +220,7 @@ async function checkoutPlanInternal({data, state, api}) {
     }
 }
 
-function updateSubscription({data, state, api}) {
-    return updateSubscriptionInternal({data, state, api});
-}
-
-async function updateSubscriptionInternal({data, state, api}) {
+async function updateSubscription({data, state, api}) {
     try {
         const {plan, planId, subscriptionId, cancelAtPeriodEnd} = data;
         const {tierId, cadence} = getProductCadenceFromPrice({site: state?.site, priceId: planId});
@@ -279,11 +255,7 @@ async function updateSubscriptionInternal({data, state, api}) {
     }
 }
 
-function cancelSubscription({data, state, api}) {
-    return cancelSubscriptionInternal({data, state, api});
-}
-
-async function cancelSubscriptionInternal({data, state, api}) {
+async function cancelSubscription({data, state, api}) {
     try {
         const {subscriptionId, cancellationReason} = data;
         await api.member.updateSubscription({
@@ -307,11 +279,7 @@ async function cancelSubscriptionInternal({data, state, api}) {
     }
 }
 
-function continueSubscription({data, state, api}) {
-    return continueSubscriptionInternal({data, state, api});
-}
-
-async function continueSubscriptionInternal({data, state, api}) {
+async function continueSubscription({data, state, api}) {
     try {
         const {subscriptionId} = data;
         await api.member.updateSubscription({
@@ -335,11 +303,7 @@ async function continueSubscriptionInternal({data, state, api}) {
     }
 }
 
-function applyOffer({data, state, api}) {
-    return applyOfferInternal({data, state, api});
-}
-
-async function applyOfferInternal({data, state, api}) {
+async function applyOffer({data, state, api}) {
     try {
         const {offerId, subscriptionId} = data;
         await api.member.applyOffer({
@@ -369,11 +333,7 @@ async function applyOfferInternal({data, state, api}) {
     }
 }
 
-function editBilling({data, state, api}) {
-    return editBillingInternal({data, state, api});
-}
-
-async function editBillingInternal({data, state, api}) {
+async function editBilling({data, state, api}) {
     try {
         await api.member.editBilling(data);
     } catch (e) {
@@ -387,11 +347,7 @@ async function editBillingInternal({data, state, api}) {
     }
 }
 
-function manageBilling({data, state, api}) {
-    return manageBillingInternal({data, state, api});
-}
-
-async function manageBillingInternal({data, state, api}) {
+async function manageBilling({data, state, api}) {
     try {
         await api.member.manageBilling(data);
     } catch (e) {
@@ -405,13 +361,13 @@ async function manageBillingInternal({data, state, api}) {
     }
 }
 
-function clearPopupNotification() {
+async function clearPopupNotification() {
     return {
         popupNotification: null
     };
 }
 
-function showPopupNotification({data, state}) {
+async function showPopupNotification({data, state}) {
     let {action, message = ''} = data;
     action = action || 'showPopupNotification:success';
     return {
@@ -426,11 +382,7 @@ function showPopupNotification({data, state}) {
     };
 }
 
-function updateNewsletterPreference({data, state, api}) {
-    return updateNewsletterPreferenceInternal({data, state, api});
-}
-
-async function updateNewsletterPreferenceInternal({data, state, api}) {
+async function updateNewsletterPreference({data, state, api}) {
     try {
         const {newsletters, enableCommentNotifications} = data;
         if (!newsletters && enableCommentNotifications === undefined) {
@@ -461,11 +413,7 @@ async function updateNewsletterPreferenceInternal({data, state, api}) {
     }
 }
 
-function removeEmailFromSuppressionList({state, api}) {
-    return removeEmailFromSuppressionListInternal({state, api});
-}
-
-async function removeEmailFromSuppressionListInternal({state, api}) {
+async function removeEmailFromSuppressionList({state, api}) {
     try {
         await api.member.deleteSuppression();
         const action = 'removeEmailFromSuppressionList:success';
@@ -488,11 +436,7 @@ async function removeEmailFromSuppressionListInternal({state, api}) {
     }
 }
 
-function updateNewsletter({data, state, api}) {
-    return updateNewsletterInternal({data, state, api});
-}
-
-async function updateNewsletterInternal({data, state, api}) {
+async function updateNewsletter({data, state, api}) {
     try {
         const {subscribed} = data;
         const member = await api.member.update({subscribed});
@@ -519,11 +463,7 @@ async function updateNewsletterInternal({data, state, api}) {
     }
 }
 
-function updateMemberEmail({data, state, api}) {
-    return updateMemberEmailInternal({data, state, api});
-}
-
-async function updateMemberEmailInternal({data, state, api}) {
+async function updateMemberEmail({data, state, api}) {
     const {email} = data;
     const originalEmail = getMemberEmail({member: state.member});
     if (email !== originalEmail) {
@@ -542,11 +482,7 @@ async function updateMemberEmailInternal({data, state, api}) {
     return null;
 }
 
-function updateMemberData({data, state, api}) {
-    return updateMemberDataInternal({data, state, api});
-}
-
-async function updateMemberDataInternal({data, state, api}) {
+async function updateMemberData({data, state, api}) {
     const name = data?.name?.trim();
     const originalName = getMemberName({member: state.member});
 
@@ -570,11 +506,7 @@ async function updateMemberDataInternal({data, state, api}) {
     return null;
 }
 
-function refreshMemberData({state, api}) {
-    return refreshMemberDataInternal({state, api});
-}
-
-async function refreshMemberDataInternal({state, api}) {
+async function refreshMemberData({state, api}) {
     if (state.member) {
         try {
             const member = await api.member.sessionData();
@@ -597,12 +529,20 @@ async function refreshMemberDataInternal({state, api}) {
     return null;
 }
 
-function updateProfile({data, state, api}) {
-    return updateProfileInternal({data, state, api});
-}
+async function updateProfile({data, state, api}) {
+    const [dataUpdate, emailUpdate] = await Promise.all([updateMemberData({data, state, api}), updateMemberEmail({data, state, api})]);
 
-async function updateProfileInternal({data, state, api}) {
-    const [dataUpdate, emailUpdate] = await Promise.all([updateMemberDataInternal({data, state, api}), updateMemberEmailInternal({data, state, api})]);
+    if (!dataUpdate && !emailUpdate) {
+        return {
+            action: 'updateProfile:success',
+            page: 'accountHome',
+            popupNotification: createPopupNotification({
+                type: 'updateProfile:success', autoHide: true, closeable: true, status: 'success', state,
+                message: t('Account details updated successfully')
+            })
+        };
+    }
+
     if (dataUpdate && emailUpdate) {
         if (emailUpdate.success) {
             return {
@@ -624,7 +564,9 @@ async function updateProfileInternal({data, state, api}) {
                 type: 'updateProfile:failed', autoHide: true, closeable: true, status: 'error', message, state
             })
         };
-    } else if (dataUpdate) {
+    }
+
+    if (dataUpdate) {
         const action = dataUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
         const status = dataUpdate.success ? 'success' : 'error';
         const message = !dataUpdate.success ? t('Failed to update account details') : t('Account details updated successfully');
@@ -636,7 +578,9 @@ async function updateProfileInternal({data, state, api}) {
                 type: action, autoHide: dataUpdate.success, closeable: true, status, state, message
             })
         };
-    } else if (emailUpdate) {
+    }
+
+    if (emailUpdate) {
         const action = emailUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
         const status = emailUpdate.success ? 'success' : 'error';
         let message = '';
@@ -655,6 +599,7 @@ async function updateProfileInternal({data, state, api}) {
             })
         };
     }
+
     return {
         action: 'updateProfile:success',
         page: 'accountHome',
@@ -665,15 +610,15 @@ async function updateProfileInternal({data, state, api}) {
     };
 }
 
-function oneClickSubscribe({data: {siteUrl}, state}) {
+async function oneClickSubscribe({data: {siteUrl}, state}) {
     const externalSiteApi = setupGhostApi({siteUrl: siteUrl, apiUrl: 'not-defined', contentApiKey: 'not-defined'});
     const {member} = state;
 
     const referrerUrl = window.location.href;
     const referrerSource = getRefDomain();
 
-    const integrityToken = externalSiteApi.member.getIntegrityToken();
-    externalSiteApi.member.sendMagicLink({
+    const integrityToken = await externalSiteApi.member.getIntegrityToken();
+    await externalSiteApi.member.sendMagicLink({
         emailType: 'signup',
         name: member.name,
         email: member.email,
@@ -697,7 +642,6 @@ function trackRecommendationClicked({data: {recommendationId}, api}) {
         const existing = localStorage.getItem('ghost-recommendations-clicked');
         const clicked = existing ? JSON.parse(existing) : [];
         if (clicked.includes(recommendationId)) {
-            // Already tracked
             return;
         }
         clicked.push(recommendationId);
@@ -712,7 +656,7 @@ function trackRecommendationClicked({data: {recommendationId}, api}) {
     return {};
 }
 
-function trackRecommendationSubscribed({data: {recommendationId}, api}) {
+async function trackRecommendationSubscribed({data: {recommendationId}, api}) {
     api.recommendations.trackSubscribed({
         recommendationId
     });

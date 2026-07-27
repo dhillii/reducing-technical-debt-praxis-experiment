@@ -90,7 +90,6 @@ const NewsletterPreviewContent: React.FC<{
     buttonColor,
     buttonTextColor,
     linkColor,
-    buttonCorners,
     buttonStyle,
     imageCorners,
     linkStyle,
@@ -122,10 +121,14 @@ const NewsletterPreviewContent: React.FC<{
             <p className="leading-normal"><span className="font-semibold text-grey-900">To:</span> Jamie Larson jamie@example.com</p></>;
     }
 
-    const getExcerptClasses = (fontCategory: string, alignment: string) => {
+    const getExcerptClasses = (titleFontCategory: string, bodyFontCategory: string, alignment: string | undefined) => {
         let classes = 'mb-5 text-pretty leading-[1.7] text-black';
 
-        if (fontCategory === 'serif') {
+        if (titleFontCategory === 'serif' && bodyFontCategory === 'serif') {
+            classes = clsx(classes, 'mb-8 font-serif text-[2.0rem] leading-tight');
+        } else if (titleFontCategory !== 'serif' && bodyFontCategory === 'serif') {
+            classes = clsx(classes, 'mb-8 text-[1.7rem] leading-tight tracking-tight');
+        } else if (titleFontCategory === 'serif' && bodyFontCategory !== 'serif') {
             classes = clsx(classes, 'mb-8 font-serif text-[2.0rem] leading-tight');
         } else {
             classes = clsx(classes, 'mb-8 text-[1.9rem] leading-tight tracking-tight');
@@ -138,61 +141,65 @@ const NewsletterPreviewContent: React.FC<{
         return classes;
     };
 
-    const getFontClasses = (fontCategory: string, fontWeight: string) => {
+    const getFontClasses = (fontCategory: string, fontWeight: string | undefined) => {
         const fontClass = fontCategory === 'serif' ? 'font-serif' : 'font-sans';
-        const weightClass = fontWeight === 'normal' ? 'font-normal' : fontWeight === 'medium' ? 'font-medium' : fontWeight === 'semibold' ? 'font-semibold' : 'font-bold';
+        const weightClass = fontWeight === 'normal' ? 'font-normal' : fontWeight === 'medium' ? 'font-medium' : fontWeight === 'semibold' ? 'font-semibold' : fontWeight === 'bold' ? 'font-bold' : '';
         return clsx(fontClass, weightClass);
     };
 
-    const getButtonClasses = (style: string, corners: string) => {
-        const base = clsx(
+    const getButtonClasses = (corners: string | undefined, style: string | undefined) => {
+        const cornerClass = corners === 'rounded' ? 'rounded-[6px]' : corners === 'pill' ? 'rounded-full' : corners === 'square' ? 'rounded-none' : '';
+        const styleClass = style === 'outline' ? 'bg-transparent' : 'border-transparent text-white';
+        const linkStyleClass = linkStyle === 'bold' ? 'font-bold' : 'font-semibold';
+        return clsx(
             'inline-block border px-[18px] py-2 font-sans text-[15px]',
-            corners === 'rounded' && 'rounded-[6px]',
-            corners === 'pill' && 'rounded-full',
-            corners === 'square' && 'rounded-none',
-            style === 'outline' ? 'bg-transparent' : 'border-transparent text-white'
+            cornerClass,
+            styleClass,
+            linkStyleClass
         );
-        return clsx(base, style === 'bold' ? 'font-bold' : 'font-semibold');
     };
 
-    const getButtonStyle = (style: string, color: string, textColor: string) => {
+    const getButtonStyle = (style: string | undefined, color: string | undefined, textColor: string | undefined) => {
         if (style === 'outline') {
             return {
-                borderColor: color,
-                color: color
+                borderColor: color || accentColor,
+                color: color || accentColor
             };
         }
         return {
-            backgroundColor: color,
+            backgroundColor: color || accentColor,
             color: textColor
         };
     };
 
-    const getLinkClasses = (style: string) => {
-        return clsx(linkStyle === 'underline' && 'underline', linkStyle === 'bold' && 'font-bold');
+    const getDividerClasses = (style: string | undefined) => {
+        const base = clsx('border-b', style === 'dashed' ? 'border-dashed' : style === 'dotted' ? 'border-b-2 border-dotted' : '');
+        return base;
     };
 
-    const getDividerClasses = (style: string) => {
-        return clsx(
-            'border-b border-grey-200',
-            style === 'dashed' && 'border-dashed',
-            style === 'dotted' && 'border-b-2 border-dotted'
-        );
-    };
-
-    const getLatestPostImageClasses = (corners: string) => {
+    const getLatestPostImageClasses = (corners: string | undefined) => {
         return clsx(
             imageCorners === 'square' && 'rounded-none',
             imageCorners === 'rounded' && 'rounded-md'
         );
     };
 
-    const getFeatureImageClasses = (corners: string) => {
+    const getLatestPostTitleClasses = (fontCategory: string, fontWeight: string | undefined) => {
         return clsx(
-            'min-h-full min-w-full shrink-0',
-            corners === 'square' && 'rounded-none',
-            corners === 'rounded' && 'rounded-md'
+            'mt-0.5 text-[1.9rem] text-black',
+            getFontClasses(fontCategory, fontWeight)
         );
+    };
+
+    const getSectionTitleClasses = (fontCategory: string, fontWeight: string | undefined) => {
+        return clsx(
+            'mb-[13px] text-[2.6rem] leading-supertight',
+            getFontClasses(fontCategory, fontWeight)
+        );
+    };
+
+    const getLinkClasses = (style: string | undefined) => {
+        return clsx(linkStyle === 'underline' && 'underline', linkStyle === 'bold' && 'font-bold');
     };
 
     return (
@@ -228,7 +235,7 @@ const NewsletterPreviewContent: React.FC<{
                                         showExcerpt ? 'mb-2' : 'mb-8'
                                     )} style={{color: postTitleColor}}>Your email newsletter</h2>
                                     {showExcerpt && (
-                                        <p className={getExcerptClasses(titleFontCategory, titleAlignment)} style={{color: headerTextColor}}>A subtitle to highlight key points and engage your readers.</p>
+                                        <p className={getExcerptClasses(titleFontCategory, bodyFontCategory, titleAlignment)} style={{color: headerTextColor}}>A subtitle to highlight key points and engage your readers.</p>
                                     )}
                                     <div className={clsx(
                                         'flex w-full justify-between text-center text-md leading-none text-grey-700',
@@ -250,7 +257,11 @@ const NewsletterPreviewContent: React.FC<{
                                         'h-[unset] w-full max-w-[600px] bg-cover bg-no-repeat',
                                         showPostTitleSection ? '' : 'pt-6'
                                     )}>
-                                        <img alt="Feature" className={getFeatureImageClasses(imageCorners)} src={CoverImage} />
+                                        <img alt="Feature" className={clsx(
+                                            'min-h-full min-w-full shrink-0',
+                                            imageCorners === 'square' && 'rounded-none',
+                                            imageCorners === 'rounded' && 'rounded-md'
+                                        )} src={CoverImage} />
                                     </div>
                                     <div className="mt-1 w-full max-w-[600px] pb-8 text-center text-[1.3rem] text-grey-700" style={{color: secondaryHeaderTextColor}}>Feature image caption</div>
                                 </>
@@ -270,8 +281,7 @@ const NewsletterPreviewContent: React.FC<{
                                 <hr className={clsx('my-[52px] border-[#e0e7eb]', getDividerClasses(dividerStyle))} style={{borderColor: dividerColor}} />
                                 <h3
                                     className={clsx(
-                                        'mb-[13px] text-[2.6rem] leading-supertight',
-                                        getFontClasses(titleFontCategory, titleFontWeight)
+                                        getSectionTitleClasses(titleFontCategory, titleFontWeight)
                                     )}
                                     style={{color: sectionTitleColor}}>Need inspiration?</h3>
                                 <p className="mb-[27px]" style={{color: textColor}}>We&apos;ve put together a <a className={getLinkClasses(linkStyle)} href="https://ghost.org/help/email-design/" rel="noopener noreferrer" style={{color: linkColor || accentColor}} target="_blank">quick guide</a> that walks through all of the available settings, along with a few examples of what&apos;s possible.</p>
@@ -325,10 +335,7 @@ const NewsletterPreviewContent: React.FC<{
                                     <div className="flex justify-between gap-4 py-2">
                                         <div>
                                             <h4
-                                                className={clsx(
-                                                    'mt-0.5 text-[1.9rem] text-black',
-                                                    getFontClasses(titleFontCategory, titleFontWeight)
-                                                )}
+                                                className={getLatestPostTitleClasses(titleFontCategory, titleFontWeight)}
                                                 style={{color: sectionTitleColor}}>The three latest posts published on your site</h4>
                                             <p className="m-0 text-base text-grey-700" style={{color: secondaryTextColor}}>Posts sent as an email only will never be shown here.</p>
                                         </div>
@@ -339,10 +346,8 @@ const NewsletterPreviewContent: React.FC<{
                                     <div className="flex justify-between gap-4 py-2">
                                         <div>
                                             <h4
-                                                className={clsx(
-                                                    'mt-0.5 text-[1.9rem] text-black',
-                                                    getFontClasses(titleFontCategory, titleFontWeight)
-                                                )} style={{color: sectionTitleColor}}>Displayed at the bottom of each newsletter</h4>
+                                                className={getLatestPostTitleClasses(titleFontCategory, titleFontWeight)}
+                                                style={{color: sectionTitleColor}}>Displayed at the bottom of each newsletter</h4>
                                             <p className="m-0 text-base text-grey-700" style={{color: secondaryTextColor}}>Giving your readers one more place to discover your stories.</p>
                                         </div>
                                         <div className="aspect-square h-auto w-full max-w-[100px] bg-cover bg-no-repeat">
@@ -352,10 +357,8 @@ const NewsletterPreviewContent: React.FC<{
                                     <div className="flex justify-between gap-4 py-2">
                                         <div>
                                             <h4
-                                                className={clsx(
-                                                    'mt-0.5 text-[1.9rem] text-black',
-                                                    getFontClasses(titleFontCategory, titleFontWeight)
-                                                )} style={{color: sectionTitleColor}}>To keep your work front and center</h4>
+                                                className={getLatestPostTitleClasses(titleFontCategory, titleFontWeight)}
+                                                style={{color: sectionTitleColor}}>To keep your work front and center</h4>
                                             <p className="m-0 text-base text-grey-700" style={{color: secondaryTextColor}}>Making sure that your audience stays engaged.</p>
                                         </div>
                                         <div className="aspect-square h-auto w-full max-w-[100px] bg-cover bg-no-repeat">

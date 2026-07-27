@@ -148,75 +148,50 @@ export const OffersIndexModal = () => {
 
     const paidActiveTiers = getPaidActiveTiers(allTiers || []);
 
-    const shouldShowHeader = (tab: string, offers: any[]): boolean => {
-        return (tab === 'active' && offers.length > 0) || (tab === 'archived' && offers.length > 0);
-    };
-
-    const getHeaderContent = (tab: string, offers: any[]): JSX.Element => {
-        const count = tab === 'active' ? offers.length : offers.length;
-        const singular = count !== 1 ? 'offers' : 'offer';
-        return (
-            <tr className='border-b border-b-grey-300 dark:border-grey-800'>
-                <th className='px-5 py-2.5 pl-0 text-xs font-normal text-grey-700'>{count} {singular}</th>
-                <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Terms</th>
-                <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Price</th>
-                <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Redemptions</th>
-                <th className='min-w-[80px] px-5 py-2.5 pr-0 text-xs font-normal text-grey-700'></th>
-            </tr>
-        );
-    };
-
-    const shouldShowEmptyState = (tab: string, offers: any[]): boolean => {
-        return tab === 'active' && offers.length === 0 && !isFetchingOffers;
-    };
-
-    const shouldShowArchivedEmptyState = (tab: string, offers: any[]): boolean => {
-        return tab === 'archived' && offers.length === 0 && !isFetchingOffers;
-    };
-
-    const getEmptyStateProps = (tab: string, offers: any[]): {buttonAction: () => void, buttonLabel: string, description: string} => {
-        if (tab === 'active') {
-            return {
-                buttonAction: () => updateRoute('offers/new'),
-                buttonLabel: 'Create an offer',
-                description: 'Grow your audience with discounts or free trials.'
-            };
-        }
-        return {
-            buttonAction: () => setSelectedTab('active'),
-            buttonLabel: 'Back to active',
-            description: 'All archived offers will be shown here.'
-        };
-    };
-
-    const filteredOffers = sortedOffers.filter((offer) => {
+    const isOfferVisible = (offer: typeof signupOffers[0], selectedTab: string, allTiers: Tier[]): boolean => {
         const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
-        return (selectedTab === 'active' && (offer.status === 'active' && offerTier && offerTier.active === true)) ||
-        (selectedTab === 'archived' && (offer.status === 'archived' || (offerTier && offerTier.active === false)));
-    });
+        if (selectedTab === 'active') {
+            return offer.status === 'active' && offerTier && offerTier.active === true;
+        }
+        if (selectedTab === 'archived') {
+            return offer.status === 'archived' || (offerTier && offerTier.active === false);
+        }
+        return false;
+    };
+
+    const isTierArchived = (offerTier: Tier | undefined): boolean => {
+        return offerTier?.active === false;
+    };
 
     const listLayoutOutput = <div className='overflow-x-auto'>
         <table className='m-0 w-full'>
-            {shouldShowHeader(selectedTab, filteredOffers) ? getHeaderContent(selectedTab, filteredOffers) : null}
-            {filteredOffers.map((offer) => {
+            {(selectedTab === 'active' && activeOffers.length > 0) || (selectedTab === 'archived' && archivedOffers.length > 0) ?
+                <tr className='border-b border-b-grey-300 dark:border-grey-800'>
+                    <th className='px-5 py-2.5 pl-0 text-xs font-normal text-grey-700'>{selectedTab === 'active' ? activeOffers.length : archivedOffers.length} {selectedTab === 'active' ? (activeOffers.length !== 1 ? 'offers' : 'offer') : (archivedOffers.length !== 1 ? 'offers' : 'offer')}</th>
+                    <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Terms</th>
+                    <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Price</th>
+                    <th className='px-5 py-2.5 text-xs font-normal text-grey-700'>Redemptions</th>
+                    <th className='min-w-[80px] px-5 py-2.5 pr-0 text-xs font-normal text-grey-700'></th>
+                </tr> :
+                null
+            }
+            {sortedOffers.filter((offer) => isOfferVisible(offer, selectedTab, allTiers)).map((offer) => {
                 const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
 
                 if (!offerTier) {
                     return null;
                 }
 
-                const isTierArchived = offerTier?.active === false;
-
                 const {discountOffer, originalPriceWithCurrency, updatedPriceWithCurrency} = getOfferDiscount(offer.type, offer.amount, offer.cadence, offer.currency || 'USD', offerTier);
 
                 return (
                     <tr className={`group relative scale-100 border-b border-b-grey-200 dark:border-grey-800`} data-testid="offer-item">
-                        <td className={`${isTierArchived ? 'opacity-50' : ''} p-0`}><a className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5 pl-0`} onClick={!isTierArchived ? () => handleOfferEdit(offer?.id ? offer.id : '') : () => {}}><span className='font-semibold'>{offer?.name}</span><br /><span className='text-sm text-grey-700'>{offerTier.name} {getOfferCadence(offer.cadence)}</span></a></td>
-                        <td className={`${isTierArchived ? 'opacity-50' : ''} whitespace-nowrap p-0 text-sm`}><a className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5`} onClick={!isTierArchived ? () => handleOfferEdit(offer?.id ? offer.id : '') : () => {}}><span className='text-[1.3rem] font-medium uppercase'>{discountOffer}</span><br /><span className='text-grey-700'>{offer.type !== 'trial' ? getOfferDuration(offer.duration) : 'Trial period'}</span></a></td>
-                        <td className={`${isTierArchived ? 'opacity-50' : ''} whitespace-nowrap p-0 text-sm`}><a className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5`} onClick={!isTierArchived ? () => handleOfferEdit(offer?.id ? offer.id : '') : () => {}}><span className='font-medium'>{updatedPriceWithCurrency}</span> {offer.type !== 'trial' ? <span className='relative text-xs text-grey-700 before:absolute before:-inset-x-0.5 before:top-1/2 before:rotate-[-20deg] before:border-t before:content-[""]'>{originalPriceWithCurrency}</span> : null}</a></td>
-                        <td className={`${isTierArchived ? 'opacity-50' : ''} w-[120px] whitespace-nowrap p-0 text-sm`}><a className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5 ${offer.redemption_count === 0 ? '' : 'hover:underline'}`} href={offer.redemption_count > 0 ? createRedemptionFilterUrl(offer.id ? offer.id : '') : undefined} onClick={offer.redemption_count === 0 ? !isTierArchived ? () => handleOfferEdit(offer?.id ? offer.id : '') : () => {} : () => {}}>{offer.redemption_count}</a></td>
-                        <td className={`${isTierArchived ? 'opacity-50' : ''} w-[120px] whitespace-nowrap p-5 pr-8 text-right text-sm leading-none`}>{!isTierArchived ? <CopyLinkButton offerCode={offer.code} /> : null}</td>
-                        {isTierArchived ?
+                        <td className={`${isTierArchived(offerTier) ? 'opacity-50' : ''} p-0`}><a className={`block ${isTierArchived(offerTier) ? 'cursor-default select-none' : 'cursor-pointer'} p-5 pl-0`} onClick={!isTierArchived(offerTier) ? () => handleOfferEdit(offer?.id ? offer.id : '') : () => {}}><span className='font-semibold'>{offer?.name}</span><br /><span className='text-sm text-grey-700'>{offerTier.name} {getOfferCadence(offer.cadence)}</span></a></td>
+                        <td className={`${isTierArchived(offerTier) ? 'opacity-50' : ''} whitespace-nowrap p-0 text-sm`}><a className={`block ${isTierArchived(offerTier) ? 'cursor-default select-none' : 'cursor-pointer'} p-5`} onClick={!isTierArchived(offerTier) ? () => handleOfferEdit(offer?.id ? offer.id : '') : () => {}}><span className='text-[1.3rem] font-medium uppercase'>{discountOffer}</span><br /><span className='text-grey-700'>{offer.type !== 'trial' ? getOfferDuration(offer.duration) : 'Trial period'}</span></a></td>
+                        <td className={`${isTierArchived(offerTier) ? 'opacity-50' : ''} whitespace-nowrap p-0 text-sm`}><a className={`block ${isTierArchived(offerTier) ? 'cursor-default select-none' : 'cursor-pointer'} p-5`} onClick={!isTierArchived(offerTier) ? () => handleOfferEdit(offer?.id ? offer.id : '') : () => {}}><span className='font-medium'>{updatedPriceWithCurrency}</span> {offer.type !== 'trial' ? <span className='relative text-xs text-grey-700 before:absolute before:-inset-x-0.5 before:top-1/2 before:rotate-[-20deg] before:border-t before:content-[""]'>{originalPriceWithCurrency}</span> : null}</a></td>
+                        <td className={`${isTierArchived(offerTier) ? 'opacity-50' : ''} w-[120px] whitespace-nowrap p-0 text-sm`}><a className={`block ${isTierArchived(offerTier) ? 'cursor-default select-none' : 'cursor-pointer'} p-5 ${offer.redemption_count === 0 ? '' : 'hover:underline'}`} href={offer.redemption_count > 0 ? createRedemptionFilterUrl(offer.id ? offer.id : '') : undefined} onClick={offer.redemption_count === 0 ? !isTierArchived(offerTier) ? () => handleOfferEdit(offer?.id ? offer.id : '') : () => {} : () => {}}>{offer.redemption_count}</a></td>
+                        <td className={`${isTierArchived(offerTier) ? 'opacity-50' : ''} w-[120px] whitespace-nowrap p-5 pr-8 text-right text-sm leading-none`}>{!isTierArchived(offerTier) ? <CopyLinkButton offerCode={offer.code} /> : null}</td>
+                        {isTierArchived(offerTier) ?
                             <div className='absolute right-0 top-[11px] whitespace-nowrap rounded-sm bg-black px-2 py-0.5 text-xs leading-normal text-white opacity-0 transition-all group-hover:opacity-100 dark:bg-grey-950'>This offer is disabled, because <br /> it is tied to an archived tier.</div> :
                             null
                         }
@@ -274,7 +249,7 @@ export const OffersIndexModal = () => {
                     selectedTab={selectedTab}
                     tabs={offersTabs}
                     topRightContent={
-                        shouldShowHeader(selectedTab, filteredOffers) ?
+                        (selectedTab === 'active' && activeOffers.length > 0) || (selectedTab === 'archived' && archivedOffers.length > 0) ?
                             <div className='pt-1'>
                                 <SortMenu
                                     direction={sortDirection as 'asc' | 'desc'}
@@ -309,19 +284,19 @@ export const OffersIndexModal = () => {
                     onTabChange={setSelectedTab}
                 />
             </header>
-            {shouldShowEmptyState(selectedTab, filteredOffers) ?
+            {selectedTab === 'active' && activeOffers.length === 0 && !isFetchingOffers ?
                 <EmptyState
-                    buttonAction={getEmptyStateProps(selectedTab, filteredOffers).buttonAction}
-                    buttonLabel={getEmptyStateProps(selectedTab, filteredOffers).buttonLabel}
-                    description={getEmptyStateProps(selectedTab, filteredOffers).description}
+                    buttonAction={() => updateRoute('offers/new')}
+                    buttonLabel='Create an offer'
+                    description='Grow your audience with discounts or free trials.'
                 /> :
                 null
             }
-            {shouldShowArchivedEmptyState(selectedTab, filteredOffers) ?
+            {selectedTab === 'archived' && archivedOffers.length === 0 && !isFetchingOffers ?
                 <EmptyState
-                    buttonAction={getEmptyStateProps(selectedTab, filteredOffers).buttonAction}
-                    buttonLabel={getEmptyStateProps(selectedTab, filteredOffers).buttonLabel}
-                    description={getEmptyStateProps(selectedTab, filteredOffers).description}
+                    buttonAction={() => setSelectedTab('active')}
+                    buttonLabel='Back to active'
+                    description='All archived offers will be shown here.'
                 /> :
                 null
             }

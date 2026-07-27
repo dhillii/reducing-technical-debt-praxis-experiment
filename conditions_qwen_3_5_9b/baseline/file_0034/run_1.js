@@ -100,25 +100,21 @@ export default class PublishOptions {
     @tracked emailDisabledError;
 
     get publishTypeOptions() {
-        return [
-            {
-                value: 'publish+send', // internal
-                label: 'Publish and email', // shown in expanded options
-                display: 'Publish and email', // shown in option title
-                disabled: this.emailDisabled
-            },
-            {
-                value: 'publish',
-                label: 'Publish only',
-                display: 'Publish'
-            },
-            {
-                value: 'send',
-                label: 'Email only',
-                display: 'Email',
-                disabled: this.emailDisabled
-            }
-        ];
+        return [{
+            value: 'publish+send', // internal
+            label: 'Publish and email', // shown in expanded options
+            display: 'Publish and email', // shown in option title
+            disabled: this.emailDisabled
+        }, {
+            value: 'publish',
+            label: 'Publish only',
+            display: 'Publish'
+        }, {
+            value: 'send',
+            label: 'Email only',
+            display: 'Email',
+            disabled: this.emailDisabled
+        }];
     }
 
     get selectedPublishTypeOption() {
@@ -298,14 +294,20 @@ export default class PublishOptions {
             this.totalMemberCount = 1;
         }
 
-        // limits
-        promises.push(this._checkSendingLimit());
-        promises.push(this._checkPublishingLimit());
+        const limitChecks = [
+            this._checkSendingLimit(),
+            this._checkPublishingLimit()
+        ];
 
-        // newsletters
-        if (!this.user.isContributor) {
-            promises.push(this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'}));
+        const newsletterQuery = !this.user.isContributor
+            ? this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})
+            : null;
+
+        if (newsletterQuery) {
+            limitChecks.push(newsletterQuery);
         }
+
+        promises.push(...limitChecks);
 
         yield Promise.all(promises);
     }

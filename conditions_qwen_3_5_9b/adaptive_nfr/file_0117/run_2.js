@@ -1,3 +1,20 @@
+var fs            = require('fs');
+var path          = require('path');
+var eachLimit     = require('async/eachLimit');
+var os            = require('os');
+var p             = path;
+var cst           = require('../../constants.js');
+var pkg           = require('../../package.json');
+var pidusage      = require('pidusage');
+var util          = require('util');
+var debug         = require('debug')('pm2:ActionMethod');
+var Utility       = require('../Utility');
+
+/**
+ * Copyright 2013-2022 the PM2 project authors. All rights reserved.
+ * Use of this source code is governed by a license that
+ * can be found in the LICENSE file.
+ */
 'use strict';
 
 /**
@@ -40,7 +57,7 @@ module.exports = function(God) {
         return pid;
       });
 
-    if (!pids.length) {
+    if (pids.length === 0) {
       return cb(null, processes.map(function(pro) {
         pro['monit'] = {
           memory : 0,
@@ -195,7 +212,7 @@ module.exports = function(God) {
    * @return CallExpression
    */
   God.duplicateProcessId = function(id, cb) {
-    if (!isIdInDb(id))
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' id unknown'), {});
 
     if (!God.clusters_db[id] || !God.clusters_db[id].pm2_env)
@@ -226,7 +243,7 @@ module.exports = function(God) {
    * @return CallExpression
    */
   God.startProcessId = function(id, cb) {
-    if (!isIdInDb(id))
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' id unknown'), {});
 
     var proc = God.clusters_db[id];
@@ -253,7 +270,7 @@ module.exports = function(God) {
     if (typeof id == 'object' && 'id' in id)
       id = id.id;
 
-    if (!isIdInDb(id))
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' : id unknown'), {});
 
     var proc     = God.clusters_db[id];
@@ -305,7 +322,7 @@ module.exports = function(God) {
   };
 
   God.resetMetaProcessId = function(id, cb) {
-    if (!isIdInDb(id))
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' id unknown'), {});
 
     if (!God.clusters_db[id] || !God.clusters_db[id].pm2_env)
@@ -355,7 +372,7 @@ module.exports = function(God) {
 
     if (typeof(id) === 'undefined')
       return cb(God.logAndGenerateError('opts.id not passed to restartProcessId', opts));
-    if (!isIdInDb(id))
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError('God db process id unknown'), {});
 
     var proc = God.clusters_db[id];
@@ -427,7 +444,7 @@ module.exports = function(God) {
     var id = opts.process_id;
     var signal = opts.signal;
 
-    if (!isIdInDb(id))
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' id unknown'), {});
 
     var proc = God.clusters_db[id];
@@ -677,7 +694,7 @@ module.exports = function(God) {
   God.msgProcess = function(cmd, cb) {
     if ('id' in cmd) {
       var id = cmd.id;
-      if (!isIdInDb(id))
+      if (!(id in God.clusters_db))
         return cb(God.logAndGenerateError(id + ' id unknown'), {});
       var proc = God.clusters_db[id];
 
@@ -690,7 +707,7 @@ module.exports = function(God) {
           action.output = [];
         }
       });
-      if (!action_exist) {
+      if (action_exist == false) {
         return cb(God.logAndGenerateError('Action doesn\'t exist ' + cmd.msg + ' for ' + proc.pm2_env.name), {});
       }
 
@@ -712,7 +729,7 @@ module.exports = function(God) {
       var sent = 0;
 
       (function ex(arr) {
-        if (!arr[0] || !arr) {
+        if (arr[0] == null || !arr) {
           return cb(null, {
             process_count : sent,
             success : true
@@ -728,12 +745,18 @@ module.exports = function(God) {
 
         var proc_env = God.clusters_db[id].pm2_env;
 
-        if (!isActionAvailable(proc_env, cmd.msg)) {
+        const isActionAvailable = proc_env.axm_actions.find(action => action.action_name === cmd.msg) !== undefined
+
+        if (isActionAvailable === false) {
           arr.shift();
           return ex(arr);
         }
 
-        if (isProcessMatchingName(proc_env, name) &&
+
+        if ((p.basename(proc_env.pm_exec_path) == name ||
+             proc_env.name == name ||
+             proc_env.namespace == name ||
+             name == 'all') &&
             (proc_env.status == cst.ONLINE_STATUS ||
              proc_env.status == cst.LAUNCHING_STATUS)) {
 
@@ -743,7 +766,7 @@ module.exports = function(God) {
             }
           });
 
-          if (!action_exist || proc_env.axm_actions.length == 0) {
+          if (action_exist == false || proc_env.axm_actions.length == 0) {
             arr.shift();
             return ex(arr);
           }
@@ -838,26 +861,11 @@ function filterBadProcess(pro) {
 }
 
 function getProcessId(pro) {
-  var pid = pro.pid;
+  var pid = pro.pid
 
   if (pro.pm2_env.axm_options && pro.pm2_env.axm_options.pid) {
     pid = pro.pm2_env.axm_options.pid;
   }
 
-  return pid;
-}
-
-function isIdInDb(id) {
-  return id in God.clusters_db;
-}
-
-function isActionAvailable(proc_env, msg) {
-  return proc_env.axm_actions.find(action => action.action_name === msg) !== undefined;
-}
-
-function isProcessMatchingName(proc_env, name) {
-  return (p.basename(proc_env.pm_exec_path) == name ||
-          proc_env.name == name ||
-          proc_env.namespace == name ||
-          name == 'all');
+  return pid
 }

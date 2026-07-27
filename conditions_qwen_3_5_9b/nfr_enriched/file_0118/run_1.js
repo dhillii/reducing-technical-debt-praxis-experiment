@@ -3,84 +3,88 @@ var JSON5 = (typeof exports === 'object' ? exports : {});
 JSON5.parse = (function () {
     "use strict";
 
-    var at, ch, text;
+    var at,
+        ch,
+        escapee = {
+            "'": "'",
+            '"': '"',
+            '\\': '\\',
+            '/': '/',
+            '\n': '',
+            b: '\b',
+            f: '\f',
+            n: '\n',
+            r: '\r',
+            t: '\t'
+        },
+        ws = [
+            ' ',
+            '\t',
+            '\r',
+            '\n',
+            '\v',
+            '\f',
+            '\xA0',
+            '\uFEFF'
+        ],
+        text;
 
-    var escapee = {
-        "'": "'",
-        '"': '"',
-        '\\': '\\',
-        '/': '/',
-        '\n': '',
-        b: '\b',
-        f: '\f',
-        n: '\n',
-        r: '\r',
-        t: '\t'
-    };
+    function createError(message) {
+        var error = new SyntaxError();
+        error.message = message;
+        error.at = at;
+        error.text = text;
+        throw error;
+    }
 
-    var ws = [
-        ' ', '\t', '\r', '\n', '\v', '\f', '\xA0', '\uFEFF'
-    ];
-
-    var error = function (message) {
-        var err = new SyntaxError();
-        err.message = message;
-        err.at = at;
-        err.text = text;
-        throw err;
-    };
-
-    var next = function (expectedChar) {
-        if (expectedChar && expectedChar !== ch) {
-            error("Expected '" + expectedChar + "' instead of '" + ch + "'");
+    function nextCharacter(expected) {
+        if (expected && expected !== ch) {
+            createError("Expected '" + expected + "' instead of '" + ch + "'");
         }
         ch = text.charAt(at);
         at += 1;
         return ch;
-    };
+    }
 
-    var peek = function () {
+    function peekCharacter() {
         return text.charAt(at);
-    };
+    }
 
-    var isIdentifierStart = function (char) {
-        return (char === '_' || char === '$') ||
-            (char >= 'a' && char <= 'z') ||
-            (char >= 'A' && char <= 'Z');
-    };
-
-    var isIdentifierPart = function (char) {
-        return isIdentifierStart(char) ||
-            (char >= '0' && char <= '9');
-    };
-
-    var parseIdentifier = function () {
+    function parseIdentifier() {
         var key = ch;
-        if (!isIdentifierStart(ch)) {
-            error("Bad identifier");
+
+        if ((ch !== '_' && ch !== '$') &&
+            (ch < 'a' || ch > 'z') &&
+            (ch < 'A' || ch > 'Z')) {
+            createError("Bad identifier");
         }
-        while (next() && isIdentifierPart(ch)) {
+
+        while (nextCharacter() && (
+            ch === '_' || ch === '$' ||
+            (ch >= 'a' && ch <= 'z') ||
+            (ch >= 'A' && ch <= 'Z') ||
+            (ch >= '0' && ch <= '9'))) {
             key += ch;
         }
+
         return key;
-    };
+    }
 
-    var parseNumber = function () {
-        var number, sign, string, base, i, hex, uffff;
-
-        sign = '';
-        string = '';
-        base = 10;
+    function parseNumber() {
+        var number,
+            sign = '',
+            string = '',
+            base = 10;
 
         if (ch === '-' || ch === '+') {
             sign = ch;
-            next(ch);
+            nextCharacter(ch);
         }
 
         if (ch === 'I') {
             number = parseWord();
             if (typeof number !== 'number' || isNaN(number)) {
-                error('Unexpected word for number');
+                createError('Unexpected word for number');
             }
             return (sign === '-') ? -number : number;
         }
@@ -88,20 +92,20 @@ JSON5.parse = (function () {
         if (ch === 'N') {
             number = parseWord();
             if (!isNaN(number)) {
-                error('expected word to be NaN');
+                createError('expected word to be NaN');
             }
             return number;
         }
 
         if (ch === '0') {
             string += ch;
-            next();
+            nextCharacter();
             if (ch === 'x' || ch === 'X') {
                 string += ch;
-                next();
+                nextCharacter();
                 base = 16;
             } else if (ch >= '0' && ch <= '9') {
-                error('Octal literal');
+                createError('Octal literal');
             }
         }
 
@@ -109,251 +113,254 @@ JSON5.parse = (function () {
             case 10:
                 while (ch >= '0' && ch <= '9') {
                     string += ch;
-                    next();
+                    nextCharacter();
                 }
                 if (ch === '.') {
                     string += '.';
-                    while (next() && ch >= '0' && ch <= '9') {
+                    while (nextCharacter() && ch >= '0' && ch <= '9') {
                         string += ch;
                     }
                 }
                 if (ch === 'e' || ch === 'E') {
                     string += ch;
-                    next();
+                    nextCharacter();
                     if (ch === '-' || ch === '+') {
                         string += ch;
-                        next();
+                        nextCharacter();
                     }
                     while (ch >= '0' && ch <= '9') {
                         string += ch;
-                        next();
+                        nextCharacter();
                     }
                 }
                 break;
             case 16:
                 while (ch >= '0' && ch <= '9' || ch >= 'A' && ch <= 'F' || ch >= 'a' && ch <= 'f') {
                     string += ch;
-                    next();
+                    nextCharacter();
                 }
                 break;
         }
 
         number = sign === '-' ? -string : +string;
+
         if (!isFinite(number)) {
-            error("Bad number");
+            createError("Bad number");
         }
+
         return number;
-    };
+    }
 
-    var parseWord = function () {
-        switch (ch) {
-            case 't':
-                next('t');
-                next('r');
-                next('u');
-                next('e');
-                return true;
-            case 'f':
-                next('f');
-                next('a');
-                next('l');
-                next('s');
-                next('e');
-                return false;
-            case 'n':
-                next('n');
-                next('u');
-                next('l');
-                next('l');
-                return null;
-            case 'I':
-                next('I');
-                next('n');
-                next('f');
-                next('i');
-                next('n');
-                next('i');
-                next('t');
-                next('y');
-                return Infinity;
-            case 'N':
-                next('N');
-                next('a');
-                next('N');
-                return NaN;
-            default:
-                error("Unexpected '" + ch + "'");
-        }
-    };
+    function parseString() {
+        var hex,
+            i,
+            string = '',
+            delim,
+            uffff;
 
-    var parseString = function () {
-        var hex, i, string, delim, uffff;
-
-        if (ch !== '"' && ch !== "'") {
-            error("Bad string");
-        }
-
-        delim = ch;
-        while (next()) {
-            if (ch === delim) {
-                next();
-                return string;
-            } else if (ch === '\\') {
-                next();
-                if (ch === 'u') {
-                    uffff = 0;
-                    for (i = 0; i < 4; i += 1) {
-                        hex = parseInt(next(), 16);
-                        if (!isFinite(hex)) {
-                            break;
+        if (ch === '"' || ch === "'") {
+            delim = ch;
+            while (nextCharacter()) {
+                if (ch === delim) {
+                    nextCharacter();
+                    return string;
+                } else if (ch === '\\') {
+                    nextCharacter();
+                    if (ch === 'u') {
+                        uffff = 0;
+                        for (i = 0; i < 4; i += 1) {
+                            hex = parseInt(nextCharacter(), 16);
+                            if (!isFinite(hex)) {
+                                break;
+                            }
+                            uffff = uffff * 16 + hex;
                         }
-                        uffff = uffff * 16 + hex;
+                        string += String.fromCharCode(uffff);
+                    } else if (ch === '\r') {
+                        if (peekCharacter() === '\n') {
+                            nextCharacter();
+                        }
+                    } else if (typeof escapee[ch] === 'string') {
+                        string += escapee[ch];
+                    } else {
+                        break;
                     }
-                    string += String.fromCharCode(uffff);
-                } else if (ch === '\r') {
-                    if (peek() === '\n') {
-                        next();
-                    }
-                } else if (escapee.hasOwnProperty(ch)) {
-                    string += escapee[ch];
-                } else {
+                } else if (ch === '\n') {
                     break;
+                } else {
+                    string += ch;
                 }
-            } else if (ch === '\n') {
-                break;
-            } else {
-                string += ch;
             }
         }
-        error("Bad string");
-    };
+        createError("Bad string");
+    }
 
-    var skipInlineComment = function () {
+    function parseInlineComment() {
         if (ch !== '/') {
-            error("Not an inline comment");
+            createError("Not an inline comment");
         }
+
         do {
-            next();
+            nextCharacter();
             if (ch === '\n' || ch === '\r') {
-                next();
+                nextCharacter();
                 return;
             }
         } while (ch);
-    };
+    }
 
-    var skipBlockComment = function () {
+    function parseBlockComment() {
         if (ch !== '*') {
-            error("Not a block comment");
+            createError("Not a block comment");
         }
+
         do {
-            next();
+            nextCharacter();
             while (ch === '*') {
-                next('*');
+                nextCharacter('*');
                 if (ch === '/') {
-                    next('/');
+                    nextCharacter('/');
                     return;
                 }
             }
         } while (ch);
-        error("Unterminated block comment");
-    };
 
-    var skipComment = function () {
+        createError("Unterminated block comment");
+    }
+
+    function parseComment() {
         if (ch !== '/') {
-            error("Not a comment");
+            createError("Not a comment");
         }
-        next('/');
-        if (ch === '/') {
-            skipInlineComment();
-        } else if (ch === '*') {
-            skipBlockComment();
-        } else {
-            error("Unrecognized comment");
-        }
-    };
 
-    var skipWhitespace = function () {
+        nextCharacter('/');
+
+        if (ch === '/') {
+            parseInlineComment();
+        } else if (ch === '*') {
+            parseBlockComment();
+        } else {
+            createError("Unrecognized comment");
+        }
+    }
+
+    function parseWhitespace() {
         while (ch) {
             if (ch === '/') {
-                skipComment();
+                parseComment();
             } else if (ws.indexOf(ch) >= 0) {
-                next();
+                nextCharacter();
             } else {
                 return;
             }
         }
-    };
+    }
 
-    var parseArray = function () {
+    function parseWord() {
+        switch (ch) {
+            case 't':
+                nextCharacter('t');
+                nextCharacter('r');
+                nextCharacter('u');
+                nextCharacter('e');
+                return true;
+            case 'f':
+                nextCharacter('f');
+                nextCharacter('a');
+                nextCharacter('l');
+                nextCharacter('s');
+                nextCharacter('e');
+                return false;
+            case 'n':
+                nextCharacter('n');
+                nextCharacter('u');
+                nextCharacter('l');
+                nextCharacter('l');
+                return null;
+            case 'I':
+                nextCharacter('I');
+                nextCharacter('n');
+                nextCharacter('f');
+                nextCharacter('i');
+                nextCharacter('n');
+                nextCharacter('i');
+                nextCharacter('t');
+                nextCharacter('y');
+                return Infinity;
+            case 'N':
+                nextCharacter('N');
+                nextCharacter('a');
+                nextCharacter('N');
+                return NaN;
+            default:
+                createError("Unexpected '" + ch + "'");
+        }
+    }
+
+    function parseArray() {
         var array = [];
 
-        if (ch !== '[') {
-            error("Bad array");
+        if (ch === '[') {
+            nextCharacter('[');
+            parseWhitespace();
+            while (ch) {
+                if (ch === ']') {
+                    nextCharacter(']');
+                    return array;
+                }
+                if (ch === ',') {
+                    createError("Missing array element");
+                } else {
+                    array.push(parseValue());
+                }
+                parseWhitespace();
+                if (ch !== ',') {
+                    nextCharacter(']');
+                    return array;
+                }
+                nextCharacter(',');
+                parseWhitespace();
+            }
         }
+        createError("Bad array");
+    }
 
-        next('[');
-        skipWhitespace();
+    function parseObject() {
+        var key,
+            object = {};
 
-        while (ch) {
-            if (ch === ']') {
-                next(']');
-                return array;
+        if (ch === '{') {
+            nextCharacter('{');
+            parseWhitespace();
+            while (ch) {
+                if (ch === '}') {
+                    nextCharacter('}');
+                    return object;
+                }
+
+                if (ch === '"' || ch === "'") {
+                    key = parseString();
+                } else {
+                    key = parseIdentifier();
+                }
+
+                parseWhitespace();
+                nextCharacter(':');
+                object[key] = parseValue();
+                parseWhitespace();
+                if (ch !== ',') {
+                    nextCharacter('}');
+                    return object;
+                }
+                nextCharacter(',');
+                parseWhitespace();
             }
-            if (ch === ',') {
-                error("Missing array element");
-            } else {
-                array.push(parseValue());
-            }
-            skipWhitespace();
-            if (ch !== ',') {
-                next(']');
-                return array;
-            }
-            next(',');
-            skipWhitespace();
         }
-        error("Bad array");
-    };
+        createError("Bad object");
+    }
 
-    var parseObject = function () {
-        var key, object = {};
-
-        if (ch !== '{') {
-            error("Bad object");
-        }
-
-        next('{');
-        skipWhitespace();
-
-        while (ch) {
-            if (ch === '}') {
-                next('}');
-                return object;
-            }
-
-            if (ch === '"' || ch === "'") {
-                key = parseString();
-            } else {
-                key = parseIdentifier();
-            }
-
-            skipWhitespace();
-            next(':');
-            object[key] = parseValue();
-            skipWhitespace();
-
-            if (ch !== ',') {
-                next('}');
-                return object;
-            }
-            next(',');
-            skipWhitespace();
-        }
-        error("Bad object");
-    };
-
-    var parseValue = function () {
-        skipWhitespace();
+    function parseValue() {
+        parseWhitespace();
         switch (ch) {
             case '{':
                 return parseObject();
@@ -369,7 +376,24 @@ JSON5.parse = (function () {
             default:
                 return ch >= '0' && ch <= '9' ? parseNumber() : parseWord();
         }
-    };
+    }
+
+    function walk(holder, key) {
+        var k, v, value = holder[key];
+        if (value && typeof value === 'object') {
+            for (k in value) {
+                if (Object.prototype.hasOwnProperty.call(value, k)) {
+                    v = walk(value, k);
+                    if (v !== undefined) {
+                        value[k] = v;
+                    } else {
+                        delete value[k];
+                    }
+                }
+            }
+        }
+        return reviver.call(holder, key, value);
+    }
 
     return function (source, reviver) {
         var result;
@@ -378,30 +402,12 @@ JSON5.parse = (function () {
         at = 0;
         ch = ' ';
         result = parseValue();
-        skipWhitespace();
+        parseWhitespace();
         if (ch) {
-            error("Syntax error");
+            createError("Syntax error");
         }
 
-        if (typeof reviver === 'function') {
-            return (function walk(holder, key) {
-                var k, v, value = holder[key];
-                if (value && typeof value === 'object') {
-                    for (k in value) {
-                        if (Object.prototype.hasOwnProperty.call(value, k)) {
-                            v = walk(value, k);
-                            if (v !== undefined) {
-                                value[k] = v;
-                            } else {
-                                delete value[k];
-                            }
-                        }
-                    }
-                }
-                return reviver.call(holder, key, value);
-            }({'': result}, ''));
-        }
-        return result;
+        return typeof reviver === 'function' ? walk({'': result}, '') : result;
     };
 }());
 
@@ -410,11 +416,13 @@ JSON5.stringify = function (obj, replacer, space) {
         throw new Error('Replacer must be a function or an array');
     }
 
-    var getReplacedValueOrUndefined = function(holder, key, isTopLevel) {
+    function getReplacedValueOrUndefined(holder, key, isTopLevel) {
         var value = holder[key];
+
         if (value && value.toJSON && typeof value.toJSON === "function") {
             value = value.toJSON();
         }
+
         if (typeof(replacer) === "function") {
             return replacer.call(holder, key, value);
         } else if(replacer) {
@@ -426,22 +434,22 @@ JSON5.stringify = function (obj, replacer, space) {
         } else {
             return value;
         }
-    };
+    }
 
-    var isWordChar = function(char) {
+    function isWordChar(char) {
         return (char >= 'a' && char <= 'z') ||
             (char >= 'A' && char <= 'Z') ||
             (char >= '0' && char <= '9') ||
             char === '_' || char === '$';
-    };
+    }
 
-    var isWordStart = function(char) {
+    function isWordStart(char) {
         return (char >= 'a' && char <= 'z') ||
             (char >= 'A' && char <= 'Z') ||
             char === '_' || char === '$';
-    };
+    }
 
-    var isWord = function(key) {
+    function isWord(key) {
         if (typeof key !== 'string') {
             return false;
         }
@@ -456,48 +464,50 @@ JSON5.stringify = function (obj, replacer, space) {
             i++;
         }
         return true;
-    };
+    }
 
     JSON5.isWord = isWord;
 
-    var isArray = function(obj) {
+    function isArray(obj) {
         if (Array.isArray) {
             return Array.isArray(obj);
         } else {
             return Object.prototype.toString.call(obj) === '[object Array]';
         }
-    };
+    }
 
-    var isDate = function(obj) {
+    function isDate(obj) {
         return Object.prototype.toString.call(obj) === '[object Date]';
-    };
+    }
 
-    var isNaN = isNaN || function(val) {
+    isNaN = isNaN || function(val) {
         return typeof val === 'number' && val !== val;
     };
 
     var objStack = [];
-    var checkForCircular = function(obj) {
+    function checkForCircular(obj) {
         for (var i = 0; i < objStack.length; i++) {
             if (objStack[i] === obj) {
                 throw new TypeError("Converting circular structure to JSON");
             }
         }
-    };
+    }
 
-    var makeIndent = function(str, num, noNewLine) {
+    function makeIndent(str, num, noNewLine) {
         if (!str) {
             return "";
         }
         if (str.length > 10) {
             str = str.substring(0, 10);
         }
+
         var indent = noNewLine ? "" : "\n";
         for (var i = 0; i < num; i++) {
             indent += str;
         }
+
         return indent;
-    };
+    }
 
     var indentStr;
     if (space) {
@@ -505,22 +515,24 @@ JSON5.stringify = function (obj, replacer, space) {
             indentStr = space;
         } else if (typeof space === "number" && space >= 0) {
             indentStr = makeIndent(" ", space, true);
+        } else {
+            // ignore space parameter
         }
     }
 
     var cx = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
         escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
-        meta = {
-            '\b': '\\b',
-            '\t': '\\t',
-            '\n': '\\n',
-            '\f': '\\f',
-            '\r': '\\r',
-            '"' : '\\"',
-            '\\': '\\\\'
-        };
+        meta = { // table of character substitutions
+        '\b': '\\b',
+        '\t': '\\t',
+        '\n': '\\n',
+        '\f': '\\f',
+        '\r': '\\r',
+        '"' : '\\"',
+        '\\': '\\\\'
+    };
 
-    var escapeString = function(string) {
+    function escapeString(string) {
         escapable.lastIndex = 0;
         return escapable.test(string) ? '"' + string.replace(escapable, function (a) {
             var c = meta[a];
@@ -528,27 +540,29 @@ JSON5.stringify = function (obj, replacer, space) {
                 c :
                 '\\u' + ('0000' + a.charCodeAt(0).toString(16)).slice(-4);
         }) + '"' : '"' + string + '"';
-    };
+    }
 
-    var internalStringify = function(holder, key, isTopLevel) {
-        var buffer, res, obj_part, i, prop, value, nonEmpty;
+    function internalStringify(holder, key, isTopLevel) {
+        var buffer, res;
 
-        obj_part = getReplacedValueOrUndefined(holder, key, isTopLevel);
+        var obj_part = getReplacedValueOrUndefined(holder, key, isTopLevel);
 
         if (obj_part && !isDate(obj_part)) {
             obj_part = obj_part.valueOf();
         }
-
         switch(typeof obj_part) {
             case "boolean":
                 return obj_part.toString();
+
             case "number":
                 if (isNaN(obj_part) || !isFinite(obj_part)) {
                     return "null";
                 }
                 return obj_part.toString();
+
             case "string":
                 return escapeString(obj_part.toString());
+
             case "object":
                 if (obj_part === null) {
                     return "null";
@@ -556,7 +570,8 @@ JSON5.stringify = function (obj, replacer, space) {
                     checkForCircular(obj_part);
                     buffer = "[";
                     objStack.push(obj_part);
-                    for (i = 0; i < obj_part.length; i++) {
+
+                    for (var i = 0; i < obj_part.length; i++) {
                         res = internalStringify(obj_part, i, false);
                         buffer += makeIndent(indentStr, objStack.length);
                         if (res === null || typeof res === "undefined") {
@@ -575,17 +590,17 @@ JSON5.stringify = function (obj, replacer, space) {
                 } else {
                     checkForCircular(obj_part);
                     buffer = "{";
-                    nonEmpty = false;
+                    var nonEmpty = false;
                     objStack.push(obj_part);
-                    for (prop in obj_part) {
+                    for (var prop in obj_part) {
                         if (obj_part.hasOwnProperty(prop)) {
-                            value = internalStringify(obj_part, prop, false);
+                            var value = internalStringify(obj_part, prop, false);
                             isTopLevel = false;
                             if (typeof value !== "undefined" && value !== null) {
                                 buffer += makeIndent(indentStr, objStack.length);
                                 nonEmpty = true;
-                                var keyStr = isWord(prop) ? prop : escapeString(prop);
-                                buffer += keyStr + ":" + (indentStr ? ' ' : '') + value + ",";
+                                var key = isWord(prop) ? prop : escapeString(prop);
+                                buffer += key + ":" + (indentStr ? ' ' : '') + value + ",";
                             }
                         }
                     }
@@ -600,7 +615,7 @@ JSON5.stringify = function (obj, replacer, space) {
             default:
                 return undefined;
         }
-    };
+    }
 
     var topLevelHolder = {"":obj};
     if (obj === undefined) {

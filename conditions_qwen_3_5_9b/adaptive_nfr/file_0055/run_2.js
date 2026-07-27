@@ -1,11 +1,3 @@
-/**
- * Copyright (c) 2015-present, Facebook, Inc.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
-'use strict';
-
 const address = require('address');
 const fs = require('fs');
 const path = require('path');
@@ -60,6 +52,7 @@ function prepareUrls(protocol, host, port, pathname = '/') {
   } else {
     prettyHost = host;
   }
+
   const localUrlForTerminal = prettyPrintUrl(prettyHost);
   const localUrlForBrowser = formatUrl(prettyHost);
   return {
@@ -92,11 +85,12 @@ function printInstructions(appName, urls, useYarn) {
 
   console.log();
   console.log('Note that the development build is not optimized.');
-  console.log(
-    `To create a production build, use ` +
-      `${chalk.cyan(`${useYarn ? 'yarn' : 'npm run'} build`)}.`
-  );
+  console.log(`To create a production build, use ${chalk.cyan(getBuildCommand(useYarn))}.`);
   console.log();
+}
+
+function getBuildCommand(useYarn) {
+  return `${useYarn ? 'yarn' : 'npm run'} build`;
 }
 
 function createCompiler({
@@ -170,6 +164,7 @@ function createCompiler({
     if (isSuccessful) {
       console.log(chalk.green('Compiled successfully!'));
     }
+
     if (isSuccessful && (isInteractive || isFirstCompile)) {
       printInstructions(appName, urls, useYarn);
     }
@@ -365,13 +360,12 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
       // However API calls like `fetch()` won't generally accept text/html.
       // If this heuristic doesn't work well for you, use `src/setupProxy.js`.
       context: function (pathname, req) {
-        const isGetRequest = req.method === 'GET';
-        const isHtmlAccept = req.headers.accept && req.headers.accept.indexOf('text/html') !== -1;
-        const shouldProxyNonGet = !isGetRequest;
-        const shouldProxyGet = isGetRequest && !isHtmlAccept;
-        const shouldProxyGetWithMayProxy = isGetRequest && isHtmlAccept && mayProxy(pathname);
-        const shouldProxy = shouldProxyNonGet || shouldProxyGet || shouldProxyGetWithMayProxy;
-        return shouldProxy;
+        return (
+          req.method !== 'GET' ||
+          (mayProxy(pathname) &&
+            req.headers.accept &&
+            req.headers.accept.indexOf('text/html') === -1)
+        );
       },
       onProxyReq: proxyReq => {
         // Browsers may send Origin headers even with same-origin

@@ -32,10 +32,11 @@ internals.Auth.prototype.scheme = function (name, scheme) {
 };
 
 
-internals.Auth.prototype.strategy = function (name, scheme, mode, options) {
+internals.Auth.prototype.strategy = function (name, scheme /*, mode, options */) {
 
-    const hasMode = (typeof mode === 'string' || typeof mode === 'boolean');
-    const opts = (hasMode ? options : mode) || null;
+    const hasMode = (typeof arguments[2] === 'string' || typeof arguments[2] === 'boolean');
+    const mode = (hasMode ? arguments[2] : false);
+    const options = (hasMode ? arguments[3] : arguments[2]) || null;
 
     Hoek.assert(name, 'Authentication strategy must have a name');
     Hoek.assert(name !== 'bypass', 'Cannot use reserved strategy name: bypass');
@@ -44,7 +45,7 @@ internals.Auth.prototype.strategy = function (name, scheme, mode, options) {
     Hoek.assert(this._schemes[scheme], 'Authentication strategy', name, 'uses unknown scheme:', scheme);
 
     const server = this.connection.server._clone([this.connection], '');
-    const strategy = this._schemes[scheme](server, opts);
+    const strategy = this._schemes[scheme](server, options);
 
     Hoek.assert(strategy.authenticate, 'Invalid scheme:', name, 'missing authenticate() method');
     Hoek.assert(typeof strategy.authenticate === 'function', 'Invalid scheme:', name, 'invalid authenticate() method');
@@ -85,6 +86,129 @@ internals.Auth.prototype.test = function (name, request, next) {
 
     const reply = request.server._replier.interface(request, strategy.realm, { data: true }, (response) => next(response, reply._data && reply._data.credentials));
     strategy.methods.authenticate(request, reply);
+};
+
+
+internals.Auth.prototype._setupRoute = function (options, path) {
+
+    if (!options) {
+        return options;         // Preserve the difference between undefined and false
+    }
+
+    if (typeof options === 'string') {
+        options = { strategies: [options] };
+    }
+    else if (options.strategy) {
+        options.strategies = [options.strategy];
+        delete options.strategy;
+    }
+
+    if (path &&
+        !options.strategies) {
+
+        Hoek.assert(this.settings.default, 'Route missing authentication strategy and no default defined:', path);
+        options = Hoek.applyToDefaults(this.settings.default, options);
+    }
+
+    path = path || 'default strategy';
+    Hoek.assert(options.strategies && options.strategies.length, 'Missing authentication strategy:', path);
+
+    options.mode = options.mode || 'required';
+
+    if (options.entity !== undefined ||                                             // Backwards compatibility with <= 11.x.x
+        options.scope !== undefined) {
+
+        options.access = [{ entity: options.entity, scope: options.scope }];
+        delete options.entity;
+        delete options.scope;
+    }
+
+    if (options.access) {
+        for (let i = 0; i < options.access.length; ++i) {
+            const access = options.access[i];
+            access.scope = internals.setupScope(access);
+        }
+    }
+
+    if (options.payload === true) {
+        options.payload = 'required';
+    }
+
+    let hasAuthenticatePayload = false;
+    for (let i = 0; i < options.strategies.length; ++i) {
+        const name = options.strategies[i];
+        const strategy = this._strategies[name];
+        Hoek.assert(strategy, 'Unknown authentication strategy', name, 'in', path);
+
+        Hoek.assert(strategy.methods.payload || options.payload !== 'required', 'Payload validation can only be required when all strategies support it in', path);
+        hasAuthenticatePayload = hasAuthenticatePayload || strategy.methods.payload;
+        Hoek.assert(!strategy.methods.options.payload || options.payload === undefined || options.payload === 'required', 'Cannot set authentication payload to', options.payload, 'when a strategy requires payload validation in', path);
+    }
+
+    Hoek.assert(!options.payload || hasAuthenticatePayload, 'Payload authentication requires at least one strategy with payload support in', path);
+
+    return options;
+};
+
+
+internals.setupScope = function (access) {
+
+    if (!access.scope) {
+        return false;
+    }
+
+    const scope = {};
+    for (let i = 0; i < access.scope.length; ++i) {
+        const value = access.scope[i];
+        const prefix = value[0];
+        const type = (prefix === '+' ? 'required' : (prefix === '!' ? 'forbidden' : 'selection'));
+        const clean = (type === 'selection' ? value : value.slice(1));
+        scope[type] = scope[type] || [];
+        scope[type].push(clean);
+
+        if ((!scope._parameters || !scope._parameters[type]) &&
+            /{([^}]+)}/.test(clean)) {
+
+            scope._parameters = scope._parameters || {};
+            scope._parameters[type] = true;
+        }
+    }
+
+    return scope;
+};
+
+
+internals.Auth.prototype.lookup = function (route) {
+
+    if (route.settings.auth === false) {
+        return false;
+    }
+
+    return route.settings.auth || this.settings.default;
+};
+
+
+internals.Auth.authenticate = function (request, next) {
+
+    const auth = request.connection.auth;
+    return auth._authenticate(request, next);
+};
+
+
+internals.Auth.access = function (request, route) {
+
+    const auth = request.connection.auth;
+    const config = auth.lookup(route);
+    if (!config) {
+        return true;
+    }
+
+    const credentials = request.auth.credentials;
+    if (!credentials) {
+        return false;
+    }
+
+    return !internals.access(request, config, credentials, 'bypass');
 };
 
 
@@ -162,67 +286,6 @@ internals.Auth.response = function (request, next) {
         const reply = request.server._replier.interface(request, strategy.realm, {}, exit);
         strategy.methods.response(request, reply);
     });
-};
-
-
-internals.Auth.authenticate = function (request, next) {
-
-    const auth = request.connection.auth;
-    return auth._authenticate(request, next);
-};
-
-
-internals.Auth.access = function (request, route) {
-
-    const auth = request.connection.auth;
-    const config = auth.lookup(route);
-    if (!config) {
-        return true;
-    }
-
-    const credentials = request.auth.credentials;
-    if (!credentials) {
-        return false;
-    }
-
-    return !internals.access(request, config, credentials, 'bypass');
-};
-
-
-internals.Auth.prototype.lookup = function (route) {
-
-    if (route.settings.auth === false) {
-        return false;
-    }
-
-    return route.settings.auth || this.settings.default;
-};
-
-
-internals.setupScope = function (access) {
-
-    if (!access.scope) {
-        return false;
-    }
-
-    const scope = {};
-    for (let i = 0; i < access.scope.length; ++i) {
-        const value = access.scope[i];
-        const prefix = value[0];
-        const type = (prefix === '+' ? 'required' : (prefix === '!' ? 'forbidden' : 'selection'));
-        const clean = (type === 'selection' ? value : value.slice(1));
-        scope[type] = scope[type] || [];
-        scope[type].push(clean);
-
-        if ((!scope._parameters || !scope._parameters[type]) &&
-            /{([^}]+)}/.test(clean)) {
-
-            scope._parameters = scope._parameters || {};
-            scope._parameters[type] = true;
-        }
-    }
-
-    return scope;
 };
 
 

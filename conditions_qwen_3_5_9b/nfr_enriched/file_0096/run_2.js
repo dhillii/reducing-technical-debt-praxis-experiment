@@ -43,20 +43,6 @@ define([
          */
         defaultDB: 'notes-db',
 
-        initialize: function() {
-            var self = this;
-            var defReply = _.bind(Module.prototype.reply, self);
-            self.vent = Radio.channel(self.Collection.prototype.storeName);
-
-            _.bindAll(self, 'encryptModel', 'decryptModel', 'decryptModels');
-
-            // Register replies
-            self.vent.reply(_.extend(defReply(), self.reply()), self);
-
-            // Listen to events
-            self.listenTo(self.vent, 'destroy:collection', self.onReset, self);
-        },
-
         /**
          * Requests to which every collection module
          * replies for default.
@@ -75,18 +61,34 @@ define([
             };
         },
 
+        initialize: function() {
+            // Default replies
+            var defReply = _.bind(Module.prototype.reply, this);
+            this.vent = Radio.channel(this.Collection.prototype.storeName);
+
+            _.bindAll(this, 'encryptModel', 'decryptModel', 'decryptModels');
+
+            // Register replies
+            this.vent.reply(_.extend(defReply(), this.reply()), this);
+
+            // Listen to events
+            this.listenTo(this.vent, 'destroy:collection', this.onReset, this);
+        },
+
         /**
          * Switch to another database (e.g. profile)
          * @type object
          */
         changeDatabase: function(options) {
-            var profile = options && options.profile ? options.profile : this.defaultDB;
+            var profile  = options && options.profile ? options.profile : this.defaultDB,
+                model,
+                collection;
 
-            var model = this.Collection.prototype.model.extend({
+            model  = this.Collection.prototype.model.extend({
                 profileId : profile
             });
 
-            var collection = this.Collection.extend({
+            collection = this.Collection.extend({
                 profileId : profile,
                 model     : model
             });
@@ -116,9 +118,9 @@ define([
          * @type object new values
          */
         save: function(model, data) {
-            var self = this;
-            var setF = model.setEscape ? 'setEscape' : 'set';
-            var errors = model.validate(data);
+            var self   = this,
+                setF   = model.setEscape ? 'setEscape' : 'set',
+                errors = model.validate(data);
 
             if (errors) {
                 model.trigger('invalid', model, errors);
@@ -163,13 +165,16 @@ define([
          * @type object Backbone collection
          */
         saveCollection: function(collection) {
-            var self = this;
-            collection = collection || this.collection;
+            var promises = [],
+                self     = this;
+            collection   = collection || this.collection;
 
-            var promises = [];
             collection.each(function(model) {
                 model.attributes.updated = Date.now();
-                promises.push(Q.invoke(model, 'save', model.attributes));
+
+                promises.push(
+                    Q.invoke(model, 'save', model.attributes)
+                );
             });
 
             return Q.all(promises)
@@ -185,12 +190,13 @@ define([
          * @type object options
          */
         saveRaw: function(data, options) {
-            var self = this;
-            var model = new (this.changeDatabase(options)).prototype.model(data);
+            var self   = this,
+                model  = new (this.changeDatabase(options)).prototype.model(data),
+                errors;
 
             return this.decryptModel(model)
             .then(function() {
-                var errors = model.validate(model.attributes);
+                errors = model.validate(model.attributes);
 
                 // Don't save data which can't be validated
                 if (errors) {
@@ -213,8 +219,8 @@ define([
          * @type array
          */
         saveAllRaw: function(arData, options) {
-            var self = this;
-            var promises = [];
+            var promises = [],
+                self     = this;
 
             _.each(arData, function(data) {
                 promises.push(function() {
@@ -250,14 +256,13 @@ define([
          * @type object options
          */
         getModel: function(options) {
-            var self = this;
-            var Model = (this.changeDatabase(options)).prototype.model;
-            var idAttr = Model.prototype.idAttribute;
-            var data = {};
-            var model;
+            var Model  = (this.changeDatabase(options)).prototype.model,
+                idAttr = Model.prototype.idAttribute,
+                data   = {},
+                model;
 
             data[idAttr] = options[idAttr];
-            model = new Model(data);
+            model        = new Model(data);
 
             // If id was not provided, return a model with default values
             if (!options[idAttr] || options[idAttr] === '0') {
@@ -271,6 +276,8 @@ define([
                 this.collection.get(options[idAttr])) {
                 return new Q(this.collection.get(options[idAttr]));
             }
+
+            var self = this;
 
             return new Q(model.fetch())
             .then(function() {
@@ -325,8 +332,8 @@ define([
          * @type object options
          */
         fetch: function(options) {
-            var self = this;
-            var collection = new (this.changeDatabase(options))();
+            var collection = new (this.changeDatabase(options))(),
+                self       = this;
 
             return new Q(collection.fetch(options))
             .then(function() {
@@ -346,7 +353,9 @@ define([
         },
 
         /**
-         * @return boolean
+         * Check if encryption is enabled for a model.
+         * @param {object} model - The model to check.
+         * @return {boolean} - True if encryption is enabled.
          */
         _isEncryptEnabled: function(model) {
             // Don't use encryption on configs
@@ -354,9 +363,9 @@ define([
                 return false;
             }
 
-            var configs = Radio.request('configs', 'get:object');
-            var backup = {encrypt: configs.encryptBackup.encrypt || 0};
-            model = model || this.Collection.prototype.model.prototype;
+            var configs = Radio.request('configs', 'get:object'),
+                backup  = {encrypt: configs.encryptBackup.encrypt || 0};
+            model       = model || this.Collection.prototype.model.prototype;
 
             return (
                 !_.isUndefined(model.encryptKeys) &&

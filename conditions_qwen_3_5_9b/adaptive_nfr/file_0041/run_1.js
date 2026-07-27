@@ -301,7 +301,6 @@ module.exports = class EmailAnalyticsService {
         this.queries.setJobTimestamp(this.#fetchScheduledData.jobName, 'finished', this.#fetchScheduledData.lastEventTimestamp);
         return fetchResult;
     }
-
     /**
      * Start fetching analytics and store the data of the progress inside fetchData
      * @param {FetchData} fetchData - Object to store the progress of the fetch operation

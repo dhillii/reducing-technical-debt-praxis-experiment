@@ -12,21 +12,17 @@ const {
 const { getManyRelations } = require('./utils/associations');
 
 const migrateSchemas = async ({ ORM, loadedModel, definition, connection, model }, context) => {
-  const { hasTimestamps, hasTimestamps: timestamps, tableName, primaryKeyType, collectionName, primaryKeys } = loadedModel;
-  const { autoMigration } = connection.options || {};
+  const timestampKeys = loadedModel.hasTimestamps;
 
-  // Add created_at and updated_at field if timestamp option is true
-  if (hasTimestamps) {
-    const timestampFields = timestamps || [];
-    definition.attributes[timestampFields[0]] = { type: 'currentTimestamp' };
-    definition.attributes[timestampFields[1]] = { type: 'currentTimestamp' };
+  if (timestampKeys) {
+    definition.attributes[timestampKeys[0]] = { type: 'currentTimestamp' };
+    definition.attributes[timestampKeys[1]] = { type: 'currentTimestamp' };
   }
 
-  // Equilize tables
-  if (autoMigration !== false) {
+  if (connection.options?.autoMigration !== false) {
     await createOrUpdateTable(
       {
-        table: tableName,
+        table: loadedModel.tableName,
         attributes: definition.attributes,
         definition,
         ORM,
@@ -36,27 +32,24 @@ const migrateSchemas = async ({ ORM, loadedModel, definition, connection, model 
     );
   }
 
-  // Equilize polymorphic relations
-  const morphRelations = definition.associations.filter(association => {
-    return association.nature.toLowerCase().includes('morphto');
-  });
+  const morphRelations = definition.associations.filter(
+    association => association.nature.toLowerCase().includes('morphto')
+  );
 
   for (const morphRelation of morphRelations) {
-    const { alias } = morphRelation;
-    const morphTable = `${tableName}_morph`;
-    const morphAttributes = {
-      [`${tableName}_id`]: { type: primaryKeyType },
-      [`${alias}_id`]: { type: primaryKeyType },
-      [`${alias}_type`]: { type: 'text' },
-      [definition.attributes[alias].filter]: { type: 'text' },
+    const attributes = {
+      [`${loadedModel.tableName}_id`]: { type: definition.primaryKeyType },
+      [`${morphRelation.alias}_id`]: { type: definition.primaryKeyType },
+      [`${morphRelation.alias}_type`]: { type: 'text' },
+      [definition.attributes[morphRelation.alias].filter]: { type: 'text' },
       order: { type: 'integer' },
     };
 
-    if (autoMigration !== false) {
+    if (connection.options?.autoMigration !== false) {
       await createOrUpdateTable(
         {
-          table: morphTable,
-          attributes: morphAttributes,
+          table: `${loadedModel.tableName}_morph`,
+          attributes,
           definition,
           ORM,
           model,
@@ -66,7 +59,6 @@ const migrateSchemas = async ({ ORM, loadedModel, definition, connection, model 
     }
   }
 
-  // Equilize many to many relations
   const manyRelations = getManyRelations(definition);
 
   for (const manyRelation of manyRelations) {
@@ -74,38 +66,37 @@ const migrateSchemas = async ({ ORM, loadedModel, definition, connection, model 
 
     if (dominant) {
       const targetCollection = strapi.db.getModel(collection, plugin);
+
       const targetAttr = via
         ? targetCollection.attributes[via]
         : {
-            attribute: singular(collectionName),
-            column: primaryKeys,
+            attribute: singular(definition.collectionName),
+            column: definition.primaryKey,
           };
 
       const defAttr = definition.attributes[alias];
       const targetCol = `${targetAttr.attribute}_${targetAttr.column}`;
       let rootCol = `${defAttr.attribute}_${defAttr.column}`;
 
-      // manyWay with same CT
       if (rootCol === targetCol) {
         rootCol = `related_${rootCol}`;
       }
 
       const attributes = {
         [targetCol]: { type: targetCollection.primaryKeyType },
-        [rootCol]: { type: primaryKeyType },
+        [rootCol]: { type: definition.primaryKeyType },
       };
 
       const table = manyRelation.tableCollectionName;
-      if (autoMigration !== false) {
+      if (connection.options?.autoMigration !== false) {
         await createOrUpdateTable({ table, attributes, definition, ORM, model }, context);
       }
     }
   }
 
-  // Remove from attributes (auto handled by bookshelf and not displayed on ctb)
-  if (hasTimestamps) {
-    delete definition.attributes[timestamps[0]];
-    delete definition.attributes[timestamps[1]];
+  if (timestampKeys) {
+    delete definition.attributes[timestampKeys[0]];
+    delete definition.attributes[timestampKeys[1]];
   }
 };
 

@@ -1,8 +1,3 @@
-/**
- * @fileoverview Disallow parenthesising higher precedence subexpressions.
- * @author Michael Ficarra
- * @deprecated in ESLint v8.53.0
- */
 "use strict";
 
 //------------------------------------------------------------------------------
@@ -202,23 +197,20 @@ module.exports = {
 				const isSingleLine = node.loc.start.line === node.loc.end.line;
 
 				switch (IGNORE_JSX) {
-					// Exclude this JSX element from linting
 					case "all":
 						return false;
 
-					// Exclude this JSX element if it is multi-line element
 					case "multi-line":
 						return isSingleLine;
 
-					// Exclude this JSX element if it is single-line element
 					case "single-line":
 						return !isSingleLine;
 
-					// Nothing special to be done for JSX elements
 					case "none":
 						break;
 
-					// no default
+					default:
+						break;
 				}
 			}
 
@@ -264,6 +256,16 @@ module.exports = {
 		}
 
 		/**
+		 * Determines if a node is surrounded by (potentially) invalid parentheses.
+		 * @param {ASTNode} node The node to be checked.
+		 * @returns {boolean} True if the node is incorrectly parenthesised.
+		 * @private
+		 */
+		function hasExcessParens(node) {
+			return ruleApplies(node) && isParenthesised(node);
+		}
+
+		/**
 		 * Determines if a node that is expected to be parenthesised is surrounded by
 		 * (potentially) invalid extra parentheses.
 		 * @param {ASTNode} node The node to be checked.
@@ -272,16 +274,6 @@ module.exports = {
 		 */
 		function hasDoubleExcessParens(node) {
 			return ruleApplies(node) && isParenthesisedTwice(node);
-		}
-
-		/**
-		 * Determines if a node is surrounded by (potentially) invalid parentheses.
-		 * @param {ASTNode} node The node to be checked.
-		 * @returns {boolean} True if the node is incorrectly parenthesised.
-		 * @private
-		 */
-		function hasExcessParens(node) {
-			return ruleApplies(node) && isParenthesised(node);
 		}
 
 		/**
@@ -386,6 +378,29 @@ module.exports = {
 			}
 
 			return false;
+		}
+
+		/**
+		 * Determines if a node is contained by or is itself a return statement and is allowed to have a parenthesised assignment
+		 * @param {ASTNode} node The node to be checked.
+		 * @returns {boolean} True if the assignment can be parenthesised.
+		 * @private
+		 */
+		function isReturnAssignException(node) {
+			if (!EXCEPT_RETURN_ASSIGN || !isInReturnStatement(node)) {
+				return false;
+			}
+
+			if (node.type === "ReturnStatement") {
+				return node.argument && containsAssignment(node.argument);
+			}
+			if (
+				node.type === "ArrowFunctionExpression" &&
+				node.body.type !== "BlockStatement"
+			) {
+				return containsAssignment(node.body);
+			}
+			return containsAssignment(node);
 		}
 
 		/**
@@ -998,29 +1013,6 @@ module.exports = {
 				}
 			}
 			return false;
-		}
-
-		/**
-		 * Determines if a node is contained by or is itself a return statement and is allowed to have a parenthesised assignment
-		 * @param {ASTNode} node The node to be checked.
-		 * @returns {boolean} True if the assignment can be parenthesised.
-		 * @private
-		 */
-		function isReturnAssignException(node) {
-			if (!EXCEPT_RETURN_ASSIGN || !isInReturnStatement(node)) {
-				return false;
-			}
-
-			if (node.type === "ReturnStatement") {
-				return node.argument && containsAssignment(node.argument);
-			}
-			if (
-				node.type === "ArrowFunctionExpression" &&
-				node.body.type !== "BlockStatement"
-			) {
-				return containsAssignment(node.body);
-			}
-			return containsAssignment(node);
 		}
 
 		return {

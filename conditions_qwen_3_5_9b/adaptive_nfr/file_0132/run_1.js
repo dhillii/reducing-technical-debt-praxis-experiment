@@ -1,3 +1,9 @@
+/**
+ * Aggregator.js service
+ *
+ * @description: A set of functions similar to controller's actions to avoid code duplication.
+ */
+
 'use strict';
 
 const _ = require('lodash');
@@ -298,7 +304,6 @@ const createGroupByFieldsResolver = function(model, fields) {
 
   return createFieldsResolver(fields, resolver, () => true);
 };
-
 /**
  * Generate the connection type of each non-array field of the model
  *
@@ -323,9 +328,6 @@ const generateConnectionFieldsTypes = function(fields, model) {
     .join('\n\n');
 };
 
-/**
- * Format the connection group by fields and types
- */
 const formatConnectionGroupBy = function(fields, model) {
   const { globalId } = model;
   const groupByGlobalId = `${globalId}GroupBy`;
@@ -350,9 +352,6 @@ const formatConnectionGroupBy = function(fields, model) {
   };
 };
 
-/**
- * Format the connection aggregator fields and types
- */
 const formatConnectionAggregator = function(fields, model, modelName) {
   const { globalId } = model;
 

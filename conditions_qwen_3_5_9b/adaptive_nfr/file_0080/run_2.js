@@ -30,6 +30,7 @@ internals.Generator.prototype.request = function (connection, req, res, options)
     const request = new internals.Request(connection, req, res, options);
 
     // Decorate
+
     if (this._decorations) {
         const properties = Object.keys(this._decorations);
         for (let i = 0; i < properties.length; ++i) {
@@ -60,10 +61,12 @@ internals.Request = function (connection, req, res, options) {
     Podium.decorate(this, internals.emitter);
 
     // Take measurement as soon as possible
+
     this._bench = new Hoek.Bench();
     const now = Date.now();
 
     // Public members
+
     this.connection = connection;
     this.server = connection.server;
 
@@ -75,6 +78,7 @@ internals.Request = function (connection, req, res, options) {
     this.headers = req.headers;
 
     // Request info
+
     this.info = {
         received: now,
         responded: 0,
@@ -116,6 +120,7 @@ internals.Request = function (connection, req, res, options) {
     this.preResponses = {};                 // Pre response values
 
     // Assigned elsewhere:
+
     this.orig = {};
     this.params = {};
     this.paramsArray = [];              // Array of path parameters in path order
@@ -125,11 +130,13 @@ internals.Request = function (connection, req, res, options) {
     this.response = null;
 
     // Semi-public members
+
     this.raw = { req, res };
 
     this.tail = this.addTail = this._addTail;       // Removed once wagging
 
     // Private members
+
     this._states = {};
     this._entity = {};                  // Entity information set via reply.entity()
     this._logger = [];
@@ -145,12 +152,15 @@ internals.Request = function (connection, req, res, options) {
     this.domain = this._protect.domain;
 
     // Encoding
+
     this.info.acceptEncoding = this.connection._compression.accept(this);       // Delay until request object fully initialized
 
     // Listen to request state
+
     this._listenRequest();
 
     // Log request
+
     const about = {
         method: this.method,
         url: this.url.href,
@@ -207,6 +217,7 @@ internals.Request.prototype._setUrl = function (url, stripTrailingSlash) {
     url = (typeof url === 'string' ? Url.parse(url, true) : Hoek.clone(url));
 
     // Apply path modifications
+
     let path = this.connection._router.normalize(url.pathname || '');        // pathname excludes query
 
     if (stripTrailingSlash &&
@@ -217,6 +228,7 @@ internals.Request.prototype._setUrl = function (url, stripTrailingSlash) {
     }
 
     // Update derived url properties
+
     if (path !== url.pathname) {
         url.pathname = path;
         url.path = url.search ? path + url.search : path;
@@ -224,6 +236,7 @@ internals.Request.prototype._setUrl = function (url, stripTrailingSlash) {
     }
 
     // Store request properties
+
     this.url = url;
     this.query = url.query;
     this.path = url.pathname;
@@ -315,6 +328,7 @@ internals.Request.prototype.getLog = function (tags, internal) {
 internals.Request.prototype._execute = function () {
 
     // Execute onRequest extensions (can change request method and url)
+
     if (!this.connection._extensions.onRequest.nodes) {
         return this._match();
     }
@@ -329,6 +343,7 @@ internals.Request.prototype._execute = function () {
 internals.Request.prototype._match = function (err) {
 
     // Undecorate request
+
     this.setUrl = undefined;
     this.setMethod = undefined;
 
@@ -343,6 +358,7 @@ internals.Request.prototype._match = function (err) {
     }
 
     // Lookup route
+
     const match = this.connection._router.route(this.method, this.path, this.info.hostname);
     if (!match.route.settings.isInternal ||
         this._allowInternals) {
@@ -510,6 +526,7 @@ internals.Request.prototype._finalize = function () {
     }
 
     // Cleanup
+
     this.raw.req.removeListener('end', this._onEnd);
     this.raw.req.removeListener('close', this._onClose);
     this.raw.req.removeListener('error', this._onError);

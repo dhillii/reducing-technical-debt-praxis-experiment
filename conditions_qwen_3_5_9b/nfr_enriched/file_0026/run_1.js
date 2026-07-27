@@ -68,10 +68,7 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     source: {
         endpoint: 'api_top_sources',
         valueKey: 'source',
-        transformValue: v => ({
-            value: v || '',
-            label: v || 'Direct'
-        })
+        transformValue: v => ({value: v || '', label: v || 'Direct'})
     },
     location: {
         endpoint: 'api_top_locations',
@@ -85,14 +82,25 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     device: {
         endpoint: 'api_top_devices',
         valueKey: 'device',
-        transformValue: v => ({
-            value: v,
-            label: v === 'mobile-ios' ? 'iOS' :
-                v === 'mobile-android' ? 'Android' :
-                    v === 'desktop' ? 'Desktop' :
-                        v === 'bot' ? 'Bot' :
-                            v === 'unknown' ? 'Unknown' : v
-        })
+        transformValue: v => ({value: v, label: getDeviceLabel(v)})
+    }
+};
+
+// Helper to map device codes to human-readable labels
+const getDeviceLabel = (deviceCode: string): string => {
+    switch (deviceCode) {
+        case 'mobile-ios':
+            return 'iOS';
+        case 'mobile-android':
+            return 'Android';
+        case 'desktop':
+            return 'Desktop';
+        case 'bot':
+            return 'Bot';
+        case 'unknown':
+            return 'Unknown';
+        default:
+            return deviceCode;
     }
 };
 

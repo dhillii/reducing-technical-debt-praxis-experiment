@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Integration tests for the eslint.js executable.
+ * @author Teddy Katz
+ */
+
 "use strict";
 
 //-----------------------------------------------------------------------------
@@ -62,6 +67,16 @@ function getOutput(runningProcess) {
 	return awaitExit(runningProcess).then(() => ({ stdout, stderr }));
 }
 
+/**
+ * Creates the options object for a child process by merging default options with provided options.
+ * @param {Object} defaultOptions The default options to merge.
+ * @param {Object} [providedOptions] The options provided by the caller.
+ * @returns {Object} The merged options object.
+ */
+function createProcessOptions(defaultOptions, providedOptions) {
+	return { ...defaultOptions, ...providedOptions };
+}
+
 //------------------------------------------------------------------------------
 // Tests
 //------------------------------------------------------------------------------
@@ -76,13 +91,10 @@ describe("bin/eslint.js", () => {
 	 * @returns {ChildProcess} The resulting child process
 	 */
 	function runESLint(args, options) {
-		const baseOptions = { silent: true };
-		const mergedOptions = { ...baseOptions, ...options };
-
 		const newProcess = childProcess.fork(
 			EXECUTABLE_PATH,
 			args,
-			mergedOptions,
+			createProcessOptions({ silent: true }, options),
 		);
 
 		forkedProcesses.add(newProcess);

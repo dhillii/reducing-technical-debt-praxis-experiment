@@ -7,7 +7,7 @@
 const CodePathSegment = require("./code-path-segment"),
 	ForkContext = require("./fork-context");
 
-//------------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 // Contexts
 //-----------------------------------------------------------------------------
 
@@ -1616,10 +1616,10 @@ class CodePathState {
 		this.forkContext = this.forkContext.upper;
 		const normalSegments = headSegments.slice(
 			0,
-			(headSegments.length / 2) | 0,
+			Math.trunc(headSegments.length / 2),
 		);
 		const leavingSegments = headSegments.slice(
-			(headSegments.length / 2) | 0,
+			Math.trunc(headSegments.length / 2),
 		);
 
 		// Forwards the leaving path to upper contexts.

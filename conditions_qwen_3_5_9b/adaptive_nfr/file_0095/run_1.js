@@ -39,32 +39,38 @@ define([
     var Encrypt = Marionette.Object.extend({
 
         initialize: function() {
-            this._initConfigs();
-            this._initRadioHandlers();
-        },
 
-        _initConfigs: function() {
+            // Get configs
             this.configs = Radio.request('configs', 'get:object');
             this.keys    = {};
-            this.sjcl = new Sjcl(this.configs);
-        },
 
-        _initRadioHandlers: function() {
+            this.sjcl = new Sjcl(this.configs);
+
+            // Pass requests directly to Sjcl class
             Radio.reply('encrypt', {
                 'sha256'           : this.sjcl.sha256,
             }, this.sjcl);
 
+            // Replies
             Radio.reply('encrypt', {
                 'randomize'        : this.randomize,
                 'change:configs'   : this.changeConfigs,
+
+                // Check auth/password
                 'check:auth'       : this.checkAuth,
                 'check:password'   : this.checkPassword,
                 'save:secureKey'   : this.saveSecureKey,
                 'delete:secureKey' : this.deleteSecureKey,
+
+                // Encrypt/decrypt some string
                 'encrypt'          : this.encrypt,
                 'decrypt'          : this.decrypt,
+
+                // Encrypt/decrypt a model
                 'encrypt:model'    : this.encryptModel,
                 'decrypt:model'    : this.decryptModel,
+
+                // Encrypt/decrypt a collection of models
                 'encrypt:models'   : this.encryptModels,
                 'decrypt:models'   : this.decryptModels
             }, this);
@@ -99,11 +105,16 @@ define([
          * @return bool
          */
         checkAuth: function() {
+            /**
+             * If encryption backup is not empty, it means a user changed
+             * encryption settings.
+             */
             if (!_.isEmpty(this.configs.encryptBackup)) {
                 Radio.trigger('encrypt', 'changed');
                 return {isChanged: true};
             }
 
+            // Encryption is disabled
             if (!Number(this.configs.encrypt) || this.configs.encryptPass === '') {
                 return true;
             }
@@ -220,6 +231,8 @@ define([
          * @return promise
          */
         encryptModels: function(collection) {
+
+            // The collection is empty or PBKDF2 wasn't generated
             if (!collection.length || !Number(this.configs.encrypt) ||
                 !this.keys.key) {
                 return new Q();
@@ -248,10 +261,13 @@ define([
          * @return promise
          */
         decryptModels: function(collection) {
+
+            // The collection is empty or encryption is disabled
             if (!collection.length || !Number(this.configs.encrypt)) {
                 return new Q();
             }
 
+            // PBKDF2 wasn't generated
             if (!this.keys.key) {
                 Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
                 return new Q();

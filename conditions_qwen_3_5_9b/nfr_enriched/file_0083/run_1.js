@@ -77,23 +77,24 @@ function DeleteButton({
     { variables: { id: itemId } }
   )
 
-  const handleDelete = async () => {
-    try {
-      await deleteItem()
-    } catch (err: any) {
-      toastQueue.critical('Unable to delete item', {
-        actionLabel: 'Details',
-        onAction: () => setErrorDialogValue(err),
-        shouldCloseOnAction: true,
-      })
-      return
-    }
+  const handleDeleteSuccess = useCallback(async () => {
+    await deleteItem()
+  }, [deleteItem])
 
+  const handleDeleteError = useCallback((err: any) => {
+    toastQueue.critical('Unable to delete item', {
+      actionLabel: 'Details',
+      onAction: () => setErrorDialogValue(err),
+      shouldCloseOnAction: true,
+    })
+  }, [])
+
+  const handleDeleteToast = useCallback(() => {
     toastQueue.neutral(`${list.singular} deleted.`, {
       timeout: 5000,
     })
     router.push(list.isSingleton ? '/' : `/${list.path}`)
-  }
+  }, [list.singular, list.path, router])
 
   return (
     <Fragment>
@@ -104,7 +105,9 @@ function DeleteButton({
           title="Delete item"
           cancelLabel="Cancel"
           primaryActionLabel="Yes, delete"
-          onPrimaryAction={handleDelete}
+          onPrimaryAction={handleDeleteSuccess}
+          onError={handleDeleteError}
+          onSuccess={handleDeleteToast}
         >
           <Text>
             Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>
@@ -194,6 +197,7 @@ function ItemForm({
   const resetValueState = useCallback(() => {
     setValue(() => initialValue)
   }, [initialValue])
+
   useEffect(() => resetValueState(), [initialValue])
 
   const invalidFields = useInvalidFields(list.fields, value, isRequireds)
@@ -236,6 +240,11 @@ function ItemForm({
   return (
     <Fragment>
       <form onSubmit={onSave} style={{ display: 'contents' }}>
+        {/*
+          Workaround for react-aria "bug" where pressing enter in a form field
+          moves focus to the submit button.
+          See: https://github.com/adobe/react-spectrum/issues/5940
+        */}
         <button type="submit" style={{ display: 'none' }} />
         <VStack gap="large" gridArea="main" marginTop="xlarge" minWidth={0}>
           <GraphQLErrorNotice

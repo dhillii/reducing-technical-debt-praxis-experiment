@@ -41,29 +41,28 @@ function getMembersHelper(data, frontendKey, excludeList) {
         return '';
     }
 
-    if (excludeList.has('portal')) {
-        return '';
+    let membersHelper = '';
+    if (!excludeList.has('portal')) {
+        const {scriptUrl} = getFrontendAppConfig('portal');
+        const colorString = data?.site?._preview && data.site.accent_color ? data.site.accent_color : '';
+        const attributes = {
+            i18n: true,
+            ghost: urlUtils.getSiteUrl(),
+            key: frontendKey,
+            api: urlUtils.urlFor('api', {type: 'content'}, true),
+            locale: settingsCache.get('locale') || 'en'
+        };
+
+        if (colorString) {
+            attributes['accent-color'] = colorString;
+        }
+
+        const dataAttributes = getDataAttributes(attributes);
+        membersHelper += `<script defer src="${scriptUrl}" ${dataAttributes} crossorigin="anonymous"></script>`;
     }
-
-    const {scriptUrl} = getFrontendAppConfig('portal');
-    const colorString = (data?.site?._preview && data.site.accent_color) ? data.site.accent_color : '';
-    const attributes = {
-        i18n: true,
-        ghost: urlUtils.getSiteUrl(),
-        key: frontendKey,
-        api: urlUtils.urlFor('api', {type: 'content'}, true),
-        locale: settingsCache.get('locale') || 'en'
-    };
-
-    if (colorString) {
-        attributes['accent-color'] = colorString;
-    }
-
-    const dataAttributes = getDataAttributes(attributes);
-    let membersHelper = `<script defer src="${scriptUrl}" ${dataAttributes} crossorigin="anonymous"></script>`;
 
     if (!excludeList.has('cta_styles')) {
-        membersHelper += (`<style id="gh-members-styles">${templateStyles}</style>`);
+        membersHelper += `<style id="gh-members-styles">${templateStyles}</style>`;
     }
 
     if (settingsCache.get('paid_members_enabled')) {
@@ -88,6 +87,7 @@ function getSearchHelper(frontendKey) {
         'sodo-search': adminUrl,
         locale: settingsCache.get('locale') || 'en'
     };
+
     const dataAttrs = getDataAttributes(attrs);
     return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
 }
@@ -166,156 +166,99 @@ function getTinybirdTrackerScript(dataRoot) {
     return `<script defer src="${src}" data-stringify-payload="false" ${datasource ? `data-datasource="${datasource}"` : ''} data-storage="localStorage" data-host="${endpoint}" ${token && env !== 'production' ? `data-token="${token}"` : ''} ${tbParams}></script>`;
 }
 
-function isSitePreview(data) {
-    return data?.site?._preview ?? false;
+function isServerErrorCode(statusCode) {
+    return statusCode >= 500;
 }
 
-function getFontSelection(data, settingsCache) {
-    const isSitePreview = isSitePreview(data);
-    const headingFont = isSitePreview ? data?.site?.heading_font : settingsCache.get('heading_font');
-    const bodyFont = isSitePreview ? data?.site?.body_font : settingsCache.get('body_font');
-
-    const fontSelection = {};
-
-    if (headingFont) {
-        fontSelection.heading = headingFont;
-    }
-
-    if (bodyFont) {
-        fontSelection.body = bodyFont;
-    }
-
-    return fontSelection;
+function isContextPreview(context) {
+    return _.includes(context, 'preview');
 }
 
-function shouldInjectCustomFonts(headingFont, bodyFont) {
+function isContextPaged(context) {
+    return _.includes(context, 'paged');
+}
+
+function isStructuredDataEnabled(useStructuredData) {
+    return useStructuredData;
+}
+
+function isExcludeListPresent(excludeList, key) {
+    return excludeList.has(key);
+}
+
+function isGlobalCodeInjectionPresent(globalCodeinjection) {
+    return !_.isEmpty(globalCodeinjection);
+}
+
+function isPostCodeInjectionPresent(postCodeInjection) {
+    return !_.isEmpty(postCodeInjection);
+}
+
+function isTagCodeInjectionPresent(tagCodeInjection) {
+    return !_.isEmpty(tagCodeInjection);
+}
+
+function isCommentsEnabled(settingsCache) {
+    return settingsCache.get('comments_enabled') !== 'off';
+}
+
+function isMembersEnabled(settingsCache) {
+    return settingsCache.get('members_enabled');
+}
+
+function isMembersTrackSourcesEnabled(settingsCache) {
+    return settingsCache.get('members_track_sources');
+}
+
+function isWebAnalyticsEnabled(settingsHelpers) {
+    return settingsHelpers.isWebAnalyticsEnabled();
+}
+
+function isSitePreview(options) {
+    return options.data?.site?._preview ?? false;
+}
+
+function isFontValid(headingFont, bodyFont, isValidCustomHeadingFont, isValidCustomFont) {
     return (typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
         (typeof bodyFont === 'string' && isValidCustomFont(bodyFont));
 }
 
-function injectAccentColor(head, accentColor) {
-    if (!accentColor) {
-        return;
+function getAccentColorStyleTag(options, escapeExpression) {
+    if (!options.data.site.accent_color) {
+        return null;
     }
 
+    const accentColor = escapeExpression(options.data.site.accent_color);
     const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
-    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
-
-    if (existingScriptIndex !== -1) {
-        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
-    } else {
-        head.push(styleTag);
-    }
+    return styleTag;
 }
 
-function injectCodeInjection(head, codeInjection) {
-    if (!codeInjection || _.isEmpty(codeInjection)) {
-        return;
+function getFontCssInjection(options, settingsCache, headingFont, bodyFont, generateCustomFontCss, isValidCustomFont, isValidCustomHeadingFont, escapeExpression, SafeString) {
+    if (!isFontValid(headingFont, bodyFont, isValidCustomHeadingFont, isValidCustomFont)) {
+        return null;
     }
 
-    head.push(codeInjection);
-}
-
-function injectCommentCountsScript(head, urlUtils, settingsCache) {
-    if (!settingsCache.get('comments_enabled') || settingsCache.get('comments_enabled') === 'off') {
-        return;
+    const fontSelection = {};
+    if (headingFont) {
+        fontSelection.heading = headingFont;
+    }
+    if (bodyFont) {
+        fontSelection.body = bodyFont;
     }
 
-    head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
-}
-
-function injectMemberAttributionScript(head, urlUtils, settingsCache) {
-    if (!settingsCache.get('members_enabled') || !settingsCache.get('members_track_sources')) {
-        return;
-    }
-
-    head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
-}
-
-function injectTinybirdTrackerScript(head, dataRoot, settingsHelpers, config) {
-    if (!settingsHelpers.isWebAnalyticsEnabled()) {
-        return;
-    }
-
-    head.push(getTinybirdTrackerScript(dataRoot));
-    if (dataRoot._locals) {
-        dataRoot._locals.ghostAnalytics = true;
-    }
-}
-
-function injectCardAssets(head, cardAssets) {
-    if (cardAssets.hasFile('js')) {
-        head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
-    }
-
-    if (cardAssets.hasFile('css')) {
-        head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
-    }
-}
-
-function injectStructuredData(head, meta, excludeList, useStructuredData) {
-    if (!useStructuredData) {
-        return;
-    }
-
-    if (excludeList.has('social_data')) {
-        return;
-    }
-
-    head.push('');
-    head.push.apply(head, finaliseStructuredData(meta));
-    head.push('');
-
-    if (excludeList.has('schema') || !meta.schema) {
-        return;
-    }
-
-    head.push('<script type="application/ld+json">\n' +
-        JSON.stringify(meta.schema, null, '    ') +
-        '\n    </script>\n');
-}
-
-function injectMetaTags(head, meta, settingsCache, context, excludeList, escapeExpression, writeMetaTag, referrerPolicy) {
-    if (excludeList.has('metadata')) {
-        return;
-    }
-
-    if (meta.metaDescription && meta.metaDescription.length > 0) {
-        head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
-    }
-
-    if (!settingsCache.get('icon')) {
-        return;
-    }
-
-    head.push('<link rel="icon" href="' + meta.favicon + '" type="image/' + meta.iconType + '">');
-
-    head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
-
-    if (_.includes(context, 'preview')) {
-        head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-        head.push(writeMetaTag('referrer', 'same-origin', 'name'));
-    } else {
-        head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
-    }
-
-    if (meta.previousUrl) {
-        head.push('<link rel="prev" href="' + escapeExpression(meta.previousUrl) + '">');
-    }
-
-    if (meta.nextUrl) {
-        head.push('<link rel="next" href="' + escapeExpression(meta.nextUrl) + '">');
-    }
+    const customCSS = generateCustomFontCss(fontSelection);
+    return new SafeString(customCSS);
 }
 
 /**
  * @typedef {import('@tryghost/custom-fonts').FontSelection} FontSelection
  */
 
+// We use the name ghost_head to match the helper for consistency:
 module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
     debug('begin');
 
-    if (options.data.root.statusCode >= 500) {
+    if (isServerErrorCode(options.data.root.statusCode)) {
         return;
     }
 
@@ -328,7 +271,7 @@ module.exports = async function ghost_head(options) { // eslint-disable-line cam
     const tagCodeInjection = dataRoot && dataRoot.tag ? dataRoot.tag.codeinjection_head : null;
     const globalCodeinjection = settingsCache.get('codeinjection_head');
     const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
-    const referrerPolicy = config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade';
+    const referrerPolicy = config.get('referrerPolicy') || 'no-referrer-when-downgrade';
     const favicon = blogIcon.getIconUrl();
     const iconType = blogIcon.getIconType(favicon);
 
@@ -341,20 +284,54 @@ module.exports = async function ghost_head(options) { // eslint-disable-line cam
         debug('end fetch');
 
         if (context) {
-            injectMetaTags(head, meta, settingsCache, context, excludeList, escapeExpression, writeMetaTag, referrerPolicy);
-            injectStructuredData(head, meta, excludeList, useStructuredData);
+            if (!isExcludeListPresent(excludeList, 'metadata')) {
+                if (meta.metaDescription && meta.metaDescription.length > 0) {
+                    head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
+                }
+
+                if (settingsCache.get('icon')) {
+                    head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
+                }
+
+                head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
+
+                if (isContextPreview(context)) {
+                    head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+                    head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+                } else {
+                    head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
+                }
+            }
+
+            if (meta.previousUrl) {
+                head.push('<link rel="prev" href="' + escapeExpression(meta.previousUrl) + '">');
+            }
+
+            if (meta.nextUrl) {
+                head.push('<link rel="next" href="' + escapeExpression(meta.nextUrl) + '">');
+            }
+
+            if (!isContextPaged(context) && isStructuredDataEnabled(useStructuredData)) {
+                if (!isExcludeListPresent(excludeList, 'social_data')) {
+                    head.push('');
+                    head.push.apply(head, finaliseStructuredData(meta));
+                    head.push('');
+                }
+
+                if (!isExcludeListPresent(excludeList, 'schema') && meta.schema) {
+                    head.push('<script type="application/ld+json">\n' + JSON.stringify(meta.schema, null, '    ') + '\n    </script>\n');
+                }
+            }
         }
 
         head.push('<meta name="generator" content="Ghost ' + escapeExpression(safeVersion) + '">');
         head.push('<link rel="alternate" type="application/rss+xml" title="' + escapeExpression(meta.site.title) + '" href="' + escapeExpression(meta.rssUrl) + '">');
 
         head.push(getMembersHelper(options.data, frontendKey, excludeList));
-
-        if (!excludeList.has('search')) {
+        if (!isExcludeListPresent(excludeList, 'search')) {
             head.push(getSearchHelper(frontendKey));
         }
-
-        if (!excludeList.has('announcement')) {
+        if (!isExcludeListPresent(excludeList, 'announcement')) {
             head.push(getAnnouncementBarHelper(options.data));
         }
 
@@ -364,22 +341,58 @@ module.exports = async function ghost_head(options) { // eslint-disable-line cam
             logging.warn(err);
         }
 
-        injectCardAssets(head, cardAssets);
-        injectCommentCountsScript(head, urlUtils, settingsCache);
-        injectMemberAttributionScript(head, urlUtils, settingsCache);
+        if (!isExcludeListPresent(excludeList, 'card_assets')) {
+            if (cardAssets.hasFile('js')) {
+                head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+            }
+            if (cardAssets.hasFile('css')) {
+                head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+            }
+        }
 
-        injectTinybirdTrackerScript(head, dataRoot, settingsHelpers, config);
+        if (isCommentsEnabled(settingsCache)) {
+            head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+        }
 
-        injectAccentColor(head, options.data.site.accent_color);
+        if (isMembersEnabled(settingsCache) && isMembersTrackSourcesEnabled(settingsCache)) {
+            head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+        }
 
-        injectCodeInjection(head, globalCodeinjection);
-        injectCodeInjection(head, postCodeInjection);
-        injectCodeInjection(head, tagCodeInjection);
+        if (isWebAnalyticsEnabled(settingsHelpers)) {
+            head.push(getTinybirdTrackerScript(dataRoot));
+            if (dataRoot._locals) {
+                dataRoot._locals.ghostAnalytics = true;
+            }
+        }
 
-        const fontSelection = getFontSelection(options.data, settingsCache);
-        if (shouldInjectCustomFonts(fontSelection.heading, fontSelection.body)) {
-            const customCSS = generateCustomFontCss(fontSelection);
-            head.push(new SafeString(customCSS));
+        const accentStyleTag = getAccentColorStyleTag(options, escapeExpression);
+        if (accentStyleTag) {
+            const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+            if (existingScriptIndex !== -1) {
+                head[existingScriptIndex] = head[existingScriptIndex] + accentStyleTag;
+            } else {
+                head.push(accentStyleTag);
+            }
+        }
+
+        if (isGlobalCodeInjectionPresent(globalCodeinjection)) {
+            head.push(globalCodeinjection);
+        }
+
+        if (isPostCodeInjectionPresent(postCodeInjection)) {
+            head.push(postCodeInjection);
+        }
+
+        if (isTagCodeInjectionPresent(tagCodeInjection)) {
+            head.push(tagCodeInjection);
+        }
+
+        const isSitePreview = isSitePreview(options);
+        const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
+        const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
+        const fontCssInjection = getFontCssInjection(options, settingsCache, headingFont, bodyFont, generateCustomFontCss, isValidCustomFont, isValidCustomHeadingFont, escapeExpression, SafeString);
+        if (fontCssInjection) {
+            head.push(fontCssInjection);
         }
 
         debug('end');

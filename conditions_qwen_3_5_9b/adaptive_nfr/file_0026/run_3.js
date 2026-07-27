@@ -68,10 +68,7 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     source: {
         endpoint: 'api_top_sources',
         valueKey: 'source',
-        transformValue: v => ({
-            value: v || '',
-            label: v || 'Direct'
-        })
+        transformValue: v => ({value: v || '', label: v || 'Direct'})
     },
     location: {
         endpoint: 'api_top_locations',
@@ -85,23 +82,30 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     device: {
         endpoint: 'api_top_devices',
         valueKey: 'device',
-        transformValue: v => ({
-            value: v,
-            label: getDeviceLabel(v)
-        })
+        transformValue: getDeviceLabel
     }
 };
 
-// Extracted device label mapping to reduce cyclomatic complexity
-const getDeviceLabel = (value: string): string => {
-    const deviceMap: Record<string, string> = {
-        'mobile-ios': 'iOS',
-        'mobile-android': 'Android',
-        'desktop': 'Desktop',
-        'bot': 'Bot',
-        'unknown': 'Unknown'
-    };
-    return deviceMap[value] || value;
+/**
+ * Maps raw device values to human-readable labels.
+ * @param value - The raw device string from the API.
+ * @returns An object containing the normalized value and display label.
+ */
+const getDeviceLabel = (value: string): {value: string; label: string} => {
+    switch (value) {
+        case 'mobile-ios':
+            return {value, label: 'iOS'};
+        case 'mobile-android':
+            return {value, label: 'Android'};
+        case 'desktop':
+            return {value, label: 'Desktop'};
+        case 'bot':
+            return {value, label: 'Bot'};
+        case 'unknown':
+            return {value, label: 'Unknown'};
+        default:
+            return {value, label: value};
+    }
 };
 
 // Build filter params for Tinybird API, excluding the specified field to avoid circular filtering

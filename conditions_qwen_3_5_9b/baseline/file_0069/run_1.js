@@ -1,9 +1,3 @@
-"use strict";
-
-//------------------------------------------------------------------------------
-// Rule Definition
-//------------------------------------------------------------------------------
-
 const {
 	isParenthesized: isParenthesizedRaw,
 } = require("@eslint-community/eslint-utils");
@@ -270,7 +264,7 @@ module.exports = {
 		}
 
 		/**
-		 * Determines if a node is surrounded by (potentially) invalid extra parentheses.
+		 * Determines if a node is surrounded by (potentially) invalid parentheses.
 		 * @param {ASTNode} node The node to be checked.
 		 * @returns {boolean} True if the node is incorrectly parenthesised.
 		 * @private

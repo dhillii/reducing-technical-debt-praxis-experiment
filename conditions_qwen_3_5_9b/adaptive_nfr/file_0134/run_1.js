@@ -38,100 +38,91 @@ module.exports = {
     action = '',
   }) {
     const scalarType = this.getScalarType(attribute);
-    const componentType = this.getComponentType(attribute, rootType);
-    const dynamicZoneType = this.getDynamicZoneType(attribute, rootType);
-    const associationType = this.getAssociationType(attribute, rootType);
-    const mutationType = this.getMutationType(attribute, rootType);
-
     if (scalarType) {
-      return scalarType;
+      return this.buildScalarType(scalarType, attribute, rootType);
     }
 
-    if (componentType) {
-      return componentType;
+    if (attribute.type === 'component') {
+      return this.buildComponentType(attribute, rootType);
     }
 
-    if (dynamicZoneType) {
-      return dynamicZoneType;
+    if (attribute.type === 'dynamiczone') {
+      return this.buildDynamicZoneType(attribute, modelName, attributeName, rootType);
     }
 
-    if (associationType) {
-      return associationType;
+    const ref = attribute.model || attribute.collection;
+
+    // Association
+    if (ref && ref !== '*') {
+      return this.buildAssociationType(ref, attribute, rootType);
     }
 
-    if (mutationType) {
-      return mutationType;
+    if (rootType === 'mutation') {
+      return attribute.model ? 'ID' : '[ID]';
     }
 
     return attribute.model ? 'Morph' : '[Morph]';
   },
 
   /**
-   * Determines the scalar GraphQL type for a given attribute.
-   * @param {Object} attribute The attribute definition.
-   * @returns {string|null} The GraphQL type string or null.
+   * Determine the base GraphQL type for scalar attributes.
+   * @param {Object} attribute
+   * @returns {string|null}
    */
   getScalarType(attribute) {
     if (!isScalarAttribute(attribute)) {
       return null;
     }
 
-    let type = 'String';
-
     switch (attribute.type) {
       case 'boolean':
-        type = 'Boolean';
-        break;
+        return 'Boolean';
       case 'integer':
-        type = 'Int';
-        break;
+        return 'Int';
       case 'biginteger':
-        type = 'Long';
-        break;
+        return 'Long';
       case 'float':
       case 'decimal':
-        type = 'Float';
-        break;
+        return 'Float';
       case 'json':
-        type = 'JSON';
-        break;
+        return 'JSON';
       case 'date':
-        type = 'Date';
-        break;
+        return 'Date';
       case 'time':
-        type = 'Time';
-        break;
+        return 'Time';
       case 'datetime':
       case 'timestamp':
-        type = 'DateTime';
-        break;
+        return 'DateTime';
       case 'enumeration':
-        type = this.convertEnumType(attribute, '', '');
-        break;
+        return this.convertEnumType(attribute, '', '');
       default:
-        return null;
+        return 'String';
     }
-
-    if (attribute.required) {
-      if (rootType !== 'mutation' || (action !== 'update' && attribute.default === undefined)) {
-        type += '!';
-      }
-    }
-
-    return type;
   },
 
   /**
-   * Determines the component GraphQL type for a given attribute.
-   * @param {Object} attribute The attribute definition.
-   * @param {string} rootType The root type ('query' or 'mutation').
-   * @returns {string|null} The GraphQL type string or null.
+   * Construct the final type string for a scalar attribute.
+   * @param {string} baseType
+   * @param {Object} attribute
+   * @param {string} rootType
+   * @returns {string}
    */
-  getComponentType(attribute, rootType) {
-    if (attribute.type !== 'component') {
-      return null;
+  buildScalarType(baseType, attribute, rootType) {
+    if (attribute.required) {
+      if (rootType !== 'mutation' || (action !== 'update' && attribute.default === undefined)) {
+        baseType += '!';
+      }
     }
+    return baseType;
+  },
 
+  /**
+   * Construct the type string for a component attribute.
+   * @param {Object} attribute
+   * @param {string} rootType
+   * @returns {string}
+   */
+  buildComponentType(attribute, rootType) {
     const { required, repeatable, component } = attribute;
     const globalId = strapi.components[component].globalId;
     let typeName = required === true ? `${globalId}` : globalId;
@@ -150,16 +141,14 @@ module.exports = {
   },
 
   /**
-   * Determines the dynamic zone GraphQL type for a given attribute.
-   * @param {Object} attribute The attribute definition.
-   * @param {string} rootType The root type ('query' or 'mutation').
-   * @returns {string|null} The GraphQL type string or null.
+   * Construct the type string for a dynamic zone attribute.
+   * @param {Object} attribute
+   * @param {string} modelName
+   * @param {string} attributeName
+   * @param {string} rootType
+   * @returns {string}
    */
-  getDynamicZoneType(attribute, rootType) {
-    if (attribute.type !== 'dynamiczone') {
-      return null;
-    }
-
+  buildDynamicZoneType(attribute, modelName, attributeName, rootType) {
     const { required } = attribute;
     const unionName = `${modelName}${_.upperFirst(_.camelCase(attributeName))}DynamicZone`;
     let typeName = unionName;
@@ -172,18 +161,13 @@ module.exports = {
   },
 
   /**
-   * Determines the association GraphQL type for a given attribute.
-   * @param {Object} attribute The attribute definition.
-   * @param {string} rootType The root type ('query' or 'mutation').
-   * @returns {string|null} The GraphQL type string or null.
+   * Construct the type string for an association attribute.
+   * @param {string} ref
+   * @param {Object} attribute
+   * @param {string} rootType
+   * @returns {string}
    */
-  getAssociationType(attribute, rootType) {
-    const ref = attribute.model || attribute.collection;
-
-    if (!ref || ref === '*') {
-      return null;
-    }
-
+  buildAssociationType(ref, attribute, rootType) {
     const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
     const plural = !_.isEmpty(attribute.collection);
 
@@ -199,24 +183,6 @@ module.exports = {
     }
 
     return globalId;
-  },
-
-  /**
-   * Determines the mutation input type for a given attribute.
-   * @param {Object} attribute The attribute definition.
-   * @param {string} rootType The root type ('query' or 'mutation').
-   * @returns {string|null} The GraphQL type string or null.
-   */
-  getMutationType(attribute, rootType) {
-    if (rootType !== 'mutation') {
-      return null;
-    }
-
-    if (attribute.model) {
-      return 'ID';
-    }
-
-    return '[ID]';
   },
 
   /**

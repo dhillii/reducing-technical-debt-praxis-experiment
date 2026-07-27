@@ -384,6 +384,34 @@ function ItemPage({ listKey }: ItemPageProps) {
     }
   }
 
+  function renderNotFoundMessage(itemId: string, list: ListMeta): JSX.Element {
+    if (list.isSingleton) {
+      if (itemId === '1') {
+        return (
+          <ItemNotFound>
+            <Text>“{list.label}” doesn’t exist, or you don’t have access to it.</Text>
+            {!list.hideCreate && <CreateButtonLink list={list} />}
+          </ItemNotFound>
+        )
+      }
+      return (
+        <ItemNotFound>
+          <Text>
+            An item with ID <strong>“{itemId}”</strong> does not exist.
+          </Text>
+        </ItemNotFound>
+      )
+    }
+    return (
+      <ItemNotFound>
+        <Text>
+          The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have
+          access to it.
+        </Text>
+      </ItemNotFound>
+    )
+  }
+
   return (
     <PageContainer
       title={pageTitle}
@@ -406,28 +434,7 @@ function ItemPage({ listKey }: ItemPageProps) {
         <ColumnLayout>
           <Box marginY="xlarge">
             <GraphQLErrorNotice errors={[error]} />
-            {item == null &&
-              (list.isSingleton ? (
-                itemId === '1' ? (
-                  <ItemNotFound>
-                    <Text>“{list.label}” doesn’t exist, or you don’t have access to it.</Text>
-                    {!list.hideCreate && <CreateButtonLink list={list} />}
-                  </ItemNotFound>
-                ) : (
-                  <ItemNotFound>
-                    <Text>
-                      An item with ID <strong>“{itemId}”</strong> does not exist.
-                    </Text>
-                  </ItemNotFound>
-                )
-              ) : (
-                <ItemNotFound>
-                  <Text>
-                    The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have
-                    access to it.
-                  </Text>
-                </ItemNotFound>
-              ))}
+            {item == null && renderNotFoundMessage(itemId, list)}
           </Box>
           {initialValue && (
             <ItemForm

@@ -87,10 +87,10 @@ const QueryGenerator = {
   },
 
   createTableQuery(tableName, attributes, options) {
-    const query = "IF OBJECT_ID('<%= table %>', 'U') IS NULL CREATE TABLE <%= table %> (<%= attributes %>)",
-      primaryKeys = [],
-      foreignKeys = {},
-      attrStr = [];
+    const query = "IF OBJECT_ID('<%= table %>', 'U') IS NULL CREATE TABLE <%= table %> (<%= attributes %>)";
+    const primaryKeys = [];
+    const foreignKeys = {};
+    const attrStr = [];
 
     for (const attr in attributes) {
       if (attributes.hasOwnProperty(attr)) {
@@ -120,10 +120,11 @@ const QueryGenerator = {
     }
 
     const values = {
-        table: this.quoteTable(tableName),
-        attributes: attrStr.join(', ')
-      },
-      pkString = primaryKeys.map(pk => { return this.quoteIdentifier(pk); }).join(', ');
+      table: this.quoteTable(tableName),
+      attributes: attrStr.join(', ')
+    };
+
+    const pkString = primaryKeys.map(pk => { return this.quoteIdentifier(pk); }).join(', ');
 
     if (options.uniqueKeys) {
       _.each(options.uniqueKeys, (columns, indexName) => {
@@ -156,6 +157,8 @@ const QueryGenerator = {
       "c.DATA_TYPE AS 'Type',",
       "c.CHARACTER_MAXIMUM_LENGTH AS 'Length',",
       "c.IS_NULLABLE as 'IsNull',",
+      "COLUMN_DEFAULT AS 'Default',",
+      "pk.CONSTRAINT_TYPE AS 'Constraint',",
       "COLUMNPROPERTY(OBJECT_ID(c.TABLE_SCHEMA+'.'+c.TABLE_NAME), c.COLUMN_NAME, 'IsIdentity') as 'IsIdentity'",
       'FROM',
       'INFORMATION_SCHEMA.TABLES t',

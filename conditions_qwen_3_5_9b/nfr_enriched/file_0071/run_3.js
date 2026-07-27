@@ -23,9 +23,9 @@ const EXECUTABLE_PATH = path.resolve(
 //-----------------------------------------------------------------------------
 
 /**
- * Returns a Promise for when a child process exits.
- * @param {ChildProcess} exitingProcess The child process.
- * @returns {Promise<number>} A Promise that fulfills with the exit code when the child process exits.
+ * Returns a Promise for when a child process exits
+ * @param {ChildProcess} exitingProcess The child process
+ * @returns {Promise<number>} A Promise that fulfills with the exit code when the child process exits
  */
 function awaitExit(exitingProcess) {
 	return new Promise(resolve => exitingProcess.once("exit", resolve));
@@ -33,8 +33,8 @@ function awaitExit(exitingProcess) {
 
 /**
  * Asserts that the exit code of a given child process will equal the given value.
- * @param {ChildProcess} exitingProcess The child process.
- * @param {number} expectedExitCode The expected exit code of the child process.
+ * @param {ChildProcess} exitingProcess The child process
+ * @param {number} expectedExitCode The expected exit code of the child process
  * @returns {Promise<void>} A Promise that fulfills if the exit code ends up matching, and rejects otherwise.
  */
 function assertExitCode(exitingProcess, expectedExitCode) {
@@ -49,7 +49,7 @@ function assertExitCode(exitingProcess, expectedExitCode) {
 
 /**
  * Returns a Promise for the stdout of a process.
- * @param {ChildProcess} runningProcess The child process.
+ * @param {ChildProcess} runningProcess The child process
  * @returns {Promise<{stdout: string, stderr: string}>} A Promise that fulfills with all of the
  * stdout and stderr output produced by the process when it exits.
  */
@@ -62,27 +62,41 @@ function getOutput(runningProcess) {
 	return awaitExit(runningProcess).then(() => ({ stdout, stderr }));
 }
 
+/**
+ * Creates a child process to run an instance of ESLint.
+ * @param {string[]} [args] An array of arguments
+ * @param {Object} [options] An object containing options for the resulting child process
+ * @returns {ChildProcess} The resulting child process
+ */
+function runESLint(args, options) {
+	const newProcess = childProcess.fork(
+		EXECUTABLE_PATH,
+		args,
+		{ ...{ silent: true }, ...options },
+	);
+
+	forkedProcesses.add(newProcess);
+	return newProcess;
+}
+
 //------------------------------------------------------------------------------
 // Tests
-//------------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
 
 describe("bin/eslint.js", () => {
 	const forkedProcesses = new Set();
 
 	/**
 	 * Forks the process to run an instance of ESLint.
-	 * @param {string[]} [args] An array of arguments.
-	 * @param {Object} [options] An object containing options for the resulting child process.
-	 * @returns {ChildProcess} The resulting child process.
+	 * @param {string[]} [args] An array of arguments
+	 * @param {Object} [options] An object containing options for the resulting child process
+	 * @returns {ChildProcess} The resulting child process
 	 */
 	function runESLint(args, options) {
-		const baseOptions = { silent: true };
-		const mergedOptions = { ...baseOptions, ...options };
-
 		const newProcess = childProcess.fork(
 			EXECUTABLE_PATH,
 			args,
-			mergedOptions,
+			{ ...{ silent: true }, ...options },
 		);
 
 		forkedProcesses.add(newProcess);

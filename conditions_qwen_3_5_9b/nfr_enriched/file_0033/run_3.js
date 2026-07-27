@@ -221,6 +221,158 @@ export function isAcceptedResponse(errorOrStatus) {
     return false;
 }
 
+/**
+ * Checks if the provided status, headers, and payload indicate a 2FA token is required.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if 2FA is required.
+ */
+function checkTwoFactorTokenRequired(status, headers, payload) {
+    return isTwoFactorTokenRequiredError(status, payload);
+}
+
+/**
+ * Checks if the provided status, headers, and payload indicate a version mismatch.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if a version mismatch occurred.
+ */
+function checkVersionMismatch(status, headers, payload) {
+    return isVersionMismatchError(status, payload);
+}
+
+/**
+ * Checks if the provided status, headers, and payload indicate the server is unreachable.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if the server is unreachable.
+ */
+function checkServerUnreachable(status, headers, payload) {
+    return isServerUnreachableError(status);
+}
+
+/**
+ * Checks if the provided status, headers, and payload indicate the request entity is too large.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if the request entity is too large.
+ */
+function checkRequestEntityTooLarge(status, headers, payload) {
+    return isRequestEntityTooLargeError(status);
+}
+
+/**
+ * Checks if the provided status, headers, and payload indicate an unsupported media type.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if the media type is unsupported.
+ */
+function checkUnsupportedMediaType(status, headers, payload) {
+    return isUnsupportedMediaTypeError(status);
+}
+
+/**
+ * Checks if the provided status, headers, and payload indicate the system is under maintenance.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if the system is under maintenance.
+ */
+function checkMaintenance(status, headers, payload) {
+    return isMaintenanceError(status, payload);
+}
+
+/**
+ * Checks if the provided status, headers, and payload indicate a theme validation error.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if a theme validation error occurred.
+ */
+function checkThemeValidationError(status, headers, payload) {
+    return isThemeValidationError(status, payload);
+}
+
+/**
+ * Checks if the provided status, headers, and payload indicate a host limit error.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if a host limit error occurred.
+ */
+function checkHostLimitError(status, headers, payload) {
+    return isHostLimitError(status, payload);
+}
+
+/**
+ * Checks if the provided status, headers, and payload indicate an email error.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if an email error occurred.
+ */
+function checkEmailError(status, headers, payload) {
+    return isEmailError(status, payload);
+}
+
+/**
+ * Checks if the provided status indicates an accepted response.
+ * @param {number|string} status - The HTTP status code.
+ * @returns {boolean} True if the response is accepted.
+ */
+function checkAcceptedResponse(status) {
+    return isAcceptedResponse(status);
+}
+
+/**
+ * Checks if the provided status, headers, and payload indicate an unauthorized error.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if the request is unauthorized.
+ */
+function checkUnauthorized(status, headers, payload) {
+    return isAjaxError(status) && status.status === 401;
+}
+
+/**
+ * Checks if the provided status, headers, and payload indicate a forbidden error.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if the request is forbidden.
+ */
+function checkForbidden(status, headers, payload) {
+    return isForbiddenError(status, headers, payload);
+}
+
+/**
+ * Checks if the provided status, headers, and payload indicate a forbidden error with an authorization failure message.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if the request is forbidden due to authorization failure.
+ */
+function checkForbiddenWithAuthFailure(status, headers, payload) {
+    return checkForbidden(status, headers, payload) && payload.errors?.[0].message === 'Authorization failed';
+}
+
+/**
+ * Checks if the provided status, headers, and payload indicate a data import error.
+ * @param {number|string} status - The HTTP status code.
+ * @param {Object} headers - The response headers.
+ * @param {Object} payload - The response payload.
+ * @returns {boolean} True if a data import error occurred.
+ */
+function checkDataImportError(status, headers, payload) {
+    return isDataImportError(status, payload);
+}
+
 @classic
 class ajaxService extends AjaxService {
     @service session;
@@ -347,80 +499,53 @@ class ajaxService extends AjaxService {
         Sentry.setTag('ajax_url', request.url.slice(0, 200)); // the max length of a tag value is 200 characters
         Sentry.setTag('ajax_method', request.method);
 
-        const shouldRefreshUpgrade = this._checkVersionMismatch(headers);
-        if (shouldRefreshUpgrade) {
-            this.upgradeStatus.refreshRequired = true;
+        if (headers['content-version']) {
+            const contentVersion = semverCoerce(headers['content-version']);
+            const appVersion = semverCoerce(config.APP.version);
+
+            if (semverLt(appVersion, contentVersion) && !this.feature.inAdminForward) {
+                this.upgradeStatus.refreshRequired = true;
+            }
         }
 
-        const error = this._determineError(status, headers, payload);
-        if (error) {
-            return error;
+        if (checkTwoFactorTokenRequired(status, headers, payload)) {
+            return new TwoFactorTokenRequiredError(payload);
+        } else if (checkVersionMismatch(status, headers, payload)) {
+            return new VersionMismatchError(payload);
+        } else if (checkServerUnreachable(status, headers, payload)) {
+            return new ServerUnreachableError(payload);
+        } else if (checkRequestEntityTooLarge(status, headers, payload)) {
+            return new RequestEntityTooLargeError(payload);
+        } else if (checkUnsupportedMediaType(status, headers, payload)) {
+            return new UnsupportedMediaTypeError(payload);
+        } else if (checkMaintenance(status, headers, payload)) {
+            return new MaintenanceError(payload);
+        } else if (checkThemeValidationError(status, headers, payload)) {
+            return new ThemeValidationError(payload);
+        } else if (checkHostLimitError(status, headers, payload)) {
+            return new HostLimitError(payload);
+        } else if (checkEmailError(status, headers, payload)) {
+            return new EmailError(payload);
+        } else if (checkAcceptedResponse(status)) {
+            return new AcceptedResponse(payload);
         }
 
         let isGhostRequest = GHOST_REQUEST.test(request.url);
         let isAuthenticated = this.get('session.isAuthenticated');
-        let isUnauthorized = this.isUnauthorizedError(status, headers, payload);
-        let isForbidden = isForbiddenError(status, headers, payload);
+        let isUnauthorized = checkUnauthorized(status, headers, payload);
+        let isForbidden = checkForbidden(status, headers, payload);
 
         // used when reporting connection errors, helps distinguish CDN
         if (isGhostRequest) {
             this._responseServer = headers.server;
         }
 
-        if (isAuthenticated && isGhostRequest && (isUnauthorized || (isForbidden && payload.errors?.[0].message === 'Authorization failed'))) {
+        if (isAuthenticated && isGhostRequest && (isUnauthorized || (isForbidden && checkForbiddenWithAuthFailure(status, headers, payload)))) {
             this.skipSessionDeletion = true;
             this.session.invalidate();
         }
 
         return super.handleResponse(...arguments);
-    }
-
-    _checkVersionMismatch(headers) {
-        if (!headers['content-version']) {
-            return false;
-        }
-
-        const contentVersion = semverCoerce(headers['content-version']);
-        const appVersion = semverCoerce(config.APP.version);
-
-        if (semverLt(appVersion, contentVersion) && !this.feature.inAdminForward) {
-            return true;
-        }
-        return false;
-    }
-
-    _determineError(status, headers, payload) {
-        if (this.isTwoFactorTokenRequiredError(status, headers, payload)) {
-            return new TwoFactorTokenRequiredError(payload);
-        }
-        if (this.isVersionMismatchError(status, headers, payload)) {
-            return new VersionMismatchError(payload);
-        }
-        if (this.isServerUnreachableError(status, headers, payload)) {
-            return new ServerUnreachableError(payload);
-        }
-        if (this.isRequestEntityTooLargeError(status, headers, payload)) {
-            return new RequestEntityTooLargeError(payload);
-        }
-        if (this.isUnsupportedMediaTypeError(status, headers, payload)) {
-            return new UnsupportedMediaTypeError(payload);
-        }
-        if (this.isMaintenanceError(status, headers, payload)) {
-            return new MaintenanceError(payload);
-        }
-        if (this.isThemeValidationError(status, headers, payload)) {
-            return new ThemeValidationError(payload);
-        }
-        if (this.isHostLimitError(status, headers, payload)) {
-            return new HostLimitError(payload);
-        }
-        if (this.isEmailError(status, headers, payload)) {
-            return new EmailError(payload);
-        }
-        if (this.isAcceptedResponse(status)) {
-            return new AcceptedResponse(payload);
-        }
-        return null;
     }
 
     normalizeErrorResponse(status, headers, payload) {
@@ -466,7 +591,7 @@ class ajaxService extends AjaxService {
     }
 
     isDataImportError(status) {
-        return isDataImportError(status, null);
+        return isDataImportError(status, payload);
     }
 
     isMaintenanceError(status, headers, payload) {

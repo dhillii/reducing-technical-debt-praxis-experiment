@@ -423,6 +423,36 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         setSelectedTab(newTabId);
     };
 
+    const updateImageField = (image: string, imageUrl: string) => {
+        switch (image) {
+        case 'cover_image':
+            updateForm((_user) => {
+                return {..._user, cover_image: imageUrl};
+            });
+            break;
+        case 'profile_image':
+            updateForm((_user) => {
+                return {..._user, profile_image: imageUrl};
+            });
+            break;
+        }
+    };
+
+    const clearImageField = (image: string) => {
+        switch (image) {
+        case 'cover_image':
+            updateForm((_user) => {
+                return {..._user, cover_image: ''};
+            });
+            break;
+        case 'profile_image':
+            updateForm((_user) => {
+                return {..._user, profile_image: ''};
+            });
+            break;
+        }
+    };
+
     return (
         <Modal
             afterClose={navigateOnClose}
@@ -474,7 +504,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                         unstyled={true}
                                         width='80px'
                                         onDelete={() => {
-                                            handleImageDelete('profile_image');
+                                            clearImageField('profile_image');
                                         }}
                                         onUpload={(file: File) => {
                                             handleImageUpload('profile_image', file);
@@ -506,7 +536,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                         }
                                         unstyled
                                         onDelete={() => {
-                                            handleImageDelete('cover_image');
+                                            clearImageField('cover_image');
                                         }}
                                         onUpload={(file: File) => {
                                             handleImageUpload('cover_image', file);

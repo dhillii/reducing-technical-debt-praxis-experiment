@@ -781,13 +781,7 @@ const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: b
         onSave: async () => {
             // eslint-disable-next-line @typescript-eslint/no-unused-expressions
             const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState); ``;
-            let toastMessage;
-
-            if (emailToVerify && emailToVerify === 'sender_email') {
-                toastMessage = <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
-            } else if (emailToVerify && emailToVerify === 'sender_reply_to') {
-                toastMessage = <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
-            }
+            const toastMessage = await determineToastMessage(emailToVerify);
 
             if (toastMessage) {
                 showToast({
@@ -869,3 +863,19 @@ const NewsletterDetailModal: React.FC<RoutingModalProps> = ({params}) => {
 };
 
 export default NiceModal.create(NewsletterDetailModal);
+
+const determineToastMessage = (emailToVerify?: string): React.ReactNode | null => {
+    if (!emailToVerify) {
+        return null;
+    }
+
+    if (emailToVerify === 'sender_email') {
+        return <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
+    }
+
+    if (emailToVerify === 'sender_reply_to') {
+        return <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
+    }
+
+    return null;
+};

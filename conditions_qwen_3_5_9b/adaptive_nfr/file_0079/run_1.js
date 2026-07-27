@@ -34,32 +34,7 @@ exports = module.exports = internals.Plugin = function (server, connections, env
     this.settings = this.root._settings;
     this.version = Package.version;
 
-    this.realm = internals._buildRealm(env);
-
-    this.auth = internals._buildAuth(this);
-
-    this.cache = internals.cache(this);
-    this._single();
-
-    // Decorations
-
-    const methods = Object.keys(this.root._decorations);
-    for (let i = 0; i < methods.length; ++i) {
-        const method = methods[i];
-        this[method] = this.root._decorations[method];
-    }
-};
-
-Hoek.inherits(internals.Plugin, Podium);
-
-
-internals._buildRealm = function (env) {
-
-    if (typeof env !== 'string') {
-        return env;
-    }
-
-    return {
+    this.realm = typeof env !== 'string' ? env : {
         _extensions: {
             onPreAuth: new Ext('onPreAuth', this.root),
             onPostAuth: new Ext('onPostAuth', this.root),
@@ -80,18 +55,27 @@ internals._buildRealm = function (env) {
             }
         }
     };
-};
 
-
-internals._buildAuth = function (plugin) {
-
-    return {
-        default: (opts) => plugin._applyChild('auth.default', 'auth', 'default', [opts]),
-        scheme: (name, scheme) => plugin._applyChild('auth.scheme', 'auth', 'scheme', [name, scheme]),
-        strategy: (name, scheme, mode, opts) => plugin._applyChild('auth.strategy', 'auth', 'strategy', [name, scheme, mode, opts]),
+    this.auth = {
+        default: (opts) => this._applyChild('auth.default', 'auth', 'default', [opts]),
+        scheme: (name, scheme) => this._applyChild('auth.scheme', 'auth', 'scheme', [name, scheme]),
+        strategy: (name, scheme, mode, opts) => this._applyChild('auth.strategy', 'auth', 'strategy', [name, scheme, mode, opts]),
         test: (name, request, next) => request.connection.auth.test(name, request, next)
     };
+
+    this.cache = internals.cache(this);
+    this._single();
+
+    // Decorations
+
+    const methods = Object.keys(this.root._decorations);
+    for (let i = 0; i < methods.length; ++i) {
+        const method = methods[i];
+        this[method] = this.root._decorations[method];
+    }
 };
+
+Hoek.inherits(internals.Plugin, Podium);
 
 
 internals.Plugin.prototype._single = function () {
@@ -253,21 +237,9 @@ internals.Plugin.prototype.register = function (plugins /*, [options], callback 
 
     this.root._registring = true;
 
-    const each = internals._each(this, registrations);
-
-    Items.serial(registrations, each, (err) => {
-
-        this.root._registring = false;
-        return Hoek.nextTick(callback)(err);
-    });
-};
-
-
-internals._each = function (plugin, registrations) {
-
     const each = (item, next) => {
 
-        const selection = plugin._select(item.options.select, item.name);
+        const selection = this._select(item.options.select, item.name);
         selection.realm.modifiers.route.prefix = item.options.routes.prefix;
         selection.realm.modifiers.route.vhost = item.options.routes.vhost;
         selection.realm.pluginOptions = item.pluginOptions || {};
@@ -283,13 +255,13 @@ internals._each = function (plugin, registrations) {
 
         const requirements = item.requirements;
         Hoek.assert(!requirements.node || Somever.match(process.version, requirements.node), 'Plugin', item.name, 'requires node version', requirements.node, 'but found', process.version);
-        Hoek.assert(!requirements.hapi || Somever.match(plugin.version, requirements.hapi), 'Plugin', item.name, 'requires hapi version', requirements.hapi, 'but found', plugin.version);
+        Hoek.assert(!requirements.hapi || Somever.match(this.version, requirements.hapi), 'Plugin', item.name, 'requires hapi version', requirements.hapi, 'but found', this.version);
 
         // Protect against multiple registrations
 
-        const connectionless = internals._isConnectionless(item);
+        const connectionless = (item.connections === 'conditional' ? selection.connections.length === 0 : !item.connections);
         if (connectionless) {
-            if (plugin.root._registrations[item.name]) {
+            if (this.root._registrations[item.name]) {
                 if (item.options.once) {
                     return next();
                 }
@@ -297,7 +269,7 @@ internals._each = function (plugin, registrations) {
                 Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered');
             }
             else {
-                plugin.root._registrations[item.name] = registrationData;
+                this.root._registrations[item.name] = registrationData;
             }
         }
 
@@ -335,7 +307,7 @@ internals._each = function (plugin, registrations) {
         }
 
         if (connectionless) {
-            selection.connection = plugin.root.connection;
+            selection.connection = this.root.connection;
         }
 
         // Register
@@ -343,17 +315,11 @@ internals._each = function (plugin, registrations) {
         item.register(selection, item.pluginOptions || {}, next);
     };
 
-    return each;
-};
+    Items.serial(registrations, each, (err) => {
 
-
-internals._isConnectionless = function (item) {
-
-    if (item.connections === 'conditional') {
-        return selection.connections.length === 0;
-    }
-
-    return !item.connections;
+        this.root._registring = false;
+        return Hoek.nextTick(callback)(err);
+    });
 };
 
 
@@ -568,22 +534,12 @@ internals.Plugin.prototype.log = function (tags, data, timestamp, _internal) {
     timestamp = (timestamp ? (timestamp instanceof Date ? timestamp.getTime() : timestamp) : Date.now());
     const internal = !!_internal;
 
-    const update = internals._buildUpdate(data);
-
-    this.root._events.emit({ name: 'log', tags }, update);
-};
-
-
-internals._buildUpdate = function (data) {
-
-    if (typeof data !== 'function') {
-        return { timestamp, tags, data, internal };
-    }
-
-    return () => {
+    const update = (typeof data !== 'function' ? { timestamp, tags, data, internal } : () => {
 
         return { timestamp, tags, data: data(), internal };
-    };
+    });
+
+    this.root._events.emit({ name: 'log', tags }, update);
 };
 
 

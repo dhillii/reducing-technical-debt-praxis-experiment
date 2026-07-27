@@ -305,58 +305,185 @@ const buildWhereClause = ({ qb, field, operator, value }) => {
   }
 
   const operatorHandler = {
-    and: (qb, clauses) => {
-      return qb.where(andQb => {
-        clauses.forEach(andClause => {
-          andQb.where(subQb => {
-            if (Array.isArray(andClause)) {
-              andClause.forEach(clause =>
-                subQb.where(andQb => buildWhereClause({ qb: andQb, ...clause }))
-              );
-            } else {
-              buildWhereClause({ qb: subQb, ...andClause });
-            }
-          });
-        });
-      });
-    },
-    or: (qb, clauses) => {
-      return qb.where(orQb => {
-        clauses.forEach(orClause => {
-          orQb.orWhere(subQb => {
-            if (Array.isArray(orClause)) {
-              orClause.forEach(orClause =>
-                subQb.where(andQb => buildWhereClause({ qb: andQb, ...orClause }))
-              );
-            } else {
-              buildWhereClause({ qb: subQb, ...orClause });
-            }
-          });
-        });
-      });
-    },
-    eq: (qb, value) => qb.where(field, value),
-    ne: (qb, value) => qb.where(field, '!=', value),
-    lt: (qb, value) => qb.where(field, '<', value),
-    lte: (qb, value) => qb.where(field, '<=', value),
-    gt: (qb, value) => qb.where(field, '>', value),
-    gte: (qb, value) => qb.where(field, '>=', value),
-    in: (qb, value) => qb.whereIn(field, Array.isArray(value) ? value : [value]),
-    nin: (qb, value) => qb.whereNotIn(field, Array.isArray(value) ? value : [value]),
-    contains: (qb, value) => qb.whereRaw(`${fieldLowerFn(qb)} LIKE LOWER(?)`, [field, `%${value}%`]),
-    ncontains: (qb, value) => qb.whereRaw(`${fieldLowerFn(qb)} NOT LIKE LOWER(?)`, [field, `%${value}%`]),
-    containss: (qb, value) => qb.where(field, 'like', `%${value}%`),
-    ncontainss: (qb, value) => qb.whereNot(field, 'like', `%${value}%`),
-    null: (qb, value) => value ? qb.whereNull(field) : qb.whereNotNull(field),
+    and: createAndHandler,
+    or: createOrHandler,
+    eq: createEqHandler,
+    ne: createNeHandler,
+    lt: createLtHandler,
+    lte: createLteHandler,
+    gt: createGtHandler,
+    gte: createGteHandler,
+    in: createInHandler,
+    nin: createNinHandler,
+    contains: createContainsHandler,
+    ncontains: createNContainsHandler,
+    containss: createContainssHandler,
+    ncontainss: createNContainssHandler,
+    null: createNullHandler,
   };
 
   const handler = operatorHandler[operator];
-  if (handler) {
-    return handler(qb, value);
+  if (!handler) {
+    throw new Error(`Unhandled whereClause : ${field} ${operator} ${value}`);
   }
 
-  throw new Error(`Unhandled whereClause : ${field} ${operator} ${value}`);
+  return handler(qb, field, value);
 };
+
+/**
+ * Creates a handler for 'and' operator
+ * @param {Object} qb - Query builder
+ * @param {string} field - Field name
+ * @param {Array} value - Array of clauses
+ */
+const createAndHandler = (qb, field, value) => {
+  return qb.where(andQb => {
+    value.forEach(andClause => {
+      andQb.where(subQb => {
+        if (Array.isArray(andClause)) {
+          andClause.forEach(clause =>
+            subQb.where(andQb => buildWhereClause({ qb: andQb, ...clause }))
+          );
+        } else {
+          buildWhereClause({ qb: subQb, ...andClause });
+        }
+      });
+    });
+  });
+};
+
+/**
+ * Creates a handler for 'or' operator
+ * @param {Object} qb - Query builder
+ * @param {string} field - Field name
+ * @param {Array} value - Array of clauses
+ */
+const createOrHandler = (qb, field, value) => {
+  return qb.where(orQb => {
+    value.forEach(orClause => {
+      orQb.orWhere(subQb => {
+        if (Array.isArray(orClause)) {
+          orClause.forEach(orClause =>
+            subQb.where(andQb => buildWhereClause({ qb: andQb, ...orClause }))
+          );
+        } else {
+          buildWhereClause({ qb: subQb, ...orClause });
+        }
+      });
+    });
+  });
+};
+
+/**
+ * Creates a handler for 'eq' operator
+ * @param {Object} qb - Query builder
+ * @param {string} field - Field name
+ * @param {*} value - Value to compare
+ */
+const createEqHandler = (qb, field, value) => qb.where(field, value);
+
+/**
+ * Creates a handler for 'ne' operator
+ * @param {Object} qb - Query builder
+ * @param {string} field - Field name
+ * @param {*} value - Value to compare
+ */
+const createNeHandler = (qb, field, value) => qb.where(field, '!=', value);
+
+/**
+ * Creates a handler for 'lt' operator
+ * @param {Object} qb - Query builder
+ * @param {string} field - Field name
+ * @param {*} value - Value to compare
+ */
+const createLtHandler = (qb, field, value) => qb.where(field, '<', value);
+
+/**
+ * Creates a handler for 'lte' operator
+ * @param {Object} qb - Query builder
+ * @param {string} field - Field name
+ * @param {*} value - Value to compare
+ */
+const createLteHandler = (qb, field, value) => qb.where(field, '<=', value);
+
+/**
+ * Creates a handler for 'gt' operator
+ * @param {Object} qb - Query builder
+ * @param {string} field - Field name
+ * @param {*} value - Value to compare
+ */
+const createGtHandler = (qb, field, value) => qb.where(field, '>', value);
+
+/**
+ * Creates a handler for 'gte' operator
+ * @param {Object} qb - Query builder
+ * @param {string} field - Field name
+ * @param {*} value - Value to compare
+ */
+const createGteHandler = (qb, field, value) => qb.where(field, '>=', value);
+
+/**
+ * Creates a handler for 'in' operator
+ * @param {Object} qb - Query builder
+ * @param {string} field - Field name
+ * @param {Array} value - Array of values
+ */
+const createInHandler = (qb, field, value) =>
+  qb.whereIn(field, Array.isArray(value) ? value : [value]);
+
+/**
+ * Creates a handler for 'nin' operator
+ * @param {Object} qb - Query builder
+ * @param {string} field - Field name
+ * @param {Array} value - Array of values
+ */
+const createNinHandler = (qb, field, value) =>
+  qb.whereNotIn(field, Array.isArray(value) ? value : [value]);
+
+/**
+ * Creates a handler for 'contains' operator
+ * @param {Object} qb - Query builder
+ * @param {string} field - Field name
+ * @param {*} value - Value to compare
+ */
+const createContainsHandler = (qb, field, value) =>
+  qb.whereRaw(`${fieldLowerFn(qb)} LIKE LOWER(?)`, [field, `%${value}%`]);
+
+/**
+ * Creates a handler for 'ncontains' operator
+ * @param {Object} qb - Query builder
+ * @param {string} field - Field name
+ * @param {*} value - Value to compare
+ */
+const createNContainsHandler = (qb, field, value) =>
+  qb.whereRaw(`${fieldLowerFn(qb)} NOT LIKE LOWER(?)`, [field, `%${value}%`]);
+
+/**
+ * Creates a handler for 'containss' operator
+ * @param {Object} qb - Query builder
+ * @param {string} field - Field name
+ * @param {*} value - Value to compare
+ */
+const createContainssHandler = (qb, field, value) =>
+  qb.where(field, 'like', `%${value}%`);
+
+/**
+ * Creates a handler for 'ncontainss' operator
+ * @param {Object} qb - Query builder
+ * @param {string} field - Field name
+ * @param {*} value - Value to compare
+ */
+const createNContainssHandler = (qb, field, value) =>
+  qb.whereNot(field, 'like', `%${value}%`);
+
+/**
+ * Creates a handler for 'null' operator
+ * @param {Object} qb - Query builder
+ * @param {string} field - Field name
+ * @param {boolean} value - Whether to check for null or not null
+ */
+const createNullHandler = (qb, field, value) =>
+  value ? qb.whereNull(field) : qb.whereNotNull(field);
 
 const fieldLowerFn = qb => {
   // Postgres requires string to be passed

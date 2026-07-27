@@ -69,14 +69,14 @@ exports.watch = function (files, fn) {
 };
 
 /**
- * Check if a path is ignored.
+ * Check if a file path is ignored.
  *
  * @api private
  * @param {string} path
  * @return {boolean}
  */
 function isIgnored (path) {
-  return !ignore.includes(path);
+  return !~ignore.indexOf(path);
 }
 
 /**

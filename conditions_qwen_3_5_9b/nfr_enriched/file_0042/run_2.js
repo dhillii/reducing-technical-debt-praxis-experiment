@@ -35,9 +35,9 @@ class BatchSendingService {
     #sentry;
     #debugStorageFilePath;
 
-    #BEFORE_RETRY_CONFIG;
-    #AFTER_RETRY_CONFIG;
-    #MAILGUN_API_RETRY_CONFIG;
+    #BEFORE_RETRY_CONFIG = {maxRetries: 10, maxTime: 10 * 60 * 1000, sleep: 2000};
+    #AFTER_RETRY_CONFIG = {maxRetries: 20, maxTime: 30 * 60 * 1000, sleep: 2000};
+    #MAILGUN_API_RETRY_CONFIG = {sleep: 10 * 1000, maxRetries: 6};
 
     /**
      * @param {Object} dependencies
@@ -221,75 +221,93 @@ class BatchSendingService {
     async createBatches({email, post, newsletter}) {
         logging.info(`Creating batches for email ${email.id}`);
 
-        let domainWarmupLimit = Infinity;
-        if (this.#domainWarmingService.isEnabled()) {
-            domainWarmupLimit = Number.isInteger(email.get('csd_email_count')) ? email.get('csd_email_count') : Infinity;
-        }
-
+        const domainWarmupLimit = this.#getDomainWarmupLimit(email);
         const segments = await this.#emailRenderer.getSegments(post);
         const batches = [];
         const BATCH_SIZE = this.#sendingService.getMaximumRecipients();
         let totalCount = 0;
 
         for (const segment of segments) {
-            logging.info(`Creating batches for email ${email.id} segment ${segment}`);
-
-            const segmentFilter = this.#emailSegmenter.getMemberFilterForSegment(newsletter, email.get('recipient_filter'), segment);
-
-            let members;
-            let lastId = email.id;
-
-            while (!members || lastId) {
-                logging.info(`Fetching members batch for email ${email.id} segment ${segment}, lastId: ${lastId}`);
-
-                const filter = segmentFilter + `+id:<'${lastId}'`;
-                logging.info(`Fetching members batch for email ${email.id} segment ${segment}, lastId: ${lastId} ${filter}`);
-
-                members = await this.#models.Member.getFilteredCollectionQuery({filter})
-                    .orderByRaw('id DESC')
-                    .select('members.id', 'members.uuid', 'members.email', 'members.name').limit(BATCH_SIZE + 1);
-
-                if (members.length > 0) {
-                    const remainingCustomDomainCapacity = domainWarmupLimit - totalCount;
-                    const membersToProcess = Math.min(members.length, BATCH_SIZE);
-
-                    const shouldSplitBatch = remainingCustomDomainCapacity > 0 && remainingCustomDomainCapacity < membersToProcess;
-                    if (shouldSplitBatch) {
-                        totalCount += await this.#createBatchWithRetry({
-                            email,
-                            segment,
-                            members: members.slice(0, remainingCustomDomainCapacity),
-                            useFallbackDomain: false,
-                            batches
-                        });
-                        totalCount += await this.#createBatchWithRetry({
-                            email,
-                            segment,
-                            members: members.slice(remainingCustomDomainCapacity, membersToProcess),
-                            useFallbackDomain: true,
-                            batches
-                        });
-                    } else {
-                        totalCount += await this.#createBatchWithRetry({
-                            email,
-                            segment,
-                            members: members.slice(0, membersToProcess),
-                            useFallbackDomain: totalCount >= domainWarmupLimit,
-                            batches
-                        });
-                    }
-                }
-
-                if (members.length > BATCH_SIZE) {
-                    lastId = members[members.length - 2].id;
-                } else {
-                    break;
-                }
-            }
+            await this.#processSegment({
+                email,
+                segment,
+                newsletter,
+                domainWarmupLimit,
+                BATCH_SIZE,
+                totalCount,
+                batches
+            });
         }
+
+        await this.#updateEmailCount(email, totalCount, domainWarmupLimit);
 
         logging.info(`Created ${batches.length} batches for email ${email.id} with ${totalCount} recipients`);
 
+        return batches;
+    }
+
+    #getDomainWarmupLimit(email) {
+        if (!this.#domainWarmingService.isEnabled()) {
+            return Infinity;
+        }
+        const csdEmailCount = email.get('csd_email_count');
+        return Number.isInteger(csdEmailCount) ? csdEmailCount : Infinity;
+    }
+
+    #processSegment({email, segment, newsletter, domainWarmupLimit, BATCH_SIZE, totalCount, batches}) {
+        logging.info(`Creating batches for email ${email.id} segment ${segment}`);
+
+        const segmentFilter = this.#emailSegmenter.getMemberFilterForSegment(newsletter, email.get('recipient_filter'), segment);
+        let members;
+        let lastId = email.id;
+
+        while (!members || lastId) {
+            const filter = segmentFilter + `+id:<'${lastId}'`;
+            logging.info(`Fetching members batch for email ${email.id} segment ${segment}, lastId: ${lastId} ${filter}`);
+
+            members = this.#models.Member.getFilteredCollectionQuery({filter})
+                .orderByRaw('id DESC')
+                .select('members.id', 'members.uuid', 'members.email', 'members.name').limit(BATCH_SIZE + 1);
+
+            if (members.length > 0) {
+                const remainingCustomDomainCapacity = domainWarmupLimit - totalCount;
+                const membersToProcess = Math.min(members.length, BATCH_SIZE);
+
+                if (remainingCustomDomainCapacity > 0 && remainingCustomDomainCapacity < membersToProcess) {
+                    totalCount += this.#createBatchWithRetry({
+                        email,
+                        segment,
+                        members: members.slice(0, remainingCustomDomainCapacity),
+                        useFallbackDomain: false,
+                        batches
+                    });
+                    totalCount += this.#createBatchWithRetry({
+                        email,
+                        segment,
+                        members: members.slice(remainingCustomDomainCapacity, membersToProcess),
+                        useFallbackDomain: true,
+                        batches
+                    });
+                } else {
+                    totalCount += this.#createBatchWithRetry({
+                        email,
+                        segment,
+                        members: members.slice(0, membersToProcess),
+                        useFallbackDomain: totalCount >= domainWarmupLimit,
+                        batches
+                    });
+                }
+            }
+
+            if (members.length > BATCH_SIZE) {
+                lastId = members[members.length - 2].id;
+            } else {
+                break;
+            }
+        }
+    }
+
+    #updateEmailCount(email, totalCount, domainWarmupLimit) {
         if (email.get('email_count') !== totalCount) {
             logging.error(`Email ${email.id} has wrong stored email_count ${email.get('email_count')}, did expect ${totalCount}. Updating the model.`);
 
@@ -305,9 +323,9 @@ class BatchSendingService {
                 newEmailUpdate.csd_email_count = Math.min(totalCount, domainWarmupLimit);
             }
 
-            await email.save(newEmailUpdate, {patch: true, require: false, autoRefresh: false});
+            return email.save(newEmailUpdate, {patch: true, require: false, autoRefresh: false});
         }
-        return batches;
+        return Promise.resolve();
     }
 
     /**

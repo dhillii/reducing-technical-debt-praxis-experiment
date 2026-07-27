@@ -89,17 +89,8 @@ const createBruteKnexStore = () => {
     return store;
 };
 
-const createBruteMemoryStore = () => {
-    const ExpressBrute = require('express-brute');
-
-    memoryStore = memoryStore || new ExpressBrute.MemoryStore();
-
-    return memoryStore;
-};
-
 const createBruteInstance = (store, config, failCallback) => {
     const ExpressBrute = require('express-brute');
-
     return new ExpressBrute(store, extend({
         attachResetToRequest: false,
         failCallback,
@@ -109,7 +100,15 @@ const createBruteInstance = (store, config, failCallback) => {
 
 const createBruteInstanceWithReset = (store, config, failCallback) => {
     const ExpressBrute = require('express-brute');
+    return new ExpressBrute(store, extend({
+        attachResetToRequest: true,
+        failCallback,
+        handleStoreError: handleStoreError
+    }, pick(config, spamConfigKeys)));
+};
 
+const createMemoryBruteInstance = (store, config, failCallback) => {
+    const ExpressBrute = require('express-brute');
     return new ExpressBrute(store, extend({
         attachResetToRequest: true,
         failCallback,
@@ -321,17 +320,16 @@ const privateBlog = () => {
 };
 
 const contentApiKey = () => {
-    const store = createBruteMemoryStore();
-    const failCallback = (req, res, next) => {
+    const store = createMemoryBruteInstance(memoryStore, spamContentApiKey, (req, res, next) => {
         const err = new errors.TooManyRequestsError({
             message: tpl(messages.tooManyAttempts)
         });
 
         logging.error(err);
         return next(err);
-    };
+    });
 
-    contentApiKeyInstance = contentApiKeyInstance || createBruteInstance(store, spamContentApiKey, failCallback);
+    contentApiKeyInstance = contentApiKeyInstance || store;
     return contentApiKeyInstance;
 };
 

@@ -306,7 +306,7 @@ const buildWhereClause = ({ qb, field, operator, value }) => {
 
   const operatorHandler = {
     and: (qb, clauses) => {
-      return qb.where(andQb => {
+      return qb.where(subQb => {
         clauses.forEach(andClause => {
           andQb.where(subQb => {
             if (Array.isArray(andClause)) {

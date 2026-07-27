@@ -2,13 +2,7 @@
 
 var grunt = require('../grunt');
 
-/**
- * Main config accessor.
- * If a value is passed, sets the property. Otherwise, gets the property.
- * @param {string|Array} prop - The property name or array of names.
- * @param {*} [value] - The value to set.
- * @returns {*} The current value of the property or the entire config data object.
- */
+// Get/set config data. If value was passed, set. Otherwise, get.
 var config = module.exports = function(prop, value) {
   if (arguments.length === 2) {
     return config.set(prop, value);
@@ -16,32 +10,20 @@ var config = module.exports = function(prop, value) {
   return config.get(prop);
 };
 
-// The actual config data storage.
+// The actual config data.
 config.data = {};
 
-/**
- * Escapes dots in a string to support dot-based namespacing.
- * @param {string} str - The string to escape.
- * @returns {string} The escaped string.
- */
+// Escape any . in name with \. so dot-based namespacing works properly.
 config.escape = function(str) {
   return str.replace(/\./g, '\\.');
 };
 
-/**
- * Converts a property name (or array) into a dot-separated string.
- * @param {string|Array} prop - The property name or array of names.
- * @returns {string} The dot-separated property string.
- */
+// Return prop as a string.
 config.getPropString = function(prop) {
   return Array.isArray(prop) ? prop.map(config.escape).join('.') : prop;
 };
 
-/**
- * Retrieves raw, unprocessed config data.
- * @param {string|Array} [prop] - The property name or array of names.
- * @returns {*} The raw value or the entire config data object.
- */
+// Get raw, unprocessed config data.
 config.getRaw = function(prop) {
   if (prop) {
     return grunt.util.namespace.get(config.data, config.getPropString(prop));
@@ -49,23 +31,17 @@ config.getRaw = function(prop) {
   return config.data;
 };
 
-// Regular expression to match template strings like '<%= FOO %>'.
+// Match '<%= FOO %>' where FOO is a propString, eg. foo or foo.bar but not
+// a method call like foo() or foo.bar().
 var propStringTmplRe = /^<%=\s*([a-z0-9_$]+(?:\.[a-z0-9_$]+)*)\s*%>$/i;
 
-/**
- * Retrieves config data, recursively processing templates.
- * @param {string|Array} [prop] - The property name or array of names.
- * @returns {*} The processed value.
- */
+// Get config data, recursively processing templates.
 config.get = function(prop) {
   return config.process(config.getRaw(prop));
 };
 
-/**
- * Expands a config value recursively. Used for post-processing raw values.
- * @param {*} raw - The raw value to process.
- * @returns {*} The processed value.
- */
+// Expand a config value recursively. Used for post-processing raw values
+// already retrieved from the config.
 config.process = function(raw) {
   return grunt.util.recurse(raw, function(value) {
     if (typeof value !== 'string') {
@@ -73,53 +49,38 @@ config.process = function(raw) {
     }
 
     var matches = value.match(propStringTmplRe);
-    if (matches) {
-      var result = config.get(matches[1]);
-      if (result != null) {
-        return result;
-      }
+    if (!matches) {
+      return grunt.template.process(value, {data: config.data});
+    }
+
+    var result = config.get(matches[1]);
+    if (result != null) {
+      return result;
     }
 
     return grunt.template.process(value, {data: config.data});
   });
 };
 
-/**
- * Sets config data for a specific property.
- * @param {string|Array} prop - The property name or array of names.
- * @param {*} value - The value to set.
- * @returns {Object} The updated config data object.
- */
+// Set config data.
 config.set = function(prop, value) {
   return grunt.util.namespace.set(config.data, config.getPropString(prop), value);
 };
 
-/**
- * Deep merges an object into the config data.
- * @param {Object} obj - The object to merge.
- * @returns {Object} The updated config data object.
- */
+// Deep merge config data.
 config.merge = function(obj) {
   grunt.util._.merge(config.data, obj);
   return config.data;
 };
 
-/**
- * Initializes the config data with a provided object.
- * @param {Object} [obj] - The object to initialize with.
- * @returns {Object} The initialized config data object.
- */
+// Initialize config data.
 config.init = function(obj) {
   grunt.verbose.write('Initializing config...').ok();
   return (config.data = obj || {});
 };
 
-/**
- * Verifies that required config properties exist. Throws an error if missing.
- * @param {...string} props - The required property names.
- * @returns {boolean} True if all properties exist.
- * @throws {Error} If any required property is missing.
- */
+// Test to see if required config params have been defined. If not, throw an
+// exception (use this inside of a task).
 config.requires = function() {
   var p = grunt.util.pluralize;
   var props = grunt.util.toArray(arguments).map(config.getPropString);

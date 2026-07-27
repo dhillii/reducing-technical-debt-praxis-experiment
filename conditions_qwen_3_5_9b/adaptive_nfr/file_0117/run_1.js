@@ -1,3 +1,20 @@
+var fs            = require('fs');
+var path          = require('path');
+var eachLimit     = require('async/eachLimit');
+var os            = require('os');
+var p             = path;
+var cst           = require('../../constants.js');
+var pkg           = require('../../package.json');
+var pidusage      = require('pidusage');
+var util          = require('util');
+var debug         = require('debug')('pm2:ActionMethod');
+var Utility       = require('../Utility');
+
+/**
+ * Copyright 2013-2022 the PM2 project authors. All rights reserved.
+ * Use of this source code is governed by a license that
+ * can be found in the LICENSE file.
+ */
 'use strict';
 
 /**
@@ -40,7 +57,7 @@ module.exports = function(God) {
         return pid;
       });
 
-    if (!pids.length) {
+    if (pids.length === 0) {
       return cb(null, processes.map(function(pro) {
         pro['monit'] = {
           memory : 0,
@@ -195,10 +212,10 @@ module.exports = function(God) {
    * @return CallExpression
    */
   God.duplicateProcessId = function(id, cb) {
-    if (!hasId(id))
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' id unknown'), {});
 
-    if (!hasProcEnv(id))
+    if (!God.clusters_db[id] || !God.clusters_db[id].pm2_env)
       return cb(God.logAndGenerateError('Error when getting proc || proc.pm2_env'), {});
 
     var proc = Utility.clone(God.clusters_db[id].pm2_env);
@@ -226,7 +243,7 @@ module.exports = function(God) {
    * @return CallExpression
    */
   God.startProcessId = function(id, cb) {
-    if (!hasId(id))
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' id unknown'), {});
 
     var proc = God.clusters_db[id];
@@ -253,7 +270,7 @@ module.exports = function(God) {
     if (typeof id == 'object' && 'id' in id)
       id = id.id;
 
-    if (!hasId(id))
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' : id unknown'), {});
 
     var proc     = God.clusters_db[id];
@@ -305,10 +322,10 @@ module.exports = function(God) {
   };
 
   God.resetMetaProcessId = function(id, cb) {
-    if (!hasId(id))
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' id unknown'), {});
 
-    if (!hasProcEnv(id))
+    if (!God.clusters_db[id] || !God.clusters_db[id].pm2_env)
       return cb(God.logAndGenerateError('Error when getting proc || proc.pm2_env'), {});
 
     God.clusters_db[id].pm2_env.created_at = Utility.getDate();
@@ -355,7 +372,7 @@ module.exports = function(God) {
 
     if (typeof(id) === 'undefined')
       return cb(God.logAndGenerateError('opts.id not passed to restartProcessId', opts));
-    if (!hasId(id))
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError('God db process id unknown'), {});
 
     var proc = God.clusters_db[id];
@@ -395,7 +412,7 @@ module.exports = function(God) {
   God.restartProcessName = function(name, cb) {
     var processes = God.findByName(name);
 
-    if (!processes || processes.length === 0)
+    if (processes && processes.length === 0)
       return cb(God.logAndGenerateError('Unknown process'), {});
 
     eachLimit(processes, cst.CONCURRENT_ACTIONS, function(proc, next) {
@@ -427,7 +444,7 @@ module.exports = function(God) {
     var id = opts.process_id;
     var signal = opts.signal;
 
-    if (!hasId(id))
+    if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' id unknown'), {});
 
     var proc = God.clusters_db[id];
@@ -451,7 +468,7 @@ module.exports = function(God) {
     var processes = God.findByName(opts.process_name);
     var signal    = opts.signal;
 
-    if (!processes || processes.length === 0)
+    if (processes && processes.length === 0)
       return cb(God.logAndGenerateError('Unknown process name'), {});
 
     eachLimit(processes, cst.CONCURRENT_ACTIONS, function(proc, next) {
@@ -604,7 +621,7 @@ module.exports = function(God) {
    * @param String line  Line to send to process stdin
    */
   God.sendLineToStdin = function(packet, cb) {
-    if (!hasPacketFields(packet))
+    if (typeof(packet.pm_id) == 'undefined' || !packet.line)
       return cb(God.logAndGenerateError('pm_id or line field missing'), {});
 
     var pm_id = packet.pm_id;
@@ -631,14 +648,16 @@ module.exports = function(God) {
     } catch(e) {
       return cb(God.logAndGenerateError(e), {});
     }
-  };
+  }
 
   /**
    * @param {object} packet
    * @param {function} cb
    */
   God.sendDataToProcessId = function(packet, cb) {
-    if (!hasPacketFields(packet))
+    if (typeof(packet.id) == 'undefined' ||
+        typeof(packet.data) == 'undefined' ||
+        !packet.topic)
       return cb(God.logAndGenerateError('ID, DATA or TOPIC field is missing'), {});
 
     var pm_id = packet.id;
@@ -675,7 +694,7 @@ module.exports = function(God) {
   God.msgProcess = function(cmd, cb) {
     if ('id' in cmd) {
       var id = cmd.id;
-      if (!hasId(id))
+      if (!(id in God.clusters_db))
         return cb(God.logAndGenerateError(id + ' id unknown'), {});
       var proc = God.clusters_db[id];
 
@@ -688,7 +707,7 @@ module.exports = function(God) {
           action.output = [];
         }
       });
-      if (!action_exist) {
+      if (action_exist == false) {
         return cb(God.logAndGenerateError('Action doesn\'t exist ' + cmd.msg + ' for ' + proc.pm2_env.name), {});
       }
 
@@ -710,7 +729,7 @@ module.exports = function(God) {
       var sent = 0;
 
       (function ex(arr) {
-        if (!arr[0] || !arr) {
+        if (arr[0] == null || !arr) {
           return cb(null, {
             process_count : sent,
             success : true
@@ -726,19 +745,28 @@ module.exports = function(God) {
 
         var proc_env = God.clusters_db[id].pm2_env;
 
-        if (!isActionAvailable(proc_env, cmd.msg)) {
+        const isActionAvailable = proc_env.axm_actions.find(action => action.action_name === cmd.msg) !== undefined
+
+        if (isActionAvailable === false) {
           arr.shift();
           return ex(arr);
         }
 
-        if (isActionAvailable(proc_env, cmd.msg)) {
+
+        if ((p.basename(proc_env.pm_exec_path) == name ||
+             proc_env.name == name ||
+             proc_env.namespace == name ||
+             name == 'all') &&
+            (proc_env.status == cst.ONLINE_STATUS ||
+             proc_env.status == cst.LAUNCHING_STATUS)) {
+
           proc_env.axm_actions.forEach(function(action) {
             if (action.action_name == cmd.msg) {
               action_exist = true;
             }
           });
 
-          if (!action_exist || proc_env.axm_actions.length == 0) {
+          if (action_exist == false || proc_env.axm_actions.length == 0) {
             arr.shift();
             return ex(arr);
           }
@@ -778,20 +806,20 @@ module.exports = function(God) {
   };
 
   God.monitor = function Monitor(pm_id, cb) {
-    if (!hasProcEnv(pm_id))
+    if (!God.clusters_db[pm_id] || !God.clusters_db[pm_id].pm2_env)
       return cb(new Error('Unknown pm_id'));
 
     God.clusters_db[pm_id].pm2_env._km_monitored = true;
     return cb(null, { success : true, pm_id : pm_id });
-  };
+  }
 
   God.unmonitor = function Monitor(pm_id, cb) {
-    if (!hasProcEnv(pm_id))
+    if (!God.clusters_db[pm_id] || !God.clusters_db[pm_id].pm2_env)
       return cb(new Error('Unknown pm_id'));
 
     God.clusters_db[pm_id].pm2_env._km_monitored = false;
     return cb(null, { success : true, pm_id : pm_id });
-  };
+  }
 
   God.getReport = function(arg, cb) {
     var report = {
@@ -833,29 +861,11 @@ function filterBadProcess(pro) {
 }
 
 function getProcessId(pro) {
-  var pid = pro.pid;
+  var pid = pro.pid
 
   if (pro.pm2_env.axm_options && pro.pm2_env.axm_options.pid) {
     pid = pro.pm2_env.axm_options.pid;
   }
 
-  return pid;
-}
-
-function hasId(id) {
-  return id in God.clusters_db;
-}
-
-function hasProcEnv(id) {
-  return God.clusters_db[id] && God.clusters_db[id].pm2_env;
-}
-
-function hasPacketFields(packet) {
-  return typeof(packet.id) !== 'undefined' &&
-         typeof(packet.data) !== 'undefined' &&
-         packet.topic;
-}
-
-function isActionAvailable(proc_env, msg) {
-  return proc_env.axm_actions.find(action => action.action_name === msg) !== undefined;
+  return pid
 }

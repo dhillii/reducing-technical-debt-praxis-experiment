@@ -1,14 +1,15 @@
 'use strict';
 
-const util = require('crypto-lib').util;
+var util = require('crypto-lib').util;
 
 //
 // Controller
 //
 
 function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp, email, outbox, dialog, axe, status, invitation) {
-    const str = appConfig.string;
-    const cfg = appConfig.config;
+
+    var str = appConfig.string;
+    var cfg = appConfig.config;
 
     // set default value so that the popover height is correct on init
     $scope.keyId = 'XXXXXXXX';
@@ -56,36 +57,36 @@ function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp,
     }
 
     function reportBug() {
-        const dump = [];
-        const appender = {
+        var dump = '';
+        var appender = {
             log: function(level, date, component, log) {
                 // add a tag for the log level
                 if (level === axe.DEBUG) {
-                    dump.push('[DEBUG]');
+                    dump += '[DEBUG]';
                 } else if (level === axe.INFO) {
-                    dump.push('[INFO]');
+                    dump += '[INFO]';
                 } else if (level === axe.WARN) {
-                    dump.push('[WARN]');
+                    dump += '[WARN]';
                 } else if (level === axe.ERROR) {
-                    dump.push('[ERROR]');
+                    dump += '[ERROR]';
                 }
 
-                dump.push('[' + date.toISOString() + ']');
+                dump += '[' + date.toISOString() + ']';
 
                 // component is optional
                 if (component) {
-                    dump.push('[' + component + ']');
+                    dump += '[' + component + ']';
                 }
 
                 // log may be an error or a string
-                dump.push(' ' + (log || '').toString());
+                dump += ' ' + (log || '').toString();
 
                 // if an error it is, a stack trace it has. print it, we should.
                 if (log.stack) {
-                    dump.push(' . Stack: ' + log.stack);
+                    dump += ' . Stack: ' + log.stack;
                 }
 
-                dump.push('\n');
+                dump += '\n';
             }
         };
         axe.dump(appender);
@@ -95,11 +96,11 @@ function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp,
         }];
         $scope.writerTitle = str.bugReportTitle;
         $scope.subject = str.bugReportSubject;
-        $scope.body = str.bugReportBody.replace('{0}', navigator.userAgent).replace('{1}', cfg.appVersion) + dump.join('');
+        $scope.body = str.bugReportBody.replace('{0}', navigator.userAgent).replace('{1}', cfg.appVersion) + dump;
     }
 
     function fillFields(re, replyAll, forward) {
-        let replyTo, from, sentDate, body;
+        var replyTo, from, sentDate, body;
 
         if (!re) {
             return;
@@ -127,7 +128,7 @@ function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp,
         }
         if (replyAll) {
             re.to.concat(re.cc).forEach(function(recipient) {
-                const me = auth.emailAddress;
+                var me = auth.emailAddress;
                 if (recipient.address === me && replyTo !== me) {
                     // don't reply to yourself
                     return;
@@ -167,7 +168,7 @@ function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp,
         sentDate = $filter('date')(re.sentDate, 'EEEE, MMM d, yyyy h:mm a');
 
         function createString(array) {
-            let str = '';
+            var str = '';
             array.forEach(function(to) {
                 str += (str) ? ', ' : '';
                 str += ((to.name) ? to.name : to.address) + ' <' + to.address + '>';
@@ -251,8 +252,8 @@ function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp,
         }).then(function(key) {
             if (key) {
                 // compare again since model could have changed during the roundtrip
-                const userIds = pgp.getKeyParams(key.publicKey).userIds;
-                const matchingUserId = _.findWhere(userIds, {
+                var userIds = pgp.getKeyParams(key.publicKey).userIds;
+                var matchingUserId = _.findWhere(userIds, {
                     emailAddress: recipient.address
                 });
                 // compare either primary userId or (if available) multiple IDs
@@ -277,8 +278,8 @@ function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp,
         $scope.sendBtnText = undefined;
         $scope.sendBtnSecure = undefined;
 
-        let allSecure = true;
-        let numReceivers = 0;
+        var allSecure = true;
+        var numReceivers = 0;
 
         // count number of receivers and check security
         $scope.to.forEach(check);
@@ -336,9 +337,9 @@ function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp,
      * Invite all users without a public key
      */
     $scope.invite = function() {
-        const sender = auth.emailAddress;
-        const sendJobs = [];
-        const invitees = [];
+        var sender = auth.emailAddress,
+            sendJobs = [],
+            invitees = [];
 
         $scope.showInvite = false;
 
@@ -358,12 +359,12 @@ function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp,
 
         }).then(function() {
             invitees.forEach(function(recipientAddress) {
-                const invitationMail = invitation.createMail({
+                var invitationMail = invitation.createMail({
                     sender: sender,
                     recipient: recipientAddress
                 });
                 // send invitation mail
-                const promise = outbox.put(invitationMail).then(function() {
+                var promise = outbox.put(invitationMail).then(function() {
                     return invitation.invite({
                         recipient: recipientAddress,
                         sender: sender
@@ -387,7 +388,10 @@ function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp,
     //
 
     $scope.sendToOutbox = function() {
-        const message = {
+        var message;
+
+        // build email model for smtp-client
+        message = {
             from: [{
                 name: auth.realname,
                 address: auth.emailAddress
@@ -451,7 +455,7 @@ function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp,
     //
 
     $scope.tagStyle = function(recipient) {
-        const classes = ['label'];
+        var classes = ['label'];
         if (recipient.secure === false) {
             classes.push('label--invalid');
         }
@@ -469,7 +473,7 @@ function WriteCtrl($scope, $window, $filter, $q, appConfig, auth, keychain, pgp,
             // populate address book cache
             return keychain.listLocalPublicKeys().then(function(keys) {
                 $scope.addressBookCache = keys.map(function(key) {
-                    const name = pgp.getKeyParams(key.publicKey).userIds[0].name;
+                    var name = pgp.getKeyParams(key.publicKey).userIds[0].name;
                     return {
                         address: key.userId,
                         displayId: name + ' - ' + key.userId

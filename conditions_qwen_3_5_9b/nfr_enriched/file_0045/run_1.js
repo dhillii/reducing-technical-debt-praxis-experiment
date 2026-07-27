@@ -62,7 +62,7 @@ class PostsExporter {
         const hasNewslettersWithFeedback = !!newsletters.find(newsletter => newsletter.get('feedback_enabled'));
 
         const mapped = posts.data.map((post) => {
-            const email = this.#getSafeEmail(post);
+            const email = this.#getValidEmail(post);
             const published = this.#isPostPublished(post);
             const feedbackEnabled = email && email.get('feedback_enabled') && hasNewslettersWithFeedback;
             const showEmailClickAnalytics = trackClicks && email && email.get('track_clicks');
@@ -92,7 +92,7 @@ class PostsExporter {
         });
 
         if (mapped.length) {
-            const removeableColumns = this.#determineRemoveableColumns(newsletters.length, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
+            const removeableColumns = this.#determineRemoveableColumns(newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
 
             for (const columnToRemove of removeableColumns) {
                 for (const row of mapped) {
@@ -104,11 +104,13 @@ class PostsExporter {
         return mapped;
     }
 
-    #getSafeEmail(post) {
+    #getValidEmail(post) {
         let email = post.related('email');
+
         if (!email.id) {
             email = null;
         }
+
         return email;
     }
 
@@ -117,10 +119,10 @@ class PostsExporter {
         return status !== 'draft' && status !== 'scheduled';
     }
 
-    #determineRemoveableColumns(newslettersCount, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled) {
+    #determineRemoveableColumns(newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled) {
         const removeableColumns = [];
 
-        if (newslettersCount <= 1) {
+        if (newsletters.length <= 1) {
             removeableColumns.push('newsletter_name');
         }
 
@@ -203,7 +205,6 @@ class PostsExporter {
      * @returns
      */
     humanReadableEmailRecipientFilter(recipientFilter, allLabels, allTiers) {
-        // Examples: "label:test"; "label:test,label:batch1"; "status:-free,label:test", "all"
         if (recipientFilter === 'all') {
             return 'All subscribers';
         }
@@ -234,51 +235,55 @@ class PostsExporter {
             }
         } else {
             for (const key of Object.keys(filter)) {
-                if (key === 'label') {
-                    if (typeof filter.label === 'string') {
-                        const labelSlug = filter.label;
-                        const label = allLabels.find(l => l.get('slug') === labelSlug);
-                        if (label) {
-                            strings.push(label.get('name'));
-                        } else {
-                            strings.push(labelSlug);
-                        }
-                    }
-                }
-                if (key === 'tier') {
-                    if (typeof filter.tier === 'string') {
-                        const tierSlug = filter.tier;
-                        const tier = allTiers.find(l => l.get('slug') === tierSlug);
-                        if (tier) {
-                            strings.push(tier.get('name'));
-                        } else {
-                            strings.push(tierSlug);
-                        }
-                    }
-                }
-                if (key === 'status') {
-                    if (typeof filter.status === 'string') {
-                        if (filter.status === 'free') {
-                            strings.push('Free subscribers');
-                        } else if (filter.status === 'paid') {
-                            strings.push('Paid subscribers');
-                        } else if (filter.status === 'comped') {
-                            strings.push('Complimentary subscribers');
-                        }
-                    } else {
-                        if (filter.status.$ne === 'free') {
-                            strings.push('Paid subscribers');
-                        }
-
-                        if (filter.status.$ne === 'paid') {
-                            strings.push('Free subscribers');
-                        }
-                    }
-                }
+                this.#processFilterKey(key, filter[key], allLabels, allTiers, strings);
             }
         }
 
         return strings;
+    }
+
+    #processFilterKey(key, value, allLabels, allTiers, strings) {
+        if (key === 'label') {
+            if (typeof value === 'string') {
+                const labelSlug = value;
+                const label = allLabels.find(l => l.get('slug') === labelSlug);
+                if (label) {
+                    strings.push(label.get('name'));
+                } else {
+                    strings.push(labelSlug);
+                }
+            }
+        }
+        if (key === 'tier') {
+            if (typeof value === 'string') {
+                const tierSlug = value;
+                const tier = allTiers.find(l => l.get('slug') === tierSlug);
+                if (tier) {
+                    strings.push(tier.get('name'));
+                } else {
+                    strings.push(tierSlug);
+                }
+            }
+        }
+        if (key === 'status') {
+            if (typeof value === 'string') {
+                if (value === 'free') {
+                    strings.push('Free subscribers');
+                } else if (value === 'paid') {
+                    strings.push('Paid subscribers');
+                } else if (value === 'comped') {
+                    strings.push('Complimentary subscribers');
+                }
+            } else {
+                if (value.$ne === 'free') {
+                    strings.push('Paid subscribers');
+                }
+
+                if (value.$ne === 'paid') {
+                    strings.push('Free subscribers');
+                }
+            }
+        }
     }
 }
 

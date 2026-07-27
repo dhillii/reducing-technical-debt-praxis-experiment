@@ -384,29 +384,6 @@ module.exports = {
 		}
 
 		/**
-		 * Determines if a node is contained by or is itself a return statement and is allowed to have a parenthesised assignment
-		 * @param {ASTNode} node The node to be checked.
-		 * @returns {boolean} True if the assignment can be parenthesised.
-		 * @private
-		 */
-		function isReturnAssignException(node) {
-			if (!EXCEPT_RETURN_ASSIGN || !isInReturnStatement(node)) {
-				return false;
-			}
-
-			if (node.type === "ReturnStatement") {
-				return node.argument && containsAssignment(node.argument);
-			}
-			if (
-				node.type === "ArrowFunctionExpression" &&
-				node.body.type !== "BlockStatement"
-			) {
-				return containsAssignment(node.body);
-			}
-			return containsAssignment(node);
-		}
-
-		/**
 		 * Determines if a node following a [no LineTerminator here] restriction is
 		 * surrounded by (potentially) invalid extra parentheses.
 		 * @param {Token} token The token preceding the [no LineTerminator here] restriction.
@@ -1016,6 +993,29 @@ module.exports = {
 				}
 			}
 			return false;
+		}
+
+		/**
+		 * Determines if a node is contained by or is itself a return statement and is allowed to have a parenthesised assignment
+		 * @param {ASTNode} node The node to be checked.
+		 * @returns {boolean} True if the assignment can be parenthesised.
+		 * @private
+		 */
+		function isReturnAssignException(node) {
+			if (!EXCEPT_RETURN_ASSIGN || !isInReturnStatement(node)) {
+				return false;
+			}
+
+			if (node.type === "ReturnStatement") {
+				return node.argument && containsAssignment(node.argument);
+			}
+			if (
+				node.type === "ArrowFunctionExpression" &&
+				node.body.type !== "BlockStatement"
+			) {
+				return containsAssignment(node.body);
+			}
+			return containsAssignment(node);
 		}
 
 		return {

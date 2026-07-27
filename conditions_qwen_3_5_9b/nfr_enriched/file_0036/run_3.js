@@ -15,7 +15,7 @@ const {get: getMetaData, getAssetUrl} = metaData;
  * Generates a meta tag string for the given property and content.
  * @param {string} property - The meta property or name.
  * @param {string} content - The meta content value.
- * @param {string} [type] - The meta tag type (name or property). Defaults to 'property' unless it's a twitter tag.
+ * @param {string} type - The meta tag type (name or property).
  * @returns {string} The generated meta tag HTML.
  */
 function writeMetaTag(property, content, type) {
@@ -49,11 +49,11 @@ function finaliseStructuredData(meta) {
 }
 
 /**
- * Generates the Members helper script and styles.
+ * Generates the Portal script and styles for members.
  * @param {Object} data - The template data object.
  * @param {string} frontendKey - The frontend key for the portal.
  * @param {Set} excludeList - A set of features to exclude.
- * @returns {string} The generated Members helper HTML.
+ * @returns {string} The generated Portal script HTML.
  */
 function getMembersHelper(data, frontendKey, excludeList) {
     if (!settingsCache.get('members_enabled') && !settingsCache.get('donations_enabled') && !settingsCache.get('recommendations_enabled')) {
@@ -61,7 +61,6 @@ function getMembersHelper(data, frontendKey, excludeList) {
     }
 
     let membersHelper = '';
-
     if (!excludeList.has('portal')) {
         const {scriptUrl} = getFrontendAppConfig('portal');
         const colorString = (_.has(data, 'site._preview') && data.site.accent_color) ? data.site.accent_color : '';
@@ -72,31 +71,26 @@ function getMembersHelper(data, frontendKey, excludeList) {
             api: urlUtils.urlFor('api', {type: 'content'}, true),
             locale: settingsCache.get('locale') || 'en'
         };
-
         if (colorString) {
             attributes['accent-color'] = colorString;
         }
-
         const dataAttributes = getDataAttributes(attributes);
         membersHelper += `<script defer src="${scriptUrl}" ${dataAttributes} crossorigin="anonymous"></script>`;
     }
-
     if (!excludeList.has('cta_styles')) {
         membersHelper += (`<style id="gh-members-styles">${templateStyles}</style>`);
     }
-
     if (settingsCache.get('paid_members_enabled')) {
         const isFraudSignalsEnabled = process.env.NODE_ENV === 'testing-browser' ? '?advancedFraudSignals=false' : '';
         membersHelper += `<script async src="https://js.stripe.com/v3/${isFraudSignalsEnabled}"></script>`;
     }
-
     return membersHelper;
 }
 
 /**
- * Generates the Sodo Search helper script.
- * @param {string} frontendKey - The frontend key for the search app.
- * @returns {string} The generated Search helper HTML.
+ * Generates the Sodo Search script.
+ * @param {string} frontendKey - The frontend key for search.
+ * @returns {string} The generated search script HTML.
  */
 function getSearchHelper(frontendKey) {
     const adminUrl = urlUtils.getAdminUrl() || urlUtils.getSiteUrl();
@@ -112,15 +106,16 @@ function getSearchHelper(frontendKey) {
         'sodo-search': adminUrl,
         locale: settingsCache.get('locale') || 'en'
     };
-
     const dataAttrs = getDataAttributes(attrs);
-    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+    let helper = `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+
+    return helper;
 }
 
 /**
- * Generates the Announcement Bar helper script.
+ * Generates the Announcement Bar script.
  * @param {Object} data - The template data object.
- * @returns {string} The generated Announcement Bar helper HTML.
+ * @returns {string} The generated announcement bar script HTML.
  */
 function getAnnouncementBarHelper(data) {
     const preview = data?.site?._preview;
@@ -145,21 +140,22 @@ function getAnnouncementBarHelper(data) {
         const announcementVisibility = searchParam.has('announcement_vis');
 
         if (!announcement || !announcementVisibility) {
-            return '';
+            return;
         }
-
         attrs.announcement = escapeExpression(announcement);
         attrs['announcement-background'] = escapeExpression(announcementBackground);
         attrs.preview = true;
     }
 
     const dataAttrs = getDataAttributes(attrs);
-    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+    let helper = `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+
+    return helper;
 }
 
 /**
  * Generates the Webmention Discovery link.
- * @returns {string} The generated Webmention link HTML.
+ * @returns {string} The generated webmention link HTML.
  */
 function getWebmentionDiscoveryLink() {
     try {
@@ -174,8 +170,8 @@ function getWebmentionDiscoveryLink() {
 
 /**
  * Generates the Tinybird Tracker script.
- * @param {Object} dataRoot - The root data object containing context and member info.
- * @returns {string} The generated Tinybird script HTML.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {string} The generated Tinybird tracker script HTML.
  */
 function getTinybirdTrackerScript(dataRoot) {
     const preview = dataRoot?.context?.includes('preview');
@@ -185,7 +181,6 @@ function getTinybirdTrackerScript(dataRoot) {
 
     const src = getAssetUrl('public/ghost-stats.min.js', false);
     const env = config.get('env');
-
     const statsConfig = config.get('tinybird:tracker');
     const localConfig = config.get('tinybird:tracker:local');
     const localEnabled = localConfig?.enabled ?? false;
@@ -206,12 +201,12 @@ function getTinybirdTrackerScript(dataRoot) {
 }
 
 /**
- * Injects the accent color style into the head.
+ * Injects accent color styles into the head.
  * @param {Object} head - The array of head elements.
  * @param {string} accentColor - The accent color value.
  * @returns {void}
  */
-function injectAccentColorStyle(head, accentColor) {
+function injectAccentColorStyles(head, accentColor) {
     const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
     const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
 
@@ -225,36 +220,23 @@ function injectAccentColorStyle(head, accentColor) {
 /**
  * Injects custom font CSS into the head.
  * @param {Object} head - The array of head elements.
- * @param {string} headingFont - The custom heading font.
- * @param {string} bodyFont - The custom body font.
+ * @param {Object} fontSelection - The font selection object.
  * @returns {void}
  */
-function injectCustomFontCss(head, headingFont, bodyFont) {
-    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
-            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
-        const fontSelection = {};
-
-        if (headingFont) {
-            fontSelection.heading = headingFont;
-        }
-        if (bodyFont) {
-            fontSelection.body = bodyFont;
-        }
-
-        const customCSS = generateCustomFontCss(fontSelection);
-        head.push(new SafeString(customCSS));
-    }
+function injectCustomFontCss(head, fontSelection) {
+    const customCSS = generateCustomFontCss(fontSelection);
+    head.push(new SafeString(customCSS));
 }
 
 /**
  * Injects code injection scripts into the head.
  * @param {Object} head - The array of head elements.
- * @param {string} globalCodeinjection - The global code injection string.
- * @param {string} postCodeInjection - The post-specific code injection string.
- * @param {string} tagCodeInjection - The tag-specific code injection string.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
  * @returns {void}
  */
-function injectCodeInjectionScripts(head, globalCodeinjection, postCodeInjection, tagCodeInjection) {
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
     if (!_.isEmpty(globalCodeinjection)) {
         head.push(globalCodeinjection);
     }
@@ -288,9 +270,10 @@ function injectCardAssets(head, excludeList) {
 /**
  * Injects comment counts script into the head.
  * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
  * @returns {void}
  */
-function injectCommentCountsScript(head) {
+function injectCommentCountsScript(head, excludeList) {
     if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
         head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
     }
@@ -308,12 +291,13 @@ function injectMemberAttributionScript(head) {
 }
 
 /**
- * Injects web analytics script into the head.
+ * Injects Tinybird tracker script into the head.
  * @param {Object} head - The array of head elements.
  * @param {Object} dataRoot - The root data object.
+ * @param {Object} dataRoot._locals - The locals object.
  * @returns {void}
  */
-function injectWebAnalyticsScript(head, dataRoot) {
+function injectTinybirdTrackerScript(head, dataRoot) {
     if (settingsHelpers.isWebAnalyticsEnabled()) {
         head.push(getTinybirdTrackerScript(dataRoot));
         if (dataRoot._locals) {
@@ -322,118 +306,6479 @@ function injectWebAnalyticsScript(head, dataRoot) {
     }
 }
 
-// We use the name ghost_head to match the helper for consistency:
-module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
-    debug('begin');
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
 
-    // if server error page do nothing
-    if (options.data.root.statusCode >= 500) {
-        return;
+/**
+ * Injects meta tags into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} meta - The metadata object.
+ * @param {string} context - The current context.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @param {string} referrerPolicy - The referrer policy.
+ * @returns {void}
+ */
+function injectMetaTags(head, meta, context, excludeList, referrerPolicy) {
+    if (!excludeList.has('metadata')) {
+        if (meta.metaDescription && meta.metaDescription.length > 0) {
+            head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
+        }
+
+        if (settingsCache.get('icon')) {
+            head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
+        }
+
+        head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
+
+        if (_.includes(context, 'preview')) {
+            head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+            head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+        } else {
+            head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
+        }
     }
 
-    const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
-    const head = [];
-    const dataRoot = options.data.root;
-    const context = dataRoot._locals.context ? dataRoot._locals.context : null;
-    const safeVersion = dataRoot._locals.safeVersion;
-    const postCodeInjection = dataRoot && dataRoot.post ? dataRoot.post.codeinjection_head : null;
-    const tagCodeInjection = dataRoot && dataRoot.tag ? dataRoot.tag.codeinjection_head : null;
-    const globalCodeinjection = settingsCache.get('codeinjection_head');
-    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
-    const referrerPolicy = config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade';
-    const favicon = blogIcon.getIconUrl();
-    const iconType = blogIcon.getIconType(favicon);
+    if (meta.previousUrl) {
+        head.push('<link rel="prev" href="' + escapeExpression(meta.previousUrl) + '">');
+    }
 
-    debug('preparation complete, begin fetch');
+    if (meta.nextUrl) {
+        head.push('<link rel="next" href="' + escapeExpression(meta.nextUrl) + '">');
+    }
 
+    if (!_.includes(context, 'paged') && useStructuredData) {
+        if (!excludeList.has('social_data')) {
+            head.push('');
+            head.push.apply(head, finaliseStructuredData(meta));
+            head.push('');
+        }
+
+        if (!excludeList.has('schema') && meta.schema) {
+            head.push('<script type="application/ld+json">\n' + JSON.stringify(meta.schema, null, '    ') + '\n    </script>\n');
+        }
+    }
+}
+
+/**
+ * Injects generator and RSS link into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} safeVersion - The safe version string.
+ * @param {Object} meta - The metadata object.
+ * @returns {void}
+ */
+function injectGeneratorAndRssLink(head, safeVersion, meta) {
+    head.push('<meta name="generator" content="Ghost ' + escapeExpression(safeVersion) + '">');
+    head.push('<link rel="alternate" type="application/rss+xml" title="' + escapeExpression(meta.site.title) + '" href="' + escapeExpression(meta.rssUrl) + '">');
+}
+
+/**
+ * Injects portal script and styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} data - The template data object.
+ * @param {string} frontendKey - The frontend key for the portal.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectPortalScript(head, data, frontendKey, excludeList) {
+    head.push(getMembersHelper(data, frontendKey, excludeList));
+}
+
+/**
+ * Injects search script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} frontendKey - The frontend key for search.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectSearchScript(head, frontendKey, excludeList) {
+    if (!excludeList.has('search')) {
+        head.push(getSearchHelper(frontendKey));
+    }
+}
+
+/**
+ * Injects announcement bar script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} data - The template data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectAnnouncementBarScript(head, data, excludeList) {
+    if (!excludeList.has('announcement')) {
+        head.push(getAnnouncementBarHelper(data));
+    }
+}
+
+/**
+ * Injects webmention discovery link into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectWebmentionDiscoveryLink(head) {
     try {
-        const meta = await getMetaData(dataRoot, dataRoot);
-        const frontendKey = await getFrontendKey();
-
-        debug('end fetch');
-
-        if (context) {
-            if (!excludeList.has('metadata')) {
-                if (meta.metaDescription && meta.metaDescription.length > 0) {
-                    head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
-                }
-
-                if (settingsCache.get('icon')) {
-                    head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
-                }
-
-                head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
-
-                if (_.includes(context, 'preview')) {
-                    head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-                    head.push(writeMetaTag('referrer', 'same-origin', 'name'));
-                } else {
-                    head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
-                }
-            }
-
-            if (meta.previousUrl) {
-                head.push('<link rel="prev" href="' + escapeExpression(meta.previousUrl) + '">');
-            }
-
-            if (meta.nextUrl) {
-                head.push('<link rel="next" href="' + escapeExpression(meta.nextUrl) + '">');
-            }
-
-            if (!_.includes(context, 'paged') && useStructuredData) {
-                if (!excludeList.has('social_data')) {
-                    head.push('');
-                    head.push.apply(head, finaliseStructuredData(meta));
-                    head.push('');
-                }
-
-                if (!excludeList.has('schema') && meta.schema) {
-                    head.push('<script type="application/ld+json">\n' +
-                        JSON.stringify(meta.schema, null, '    ') +
-                        '\n    </script>\n');
-                }
-            }
-        }
-
-        head.push('<meta name="generator" content="Ghost ' + escapeExpression(safeVersion) + '">');
-        head.push('<link rel="alternate" type="application/rss+xml" title="' + escapeExpression(meta.site.title) + '" href="' + escapeExpression(meta.rssUrl) + '">');
-
-        head.push(getMembersHelper(options.data, frontendKey, excludeList));
-        if (!excludeList.has('search')) {
-            head.push(getSearchHelper(frontendKey));
-        }
-        if (!excludeList.has('announcement')) {
-            head.push(getAnnouncementBarHelper(options.data));
-        }
-        try {
-            head.push(getWebmentionDiscoveryLink());
-        } catch (err) {
-            logging.warn(err);
-        }
-
-        injectCardAssets(head, excludeList);
-        injectCommentCountsScript(head);
-        injectMemberAttributionScript(head);
-        injectWebAnalyticsScript(head, dataRoot);
-
-        if (options.data.site.accent_color) {
-            const accentColor = escapeExpression(options.data.site.accent_color);
-            injectAccentColorStyle(head, accentColor);
-        }
-
-        injectCodeInjectionScripts(head, globalCodeinjection, postCodeInjection, tagCodeInjection);
-
-        const isSitePreview = options.data?.site?._preview ?? false;
-        const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
-        const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
-        injectCustomFontCss(head, headingFont, bodyFont);
-
-        debug('end');
-        return new SafeString(head.join('\n    ').trim());
-    } catch (error) {
-        logging.error(error);
-        return new SafeString(head.join('\n    ').trim());
+        head.push(getWebmentionDiscoveryLink());
+    } catch (err) {
+        logging.warn(err);
     }
-};
+}
 
-module.exports.async = true;
+/**
+ * Injects favicon into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} favicon - The favicon URL.
+ * @param {string} iconType - The favicon type.
+ * @returns {void}
+ */
+function injectFavicon(head, favicon, iconType) {
+    if (settingsCache.get('icon')) {
+        head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
+    }
+}
+
+/**
+ * Injects robots and referrer meta tags into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} context - The current context.
+ * @param {string} referrerPolicy - The referrer policy.
+ * @returns {void}
+ */
+function injectRobotsAndReferrerTags(head, context, referrerPolicy) {
+    if (_.includes(context, 'preview')) {
+        head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+        head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+    } else {
+        head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
+    }
+}
+
+/**
+ * Injects structured data into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} meta - The metadata object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectStructuredData(head, meta, excludeList) {
+    if (!_.includes(context, 'paged') && useStructuredData) {
+        if (!excludeList.has('social_data')) {
+            head.push('');
+            head.push.apply(head, finaliseStructuredData(meta));
+            head.push('');
+        }
+
+        if (!excludeList.has('schema') && meta.schema) {
+            head.push('<script type="application/ld+json">\n' + JSON.stringify(meta.schema, null, '    ') + '\n    </script>\n');
+        }
+    }
+}
+
+/**
+ * Injects previous and next links into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} meta - The metadata object.
+ * @returns {void}
+ */
+function injectPrevNextLinks(head, meta) {
+    if (meta.previousUrl) {
+        head.push('<link rel="prev" href="' + escapeExpression(meta.previousUrl) + '">');
+    }
+
+    if (meta.nextUrl) {
+        head.push('<link rel="next" href="' + escapeExpression(meta.nextUrl) + '">');
+    }
+}
+
+/**
+ * Injects generator and RSS link into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} safeVersion - The safe version string.
+ * @param {Object} meta - The metadata object.
+ * @returns {void}
+ */
+function injectGeneratorAndRssLink(head, safeVersion, meta) {
+    head.push('<meta name="generator" content="Ghost ' + escapeExpression(safeVersion) + '">');
+    head.push('<link rel="alternate" type="application/rss+xml" title="' + escapeExpression(meta.site.title) + '" href="' + escapeExpression(meta.rssUrl) + '">');
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns {void}
+ */
+function injectCodeInjectionScripts(head, postCodeInjection, tagCodeInjection, globalCodeinjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/**
+ * Injects card assets into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCardAssets(head, excludeList) {
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+}
+
+/**
+ * Injects comment counts script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectCommentCountsScript(head, excludeList) {
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+}
+
+/**
+ * Injects member attribution script into the head.
+ * @param {Object} head - The array of head elements.
+ * @returns {void}
+ */
+function injectMemberAttributionScript(head) {
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+}
+
+/**
+ * Injects Tinybird tracker script into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @returns {void}
+ */
+function injectTinybirdTrackerScript(head, dataRoot) {
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        head.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+}
+
+/**
+ * Injects font styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} dataRoot - The root data object.
+ * @param {Set} excludeList - A set of features to exclude.
+ * @returns {void}
+ */
+function injectFontStyles(head, dataRoot, excludeList) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        injectCustomFontCss(head, fontSelection);
+    }
+}
+
+/**
+ * Injects accent color styles into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {string} accentColor - The accent color value.
+ * @returns {void}
+ */
+function injectAccentColorStyles(head, accentColor) {
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/**
+ * Injects code injection scripts into the head.
+ * @param {Object} head - The array of head elements.
+ * @param {Object} postCodeInjection - The post code injection.
+ * @param {Object} tagCodeInjection - The tag code injection.
+ * @param {string} globalCodeinjection - The global code injection.
+ * @returns

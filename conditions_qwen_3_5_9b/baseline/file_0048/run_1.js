@@ -11,8 +11,6 @@ const MAX_NAME_LENGTH = 191;
 const MAX_SLUG_LENGTH = 191;
 const MAX_DESCRIPTION_LENGTH = 191;
 const MAX_PRICE = 9999999999;
-const DEFAULT_MONTHLY_PRICE = 500;
-const DEFAULT_YEARLY_PRICE = 5000;
 
 module.exports = class Tier {
     /** @type {BaseEvent[]} */
@@ -293,7 +291,7 @@ module.exports = class Tier {
 function validateSlug(value) {
     if (!value || typeof value !== 'string' || value.length > MAX_SLUG_LENGTH) {
         throw new ValidationError({
-            message: `Tier slug must be a string with a maximum of ${MAX_SLUG_LENGTH} characters`
+            message: 'Tier slug must be a string with a maximum of 191 characters'
         });
     }
     return value;
@@ -302,7 +300,7 @@ function validateSlug(value) {
 function validateName(value) {
     if (typeof value !== 'string' || value.length > MAX_NAME_LENGTH) {
         throw new ValidationError({
-            message: `Tier name must be a string with a maximum of ${MAX_NAME_LENGTH} characters`
+            message: 'Tier name must be a string with a maximum of 191 characters'
         });
     }
     return value;
@@ -326,7 +324,7 @@ function validateDescription(value) {
     }
     if (typeof value !== 'string' || value.length > MAX_DESCRIPTION_LENGTH) {
         throw new ValidationError({
-            message: `Tier description must be a string with a maximum of ${MAX_DESCRIPTION_LENGTH} characters`
+            message: 'Tier description must be a string with a maximum of 191 characters'
         });
     }
     return value;
@@ -411,7 +409,7 @@ function validateMonthlyPrice(value, type) {
         return null;
     }
     if (!value) {
-        return DEFAULT_MONTHLY_PRICE;
+        return 500;
     }
     if (!Number.isSafeInteger(value)) {
         throw new ValidationError({
@@ -441,7 +439,7 @@ function validateYearlyPrice(value, type) {
         return null;
     }
     if (!value) {
-        return DEFAULT_YEARLY_PRICE;
+        return 5000;
     }
     if (!Number.isSafeInteger(value)) {
         throw new ValidationError({

@@ -47,7 +47,7 @@ class PopupContent extends React.Component {
     }
 
     sendContainerHeightChangeEvent() {
-        // Implementation required to fix S1186
+        // Intentionally empty method as per original implementation
     }
 
     componentDidUpdate() {
@@ -660,7 +660,7 @@ export default class PopupModal extends React.Component {
         return (
             <>
                 <style dangerouslySetInnerHTML={{__html: styles}} />
-                <meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1' />
+                <meta name='viewport' content='width=device-width, initial-scale=1, initial-scale=1, maximum-scale=1' />
             </>
         );
     }

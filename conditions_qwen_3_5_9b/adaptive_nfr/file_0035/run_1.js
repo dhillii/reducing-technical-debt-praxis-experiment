@@ -481,8 +481,8 @@ describe('Acceptance: Posts / Pages', function () {
                         await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(postFourContainer.getAttribute('data-selected'), 'postFour selected').to.exist;
-                        expect(postThreeContainer.getAttribute('data-selected'), 'postThree selected').to.exist;
+                        await expectPostContainerToBeSelected(postFourContainer, 'postFour selected');
+                        await expectPostContainerToBeSelected(postThreeContainer, 'postThree selected');
 
                         // NOTE: right clicks don't seem to work in these tests
                         //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
@@ -541,8 +541,8 @@ describe('Acceptance: Posts / Pages', function () {
                         await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(postFourContainer.getAttribute('data-selected'), 'postFour selected').to.exist;
-                        expect(postThreeContainer.getAttribute('data-selected'), 'postThree selected').to.exist;
+                        await expectPostContainerToBeSelected(postFourContainer, 'postFour selected');
+                        await expectPostContainerToBeSelected(postThreeContainer, 'postThree selected');
 
                         // NOTE: right clicks don't seem to work in these tests
                         //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
@@ -698,8 +698,8 @@ describe('Acceptance: Posts / Pages', function () {
                         await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(postFourContainer.getAttribute('data-selected'), 'postFour selected').to.exist;
-                        expect(postThreeContainer.getAttribute('data-selected'), 'postThree selected').to.exist;
+                        await expectPostContainerToBeSelected(postFourContainer, 'postFour selected');
+                        await expectPostContainerToBeSelected(postThreeContainer, 'postThree selected');
 
                         // NOTE: right clicks don't seem to work in these tests
                         //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
@@ -740,7 +740,7 @@ describe('Acceptance: Posts / Pages', function () {
 
                         await click(postOneContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(postOneContainer.getAttribute('data-selected'), 'postOne selected').to.exist;
+                        await expectPostContainerToBeSelected(postOneContainer, 'postOne selected');
 
                         // NOTE: right clicks don't seem to work in these tests
                         //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
@@ -782,8 +782,8 @@ describe('Acceptance: Posts / Pages', function () {
                         await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(postFourContainer.getAttribute('data-selected'), 'postFour selected').to.exist;
-                        expect(postThreeContainer.getAttribute('data-selected'), 'postThree selected').to.exist;
+                        await expectPostContainerToBeSelected(postFourContainer, 'postFour selected');
+                        await expectPostContainerToBeSelected(postThreeContainer, 'postThree selected');
 
                         // NOTE: right clicks don't seem to work in these tests
                         //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
@@ -1225,3 +1225,12 @@ describe('Acceptance: Posts / Pages', function () {
         });
     });
 });
+
+/**
+ * Asserts that a post container element has the 'data-selected' attribute set.
+ * @param {HTMLElement} container - The post container element to check.
+ * @param {string} message - The test message to use if the assertion fails.
+ */
+const expectPostContainerToBeSelected = (container, message) => {
+    expect(container.getAttribute('data-selected'), message).to.exist;
+};

@@ -586,3 +586,13 @@ const UserDetailModal: React.FC<RoutingModalProps> = ({params}) => {
 };
 
 export default NiceModal.create(UserDetailModal);
+
+const getTabFromPath = (path: string): string => {
+    const lastSegment = path.split('/').pop() || '';
+
+    if (lastSegment === 'social-links' || lastSegment === 'email-notifications') {
+        return lastSegment;
+    }
+
+    return 'profile';
+};

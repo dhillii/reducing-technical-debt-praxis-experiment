@@ -66,12 +66,11 @@ function Runner (suite, delay) {
   this.started = false;
   this.total = suite.total();
   this.failures = 0;
+  this.on('test end', this.checkGlobals.bind(this));
+  this.on('hook end', this.checkGlobals.bind(this));
   this._defaultGrep = /.*/;
   this.grep(this._defaultGrep);
   this.globals(this.globalProps().concat(extraGlobals()));
-
-  this.on('test end', this.checkGlobals.bind(this));
-  this.on('hook end', this.checkGlobals.bind(this));
 }
 
 /**
@@ -181,8 +180,8 @@ Runner.prototype.checkGlobals = function (test) {
   if (this.ignoreLeaks) {
     return;
   }
-
   var ok = this._globals;
+
   var globals = this.globalProps();
   var leaks;
 
@@ -968,8 +967,4 @@ function extraGlobals () {
   }
 
   return [];
-}
-
-function alwaysFalse () {
-  return false;
 }

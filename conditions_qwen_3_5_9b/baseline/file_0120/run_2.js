@@ -107,29 +107,28 @@ const QueryGenerator = {
         outputFragment = ' OUTPUT INSERTED.*';
 
         if (modelAttributes && options.hasTrigger && this._dialect.supports.tmpTableTrigger) {
-          let tmpColumns = '';
-          let outputColumns = '';
-          tmpTable = 'declare @tmp table (<%= columns %>); ';
+          const tmpColumns = [];
+          const outputColumns = [];
 
           for (const modelKey in modelAttributes) {
             const attribute = modelAttributes[modelKey];
             if (!(attribute.type instanceof DataTypes.VIRTUAL)) {
               if (tmpColumns.length > 0) {
-                tmpColumns += ',';
-                outputColumns += ',';
+                tmpColumns.push(',');
+                outputColumns.push(',');
               }
 
-              tmpColumns += this.quoteIdentifier(attribute.field) + ' ' + attribute.type.toSql();
-              outputColumns += 'INSERTED.' + this.quoteIdentifier(attribute.field);
+              tmpColumns.push(this.quoteIdentifier(attribute.field) + ' ' + attribute.type.toSql());
+              outputColumns.push('INSERTED.' + this.quoteIdentifier(attribute.field));
             }
           }
 
           const replacement = {
-            columns: tmpColumns
+            columns: tmpColumns.join('')
           };
 
-          tmpTable = _.template(tmpTable, this._templateSettings)(replacement).trim();
-          outputFragment = ' OUTPUT ' + outputColumns + ' into @tmp';
+          tmpTable = _.template('declare @tmp table (<%= columns %>); ', this._templateSettings)(replacement).trim();
+          outputFragment = ' OUTPUT ' + outputColumns.join('') + ' into @tmp';
           const selectFromTmp = ';select * from @tmp';
 
           valueQuery += selectFromTmp;
@@ -303,7 +302,7 @@ const QueryGenerator = {
             }
           }
 
-          const replacement = {
+          const replacement ={
             columns: tmpColumns
           };
 

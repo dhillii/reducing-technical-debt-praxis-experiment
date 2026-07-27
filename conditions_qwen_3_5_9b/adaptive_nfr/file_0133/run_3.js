@@ -79,7 +79,6 @@ const getMutationInfo = (schema, name) => {
 
 const isTypeAttributeEnabled = (model, attr) =>
   _.get(strapi.plugins.graphql, `config._schema.graphql.type.${model.globalId}.${attr}`) !== false;
-
 const isNotPrivate = _.curry((model, attributeName) => {
   return !contentTypes.isPrivateAttribute(model, attributeName);
 });
@@ -217,7 +216,7 @@ const buildAssocResolvers = model => {
 
       const { nature, alias } = association;
 
-      const resolverFn = buildAssociationResolver(model, targetModel, nature, alias, primaryKey);
+      const resolverFn = createAssociationResolver(model, targetModel, nature, alias);
 
       resolver[alias] = resolverFn;
 
@@ -225,27 +224,12 @@ const buildAssocResolvers = model => {
     }, {});
 };
 
-const buildAssociationResolver = (model, targetModel, nature, alias, primaryKey) => {
-  const isMorph = nature.includes('Morph');
+const createAssociationResolver = (model, targetModel, nature, alias) => {
+  const isComponent = model.modelType === 'component';
 
-  return async obj => {
-    if (isMorph) {
-      if (obj[alias]) {
-        return assignOptions(obj[alias], obj);
-      }
-
-      const params = {
-        ...initQueryOptions(targetModel, obj),
-        id: obj[primaryKey],
-      };
-
-      const entry = await strapi.query(model.uid).findOne(params, [alias]);
-
-      return assignOptions(entry[alias], obj);
-    }
-
+  return async (obj, options) => {
     // force component relations to be refetched
-    if (model.modelType === 'component') {
+    if (isComponent) {
       obj[alias] = _.get(obj[alias], targetModel.primaryKey, obj[alias]);
     }
 
@@ -257,11 +241,17 @@ const buildAssociationResolver = (model, targetModel, nature, alias, primaryKey)
 
     const params = {
       ...initQueryOptions(targetModel, obj),
-      ...convertToParams(_.omit(amountLimiting(obj), 'where')),
-      ...convertToQuery(obj.where),
+      ...convertToParams(_.omit(amountLimiting(options), 'where')),
+      ...convertToQuery(options.where),
     };
 
-    if (['oneToOne', 'oneWay', 'manyToOne'].includes(nature)) {
+    const isOneToOne = ['oneToOne', 'oneWay', 'manyToOne'].includes(nature);
+    const isOneToMany = nature === 'oneToMany';
+    const isManyToManyDominant = nature === 'manyToMany' && association.dominant === true;
+    const isManyToManyNonDominant = nature === 'manyToMany' && association.dominant !== true;
+    const isManyWay = nature === 'manyWay';
+
+    if (isOneToOne) {
       if (!_.has(obj, alias) || _.isNil(foreignId)) {
         return null;
       }
@@ -282,10 +272,7 @@ const buildAssociationResolver = (model, targetModel, nature, alias, primaryKey)
       return loader.load(query).then(r => assignOptions(r, obj));
     }
 
-    if (
-      nature === 'oneToMany' ||
-      (nature === 'manyToMany' && association.dominant !== true)
-    ) {
+    if (isOneToMany || isManyToManyNonDominant) {
       const { via } = association;
 
       const filters = {
@@ -296,10 +283,7 @@ const buildAssociationResolver = (model, targetModel, nature, alias, primaryKey)
       return loader.load({ filters }).then(r => assignOptions(r, obj));
     }
 
-    if (
-      nature === 'manyWay' ||
-      (nature === 'manyToMany' && association.dominant === true)
-    ) {
+    if (isManyWay || isManyToManyDominant) {
       let targetIds = [];
 
       // find the related ids to query them and apply the filters
@@ -324,6 +308,8 @@ const buildAssociationResolver = (model, targetModel, nature, alias, primaryKey)
 
       return loader.load({ filters }).then(r => assignOptions(r, obj));
     }
+
+    return null;
   };
 };
 
@@ -340,9 +326,19 @@ const buildModels = (models, ctx) => {
       return buildComponent(model);
     }
 
-    const typeBuilder = kind === 'singleType' ? buildSingleType : buildCollectionType;
-    return typeBuilder(model, ctx);
+    const kindResolver = getKindResolver(kind);
+
+    return kindResolver(model, ctx);
   });
+};
+
+const getKindResolver = kind => {
+  const resolvers = {
+    singleType: buildSingleType,
+    collectionType: buildCollectionType,
+  };
+
+  return resolvers[kind] || resolvers.collectionType;
 };
 
 const buildModelDefinition = (model, globalType = {}) => {

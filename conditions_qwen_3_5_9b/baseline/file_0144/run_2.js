@@ -4,8 +4,9 @@ module.exports = function() {
 	const hotCurrentHash = $hash$; // eslint-disable-line no-unused-vars
 	const hotCurrentModuleData = {};
 	let hotCurrentChildModule; // eslint-disable-line no-unused-vars
-	const hotCurrentParents = []; // eslint-disable-line no-unused-vars
-	const hotCurrentParentsTemp = []; // eslint-disable-line no-unused-vars
+
+	let hotCurrentParents = []; // eslint-disable-line no-unused-vars
+	let hotCurrentParentsTemp = []; // eslint-disable-line no-unused-vars
 
 	function hotCreateRequire(moduleId) { // eslint-disable-line no-unused-vars
 		const me = installedModules[moduleId];
@@ -145,9 +146,9 @@ module.exports = function() {
 	// while downloading
 	let hotWaitingFiles = 0;
 	let hotChunksLoading = 0;
-	const hotWaitingFilesMap = {};
-	const hotRequestedFilesMap = {};
-	const hotAvailableFilesMap = {};
+	let hotWaitingFilesMap = {};
+	let hotRequestedFilesMap = {};
+	let hotAvailableFilesMap = {};
 	let hotDeferred;
 
 	// The update info

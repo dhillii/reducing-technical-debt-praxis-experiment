@@ -47,7 +47,7 @@ class PopupContent extends React.Component {
     }
 
     sendContainerHeightChangeEvent() {
-        // Implementation required to fix S1186
+        // Intentionally empty method to handle container height change events.
     }
 
     componentDidUpdate() {

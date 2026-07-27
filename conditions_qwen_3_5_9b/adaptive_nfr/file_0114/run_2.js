@@ -51,9 +51,8 @@ var API = module.exports = function(opts) {
   /**
    * PM2 HOME resolution
    */
-  if (opts.pm2_home && opts.independent == true) {
+  if (opts.pm2_home && opts.independent == true)
     throw new Error('You cannot set a pm2_home and independent instance in same time');
-  }
 
   if (opts.pm2_home) {
     // Override default conf file
@@ -68,9 +67,8 @@ var API = module.exports = function(opts) {
 
     // If we dont explicitly tell to have a daemon
     // It will go as in proc
-    if (typeof(opts.daemon_mode) == 'undefined') {
+    if (typeof(opts.daemon_mode) == 'undefined')
       this.daemon_mode = false;
-    }
     conf = util._extend(conf, path_structure(this.pm2_home));
   }
 
@@ -79,9 +77,8 @@ var API = module.exports = function(opts) {
   if (conf.IS_WINDOWS) {
     // Weird fix, may need to be dropped
     // @todo windows connoisseur double check
-    if (process.stdout._handle && process.stdout._handle.setBlocking) {
+    if (process.stdout._handle && process.stdout._handle.setBlocking)
       process.stdout._handle.setBlocking(true);
-    }
   }
 
   this.Client = new Client({
@@ -106,9 +103,8 @@ var API = module.exports = function(opts) {
   }
 
   // For testing purposes
-  if (this.secret_key && process.env.NODE_ENV == 'local_test') {
+  if (this.secret_key && process.env.NODE_ENV == 'local_test')
     that.gl_is_km_linked = true;
-  }
 
   KMDaemon.getInteractInfo(this._conf, function(i_err, interact) {
     that.gl_interact_infos = interact;
@@ -141,13 +137,11 @@ API.prototype.connect = function(noDaemon, cb) {
   }
 
   this.Client.start(function(err, meta) {
-    if (err) {
+    if (err)
       return cb(err);
-    }
 
-    if (meta.new_pm2_instance == false && that.daemon_mode === true) {
+    if (meta.new_pm2_instance == false && that.daemon_mode === true)
       return cb(err, meta);
-    }
 
     // If new pm2 instance has been popped
     // Launch all modules
@@ -175,9 +169,8 @@ API.prototype.destroy = function(cb) {
     var test_path = path.join(that.pm2_home, 'module_conf.json');
     var test_path_2 = path.join(that.pm2_home, 'pm2.pid');
 
-    if (that.pm2_home.indexOf('.pm2') > -1) {
+    if (that.pm2_home.indexOf('.pm2') > -1)
       return cb(new Error('Destroy is not a allowed method on .pm2'));
-    }
 
     if (fs.accessSync) {
       fs.access(test_path, fs.R_OK, function(err) {
@@ -300,13 +293,12 @@ API.prototype.start = function(cmd, opts, cb) {
 
   var that = this;
 
-  if (util.isArray(opts.watch) && opts.watch.length === 0) {
+  if (util.isArray(opts.watch) && opts.watch.length === 0)
     opts.watch = (opts.rawArgs ? !!~opts.rawArgs.indexOf('--watch') : !!~process.argv.indexOf('--watch')) || false;
-  }
 
-  if (Common.isConfigFile(cmd) || (typeof(cmd) === 'object')) {
+  if (Common.isConfigFile(cmd) || (typeof(cmd) === 'object'))
     that._startJson(cmd, opts, 'restartProcessId', cb);
-  } else {
+  else {
     that._startScript(cmd, opts, cb);
   }
 };
@@ -412,7 +404,7 @@ API.prototype.update = function(cb) {
 API.prototype.reload = function(process_name, opts, cb) {
   var that = this;
 
-  if (typeof(opts) == 'function') {
+  if (typeof(opts) == "function") {
     cb = opts;
     opts = {};
   }
@@ -424,25 +416,22 @@ API.prototype.reload = function(process_name, opts, cb) {
     return cb ? cb(new Error('Reload in progress')) : that.exitCli(conf.ERROR_EXIT);
   }
 
-  if (Common.isConfigFile(process_name)) {
+  if (Common.isConfigFile(process_name))
     that._startJson(process_name, opts, 'reloadProcessId', function(err, apps) {
       Common.unlockReload();
-      if (err) {
+      if (err)
         return cb ? cb(err) : that.exitCli(conf.ERROR_EXIT);
-      }
       return cb ? cb(null, apps) : that.exitCli(conf.SUCCESS_EXIT);
     });
-  } else {
-    if (opts && !opts.updateEnv) {
+  else {
+    if (opts && !opts.updateEnv)
       Common.printOut(IMMUTABLE_MSG);
-    }
 
     that._operate('reloadProcessId', process_name, opts, function(err, apps) {
       Common.unlockReload();
 
-      if (err) {
+      if (err)
         return cb ? cb(err) : that.exitCli(conf.ERROR_EXIT);
-      }
       return cb ? cb(null, apps) : that.exitCli(conf.SUCCESS_EXIT);
     });
   }
@@ -462,9 +451,8 @@ API.prototype.restart = function(cmd, opts, cb) {
   }
   var that = this;
 
-  if (typeof(cmd) === 'number') {
+  if (typeof(cmd) === 'number')
     cmd = cmd.toString();
-  }
 
   if (cmd == "-") {
     // Restart from PIPED JSON
@@ -475,12 +463,11 @@ API.prototype.restart = function(cmd, opts, cb) {
       that.actionFromJson('restartProcessId', param, opts, 'pipe', cb);
     });
   }
-  else if (Common.isConfigFile(cmd) || typeof(cmd) === 'object') {
+  else if (Common.isConfigFile(cmd) || typeof(cmd) === 'object')
     that._startJson(cmd, opts, 'restartProcessId', cb);
-  } else {
-    if (opts && !opts.updateEnv) {
+  else {
+    if (opts && !opts.updateEnv)
       Common.printOut(IMMUTABLE_MSG);
-    }
     that._operate('restartProcessId', cmd, opts, cb);
   }
 };
@@ -502,14 +489,12 @@ API.prototype.delete = function(process_name, jsonVia, cb) {
     process_name = process_name.toString();
   }
 
-  if (jsonVia == 'pipe') {
+  if (jsonVia == 'pipe')
     return that.actionFromJson('deleteProcessId', process_name, commander, 'pipe', cb);
-  }
-  if (Common.isConfigFile(process_name)) {
+  if (Common.isConfigFile(process_name))
     return that.actionFromJson('deleteProcessId', process_name, commander, 'file', cb);
-  } else {
+  else
     that._operate('deleteProcessId', process_name, cb);
-  }
 };
 
 /**
@@ -521,9 +506,8 @@ API.prototype.delete = function(process_name, jsonVia, cb) {
 API.prototype.stop = function(process_name, cb) {
   var that = this;
 
-  if (typeof(process_name) === 'number') {
+  if (typeof(process_name) === 'number')
     process_name = process_name.toString();
-  }
 
   if (process_name == "-") {
     process.stdin.resume();
@@ -533,11 +517,10 @@ API.prototype.stop = function(process_name, cb) {
       that.actionFromJson('stopProcessId', param, commander, 'pipe', cb);
     });
   }
-  else if (Common.isConfigFile(process_name)) {
+  else if (Common.isConfigFile(process_name))
     that.actionFromJson('stopProcessId', process_name, commander, 'file', cb);
-  } else {
+  else
     that._operate('stopProcessId', process_name, cb);
-  }
 };
 
 /**
@@ -628,13 +611,12 @@ API.prototype._startScript = function(script, opts, cb) {
   var app_conf = Config.transCMDToConf(opts);
   var appConf = {};
 
-  if (!!opts.executeCommand) {
+  if (!!opts.executeCommand)
     app_conf.exec_mode = 'fork';
-  } else if (opts.instances !== undefined) {
+  else if (opts.instances !== undefined)
     app_conf.exec_mode = 'cluster';
-  } else {
+  else
     app_conf.exec_mode = 'fork';
-  }
 
   if (typeof app_conf.name == 'function'){
     delete app_conf.name;
@@ -653,9 +635,8 @@ API.prototype._startScript = function(script, opts, cb) {
 
   app_conf.script = script;
 
-  if ((appConf = Common.verifyConfs(app_conf)) instanceof Error) {
+  if ((appConf = Common.verifyConfs(app_conf)) instanceof Error)
     return cb ? cb(Common.retErr(appConf)) : that.exitCli(conf.ERROR_EXIT);
-  }
 
   app_conf = appConf[0];
 
@@ -681,9 +662,8 @@ API.prototype._startScript = function(script, opts, cb) {
   function restartExistingProcessName(cb) {
     if (!isNaN(script) ||
         (typeof script === 'string' && script.indexOf('/') != -1) ||
-        (typeof script === 'string' && path.extname(script) !== '')) {
+        (typeof script === 'string' && path.extname(script) !== ''))
       return cb(null);
-    }
 
     if (script !== 'all') {
       that.Client.getProcessIdByName(script, function(err, ids) {
@@ -730,9 +710,8 @@ API.prototype._startScript = function(script, opts, cb) {
 
       procs.forEach(function(proc) {
         if (proc.pm2_env.pm_exec_path == full_path &&
-            proc.pm2_env.name == app_conf.name) {
+            proc.pm2_env.name == app_conf.name)
           managed_script = proc;
-        }
       });
 
       if (managed_script &&
@@ -799,15 +778,13 @@ API.prototype._startScript = function(script, opts, cb) {
     restartExistingProcessPath
   ], function(err, data) {
 
-    if (err instanceof Error) {
+    if (err instanceof Error)
       return cb ? cb(err) : that.exitCli(conf.ERROR_EXIT);
-    }
 
     var ret = {};
     data.forEach(function(_dt) {
-      if (_dt !== undefined) {
+      if (_dt !== undefined)
         ret = _dt;
-      }
     });
 
     return cb ? cb(null, ret) : that.speedList();
@@ -868,25 +845,21 @@ API.prototype._startJson = function(file, opts, action, pipe, cb) {
     }
   }
 
-  if (config.deploy) {
+  if (config.deploy)
     deployConf = config.deploy;
-  }
 
-  if (config.apps) {
+  if (config.apps)
     appConf = config.apps;
-  } else if (config.pm2) {
+  else if (config.pm2)
     appConf = config.pm2;
-  } else {
+  else
     appConf = config;
-  }
 
-  if (!Array.isArray(appConf)) {
+  if (!Array.isArray(appConf))
     appConf = [appConf]; //convert to array
-  }
 
-  if ((appConf = Common.verifyConfs(appConf)) instanceof Error) {
+  if ((appConf = Common.verifyConfs(appConf)) instanceof Error)
     return cb ? cb(appConf) : that.exitCli(conf.ERROR_EXIT);
-  }
 
   process.env.PM2_JSON_PROCESSING = true;
 
@@ -897,33 +870,26 @@ API.prototype._startJson = function(file, opts, action, pipe, cb) {
   // Here we pick only the field we want from the CLI when starting a JSON
   appConf.forEach(function(app) {
     // --only <app>
-    if (opts.only && opts.only != app.name) {
+    if (opts.only && opts.only != app.name)
       return false;
-    }
     // --watch
-    if (!app.watch && opts.watch && opts.watch === true) {
+    if (!app.watch && opts.watch && opts.watch === true)
       app.watch = true;
-    }
     // --ignore-watch
-    if (!app.ignore_watch && opts.ignore_watch) {
+    if (!app.ignore_watch && opts.ignore_watch)
       app.ignore_watch = opts.ignore_watch;
-    }
     // --instances <nb>
-    if (opts.instances && typeof(opts.instances) === 'number') {
+    if (opts.instances && typeof(opts.instances) === 'number')
       app.instances = opts.instances;
-    }
     // --uid <user>
-    if (opts.uid) {
+    if (opts.uid)
       app.uid = opts.uid;
-    }
     // --gid <user>
-    if (opts.gid) {
+    if (opts.gid)
       app.gid = opts.gid;
-    }
     // Specific
-    if (app.append_env_to_name && opts.env) {
+    if (app.append_env_to_name && opts.env)
       app.name += ('-' + opts.env);
-    }
     app.username = Common.getCurrentUsername();
     apps_name.push(app.name);
   });
@@ -947,15 +913,13 @@ API.prototype._startJson = function(file, opts, action, pipe, cb) {
      */
     eachLimit(Object.keys(proc_list), conf.CONCURRENT_ACTIONS, function(proc_name, next) {
       // Skip app name (--only option)
-      if (apps_name.indexOf(proc_name) == -1) {
+      if (apps_name.indexOf(proc_name) == -1)
         return next();
-      }
 
       if (!(action == 'reloadProcessId' ||
             action == 'softReloadProcessId' ||
-            action == 'restartProcessId')) {
+            action == 'restartProcessId'))
         throw new Error('Wrong action called');
-      }
 
       var apps = appConf.filter(function(app) {
         return app.name == proc_name;
@@ -991,9 +955,8 @@ API.prototype._startJson = function(file, opts, action, pipe, cb) {
 
     }, function(err) {
       if (err) return cb ? cb(Common.retErr(err)) : that.exitCli(conf.ERROR_EXIT);
-      if (apps_name.length > 0 && action != 'start') {
+      if (apps_name.length > 0 && action != 'start')
         Common.printOut(conf.PREFIX_MSG_WARNING + 'Applications %s not running, starting...', apps_name.join(', '));
-      }
       // Start missing apps
       return startApps(apps_name, function(err, apps) {
         apps_info = apps_info.concat(apps);
@@ -1014,15 +977,12 @@ API.prototype._startJson = function(file, opts, action, pipe, cb) {
     });
 
     eachLimit(apps_to_start, conf.CONCURRENT_ACTIONS, function(app, next) {
-      if (opts.cwd) {
+      if (opts.cwd)
         app.cwd = opts.cwd;
-      }
-      if (opts.force_name) {
+      if (opts.force_name)
         app.name = opts.force_name;
-      }
-      if (opts.started_as_module) {
+      if (opts.started_as_module)
         app.pmx_module = true;
-      }
 
       var resolved_paths = null;
 
@@ -1122,37 +1082,31 @@ API.prototype.actionFromJson = function(action, file, opts, jsonVia, cb) {
   }
 
   // Backward compatibility
-  if (appConf.apps) {
+  if (appConf.apps)
     appConf = appConf.apps;
-  }
 
-  if (!Array.isArray(appConf)) {
+  if (!Array.isArray(appConf))
     appConf = [appConf];
-  }
 
-  if ((appConf = Common.verifyConfs(appConf)) instanceof Error) {
+  if ((appConf = Common.verifyConfs(appConf)) instanceof Error)
     return cb ? cb(appConf) : that.exitCli(conf.ERROR_EXIT);
-  }
 
   eachLimit(appConf, conf.CONCURRENT_ACTIONS, function(proc, next1) {
     var name = '';
     var new_env;
 
-    if (!proc.name) {
+    if (!proc.name)
       name = path.basename(proc.script);
-    } else {
+    else
       name = proc.name;
-    }
 
-    if (opts.only && opts.only != name) {
+    if (opts.only && opts.only != name)
       return process.nextTick(next1);
-    }
 
-    if (opts && opts.env) {
+    if (opts && opts.env)
       new_env = Common.mergeEnvironmentVariables(proc, opts.env);
-    } else {
+    else
       new_env = Common.mergeEnvironmentVariables(proc);
-    }
 
     that.Client.getProcessIdByName(name, function(err, ids) {
       if (err) {
@@ -1213,9 +1167,8 @@ API.prototype._operate = function(action_name, process_name, envs, cb) {
   var ret = [];
 
   // Make sure all options exist
-  if (!envs) {
+  if (!envs)
     envs = {};
-  }
 
   if (typeof(envs) == 'function'){
     cb = envs;
@@ -1223,9 +1176,8 @@ API.prototype._operate = function(action_name, process_name, envs, cb) {
   }
 
   // Set via env.update (JSON processing)
-  if (envs.updateEnv === true) {
+  if (envs.updateEnv === true)
     update_env = true;
-  }
 
   var concurrent_actions = envs.parallel || conf.CONCURRENT_ACTIONS;
 
@@ -1252,9 +1204,8 @@ API.prototype._operate = function(action_name, process_name, envs, cb) {
   function processIds(ids, cb) {
     Common.printOut(conf.PREFIX_MSG + 'Applying action %s on app [%s](ids: %s)', action_name, process_name, ids);
 
-    if (action_name == 'deleteProcessId') {
+    if (action_name == 'deleteProcessId')
       concurrent_actions = 10;
-    }
 
     eachLimit(ids, concurrent_actions, function(id, next) {
       var opts;
@@ -1266,11 +1217,10 @@ API.prototype._operate = function(action_name, process_name, envs, cb) {
         var new_env = {};
 
         if (update_env === true) {
-          if (conf.PM2_PROGRAMMATIC == true) {
+          if (conf.PM2_PROGRAMMATIC == true)
             new_env = Common.safeExtend({}, process.env);
-          } else {
+          else
             new_env = util._extend({}, process.env);
-          }
 
           Object.keys(envs).forEach(function(k) {
             new_env[k] = envs[k];
@@ -1307,9 +1257,8 @@ API.prototype._operate = function(action_name, process_name, envs, cb) {
           that.Client.notifyGod('graceful reload', id);
         }
 
-        if (!Array.isArray(res)) {
+        if (!Array.isArray(res))
           res = [res];
-        }
 
         // Filter return
         res.forEach(function(proc) {
@@ -1407,9 +1356,8 @@ API.prototype._operate = function(action_name, process_name, envs, cb) {
   } else {
     // Check if application name as number is an app name
     that.Client.getProcessIdByName(process_name, function(err, ids) {
-      if (ids.length > 0) {
+      if (ids.length > 0)
         return processIds(ids, cb);
-      }
       // Else operate on pm id
       return processIds([process_name], cb);
     });
@@ -1425,9 +1373,8 @@ API.prototype._handleAttributeUpdate = function(opts) {
   var conf = Config.transCMDToConf(opts);
   var that = this;
 
-  if (typeof(conf.name) != 'string') {
+  if (typeof(conf.name) != 'string')
     delete conf.name;
-  }
 
   var argsIndex = 0;
   if (opts.rawArgs && (argsIndex = opts.rawArgs.indexOf('--')) >= 0) {
@@ -1441,38 +1388,30 @@ API.prototype._handleAttributeUpdate = function(opts) {
     return appConf;
   }
 
-  if (argsIndex == -1) {
+  if (argsIndex == -1)
     delete appConf.args;
-  }
-  if (appConf.name == 'undefined') {
+  if (appConf.name == 'undefined')
     delete appConf.name;
-  }
 
   delete appConf.exec_mode;
 
   if (util.isArray(appConf.watch) && appConf.watch.length === 0) {
-    if (!~opts.rawArgs.indexOf('--watch')) {
+    if (!~opts.rawArgs.indexOf('--watch'))
       delete appConf.watch
-    }
   }
 
   // Force deletion of defaults values set by commander
   // to avoid overriding specified configuration by user
-  if (appConf.treekill === true) {
+  if (appConf.treekill === true)
     delete appConf.treekill;
-  }
-  if (appConf.pmx === true) {
+  if (appConf.pmx === true)
     delete appConf.pmx;
-  }
-  if (appConf.vizion === true) {
+  if (appConf.vizion === true)
     delete appConf.vizion;
-  }
-  if (appConf.automation === true) {
+  if (appConf.automation === true)
     delete appConf.automation;
-  }
-  if (appConf.autorestart === true) {
+  if (appConf.autorestart === true)
     delete appConf.autorestart;
-  }
 
   return appConf;
 };
@@ -1542,9 +1481,8 @@ API.prototype.speedList = function(code) {
     if (process.stdout.isTTY === false) {
       UX.miniDisplay(list);
     }
-    else if (commander.miniList && !commander.silent) {
+    else if (commander.miniList && !commander.silent)
       UX.miniDisplay(list);
-    }
     else if (!commander.silent) {
       if (that.gl_interact_infos) {
         Common.printOut(chalk.green.bold('●') + ' Agent Online | Dashboard Access: ' + chalk.bold('https://app.keymetrics.io/#/r/%s') + ' | Server name: %s', that.gl_interact_infos.public_key, that.gl_interact_infos.machine_name);
@@ -1621,11 +1559,11 @@ API.prototype.scale = function(app_name, number, cb) {
       number = parseInt(number, 10);
       number = number - proc_number;
 
-      if (number < 0) {
+      if (number < 0)
         return rmProcs(procs, number, end);
-      } else if (number > 0) {
+      else if (number > 0)
         return addProcs(procs[0], number, end);
-      } else {
+      else {
         Common.printError(conf.PREFIX_MSG_ERR + 'Nothing to do');
         return cb ? cb(new Error('Same process number')) : that.exitCli(conf.ERROR_EXIT);
       }

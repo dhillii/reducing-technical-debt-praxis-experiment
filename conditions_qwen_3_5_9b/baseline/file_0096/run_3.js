@@ -58,14 +58,13 @@ define([
             var defReply = _.bind(Module.prototype.reply, this);
             this.vent = Radio.channel(this.Collection.prototype.storeName);
 
-            var self = this;
-            _.bindAll(self, 'encryptModel', 'decryptModel', 'decryptModels');
+            _.bindAll(this, 'encryptModel', 'decryptModel', 'decryptModels');
 
             // Register replies
-            this.vent.reply(_.extend(defReply(), this.reply()), self);
+            this.vent.reply(_.extend(defReply(), this.reply()), this);
 
             // Listen to events
-            this.listenTo(this.vent, 'destroy:collection', self.onReset, self);
+            this.listenTo(this.vent, 'destroy:collection', this.onReset, this);
         },
 
         /**

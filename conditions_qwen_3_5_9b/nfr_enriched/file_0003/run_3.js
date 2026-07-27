@@ -76,7 +76,7 @@ const getGradient = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?:
     }
 };
 
-const getDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
+const getDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
     switch (backgroundColor) {
     case 'light':
         return hexToRgba('#15171a', 0.025);
@@ -408,7 +408,7 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                         </Button>
                     </div>
                     {(account?.bannerImageUrl || coverImage) &&
-                    <DotsPattern className={`absolute left-1/2 top-1/2 h-[600px] w-[598px] -translate-x-1/2 -translate-y-1/2 ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor(backgroundColor)}} />
+                    <DotsPattern className={`absolute left-1/2 top-1/2 h-[600px] w-[598px] -translate-x-1/2 -translate-y-1/2 ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor(backgroundColor, accentColor)}} />
                     }
                     <div className='absolute inset-0' style={{background: getGradient(backgroundColor, accentColor)}} />
                 </div>
@@ -436,7 +436,7 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                         siteTitle={siteData?.site?.title}
                     />
                     {(account?.bannerImageUrl || coverImage) &&
-                    <DotsPattern className={`absolute left-[-62.5px] top-[-44px] h-[600px] w-[598px] ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor(backgroundColor)}} />
+                    <DotsPattern className={`absolute left-[-62.5px] top-[-44px] h-[600px] w-[598px] ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor(backgroundColor, accentColor)}} />
                     }
                     <div
                         className='absolute left-0 top-0 size-full'

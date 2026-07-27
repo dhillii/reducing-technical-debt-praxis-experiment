@@ -470,7 +470,6 @@ Query.prototype.slice = function() {
  * @memberOf Query
  * @instance
  * @param {String} [path]
- * @param {Number} val
  * @api public
  */
 

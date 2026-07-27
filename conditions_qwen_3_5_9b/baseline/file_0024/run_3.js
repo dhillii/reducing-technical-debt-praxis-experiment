@@ -4,14 +4,11 @@ import {formatNumber, formatPercentage, formatQueryDate, getRangeDates} from '@t
 import {getSymbol} from '@tryghost/admin-x-framework';
 import {useMemo} from 'react';
 
+// Type for direction values
 export type DiffDirection = 'up' | 'down' | 'same';
 
-const calculateTotals = (
-    memberData: MemberStatusItem[],
-    mrrData: MrrHistoryItem[],
-    dateFrom: string,
-    memberCountTotals?: {paid: number; free: number; comped: number}
-) => {
+// Calculate totals from member data
+const calculateTotals = (memberData: MemberStatusItem[], mrrData: MrrHistoryItem[], dateFrom: string, memberCountTotals?: {paid: number; free: number; comped: number}) => {
     if (!memberData.length) {
         return {
             totalMembers: 0,
@@ -120,12 +117,14 @@ const calculateTotals = (
     };
 };
 
+// Format chart data
 const formatChartData = (memberData: MemberStatusItem[], mrrData: MrrHistoryItem[]) => {
     const sortedMemberData = [...memberData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const sortedMrrData = [...mrrData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     const memberDates = sortedMemberData.map(item => item.date);
     const mrrDates = sortedMrrData.map(item => item.date);
+
     const allDates = [...new Set([...memberDates, ...mrrDates])].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
 
     const memberMap = new Map(sortedMemberData.map(item => [item.date, item]));
@@ -226,6 +225,7 @@ export const useGrowthStats = (range: number) => {
 
             const useCurrency = currentMax.currency;
             const currencyFilteredData = mrrHistoryResponse.stats.filter(d => d.currency === useCurrency);
+
             const filteredData = currencyFilteredData.filter((item) => moment(item.date).isSameOrAfter(dateFromMoment));
             const allData = [...currencyFilteredData].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
             const result = [...filteredData];
@@ -257,8 +257,11 @@ export const useGrowthStats = (range: number) => {
     }, [mrrHistoryResponse, dateFrom, range]);
 
     const totalsData = useMemo(() => calculateTotals(memberData, mrrData, dateFrom, memberCountResponse?.meta?.totals), [memberData, mrrData, dateFrom, memberCountResponse?.meta?.totals]);
+
     const chartData = useMemo(() => formatChartData(memberData, mrrData), [memberData, mrrData]);
+
     const currencySymbol = useMemo(() => getSymbol(selectedCurrency), [selectedCurrency]);
+
     const isLoading = useMemo(() => isMemberCountLoading || isMrrLoading || isSubscriptionLoading, [isMemberCountLoading, isMrrLoading, isSubscriptionLoading]);
 
     const subscriptionData = useMemo(() => {
@@ -284,9 +287,9 @@ export const useGrowthStats = (range: number) => {
         }, {} as Record<string, {date: string; signups: number; cancellations: number}>);
 
         const subscriptionArray = Object.values(mergedByDate).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
         const dateFromMoment = moment(dateFrom);
         const dateToMoment = moment(endDate);
-        
         return subscriptionArray.filter((item) => {
             const itemDate = moment(item.date);
             return itemDate.isSameOrAfter(dateFromMoment) && itemDate.isSameOrBefore(dateToMoment);

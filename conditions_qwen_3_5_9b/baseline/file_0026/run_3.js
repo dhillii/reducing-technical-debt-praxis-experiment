@@ -68,10 +68,7 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     source: {
         endpoint: 'api_top_sources',
         valueKey: 'source',
-        transformValue: v => ({
-            value: v || '',
-            label: v || 'Direct'
-        })
+        transformValue: v => ({value: v || '', label: v || 'Direct'})
     },
     location: {
         endpoint: 'api_top_locations',
@@ -85,21 +82,23 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     device: {
         endpoint: 'api_top_devices',
         valueKey: 'device',
-        transformValue: v => ({
-            value: v,
-            label: getDeviceLabel(v)
-        })
+        transformValue: getDeviceLabel,
+        filterItem: getDeviceFilterItem
     }
 };
 
-// Helper to get device label
-const getDeviceLabel = (value: string): string => {
-    if (value === 'mobile-ios') return 'iOS';
-    if (value === 'mobile-android') return 'Android';
-    if (value === 'desktop') return 'Desktop';
-    if (value === 'bot') return 'Bot';
-    if (value === 'unknown') return 'Unknown';
-    return value;
+const getDeviceLabel = (v: string): {value: string; label: string} => {
+    if (v === 'mobile-ios') return {value: v, label: 'iOS'};
+    if (v === 'mobile-android') return {value: v, label: 'Android'};
+    if (v === 'desktop') return {value: v, label: 'Desktop'};
+    if (v === 'bot') return {value: v, label: 'Bot'};
+    if (v === 'unknown') return {value: v, label: 'Unknown'};
+    return {value: v, label: v};
+};
+
+const getDeviceFilterItem = (item: Record<string, unknown>): boolean => {
+    const device = String(item.device || '');
+    return device !== '' && device !== 'unknown';
 };
 
 // Build filter params for Tinybird API, excluding the specified field to avoid circular filtering

@@ -9,11 +9,6 @@ export default class ParseMemberEventHelper extends Helper {
     @service utils;
     @service membersUtils;
 
-    /**
-     * Trims a string value and returns null if empty or undefined.
-     * @param {any} value - The value to trim.
-     * @returns {string|null} The trimmed string or null.
-     */
     trimString(value) {
         if (!value && value !== 0) {
             return null;
@@ -23,11 +18,6 @@ export default class ParseMemberEventHelper extends Helper {
         return trimmed || null;
     }
 
-    /**
-     * Main computation logic for parsing member events.
-     * @param {Array} args - The arguments passed to the helper.
-     * @returns {Object} The parsed event data.
-     */
     compute([event, hasMultipleNewsletters]) {
         const memberName = this.trimString(event.data.member?.name);
         const subject = this.getSubject(event, memberName);
@@ -66,136 +56,6 @@ export default class ParseMemberEventHelper extends Helper {
         };
     }
 
-    /**
-     * Determines the appropriate icon for a given event type.
-     * @param {Object} event - The event object.
-     * @returns {string} The icon class name.
-     */
-    getIcon(event) {
-        const type = event.type;
-
-        switch (type) {
-            case 'login_event':
-                return 'logged-in';
-            case 'payment_event':
-                return 'subscriptions';
-            case 'newsletter_event':
-                return event.data.subscribed ? 'subscribed-to-email' : 'unsubscribed-from-email';
-            case 'subscription_event':
-                return event.data.type === 'canceled' ? 'canceled-subscription' : 'subscriptions';
-            case 'signup_event':
-            case 'subscription_event':
-                if (type === 'subscription_event' && event.data.type === 'created' && event.data.signup) {
-                    return 'signed-up';
-                }
-                return 'signed-up';
-            case 'email_opened_event':
-                return 'opened-email';
-            case 'email_sent_event':
-            case 'automated_email_sent_event':
-                return 'sent-email';
-            case 'email_delivered_event':
-                return 'received-email';
-            case 'email_failed_event':
-                return 'email-delivery-failed';
-            case 'email_complaint_event':
-                return 'email-delivery-spam';
-            case 'comment_event':
-                return 'comment';
-            case 'click_event':
-            case 'aggregated_click_event':
-                return 'click';
-            case 'feedback_event':
-                return event.data.score === 1 ? 'more-like-this' : 'less-like-this';
-            case 'donation_event':
-                return 'subscriptions';
-            case 'email_change_event':
-                return 'email-changed';
-            default:
-                return 'event-unknown';
-        }
-    }
-
-    /**
-     * Determines the action description for a given event type.
-     * @param {Object} event - The event object.
-     * @param {boolean} hasMultipleNewsletters - Whether multiple newsletters are enabled.
-     * @returns {string} The action description.
-     */
-    getAction(event, hasMultipleNewsletters) {
-        const type = event.type;
-
-        switch (type) {
-            case 'signup_event':
-            case 'subscription_event':
-                if (type === 'subscription_event' && event.data.type === 'created' && event.data.signup) {
-                    return 'signed up';
-                }
-                return 'signed up';
-            case 'login_event':
-                return 'logged in';
-            case 'payment_event':
-                return 'made payment';
-            case 'newsletter_event':
-                const newsletter = hasMultipleNewsletters && event.data.newsletter?.name ? event.data.newsletter.name : 'newsletter';
-                return event.data.subscribed ? `subscribed to ${newsletter}` : `unsubscribed from ${newsletter}`;
-            case 'subscription_event':
-                const subType = event.data.type;
-                switch (subType) {
-                    case 'created':
-                        return 'started paid subscription';
-                    case 'updated':
-                        return 'changed paid subscription';
-                    case 'canceled':
-                        return 'canceled paid subscription';
-                    case 'reactivated':
-                        return 'reactivated paid subscription';
-                    case 'expired':
-                        return 'ended paid subscription';
-                    default:
-                        return 'changed paid subscription';
-                }
-            case 'email_opened_event':
-                return 'opened email';
-            case 'email_sent_event':
-                return 'sent email';
-            case 'automated_email_sent_event':
-                const emailSlug = event.data.automatedEmail?.slug || '';
-                const emailType = emailSlug.includes('paid') ? 'Paid' : 'Free';
-                return `received welcome email (${emailType})`;
-            case 'email_delivered_event':
-                return 'received email';
-            case 'email_failed_event':
-                return 'bounced email';
-            case 'email_complaint_event':
-                return 'email flagged as spam';
-            case 'comment_event':
-                return event.data.parent ? 'replied to comment' : 'commented';
-            case 'click_event':
-                return 'clicked link in email';
-            case 'aggregated_click_event':
-                const clickCount = event.data.count.clicks;
-                return clickCount <= 1 ? 'clicked link in email' : `clicked ${ghPluralize(clickCount, 'link')} in email`;
-            case 'feedback_event':
-                return event.data.score === 1 ? 'more like this' : 'less like this';
-            case 'email_change_event':
-                if (event.data.from_email && event.data.to_email) {
-                    return `Email address changed from ${event.data.from_email} to ${event.data.to_email}`;
-                }
-                return 'Email address changed';
-            case 'donation_event':
-                return 'Made a one-time payment';
-            default:
-                return '';
-        }
-    }
-
-    /**
-     * Gets the subject line for the event.
-     * @param {Object} event - The event object.
-     * @param {string} memberName - The trimmed member name.
-     * @returns {string} The subject line.
-     */
     getSubject(event, memberName) {
         if (event.data.member) {
             return memberName || event.data.member.email;
@@ -203,19 +63,183 @@ export default class ParseMemberEventHelper extends Helper {
         return event.data.name || event.data.email || '';
     }
 
-    /**
-     * Gets the join string for combining action and object.
-     * @returns {string} The join string.
-     */
+    getIcon(event) {
+        const type = event.type;
+
+        if (type === 'login_event') {
+            return 'logged-in';
+        }
+
+        if (type === 'payment_event') {
+            return 'subscriptions';
+        }
+
+        if (type === 'newsletter_event') {
+            return event.data.subscribed ? 'subscribed-to-email' : 'unsubscribed-from-email';
+        }
+
+        if (type === 'subscription_event') {
+            if (event.data.type === 'canceled') {
+                return 'canceled-subscription';
+            }
+            return 'subscriptions';
+        }
+
+        if (type === 'signup_event' || (type === 'subscription_event' && event.data.type === 'created' && event.data.signup)) {
+            return 'signed-up';
+        }
+
+        if (type === 'email_opened_event') {
+            return 'opened-email';
+        }
+
+        if (type === 'email_sent_event') {
+            return 'sent-email';
+        }
+
+        if (type === 'automated_email_sent_event') {
+            return 'sent-email';
+        }
+
+        if (type === 'email_delivered_event') {
+            return 'received-email';
+        }
+
+        if (type === 'email_failed_event') {
+            return 'email-delivery-failed';
+        }
+
+        if (type === 'email_complaint_event') {
+            return 'email-delivery-spam';
+        }
+
+        if (type === 'comment_event') {
+            return 'comment';
+        }
+
+        if (type === 'click_event' || type === 'aggregated_click_event') {
+            return 'click';
+        }
+
+        if (type === 'feedback_event') {
+            return event.data.score === 1 ? 'more-like-this' : 'less-like-this';
+        }
+
+        if (type === 'donation_event') {
+            return 'subscriptions';
+        }
+
+        if (type === 'email_change_event') {
+            return 'email-changed';
+        }
+
+        return 'event-' + 'unknown';
+    }
+
+    getAction(event, hasMultipleNewsletters) {
+        const type = event.type;
+
+        if (type === 'signup_event' || (type === 'subscription_event' && event.data.type === 'created' && event.data.signup)) {
+            return 'signed up';
+        }
+
+        if (type === 'login_event') {
+            return 'logged in';
+        }
+
+        if (type === 'payment_event') {
+            return 'made payment';
+        }
+
+        if (type === 'newsletter_event') {
+            const newsletter = hasMultipleNewsletters && event.data.newsletter?.name ? event.data.newsletter.name : 'newsletter';
+            return event.data.subscribed ? `subscribed to ${newsletter}` : `unsubscribed from ${newsletter}`;
+        }
+
+        if (type === 'subscription_event') {
+            const typeData = event.data.type;
+            if (typeData === 'created') {
+                return 'started paid subscription';
+            }
+            if (typeData === 'updated') {
+                return 'changed paid subscription';
+            }
+            if (typeData === 'canceled') {
+                return 'canceled paid subscription';
+            }
+            if (typeData === 'reactivated') {
+                return 'reactivated paid subscription';
+            }
+            if (typeData === 'expired') {
+                return 'ended paid subscription';
+            }
+            return 'changed paid subscription';
+        }
+
+        if (type === 'email_opened_event') {
+            return 'opened email';
+        }
+
+        if (type === 'email_sent_event') {
+            return 'sent email';
+        }
+
+        if (type === 'automated_email_sent_event') {
+            const slug = event.data.automatedEmail?.slug || '';
+            const emailType = slug.includes('paid') ? 'Paid' : 'Free';
+            return `received welcome email (${emailType})`;
+        }
+
+        if (type === 'email_delivered_event') {
+            return 'received email';
+        }
+
+        if (type === 'email_failed_event') {
+            return 'bounced email';
+        }
+
+        if (type === 'email_complaint_event') {
+            return 'email flagged as spam';
+        }
+
+        if (type === 'comment_event') {
+            return event.data.parent ? 'replied to comment' : 'commented';
+        }
+
+        if (type === 'click_event') {
+            return 'clicked link in email';
+        }
+
+        if (type === 'aggregated_click_event') {
+            const count = event.data.count.clicks;
+            if (count <= 1) {
+                return 'clicked link in email';
+            }
+            return `clicked ${ghPluralize(count, 'link')} in email`;
+        }
+
+        if (type === 'feedback_event') {
+            return event.data.score === 1 ? 'more like this' : 'less like this';
+        }
+
+        if (type === 'email_change_event') {
+            if (event.data.from_email && event.data.to_email) {
+                return `Email address changed from ${event.data.from_email} to ${event.data.to_email}`;
+            }
+            return 'Email address changed';
+        }
+
+        if (type === 'donation_event') {
+            return 'Made a one-time payment';
+        }
+
+        return '';
+    }
+
     getJoin() {
         return '–';
     }
 
-    /**
-     * Gets the object associated with the event.
-     * @param {Object} event - The event object.
-     * @returns {string} The object title or empty string.
-     */
     getObject(event) {
         const type = event.type;
 
@@ -225,13 +249,7 @@ export default class ParseMemberEventHelper extends Helper {
             }
         }
 
-        if (type === 'comment_event') {
-            if (event.data.post) {
-                return event.data.post.title;
-            }
-        }
-
-        if (type === 'click_event' || type === 'feedback_event') {
+        if (type === 'comment_event' || type === 'click_event' || type === 'feedback_event') {
             if (event.data.post) {
                 return event.data.post.title;
             }
@@ -240,11 +258,6 @@ export default class ParseMemberEventHelper extends Helper {
         return '';
     }
 
-    /**
-     * Gets the source information for the event.
-     * @param {Object} event - The event object.
-     * @returns {Object|null} The source object or null.
-     */
     getSource(event) {
         if (event.data?.attribution?.referrer_source) {
             return {
@@ -255,18 +268,13 @@ export default class ParseMemberEventHelper extends Helper {
         return null;
     }
 
-    /**
-     * Gets the info string for the event.
-     * @param {Object} event - The event object.
-     * @returns {string|null} The info string or null.
-     */
     getInfo(event) {
         const type = event.type;
 
         if (type === 'subscription_event') {
             const mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
             if (mrrDelta === 0) {
-                return null;
+                return;
             }
             const symbol = getSymbol(event.data.currency);
 
@@ -289,14 +297,9 @@ export default class ParseMemberEventHelper extends Helper {
             return formattedAmount;
         }
 
-        return null;
+        return;
     }
 
-    /**
-     * Gets the description for the event.
-     * @param {Object} event - The event object.
-     * @returns {string|null} The description or null.
-     */
     getDescription(event) {
         if (event.type === 'click_event') {
             try {
@@ -306,14 +309,9 @@ export default class ParseMemberEventHelper extends Helper {
             }
             return event.data.link.to;
         }
-        return null;
+        return;
     }
 
-    /**
-     * Gets the URL for the event.
-     * @param {Object} event - The event object.
-     * @returns {string|null} The URL or null.
-     */
     getURL(event) {
         const type = event.type;
 
@@ -328,14 +326,9 @@ export default class ParseMemberEventHelper extends Helper {
                 return event.data.attribution.url;
             }
         }
-        return null;
+        return;
     }
 
-    /**
-     * Gets the route object for the event.
-     * @param {Object} event - The event object.
-     * @returns {Object|null} The route object or null.
-     */
     getRoute(event) {
         const type = event.type;
 
@@ -356,6 +349,6 @@ export default class ParseMemberEventHelper extends Helper {
                 };
             }
         }
-        return null;
+        return;
     }
 }

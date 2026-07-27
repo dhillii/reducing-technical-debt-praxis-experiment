@@ -62,10 +62,22 @@ class PostsExporter {
         const hasNewslettersWithFeedback = !!newsletters.find(newsletter => newsletter.get('feedback_enabled'));
 
         const mapped = posts.data.map((post) => {
-            const email = this.#getSafeEmail(post);
-            const published = this.#isPostPublished(post);
-            const feedbackEnabled = this.#isFeedbackEnabled(email, hasNewslettersWithFeedback);
-            const showEmailClickAnalytics = this.#shouldShowEmailClickAnalytics(trackClicks, email);
+            let email = post.related('email');
+
+            if (!email.id) {
+                email = null;
+            }
+
+            const isDraftOrScheduled = post.get('status') === 'draft' || post.get('status') === 'scheduled';
+            let published = !isDraftOrScheduled;
+
+            if (isDraftOrScheduled) {
+                email = null;
+                published = false;
+            }
+
+            const feedbackEnabled = email && email.get('feedback_enabled') && hasNewslettersWithFeedback;
+            const showEmailClickAnalytics = trackClicks && email && email.get('track_clicks');
 
             return {
                 id: post.get('id'),
@@ -80,7 +92,7 @@ class PostsExporter {
                 tags: post.related('tags').map(tag => tag.get('name')).join(', '),
                 post_access: this.postAccessToString(post),
                 email_recipients: email ? this.humanReadableEmailRecipientFilter(email?.get('recipient_filter'), labels, tiers) : null,
-                newsletter_name: this.#getNewsletterName(newsletters, post, email),
+                newsletter_name: this.getNewsletterName(newsletters, post, email),
                 sends: email?.get('email_count') ?? null,
                 opens: trackOpens ? (email?.get('opened_count') ?? null) : null,
                 clicks: showEmailClickAnalytics ? (post.get('count__clicks') ?? 0) : null,
@@ -92,7 +104,31 @@ class PostsExporter {
         });
 
         if (mapped.length) {
-            const removeableColumns = this.#getRemoveableColumns(newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
+            const removeableColumns = [];
+
+            if (this.shouldRemoveNewsletterName(newsletters)) {
+                removeableColumns.push('newsletter_name');
+            }
+
+            if (this.shouldRemoveMemberAnalytics(membersEnabled)) {
+                removeableColumns.push('email_recipients', 'sends', 'opens', 'clicks', 'feedback_more_like_this', 'feedback_less_like_this');
+            } else if (!hasNewslettersWithFeedback) {
+                removeableColumns.push('feedback_more_like_this', 'feedback_less_like_this');
+            }
+
+            if (membersEnabled && !trackClicks) {
+                removeableColumns.push('clicks');
+            }
+
+            if (membersEnabled && !trackOpens) {
+                removeableColumns.push('opens');
+            }
+
+            if (this.shouldRemoveSourceAnalytics(membersEnabled, membersTrackSources, paidMembersEnabled)) {
+                removeableColumns.push('signups', 'paid_conversions');
+            } else if (!paidMembersEnabled) {
+                removeableColumns.push('paid_conversions');
+            }
 
             for (const columnToRemove of removeableColumns) {
                 for (const row of mapped) {
@@ -104,64 +140,23 @@ class PostsExporter {
         return mapped;
     }
 
-    #getSafeEmail(post) {
-        let email = post.related('email');
-
-        if (!email.id) {
-            email = null;
-        }
-
-        return email;
+    shouldRemoveNewsletterName(newsletters) {
+        return newsletters.length <= 1;
     }
 
-    #isPostPublished(post) {
-        const status = post.get('status');
-        return status !== 'draft' && status !== 'scheduled';
+    shouldRemoveMemberAnalytics(membersEnabled) {
+        return !membersEnabled;
     }
 
-    #isFeedbackEnabled(email, hasNewslettersWithFeedback) {
-        return email && email.get('feedback_enabled') && hasNewslettersWithFeedback;
+    shouldRemoveSourceAnalytics(membersEnabled, membersTrackSources, paidMembersEnabled) {
+        return !membersTrackSources || !membersEnabled;
     }
 
-    #shouldShowEmailClickAnalytics(trackClicks, email) {
-        return trackClicks && email;
-    }
-
-    #getNewsletterName(newsletters, post, email) {
+    getNewsletterName(newsletters, post, email) {
         if (newsletters.length > 1 && post.get('newsletter_id') && email) {
             return newsletters.find(newsletter => newsletter.get('id') === post.get('newsletter_id'))?.get('name');
         }
         return null;
-    }
-
-    #getRemoveableColumns(newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled) {
-        const removeableColumns = [];
-
-        if (newsletters.length <= 1) {
-            removeableColumns.push('newsletter_name');
-        }
-
-        if (!membersEnabled) {
-            removeableColumns.push('email_recipients', 'sends', 'opens', 'clicks', 'feedback_more_like_this', 'feedback_less_like_this');
-        } else if (!hasNewslettersWithFeedback) {
-            removeableColumns.push('feedback_more_like_this', 'feedback_less_like_this');
-        }
-
-        if (membersEnabled && !trackClicks) {
-            removeableColumns.push('clicks');
-        }
-
-        if (membersEnabled && !trackOpens) {
-            removeableColumns.push('opens');
-        }
-
-        if (!membersTrackSources || !membersEnabled) {
-            removeableColumns.push('signups', 'paid_conversions');
-        } else if (!paidMembersEnabled) {
-            removeableColumns.push('paid_conversions');
-        }
-
-        return removeableColumns;
     }
 
     mapPostStatus(status, hasEmail) {

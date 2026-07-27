@@ -24,15 +24,13 @@ export default class PublishOptions {
     }
 
     get willEmail() {
-        const isDraft = this.post.isDraft;
-        const hasEmail = this.post.email;
-        const emailStatus = hasEmail ? this.post.email.status : null;
-        const isSendType = this.publishType === 'send';
-        const hasRecipientFilter = this.recipientFilter;
-
         return (
-            (!isSendType && hasRecipientFilter && isDraft && !hasEmail) ||
-            (isDraft && hasEmail && emailStatus === 'failed')
+            (this.publishType !== 'publish'
+                && this.recipientFilter
+                && this.post.isDraft
+                && !this.post.email
+            )
+                || (this.post.isDraft && this.post.email && this.post.email.status === 'failed')
         );
     }
 
@@ -102,25 +100,21 @@ export default class PublishOptions {
     @tracked emailDisabledError;
 
     get publishTypeOptions() {
-        return [
-            {
-                value: 'publish+send', // internal
-                label: 'Publish and email', // shown in expanded options
-                display: 'Publish and email', // shown in option title
-                disabled: this.emailDisabled
-            },
-            {
-                value: 'publish',
-                label: 'Publish only',
-                display: 'Publish'
-            },
-            {
-                value: 'send',
-                label: 'Email only',
-                display: 'Email',
-                disabled: this.emailDisabled
-            }
-        ];
+        return [{
+            value: 'publish+send', // internal
+            label: 'Publish and email', // shown in expanded options
+            display: 'Publish and email', // shown in option title
+            disabled: this.emailDisabled
+        }, {
+            value: 'publish',
+            label: 'Publish only',
+            display: 'Publish'
+        }, {
+            value: 'send',
+            label: 'Email only',
+            display: 'Email',
+            disabled: this.emailDisabled
+        }];
     }
 
     get selectedPublishTypeOption() {
@@ -197,32 +191,26 @@ export default class PublishOptions {
         }
 
         if (recipients === 'visibility' || usuallyNobody) {
-            return this._getFilterByVisibility();
+            if (this.post.visibility === 'public') {
+                return 'status:free,status:-free';
+            }
+
+            if (this.post.visibility === 'members') {
+                return 'status:free,status:-free';
+            }
+
+            if (this.post.visibility === 'paid') {
+                return 'status:-free';
+            }
+
+            if (this.post.visibility === 'tiers') {
+                return this.post.visibilitySegment;
+            }
+
+            return this.post.visibility;
         }
 
         return filter;
-    }
-
-    _getFilterByVisibility() {
-        const visibility = this.post.visibility;
-
-        if (visibility === 'public') {
-            return 'status:free,status:-free';
-        }
-
-        if (visibility === 'members') {
-            return 'status:free,status:-free';
-        }
-
-        if (visibility === 'paid') {
-            return 'status:-free';
-        }
-
-        if (visibility === 'tiers') {
-            return this.post.visibilitySegment;
-        }
-
-        return this.post.visibility;
     }
 
     get fullRecipientFilter() {
@@ -253,7 +241,6 @@ export default class PublishOptions {
         this.post = post;
         this.settings = settings;
         this.store = store;
-        this.user = user;
         this.membersCountCache = membersCountCache;
 
         // this needs to be set here rather than a class-level property because

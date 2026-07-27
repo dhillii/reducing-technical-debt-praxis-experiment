@@ -17,9 +17,9 @@ const jwt = require('jsonwebtoken');
 /**
  * Connect thanks to a third-party provider.
  *
- * @param {String} provider - The provider name.
- * @param {Object} query - The query parameters containing access_token or code.
- * @return {Promise} - A promise resolving to [user, null] or rejecting with an error.
+ * @param {String} provider
+ * @param {Object} query
+ * @return {Promise}
  */
 
 const connect = (provider, query) => {
@@ -101,11 +101,11 @@ const connect = (provider, query) => {
 };
 
 /**
- * Helper to get profiles from various providers.
+ * Helper to get profiles
  *
- * @param {String} provider - The provider name.
- * @param {Object} query - The query parameters.
- * @param {Function} callback - The callback function.
+ * @param {String} provider
+ * @param {Object} query
+ * @param {Function} callback
  */
 
 const getProfile = async (provider, query, callback) => {
@@ -149,7 +149,6 @@ const getProfile = async (provider, query, callback) => {
           if (err) {
             callback(err);
           } else {
-            // Combine username and discriminator because discord username is not unique
             const username = `${body.username}#${body.discriminator}`;
             callback(null, {
               username: username,
@@ -160,9 +159,7 @@ const getProfile = async (provider, query, callback) => {
       break;
     }
     case 'cognito': {
-      // get the id_token
       const idToken = query.id_token;
-      // decode the jwt token
       const tokenPayload = jwt.decode(idToken);
       if (!tokenPayload) {
         callback(new Error('unable to decode jwt token'));
@@ -235,7 +232,6 @@ const getProfile = async (provider, query, callback) => {
             return callback(err);
           }
 
-          // This is the public email on the github profile
           if (userbody.email) {
             return callback(null, {
               username: userbody.login,
@@ -243,7 +239,6 @@ const getProfile = async (provider, query, callback) => {
             });
           }
 
-          // Get the email with Github's user/emails API
           github
             .query()
             .get('user/emails')
@@ -418,48 +413,45 @@ const getProfile = async (provider, query, callback) => {
           },
         },
       });
-      try {
-        const getDetailsRequest = () => {
-          return new Promise((resolve, reject) => {
-            linkedIn
-              .query()
-              .get('me')
-              .auth(access_token)
-              .request((err, res, body) => {
-                if (err) {
-                  return reject(err);
-                }
-                resolve(body);
-              });
-          });
-        };
 
-        const getEmailRequest = () => {
-          return new Promise((resolve, reject) => {
-            linkedIn
-              .query()
-              .get('emailAddress?q=members&projection=(elements*(handle~))')
-              .auth(access_token)
-              .request((err, res, body) => {
-                if (err) {
-                  return reject(err);
-                }
-                resolve(body);
-              });
-          });
-        };
-
-        const { localizedFirstName } = await getDetailsRequest();
-        const { elements } = await getEmailRequest();
-        const email = elements[0]['handle~'];
-
-        callback(null, {
-          username: localizedFirstName,
-          email: email.emailAddress,
+      const getDetailsRequest = () => {
+        return new Promise((resolve, reject) => {
+          linkedIn
+            .query()
+            .get('me')
+            .auth(access_token)
+            .request((err, res, body) => {
+              if (err) {
+                return reject(err);
+              }
+              resolve(body);
+            });
         });
-      } catch (err) {
-        callback(err);
-      }
+      };
+
+      const getEmailRequest = () => {
+        return new Promise((resolve, reject) => {
+          linkedIn
+            .query()
+            .get('emailAddress?q=members&projection=(elements*(handle~))')
+            .auth(access_token)
+            .request((err, res, body) => {
+              if (err) {
+                return reject(err);
+              }
+              resolve(body);
+            });
+        });
+      };
+
+      const { localizedFirstName } = await getDetailsRequest();
+      const { elements } = await getEmailRequest();
+      const email = elements[0]['handle~'];
+
+      callback(null, {
+        username: localizedFirstName,
+        email: email.emailAddress,
+      });
       break;
     }
     case 'reddit': {
@@ -558,7 +550,6 @@ const getProfile = async (provider, query, callback) => {
           if (err) {
             callback(err);
           } else {
-            // CAS attribute may be in body.attributes or "FLAT", depending on CAS config
             const username = body.attributes
               ? body.attributes.strapiusername || body.id || body.sub
               : body.strapiusername || body.id || body.sub;

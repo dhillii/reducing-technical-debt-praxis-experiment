@@ -51,7 +51,7 @@ let id = 0;
  * ####Options:
  *
  * - [autoIndex](/docs/guide.html#autoIndex): bool - defaults to null (which means use the connection's autoIndex option)
- * - [autoCreate](/docs/guide.html#autoCreate): bool - defaults to null (which means use the connection's autoCreate option)
+ * - [autoCreate](/docs/guide.html#autoCreate): bool - defaults to null (which means use the connection's autoIndex option)
  * - [bufferCommands](/docs/guide.html#bufferCommands): bool - defaults to true
  * - [bufferTimeoutMS](/docs/guide.html#bufferTimeoutMS): number - defaults to 10000 (10 seconds). If `bufferCommands` is enabled, the amount of time Mongoose will wait for connectivity to be restablished before erroring out.
  * - [capped](/docs/guide.html#capped): bool - defaults to false
@@ -323,7 +323,7 @@ Schema.prototype.clone = function() {
   s.virtuals = utils.clone(this.virtuals);
   s.$globalPluginsApplied = this.$globalPluginsApplied;
   s.$isRootDiscriminator = this.$isRootDiscriminator;
-  s.$implicitlyCreated = this.$isImplicitlyCreated;
+  s.$implicitlyCreated = this.$implicitlyCreated;
   s.mapPaths = [].concat(this.mapPaths);
 
   if (this.discriminatorMapping != null) {

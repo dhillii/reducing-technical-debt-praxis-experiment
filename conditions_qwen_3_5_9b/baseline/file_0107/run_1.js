@@ -560,14 +560,14 @@ Runner.prototype.runTests = function (suite, fn) {
       self.runTest(function (err) {
         test = self.test;
         if (err) {
-          var retry = test.currentRetry();
+          const retry = test.currentRetry();
           if (err instanceof Pending && self.forbidPending) {
             self.fail(test, new Error('Pending test forbidden'));
           } else if (err instanceof Pending) {
             test.pending = true;
             self.emit('pending', test);
           } else if (retry < test.retries()) {
-            var clonedTest = test.clone();
+            const clonedTest = test.clone();
             clonedTest.currentRetry(retry + 1);
             tests.unshift(clonedTest);
 

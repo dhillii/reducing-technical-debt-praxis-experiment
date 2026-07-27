@@ -4,8 +4,8 @@ var ngModule = angular.module('woServices');
 ngModule.service('keychain', Keychain);
 module.exports = Keychain;
 
-var DB_PUBLICKEY = 'publickey';
-var DB_PRIVATEKEY = 'privatekey';
+var DB_PUBLICKEY = 'publickey',
+    DB_PRIVATEKEY = 'privatekey';
 
 /**
  * A high-level Data-Access Api for handling Keypair synchronization
@@ -59,9 +59,9 @@ Keychain.prototype.verifyPublicKey = function(uuid) {
  * @param {String} options.overridePermission (optional) Indicates if the update should happen automatically (true) or with the user being queried (false). Defaults to false
  */
 Keychain.prototype.refreshKeyForUserId = function(options) {
-    var self = this;
-    var userId = options.userId;
-    var overridePermission = options.overridePermission;
+    var self = this,
+        userId = options.userId,
+        overridePermission = options.overridePermission;
 
     return self.getReceiverPublicKey(userId).then(function(localKey) {
         if (!localKey || !localKey._id) {
@@ -132,7 +132,6 @@ Keychain.prototype.getReceiverPublicKey = function(userId) {
         var pubkey = _.findWhere(allPubkeys, {
             userId: userId
         });
-
         if (!pubkey) {
             for (var i = 0, match; i < allPubkeys.length; i++) {
                 var userIds = self._pgp.getKeyParams(allPubkeys[i].publicKey).userIds;
@@ -145,7 +144,6 @@ Keychain.prototype.getReceiverPublicKey = function(userId) {
                 }
             }
         }
-
         if (pubkey && pubkey._id) {
             return pubkey;
         }
@@ -266,11 +264,11 @@ Keychain.prototype.uploadPublicKey = function(publicKey) {
 /**
  * Look up a public key by id from local storage or cloud
  * @param {String} id The id of the public key
- * @return {Promise} Resolves with the public key object
+ * @return {Promise} The public key object
  */
 Keychain.prototype.lookupPublicKey = function(id) {
-    var self = this;
-    var cloudPubkey;
+    var self = this,
+        cloudPubkey;
 
     if (!id) {
         return new Promise(function() {

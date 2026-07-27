@@ -46,6 +46,7 @@ const ModalStepper = ({
         downloadFilesRef.current();
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filesToUploadLength, currentStep]);
 
   useEffect(() => {
@@ -59,6 +60,9 @@ const ModalStepper = ({
         });
       }
     }
+    // Disabling the rule because we just want to let the ability to open the modal
+    // at a specific step then we will let the stepper handle the navigation
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   const addFilesToUpload = ({ target: { value } }) => {
@@ -186,7 +190,9 @@ const ModalStepper = ({
       setShowModalConfirmButtonLoading(true);
       toggleModalWarning();
     }
-  }, [fileToEdit, onRemoveFileFromDataToDelete]);
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileToEdit]);
 
   const handleClickNextButton = async () => {
     try {
@@ -207,7 +213,7 @@ const ModalStepper = ({
     }
   };
 
-  const handleClickDeleteFile = () => {
+  const handleClickDeleteFile = async () => {
     toggleModalWarning();
   };
 
@@ -238,7 +244,7 @@ const ModalStepper = ({
     });
   };
 
-  const handleCloseModalWarning = () => {
+  const handleCloseModalWarning = async () => {
     setShowModalConfirmButtonLoading(false);
 
     onToggle(shouldRefetch);

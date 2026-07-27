@@ -73,44 +73,6 @@ function validate_(
   }
 }
 
-function isAutoIncrementDefault(
-  defaultValue: number | null | 'autoincrement'
-): boolean {
-  return defaultValue === 'autoincrement'
-}
-
-function isCreateKind(value: Value): value is { kind: 'create'; value: number | null } {
-  return value.kind === 'create'
-}
-
-function isUpdateKind(value: Value): value is { kind: 'update'; initial: number | null; value: number | null } {
-  return value.kind === 'update'
-}
-
-function isNullOrEmpty(value: number | null): boolean {
-  return value === null || value === undefined
-}
-
-function isNotFinite(value: number): boolean {
-  return !Number.isFinite(value)
-}
-
-function isInteger(value: number): boolean {
-  return Number.isInteger(value)
-}
-
-function isValidationDefined(validation: Validation, key: keyof Validation): boolean {
-  return validation[key] !== undefined
-}
-
-function isGreaterThan(value: number, min: number): boolean {
-  return value < min
-}
-
-function isLessThan(value: number, max: number): boolean {
-  return value > max
-}
-
 export function controller(
   config: FieldControllerConfig<{
     validation: Validation
@@ -126,7 +88,7 @@ export function controller(
       config.fieldMeta.validation,
       opts.isRequired,
       config.label,
-      isAutoIncrementDefault(config.fieldMeta.defaultValue)
+      config.fieldMeta.defaultValue === 'autoincrement'
     )
   }
 
@@ -138,7 +100,8 @@ export function controller(
     validation: config.fieldMeta.validation,
     defaultValue: {
       kind: 'create',
-      value: isAutoIncrementDefault(config.fieldMeta.defaultValue) ? null : config.fieldMeta.defaultValue,
+      value:
+        config.fieldMeta.defaultValue === 'autoincrement' ? null : config.fieldMeta.defaultValue,
     },
     deserialize: data => ({
       kind: 'update',
@@ -146,7 +109,7 @@ export function controller(
       initial: data[config.fieldKey],
     }),
     serialize: value => ({ [config.fieldKey]: value.value }),
-    hasAutoIncrementDefault: isAutoIncrementDefault(config.fieldMeta.defaultValue),
+    hasAutoIncrementDefault: config.fieldMeta.defaultValue === 'autoincrement',
     validate: (value, opts) => validate(value, opts) === undefined,
     filter: {
       Filter(props) {
@@ -160,14 +123,17 @@ export function controller(
           value,
           ...otherProps
         } = props
-        const [isDirty, setDirty] = useState(false)
 
         if (type === 'empty' || type === 'not_empty') {
           return null
         }
 
+        const [isDirty, setDirty] = useState(false)
+
         const labelProps =
-          context === 'add' ? { label: config.label, description: typeLabel } : { label: typeLabel }
+          context === 'add'
+            ? { label: config.label, description: typeLabel }
+            : { label: typeLabel }
 
         return (
           <NumberField
@@ -183,7 +149,7 @@ export function controller(
             step={1}
             width="auto"
             onBlur={() => setDirty(true)}
-            onChange={x => onChange?.(!isNotFinite(x) ? x : null)}
+            onChange={x => onChange?.(!Number.isFinite(x) ? null : x)}
             value={value ?? NaN}
           />
         )
@@ -206,7 +172,7 @@ export function controller(
       },
       parseGraphQL: value => {
         return entriesTyped(value).flatMap(([type, value]) => {
-          if (type === 'equals' && isNullOrEmpty(value)) {
+          if (type === 'equals' && value === null) {
             return [{ type: 'empty', value: null }]
           }
 
@@ -292,9 +258,10 @@ export function Field({
   isRequired,
 }: FieldProps<typeof controller>) {
   const [isDirty, setDirty] = useState(false)
+
   const isReadOnly = !onChange || field.hasAutoIncrementDefault
 
-  if (isCreateKind(value) && field.hasAutoIncrementDefault) {
+  if (field.hasAutoIncrementDefault && value.kind === 'create') {
     return (
       <NumberField
         autoFocus={autoFocus}
@@ -330,12 +297,14 @@ export function Field({
       autoFocus={autoFocus}
       description={field.description}
       label={field.label}
-      errorMessage={(forceValidation || isDirty) && validate(value)}
+      errorMessage={
+        (forceValidation || isDirty) && validate(value) ? 'Required' : null
+      }
       isReadOnly={isReadOnly}
       isRequired={isRequired}
       width="alias.singleLineWidth"
       onBlur={() => setDirty(true)}
-      onChange={x => onChange?.({ ...value, value: isNotFinite(x) ? null : x })}
+      onChange={x => onChange?.({ ...value, value: !Number.isFinite(x) ? null : x })}
       value={value.value ?? NaN}
     />
   )

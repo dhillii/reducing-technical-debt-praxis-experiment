@@ -460,7 +460,6 @@ Schema.prototype.defaultOptions = function(options) {
 Schema.prototype.add = function add(obj, prefix) {
   if (obj instanceof Schema || (obj != null && obj.instanceOfSchema)) {
     merge(this, obj);
-
     return this;
   }
 

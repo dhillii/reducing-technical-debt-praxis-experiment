@@ -41,39 +41,27 @@ define([
         collections     : {},
 
         initialize: function(options) {
+            _.bindAll(this, 'saveChanges', 'encrypt', 'redirect', 'show', 'encryptProfile', 'showBackup');
+
             this.options = options;
             this.vent    = Radio.channel('encrypt');
 
-            this.initConfigs();
-            this.initEvents();
-            this.initView();
-        },
-
-        initConfigs: function() {
+            // Configs
             this.configs = Radio.request('configs', 'get:object');
             this.backup  = _.extend({}, this.configs, this.configs.encryptBackup);
 
+            // Just to be save remove current secure key from the session
             this.vent.request('delete:secureKey');
 
+            // Show the view
             Radio.request('configs', 'get:profiles')
             .then(this.show)
             .fail(function(e) {
                 console.error('Error:', e);
             });
-        },
 
-        initEvents: function() {
+            // Events
             this.listenTo(Radio.channel('Encryption'), 'password:valid', this.initEncrypt);
-        },
-
-        initView: function() {
-            this.view = new View({
-                collections : this.collectionNames,
-                configs     : this.configs
-            });
-            Radio.request('global', 'region:show', 'brand', this.view);
-
-            this.listenTo(this.view, 'check:passwords', this.checkPasswords);
         },
 
         onDestroy: function() {
@@ -83,46 +71,47 @@ define([
 
         show: function(profiles) {
             this.profiles = profiles;
+
+            // Instantiate and show the view
+            this.view = new View({
+                collections : this.collectionNames,
+                configs     : this.configs
+            });
+            Radio.request('global', 'region:show', 'brand', this.view);
+
+            // Events
+            this.listenTo(this.view, 'check:passwords', this.checkPasswords);
         },
 
         checkPasswords: function(data) {
-            this.normalizePasswords(data);
-            this.validateOldPassword(data);
-            this.validateNewPassword(data);
-            this.handleValidationResults();
-        },
+            var self     = this,
+                promises = [];
 
-        normalizePasswords: function(data) {
+            /*
+             * If encryption was enabled in old configs but the old password
+             * was not provided by the user, try to use the new password instead.
+             */
             if (Number(this.backup.encrypt) && (!data.old && data.password)) {
                 data.old = data.password;
             }
-        },
 
-        validateOldPassword: function(data) {
+            // Switch to backup configs and check old password
             if (data.old) {
                 this.vent.request('change:configs', this.backup);
-                this.vent.request('check:password', data.old);
+                promises.push(this.vent.request('check:password', data.old));
             }
-        },
-
-        validateNewPassword: function(data) {
+            // Switch to new configs and check new password
             if (data.password) {
                 this.vent.request('change:configs', this.configs);
-                this.vent.request('check:password', data.password);
+                promises.push(this.vent.request('check:password', data.password));
             }
-        },
 
-        handleValidationResults: function() {
-            var self = this;
-
-            this.vent.request('change:configs', this.configs)
-            .then(function() {
-                return self.vent.request('check:password', self.passwords.password);
-            })
-            .then(function(result) {
-                if (!result) {
-                    return self.view.trigger('password:invalid', [false]);
+            return Q.all(promises)
+            .then(function(results) {
+                if (!results.length || _.indexOf(results, false) > -1) {
+                    return self.view.trigger('password:invalid', results);
                 }
+
                 self.passwords = data;
                 Radio.trigger('Encryption', 'password:valid');
             });
@@ -132,30 +121,12 @@ define([
          * Initialize encryption.
          */
         initEncrypt: function() {
-            var profile = this.selectProfile();
+            var promises = [],
+                profile  = (this.profiles.length === 1 ? this.profiles[0] : 'notes-db'),
+                self     = this;
+
             this.rawData = {};
-            this.rawData[profile] = this.prepareRawData(profile);
-
-            this.reEncryptProfiles()
-            .then(this.resetBackup)
-            .then(this.showBackup)
-            .then(this.redirect)
-            .fail(function() {
-                console.error('Error!', arguments);
-            });
-        },
-
-        selectProfile: function() {
-            return (this.profiles.length === 1 ? this.profiles[0] : 'notes-db');
-        },
-
-        prepareRawData: function(profile) {
-            var configs = this.transformConfigs();
-            return {configs: configs};
-        },
-
-        transformConfigs: function() {
-            return _.map(this.configs, function(item, key) {
+            this.rawData[profile] = {configs: _.map(this.configs, function(item, key) {
                 if (key === 'encrypt') {
                     item = '0';
                 }
@@ -166,16 +137,15 @@ define([
                     item = JSON.stringify(item);
                 }
                 return {name: key, value: item};
-            });
-        },
+            })};
 
-        reEncryptProfiles: function() {
-            var promises = [];
-
+            // Re-encrypt every profile
             _.each(this.profiles, function(profile) {
-                var self = this;
                 promises.push(function() {
+                    // Use backup configs
                     self.vent.request('change:configs', self.backup);
+
+                    // Generate PBKDF2 before starting re-encryption
                     return self.vent.request('save:secureKey', self.passwords.old)
                     .then(function() {
                         return self.encryptProfile({
@@ -183,63 +153,76 @@ define([
                         });
                     });
                 });
-            }, this);
+            });
 
-            return _.reduce(promises, Q.when, new Q());
+            return _.reduce(promises, Q.when, new Q())
+            .then(this.resetBackup)
+            .then(this.showBackup)
+            .then(this.redirect)
+            .fail(function() {
+                console.error('Error!', arguments);
+            });
         },
 
         /**
          * Start encryption process
          */
         encryptProfile: function(options) {
-            options = options || this.options;
+            var promises = [],
+                self     = this;
+
+            // Fetch options
+            options          = options || this.options;
             options.pageSize = 0;
 
             this.rawData[options.profile] = this.rawData[options.profile] || {};
 
-            this.fetchCollections(options)
-            .then(function() {
-                this.filterAndStoreCollections(options);
-                this.view.trigger('encrypt:init', this.collections.length);
-            }, this)
-            .then(this.encrypt)
-            .then(this.saveChanges);
-        },
-
-        fetchCollections: function(options) {
-            var promises = [];
-
+            // Fetch all collections in a profile
             _.each(this.collectionNames, function(name) {
                 promises.push(
                     new Q(Radio.request(name, 'fetch', options))
                 );
             });
 
-            return Q.all(promises);
-        },
-
-        filterAndStoreCollections: function(options) {
-            var self = this;
-            this.collections = _.filter(arguments, function(collection) {
-                self.rawData[options.profile][collection.storeName] = collection.toJSON();
-                return collection.length > 0;
-            });
+            /**
+             * After the collections are fetched, start re-encryption process.
+             */
+            return Q.all(promises)
+            .spread(function() {
+                // Re-encrypt the collections that are not empty
+                self.collections = _.filter(arguments, function(collection) {
+                    self.rawData[options.profile][collection.storeName] = collection.toJSON();
+                    return collection.length > 0;
+                });
+                self.view.trigger('encrypt:init', self.collections.length);
+            })
+            .then(this.encrypt)
+            .then(this.saveChanges);
         },
 
         /**
          * Encrypt every collection with new encryption configs.
          */
         encrypt: function() {
+
+            // Encryption is disabled
             if (Number(this.configs.encrypt) === 0) {
-                this.disableEncryption();
+                _.each(this.collections, function(collection) {
+                    collection.each(function(model) {
+                        model.set('encryptedData', null);
+                    });
+                });
                 return;
             }
 
+            var promises = [],
+                self     = this;
+
+            // Use new encryption configs
             this.vent.request('change:configs', this.configs);
 
-            var promises = [];
+            // Encrypt every collection
             _.each(this.collections, function(collection) {
-                var self = this;
                 promises.push(function() {
                     return self.vent.request(
                         'encrypt:models', collection
@@ -247,19 +230,11 @@ define([
                         return self.checkEncryption(collection);
                     });
                 });
-            }, this);
+            });
 
             return this.vent.request('save:secureKey', this.passwords.password)
             .then(function() {
                 return _.reduce(promises, Q.when, new Q());
-            });
-        },
-
-        disableEncryption: function() {
-            _.each(this.collections, function(collection) {
-                collection.each(function(model) {
-                    model.set('encryptedData', null);
-                });
             });
         },
 

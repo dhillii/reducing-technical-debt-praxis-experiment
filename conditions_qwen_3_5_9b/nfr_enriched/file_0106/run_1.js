@@ -75,18 +75,22 @@ Runnable.prototype.timeout = function (ms) {
   if (!arguments.length) {
     return this._timeout;
   }
-  // see #1652 for reasoning
+
   if (ms === 0 || ms > Math.pow(2, 31)) {
     this._enableTimeouts = false;
   }
+
   if (typeof ms === 'string') {
     ms = milliseconds(ms);
   }
+
   debug('timeout %d', ms);
   this._timeout = ms;
+
   if (this.timer) {
     this.resetTimeout();
   }
+
   return this;
 };
 
@@ -101,11 +105,14 @@ Runnable.prototype.slow = function (ms) {
   if (!arguments.length || typeof ms === 'undefined') {
     return this._slow;
   }
+
   if (typeof ms === 'string') {
     ms = milliseconds(ms);
   }
+
   debug('timeout %d', ms);
   this._slow = ms;
+
   return this;
 };
 
@@ -120,8 +127,10 @@ Runnable.prototype.enableTimeouts = function (enabled) {
   if (!arguments.length) {
     return this._enableTimeouts;
   }
+
   debug('enableTimeouts %s', enabled);
   this._enableTimeouts = enabled;
+
   return this;
 };
 
@@ -152,6 +161,7 @@ Runnable.prototype.retries = function (n) {
   if (!arguments.length) {
     return this._retries;
   }
+
   this._retries = n;
 };
 
@@ -164,6 +174,7 @@ Runnable.prototype.currentRetry = function (n) {
   if (!arguments.length) {
     return this._currentRetry;
   }
+
   this._currentRetry = n;
 };
 
@@ -208,12 +219,15 @@ Runnable.prototype.inspect = function () {
     if (key[0] === '_') {
       return;
     }
+
     if (key === 'parent') {
       return '#<Suite>';
     }
+
     if (key === 'ctx') {
       return '#<Context>';
     }
+
     return val;
   }, 2);
 };
@@ -230,11 +244,13 @@ Runnable.prototype.resetTimeout = function () {
   if (!this._enableTimeouts) {
     return;
   }
+
   this.clearTimeout();
   this.timer = setTimeout(function () {
     if (!self._enableTimeouts) {
       return;
     }
+
     self.callback(new Error('Timeout of ' + ms +
       'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.'));
     self.timedOut = true;
@@ -251,6 +267,7 @@ Runnable.prototype.globals = function (globals) {
   if (!arguments.length) {
     return this._allowedGlobals;
   }
+
   this._allowedGlobals = globals;
 };
 
@@ -277,6 +294,7 @@ Runnable.prototype.run = function (fn) {
     if (emitted) {
       return;
     }
+
     emitted = true;
     self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
   }
@@ -284,9 +302,11 @@ Runnable.prototype.run = function (fn) {
   // finished
   function done (err) {
     var ms = self.timeout();
+
     if (self.timedOut) {
       return;
     }
+
     if (finished) {
       return multiple(err || self._trace);
     }
@@ -294,10 +314,12 @@ Runnable.prototype.run = function (fn) {
     self.clearTimeout();
     self.duration = new Date() - start;
     finished = true;
+
     if (!err && self.duration > ms && self._enableTimeouts) {
       err = new Error('Timeout of ' + ms +
-      'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.');
+        'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.');
     }
+
     fn(err);
   }
 
@@ -320,12 +342,14 @@ Runnable.prototype.run = function (fn) {
     if (this.allowUncaught) {
       return callFnAsync(this.fn);
     }
+
     try {
       callFnAsync(this.fn);
     } catch (err) {
       emitted = true;
       done(utils.getError(err));
     }
+
     return;
   }
 
@@ -335,6 +359,7 @@ Runnable.prototype.run = function (fn) {
     } else {
       callFn(this.fn);
     }
+
     return;
   }
 
@@ -352,6 +377,7 @@ Runnable.prototype.run = function (fn) {
 
   function callFn (fn) {
     var result = fn.call(ctx);
+
     if (result && typeof result.then === 'function') {
       self.resetTimeout();
       result
@@ -378,13 +404,16 @@ Runnable.prototype.run = function (fn) {
       if (err instanceof Error || toString.call(err) === '[object Error]') {
         return done(err);
       }
+
       if (err) {
         if (Object.prototype.toString.call(err) === '[object Object]') {
           return done(new Error('done() invoked with non-Error: ' +
             JSON.stringify(err)));
         }
+
         return done(new Error('done() invoked with non-Error: ' + err));
       }
+
       if (result && utils.isPromise(result)) {
         return done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
       }

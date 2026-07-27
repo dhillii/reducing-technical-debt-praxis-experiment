@@ -1,7 +1,3 @@
-/**
- * @fileoverview Abstraction of JavaScript source code.
- * @author Nicholas C. Zakas
- */
 "use strict";
 
 //------------------------------------------------------------------------------
@@ -178,7 +174,7 @@ function findLineNumberBinarySearch(lineStartIndices, target) {
 	let high = lineStartIndices.length;
 
 	while (low < high) {
-		const mid = Math.floor((low + high) / 2);
+		const mid = Math.trunc((low + high) / 2);
 
 		if (target < lineStartIndices[mid]) {
 			high = mid;

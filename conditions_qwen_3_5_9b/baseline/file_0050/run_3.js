@@ -76,6 +76,7 @@ grunt.tasks = function(tasks, options, done) {
   option.init(options);
 
   // Display the grunt version and quit if the user did --version.
+  let _tasks, _options;
   if (option('version')) {
     // Not --verbose.
     log.writeln('grunt v' + grunt.version);
@@ -92,11 +93,11 @@ grunt.tasks = function(tasks, options, done) {
       grunt.log.muted = false;
 
       // Display available tasks (for shell completion, etc).
-      const _tasks = Object.keys(grunt.task._tasks).sort();
+      _tasks = Object.keys(grunt.task._tasks).sort();
       verbose.writeln('Available tasks: ' + _tasks.join(' '));
 
       // Display available options (for shell completion, etc).
-      const _options = [];
+      _options = [];
       Object.keys(grunt.cli.optlist).forEach(function(long) {
         const o = grunt.cli.optlist[long];
         _options.push('--' + (o.negate ? 'no-' : '') + long);

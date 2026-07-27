@@ -13,7 +13,6 @@ module.exports = function(yargs, argv, convertOptions) {
 			argv.devtool = "eval-cheap-module-source-map";
 		}
 	}
-
 	if(argv.p) {
 		argv["optimize-minimize"] = true;
 		argv["define"] = [].concat(argv["define"] || []).concat("process.env.NODE_ENV=\"production\"");
@@ -35,9 +34,8 @@ module.exports = function(yargs, argv, convertOptions) {
 		return a.concat(i);
 	}, []);
 
-	var configArgList = argv.config ? (Array.isArray(argv.config) ? argv.config : [argv.config]) : [];
-
-	if(configArgList.length > 0) {
+	var configArgList = Array.isArray(argv.config) ? argv.config : [argv.config];
+	if(argv.config) {
 		var getConfigExtension = function getConfigExtension(configPath) {
 			for(var i = extensions.length - 1; i >= 0; i--) {
 				var tmpExt = extensions[i];
@@ -142,7 +140,6 @@ function processConfiguredOptions(options) {
 	if(argv.context) {
 		options.context = path.resolve(argv.context);
 	}
-
 	if(!options.context) {
 		options.context = process.cwd();
 	}
@@ -158,11 +155,10 @@ function processConfiguredOptions(options) {
 
 	if(argv["watch-poll"]) {
 		options.watchOptions = options.watchOptions || {};
-		if(typeof argv["watch-poll"] !== "boolean") {
+		if(typeof argv["watch-poll"] !== "boolean")
 			options.watchOptions.poll = +argv["watch-poll"];
-		} else {
+		else
 			options.watchOptions.poll = true;
-		}
 	}
 
 	if(argv["watch-stdin"]) {
@@ -218,11 +214,10 @@ function processOptions(options) {
 
 	function mapArgToBoolean(name, optionName) {
 		ifArg(name, function(bool) {
-			if(bool === true) {
+			if(bool === true)
 				options[optionName || name] = true;
-			} else if(bool === false) {
+			else if(bool === false)
 				options[optionName || name] = false;
-			}
 		});
 	}
 
